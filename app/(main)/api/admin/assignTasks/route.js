@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { tasks, sprints, taskAssignees } from "@/lib/schema";
+import { tasks, sprints, taskAssignments } from "@/lib/schema";
 import { auth } from "@/lib/auth";
 import { eq } from "drizzle-orm";
 
@@ -12,7 +12,7 @@ export async function POST(req) {
   }
 
   try {
-    const { title, description, taskType, createdBy, assignees, sprints } = await req.json();
+    const { title, description, taskType, createdBy, assignees, sprints: sprintInput } = await req.json();
 
     // Validate input
     if (!title || !Array.isArray(assignees) || assignees.length === 0) {
@@ -35,20 +35,20 @@ export async function POST(req) {
       .returning();
 
     // Insert assignees
-    const assigneeInserts = assignees.map((userId) => ({
+    const assigneeInserts = assignees.map((memberId) => ({
       taskId: newTask.id,
-      userId,
+      memberId,
     }));
-    await db.insert(taskAssignees).values(assigneeInserts);
+    await db.insert(taskAssignments).values(assigneeInserts);
 
     // Insert sprints (if provided)
-    if (Array.isArray(sprints) && sprints.length > 0) {
-      const sprintInserts = sprints
+    if (Array.isArray(sprintInput) && sprintInput.length > 0) {
+      const sprintInserts = sprintInput
         .filter((sprint) => sprint.title)
         .map((sprint) => ({
-          taskId: newTask.id,
+          taskAssignmentId: null, // link later if needed
           title: sprint.title,
-          description: null,
+          description: sprint.description || null,
           createdAt: new Date(),
         }));
       if (sprintInserts.length > 0) {
@@ -56,7 +56,7 @@ export async function POST(req) {
       }
     }
 
-    console.log("Task created:", { taskId: newTask.id, assignees, sprints: sprints.length });
+    console.log("Task created:", { taskId: newTask.id, assignees, sprints: sprintInput?.length || 0 });
     return NextResponse.json({ message: "Task assigned successfully", taskId: newTask.id });
   } catch (error) {
     console.error("Error creating task:", error);
@@ -87,10 +87,10 @@ export async function GET(req) {
       taskList.map(async (task) => {
         const assignees = await db
           .select({
-            userId: taskAssignees.userId,
+            memberId: taskAssignments.memberId,
           })
-          .from(taskAssignees)
-          .where(eq(taskAssignees.taskId, task.id));
+          .from(taskAssignments)
+          .where(eq(taskAssignments.taskId, task.id));
 
         const sprintList = await db
           .select({
@@ -98,11 +98,11 @@ export async function GET(req) {
             title: sprints.title,
           })
           .from(sprints)
-          .where(eq(sprints.taskId, task.id));
+          .where(eq(sprints.taskAssignmentId, task.id)); // adjust if sprint links via taskAssignmentId
 
         return {
           ...task,
-          assignees: assignees.map((a) => a.userId),
+          assignees: assignees.map((a) => a.memberId),
           sprints: sprintList,
         };
       })
