@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import useSWR from "swr";
 import ManageCalendar from "@/components/ManageCalendar";
+import ManageDayClose from "@/components/ManageDayClose";
 
 const fetcher = (url) =>
   fetch(url, { headers: { "Content-Type": "application/json" } }).then((res) => {
@@ -12,18 +13,13 @@ const fetcher = (url) =>
 
 export default function ManageTeamPage() {
   const [users, setUsers] = useState([]);
-  const [appState, setAppState] = useState({
-    residential: { dayOpenedAt: "08:00 AM", dayClosedAt: "20:00 PM", closingWindowStart: "19:30 PM", closingWindowEnd: "20:00 PM" },
-    non_residential: { dayOpenedAt: "09:00 AM", dayClosedAt: "21:00 PM", closingWindowStart: "12:00 PM", closingWindowEnd: "12:30 PM" },
-    semi_residential: { dayOpenedAt: "08:30 AM", dayClosedAt: "20:30 PM", closingWindowStart: "17:30 PM", closingWindowEnd: "18:00 PM" },
-  });
   const [slots, setSlots] = useState([]);
   const [members, setMembers] = useState([]);
   const [allotments, setAllotments] = useState([]);
   const [msprAssignments, setMsprAssignments] = useState([]);
   const [calendar, setCalendar] = useState([]);
-  const [loading, setLoading] = useState({ team: true, appState: true, slots: true, tod: true, mspr: true, calendar: true });
-  const [saving, setSaving] = useState({ team: false, appState: false, slots: false, tod: false, mspr: false, calendar: false });
+  const [loading, setLoading] = useState({ team: true, slots: true, tod: true, mspr: true, calendar: true });
+  const [saving, setSaving] = useState({ team: false, slots: false, tod: false, mspr: false, calendar: false });
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [activeSection, setActiveSection] = useState(null);
@@ -34,13 +30,6 @@ export default function ManageTeamPage() {
 
   // Fetch users with SWR
   const { data: userData, error: userError } = useSWR("/api/admin/manageMeedian?section=team", fetcher, {
-    revalidateOnFocus: false,
-    dedupingInterval: 60000,
-    revalidateOnReconnect: false,
-  });
-
-  // Fetch open/close times with SWR
-  const { data: timesData, error: timesError } = useSWR("/api/admin/manageMeedian?section=openCloseTimes", fetcher, {
     revalidateOnFocus: false,
     dedupingInterval: 60000,
     revalidateOnReconnect: false,
@@ -86,27 +75,6 @@ export default function ManageTeamPage() {
       setLoading((prev) => ({ ...prev, team: false, tod: false }));
     }
   }, [userData, userError]);
-
-  useEffect(() => {
-    if (timesData) {
-      const newAppState = {};
-      timesData.times.forEach((t) => {
-        newAppState[t.userType] = {
-          dayOpenedAt: new Date(t.dayOpenedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata" }),
-          dayClosedAt: new Date(t.dayClosedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata" }),
-          closingWindowStart: new Date(t.closingWindowStart).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata" }),
-          closingWindowEnd: new Date(t.closingWindowEnd).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata" }),
-        };
-      });
-      setAppState((prev) => ({ ...prev, ...newAppState }));
-      setLoading((prev) => ({ ...prev, appState: false }));
-    }
-    if (timesError) {
-      console.error("Times fetch error:", timesError);
-      setError(`Failed to fetch open/close times: ${timesError.message}`);
-      setLoading((prev) => ({ ...prev, appState: false }));
-    }
-  }, [timesData, timesError]);
 
   useEffect(() => {
     if (slotData) {
@@ -190,54 +158,13 @@ export default function ManageTeamPage() {
     }
   };
 
-  const handleAppStateChange = (userType, field, value) => {
-    setAppState((prev) => ({
-      ...prev,
-      [userType]: { ...(prev[userType] || {}), [field]: value },
-    }));
-  };
-
-  const saveAppStateChanges = async () => {
-    setSaving((prev) => ({ ...prev, appState: true }));
-    setError("");
-    setSuccess("");
-    try {
-      const res = await fetch("/api/admin/manageMeedian?section=openCloseTimes", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          times: userTypes.map((type) => ({
-            userType: type,
-            dayOpenedAt: `1970-01-01T${appState[type].dayOpenedAt.replace(/\s[AP]M/, "")}`,
-            dayClosedAt: `1970-01-01T${appState[type].dayClosedAt.replace(/\s[AP]M/, "")}`,
-            closingWindowStart: `1970-01-01T${appState[type].closingWindowStart.replace(/\s[AP]M/, "")}`,
-            closingWindowEnd: `1970-01-01T${appState[type].closingWindowEnd.replace(/\s[AP]M/, "")}`,
-          })),
-        }),
-      });
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.error || `Save failed: ${res.status}`);
-      }
-      setSuccess("Time changes saved successfully!");
-      setTimeout(() => setSuccess(""), 3000);
-    } catch (err) {
-      console.error("Save times error:", err);
-      setError(`Error saving times: ${err.message}`);
-    } finally {
-      setSaving((prev) => ({ ...prev, appState: false }));
-    }
-  };
-
   const handleSlotChange = (id, field, value) => {
     setSlots((prev) =>
       prev.map((slot) =>
-        slot.id === id
-          ? {
-              ...slot,
-              [field]: field === "startTime" || field === "endTime" ? value + ":00" : value,
-            }
-          : slot
+        slot.id === atob(slot.id) ? { // Use atob for decoding if needed
+          ...slot,
+          [field]: field === "startTime" || field === "endTime" ? value + ":00" : value,
+        } : slot
       )
     );
   };
@@ -285,12 +212,6 @@ export default function ManageTeamPage() {
       }
       return [...prev, { msprId: getCurrentMsprId(slotId), slotId, routineTaskId, subSlotIndex, title: title || "Regular Week" }];
     });
-  };
-
-  const handleCalendarChange = (id, field, value) => {
-    setCalendar((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, [field]: value } : c))
-    );
   };
 
   const getCurrentMriId = () => {
@@ -360,6 +281,12 @@ export default function ManageTeamPage() {
     } finally {
       setSaving((prev) => ({ ...prev, mspr: false }));
     }
+  };
+
+  const handleCalendarChange = (id, field, value) => {
+    setCalendar((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, [field]: value } : c))
+    );
   };
 
   const saveCalendarChanges = async () => {
@@ -595,7 +522,7 @@ export default function ManageTeamPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                   </div>
-                  <h2 className="text-xl sm:text-2xl font-semibold text-gray-700 mb-2">Manage Meedian Day Times</h2>
+                  <h2 className="text-xl sm:text-2xl font-semibold text-gray-700 mb-2">Manage Day-Close Times</h2>
                   <p className="text-base sm:text-lg text-gray-600">Set open and close times for different user types.</p>
                 </div>
               </motion.div>
@@ -705,7 +632,7 @@ export default function ManageTeamPage() {
                                 </select>
                               </div>
                               <div>
-                                <label className="block text-sm font-medium text-gray-700">Type magnesh</label>
+                                <label className="block text-sm font-medium text-gray-700">Type</label>
                                 <select
                                   value={user.type}
                                   onChange={(e) => handleUserChange(user.id, "type", e.target.value)}
@@ -736,71 +663,10 @@ export default function ManageTeamPage() {
                 </div>
               )}
               {activeSection === "times" && (
-                <div className="space-y-4">
-                  {loading.appState ? (
-                    <p className="text-gray-600 text-center text-lg">Loading times...</p>
-                  ) : (
-                    <div>
-                      {userTypes.map((type) => (
-                        <motion.div
-                          key={type}
-                          className="bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 rounded-2xl shadow-lg p-6 flex flex-col justify-between"
-                          whileHover={{ scale: 1.02, boxShadow: "0 8px 16px rgba(128, 0, 128, 0.2)" }}
-                          transition={{ duration: 0.2 }}
-                        >
-                          <h2 className="font-semibold text-teal-900 capitalize mb-4 text-lg">{type.replace("_", " ")}</h2>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700">Day Open Time</label>
-                              <input
-                                type="time"
-                                value={appState[type]?.dayOpenedAt.replace(/\s[AP]M/, "") || ""}
-                                onChange={(e) => handleAppStateChange(type, "dayOpenedAt", e.target.value)}
-                                className="mt-1 w-full p-2 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-base transition-all duration-200"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700">Day Close Time</label>
-                              <input
-                                type="time"
-                                value={appState[type]?.dayClosedAt.replace(/\s[AP]M/, "") || ""}
-                                onChange={(e) => handleAppStateChange(type, "dayClosedAt", e.target.value)}
-                                className="mt-1 w-full p-2 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-base transition-all duration-200"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700">Closing Window Start</label>
-                              <input
-                                type="time"
-                                value={appState[type]?.closingWindowStart.replace(/\s[AP]M/, "") || ""}
-                                onChange={(e) => handleAppStateChange(type, "closingWindowStart", e.target.value)}
-                                className="mt-1 w-full p-2 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-base transition-all duration-200"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700">Closing Window End</label>
-                              <input
-                                type="time"
-                                value={appState[type]?.closingWindowEnd.replace(/\s[AP]M/, "") || ""}
-                                onChange={(e) => handleAppStateChange(type, "closingWindowEnd", e.target.value)}
-                                className="mt-1 w-full p-2 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-base transition-all duration-200"
-                              />
-                            </div>
-                          </div>
-                        </motion.div>
-                      ))}
-                      <motion.button
-                        onClick={saveAppStateChanges}
-                        disabled={saving.appState}
-                        className={`mt-6 w-full sm:w-auto px-6 py-3 rounded-2xl text-white font-semibold text-lg transition-all duration-200 bg-teal-600 hover:bg-teal-700 shadow-md`}
-                        whileHover={{ scale: saving.appState ? 1 : 1.03 }}
-                        whileTap={{ scale: saving.appState ? 1 : 0.95 }}
-                      >
-                        {saving.appState ? "Saving..." : "Save Time Changes"}
-                      </motion.button>
-                    </div>
-                  )}
-                </div>
+                <ManageDayClose
+                  setError={setError}
+                  setSuccess={setSuccess}
+                />
               )}
               {activeSection === "n-mris" && (
                 <div className="space-y-4 h-full">
@@ -809,7 +675,6 @@ export default function ManageTeamPage() {
                   ) : (
                     <div className="grid grid-cols-2 gap-4 h-full">
                       <div className="space-y-4">
-                        {/* Block 1: Slots 1-6 */}
                         <div className="bg-green-100 rounded-2xl shadow-lg p-4 h-full">
                           <h3 className="font-semibold text-gray-700 mb-2">Block 1 (Slots 1-6)</h3>
                           {slots.filter((slot) => !slot.mspDivision && !slot.mhcpDivision && slot.id >= 1 && slot.id <= 6).map((slot) => {
@@ -829,7 +694,6 @@ export default function ManageTeamPage() {
                             );
                           })}
                         </div>
-                        {/* Block 3: Slots 10-11 */}
                         <div className="bg-green-100 rounded-2xl shadow-lg p-4 h-full">
                           <h3 className="font-semibold text-gray-700 mb-2">Block 3 (Slots 10-11)</h3>
                           {slots.filter((slot) => !slot.mspDivision && !slot.mhcpDivision && slot.id >= 10 && slot.id <= 11).map((slot) => {
@@ -851,7 +715,6 @@ export default function ManageTeamPage() {
                         </div>
                       </div>
                       <div className="space-y-4">
-                        {/* Block 2: Slots 7-9 */}
                         <div className="bg-green-100 rounded-2xl shadow-lg p-4 h-full">
                           <h3 className="font-semibold text-gray-700 mb-2">Block 2 (Slots 7-9)</h3>
                           {slots.filter((slot) => !slot.mspDivision && !slot.mhcpDivision && slot.id >= 7 && slot.id <= 9).map((slot) => {
@@ -871,7 +734,6 @@ export default function ManageTeamPage() {
                             );
                           })}
                         </div>
-                        {/* Block 4: Slots 12-14 */}
                         <div className="bg-green-100 rounded-2xl shadow-lg p-4 h-full">
                           <h3 className="font-semibold text-gray-700 mb-2">Block 4 (Slots 12-14)</h3>
                           {slots.filter((slot) => !slot.mspDivision && !slot.mhcpDivision && slot.id >= 12 && slot.id <= 14).map((slot) => {
@@ -891,7 +753,6 @@ export default function ManageTeamPage() {
                             );
                           })}
                         </div>
-                        {/* Block 5: Slots 15-17 */}
                         <div className="bg-green-100 rounded-2xl shadow-lg p-4 h-full">
                           <h3 className="font-semibold text-gray-700 mb-2">Block 5 (Slots 15-17)</h3>
                           {slots.filter((slot) => !slot.mspDivision && !slot.mhcpDivision && slot.id >= 15 && slot.id <= 17).map((slot) => {
