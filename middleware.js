@@ -58,53 +58,63 @@
 //   matcher: ["/dashboard/:path*"],
 // };
 
-import { getToken } from "next-auth/jwt";
+import { jwtVerify } from "jose";
 import { NextResponse } from "next/server";
 
-export async function middleware(request) {
-  const token = await getToken({
-    req: request,
-    secret: process.env.NEXTAUTH_SECRET,
-  });
+const secret = new TextEncoder().encode(process.env.NEXTAUTH_SECRET);
 
-  const { pathname } = request.nextUrl;
+export async function middleware(req) {
+  const { pathname } = req.nextUrl;
+  const cookie = req.cookies.get("__Secure-next-auth.session-token");
+
+  let token = null;
+
+  if (cookie) {
+    try {
+      const verified = await jwtVerify(cookie.value, secret);
+      token = verified.payload;
+    } catch (err) {
+      console.error("Token verification failed:", err.message);
+    }
+  }
 
   console.log("🔍 MIDDLEWARE HIT:");
   console.log("🔗 Path:", pathname);
   console.log("📦 Token:", token);
-  console.log("🍪 Raw Cookie:", request.headers.get("cookie")); 
+  console.log("🍪 Cookie:", cookie?.value.slice(0, 50) + "...");
 
-  if (pathname.startsWith("/api")) return NextResponse.next();
-
+  // 🔐 Same access logic as before...
   const isProtected = pathname.startsWith("/dashboard");
   const isAdminRoute = pathname.startsWith("/dashboard/admin");
   const isTeamManagerRoute = pathname.startsWith("/dashboard/team_manager");
   const isMemberRoute = pathname.startsWith("/dashboard/member");
-  const isAdminOnlyRoute = pathname.startsWith("/dashboard/admin/addUser") || pathname.startsWith("/dashboard/admin/manageMeedian");
+  const isAdminOnlyRoute =
+    pathname.startsWith("/dashboard/admin/addUser") ||
+    pathname.startsWith("/dashboard/admin/manageMeedian");
   const isManagersCommonRoute = pathname.startsWith("/dashboard/managersCommon");
 
   if (isProtected && !token) {
     console.warn("🚫 No token found. Redirecting to /");
-    return NextResponse.redirect(new URL("/", request.url));
+    return NextResponse.redirect(new URL("/", req.url));
   }
 
   if (token) {
     const role = token.role;
 
     if (role === "member" && !isMemberRoute) {
-      return NextResponse.redirect(new URL("/dashboard/member", request.url));
+      return NextResponse.redirect(new URL("/dashboard/member", req.url));
     }
 
     if (role === "admin" && (isMemberRoute || isTeamManagerRoute)) {
-      return NextResponse.redirect(new URL("/dashboard/admin", request.url));
+      return NextResponse.redirect(new URL("/dashboard/admin", req.url));
     }
 
     if (role === "team_manager" && (isMemberRoute || isAdminOnlyRoute)) {
-      return NextResponse.redirect(new URL("/dashboard/team_manager", request.url));
+      return NextResponse.redirect(new URL("/dashboard/team_manager", req.url));
     }
 
     if (isManagersCommonRoute && role !== "admin" && role !== "team_manager") {
-      return NextResponse.redirect(new URL("/dashboard/member", request.url));
+      return NextResponse.redirect(new URL("/dashboard/member", req.url));
     }
   }
 
