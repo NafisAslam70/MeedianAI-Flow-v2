@@ -3,114 +3,467 @@ import { useSession, signOut } from "next-auth/react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { Menu, X } from "lucide-react";
+import { createPortal } from "react-dom";
 
 export default function Navbar() {
   const { data: session, status } = useSession();
   const pathname = usePathname();
   const router = useRouter();
-
   const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
 
-  // Debug session
   useEffect(() => {
-    console.log("Navbar session:", { status, session });
-  }, [status, session]);
-
-  if (!mounted || status === "loading") return null;
+    setMounted(true);
+  }, []);
 
   const role = session?.user?.role;
 
   const handleLogout = async () => {
+    setIsLogoutModalOpen(false);
     await signOut({ redirect: false });
     router.push("/");
   };
 
-  const handleLogin = (role) => {
-    router.push(`/login?role=${role}`);
-  };
+  const handleLogin = (role) => router.push(`/login?role=${role}`);
+  const handleAddMember = () => router.push("/dashboard/admin/addUser");
+  const handleManageMeedian = () => router.push("/dashboard/admin/manageMeedian");
+  const toggleMobileMenu = () => setIsMobileMenuOpen(!isMobileMenuOpen);
+  const openLogoutModal = () => setIsLogoutModalOpen(true);
+  const closeLogoutModal = () => setIsLogoutModalOpen(false);
 
-  const handleAddUser = () => {
-    router.push("/dashboard/admin/addUser");
-  };
+  const isActive = (href) => pathname.replace(/\/$/, "") === href.replace(/\/$/, "");
+
+  const LogoutModal = () => (
+    <div className="modal-overlay">
+      <div className="modal-content">
+        <h2 className="text-lg font-semibold text-white mb-4">Confirm Logout</h2>
+        <p className="text-gray-300 mb-6">Are you sure you want to log out?</p>
+        <div className="flex justify-center space-x-4">
+          <button
+            onClick={handleLogout}
+            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium transition duration-200"
+          >
+            Yes, Log Out
+          </button>
+          <button
+            onClick={closeLogoutModal}
+            className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-500 font-medium transition duration-200"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
-    <nav className="bg-gray-800 text-white p-4 flex justify-between items-center">
-      <div className="text-xl font-bold">
-        {role === "admin" ? "MEEDian" : "MEEDian"}
-      </div>
+    <>
+      <style global jsx>{`
+        .modal-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.75);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 10000;
+        }
+        .modal-content {
+          background: #1f2937;
+          padding: 24px;
+          border-radius: 12px;
+          max-width: 400px;
+          width: 90%;
+          text-align: center;
+          box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+          border: 1px solid #4b5563;
+        }
+        .mobile-menu {
+          position: fixed;
+          top: 0;
+          right: 0;
+          height: 100%;
+          width: 75%;
+          max-width: 300px;
+          background: #1f2937;
+          transform: translateX(100%);
+          transition: transform 0.3s ease-in-out;
+          z-index: 9999;
+          box-shadow: -4px 0 12px rgba(0, 0, 0, 0.5);
+          padding: 1rem;
+        }
+        .mobile-menu.open {
+          transform: translateX(0);
+        }
+        .mobile-menu-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.5);
+          z-index: 9998;
+          opacity: 0;
+          transition: opacity 0.3s ease-in-out;
+          pointer-events: none;
+        }
+        .mobile-menu-overlay.open {
+          opacity: 1;
+          pointer-events: auto;
+        }
+        .mobile-menu-item {
+          display: block;
+          padding: 0.75rem 1rem;
+          font-size: 1.1rem;
+          font-weight: 500;
+          transition: all 0.2s ease;
+          border-radius: 8px;
+          margin-bottom: 0.5rem;
+        }
+        .mobile-menu-item:hover {
+          background: #374151;
+        }
+        .nav-item {
+          position: relative;
+          padding: 0.5rem 1rem;
+          font-weight: 500;
+          font-size: 1rem;
+          transition: all 0.3s ease;
+          border-radius: 8px;
+        }
+        .nav-item:hover {
+          background: rgba(255, 255, 255, 0.1);
+          transform: translateY(-2px);
+        }
+        .nav-item.active::after {
+          content: '';
+          position: absolute;
+          bottom: -4px;
+          left: 50%;
+          transform: translateX(-50%);
+          width: 50%;
+          height: 2px;
+          background: #22d3ee;
+        }
+        .nav-button {
+          padding: 0.5rem 1.5rem;
+          font-weight: 500;
+          border-radius: 8px;
+          transition: all 0.3s ease;
+        }
+        .nav-button:hover {
+          transform: translateY(-2px);
+        }
+      `}</style>
 
-      {role === "admin" && (
-        <div className="flex-1 flex justify-center space-x-6">
-          <Link href="/dashboard/admin" className="hover:text-gray-300 transition-colors">
-            Dashboard
-          </Link>
-          <Link href="/status-board" className="hover:text-gray-300 transition-colors">
-            Status Board
-          </Link>
-          <Link href="/dashboard/admin/manageMeedian" className="hover:text-gray-300 transition-colors">
-            Manage Meedian
-          </Link>
-          <Link href="/dashboard/admin/assignTask" className="hover:text-gray-300 transition-colors">
-            Assign Task
-          </Link>
-        </div>
-      )}
-
-      <div className="space-x-4">
-        {status === "unauthenticated" && (
-          <>
-            <button
-              onClick={() => handleLogin("admin")}
-              className="px-4 py-2 bg-blue-600 rounded-md hover:bg-blue-700 active:scale-95 transition-transform transition-colors duration-200"
-              aria-label="Login as Admin"
-            >
-              Login as Admin
-            </button>
-            <button
-              onClick={() => handleLogin("member")}
-              className="px-4 py-2 bg-green-600 rounded-md hover:bg-green-700 active:scale-95 transition-transform transition-colors duration-200"
-              aria-label="Login as Team Member"
-            >
-              Login as Team Member
-            </button>
-          </>
-        )}
-
-        {role === "member" && (
-          <>
-            <Link href="/dashboard/member" className="hover:text-gray-300 transition-colors">
-              My Tasks
+      <nav className="bg-gradient-to-r from-gray-900 to-gray-800 text-white px-6 py-4 w-full sticky top-0 z-40 shadow-lg">
+        <div className="flex items-center justify-between w-full max-w-7xl mx-auto">
+          {/* Left Section: Logo */}
+          <div className="flex items-center gap-3">
+            <img src="/flow1.png" alt="Logo" className="w-10 h-10 rounded-full border border-cyan-400 p-1" />
+            <Link href="/" className={`text-2xl font-bold tracking-tight hover:text-cyan-300 transition duration-200 ${isActive("/") ? "text-cyan-300" : ""}`}>
+              MeedianAI-Flow
             </Link>
-            <button
-              onClick={handleLogout}
-              className="px-4 py-2 bg-red-600 rounded-md hover:bg-red-700 active:scale-95 transition-transform transition-colors duration-200"
-              aria-label="Log out of the application"
-            >
-              Logout
-            </button>
-          </>
-        )}
+          </div>
 
-        {role === "admin" && (
+          {/* Center Section: Nav Items */}
+          <div className="hidden md:flex flex-1 justify-center space-x-4">
+            {role === "admin" && (
+              <>
+                <Link
+                  href="/dashboard/admin"
+                  className={`nav-item hover:text-cyan-300 ${isActive("/dashboard/admin") ? "text-cyan-300 active" : ""}`}
+                >
+                  Dashboard
+                </Link>
+                <Link
+                  href="/dashboard/managersCommon/routineTasks"
+                  className={`nav-item hover:text-cyan-300 ${isActive("/dashboard/managersCommon/routineTasks") ? "text-cyan-300 active" : ""}`}
+                >
+                  Routine Tasks
+                </Link>
+                <Link
+                  href="/dashboard/managersCommon/assignTask"
+                  className={`nav-item hover:text-cyan-300 ${isActive("/dashboard/managersCommon/assignTask") ? "text-cyan-300 active" : ""}`
+            }>
+                  Assign Task
+                </Link>
+                <button
+                  onClick={handleAddMember}
+                  className="nav-button bg-teal-600 hover:bg-teal-700 text-white"
+                >
+                  Add Member
+                </button>
+                <button
+                  onClick={handleManageMeedian}
+                  className="nav-button bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  Manage Meedian
+                </button>
+              </>
+            )}
+
+            {role === "team_manager" && (
+              <>
+                <Link
+                  href="/dashboard/team_manager"
+                  className={`nav-item hover:text-cyan-300 ${isActive("/dashboard/team_manager") ? "text-cyan-300 active" : ""}`}
+                >
+                  My Dashboard
+                </Link>
+                <Link
+                  href="/dashboard/managersCommon/routineTasks"
+                  className={`nav-item hover:text-cyan-300 ${isActive("/dashboard/managersCommon/routineTasks") ? "text-cyan-300 active" : ""}`}
+                >
+                  Routine Tasks
+                </Link>
+                <Link
+                  href="/dashboard/managersCommon/assignTask"
+                  className={`nav-item hover:text-cyan-300 ${isActive("/dashboard/managersCommon/assignTask") ? "text-cyan-300 active" : ""}`}
+                >
+                  Assign Task
+                </Link>
+                <Link
+                  href="/dashboard/team_manager/myHistory"
+                  className={`nav-item hover:text-cyan-300 ${isActive("/dashboard/team_manager/myHistory") ? "text-cyan-300 active" : ""}`}
+                >
+                  My History
+                </Link>
+              </>
+            )}
+
+            {role === "member" && (
+              <>
+                <Link
+                  href="/dashboard/member"
+                  className={`nav-item hover:text-cyan-300 ${isActive("/dashboard/member") ? "text-cyan-300 active" : ""}`}
+                >
+                  My Dashboard
+                </Link>
+                <Link
+                  href="/dashboard/member/myHistory"
+                  className={`nav-item hover:text-cyan-300 ${isActive("/dashboard/member/myHistory") ? "text-cyan-300 active" : ""}`}
+                >
+                  My History
+                </Link>
+              </>
+            )}
+
+            {status === "unauthenticated" && (
+              <>
+                <button
+                  onClick={() => handleLogin("admin")}
+                  className="nav-button bg-indigo-600 hover:bg-indigo-700 text-white"
+                >
+                  Admin Login
+                </button>
+                <button
+                  onClick={() => handleLogin("team_manager")}
+                  className="nav-button bg-purple-600 hover:bg-purple-700 text-white"
+                >
+                  Team Manager Login
+                </button>
+                <button
+                  onClick={() => handleLogin("member")}
+                  className="nav-button bg-teal-600 hover:bg-teal-700 text-white"
+                >
+                  Member Login
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* Right Section: Logout and Mobile Toggle */}
+          <div className="flex items-center gap-4">
+            {(role === "admin" || role === "team_manager" || role === "member") && (
+              <button
+                onClick={openLogoutModal}
+                className="hidden md:block nav-button bg-red-600 hover:bg-red-700 text-white"
+              >
+                Logout
+              </button>
+            )}
+            <div className="md:hidden">
+              <button onClick={toggleMobileMenu} className="text-white p-2 rounded-full hover:bg-gray-700 transition duration-200">
+                {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Mobile Menu */}
+        {isMobileMenuOpen && (
           <>
-            <button
-              onClick={handleAddUser}
-              className="px-4 py-2 bg-green-600 rounded-md hover:bg-green-700 active:scale-95 transition-transform transition-colors duration-200"
-              aria-label="Add new user"
-            >
-              Add User
-            </button>
-            <button
-              onClick={handleLogout}
-              className="px-4 py-2 bg-red-600 rounded-md hover:bg-red-700 active:scale-95 transition-transform transition-colors duration-200"
-              aria-label="Log out of the application"
-            >
-              Logout
-            </button>
+            <div className="mobile-menu-overlay open" onClick={toggleMobileMenu}></div>
+            <div className={`mobile-menu ${isMobileMenuOpen ? "open" : ""}`}>
+              <div className="flex justify-between items-center mb-6">
+                <span className="text-lg font-bold text-cyan-400">Menu</span>
+                <button onClick={toggleMobileMenu} className="text-white p-2 rounded-full hover:bg-gray-700">
+                  <X size={24} />
+                </button>
+              </div>
+              <div className="space-y-2">
+                {role === "admin" && (
+                  <>
+                    <Link
+                      href="/dashboard/admin"
+                      onClick={toggleMobileMenu}
+                      className={`mobile-menu-item hover:text-cyan-400 ${
+                        isActive("/dashboard/admin") ? "text-cyan-400 font-semibold bg-gray-700" : ""
+                      }`}
+                    >
+                      Dashboard
+                    </Link>
+                    <Link
+                      href="/dashboard/managersCommon/routineTasks"
+                      onClick={toggleMobileMenu}
+                      className={`mobile-menu-item hover:text-cyan-400 ${
+                        isActive("/dashboard/managersCommon/routineTasks") ? "text-cyan-400 font-semibold bg-gray-700" : ""
+                      }`}
+                    >
+                      Routine Tasks
+                    </Link>
+                    <Link
+                      href="/dashboard/managersCommon/assignTask"
+                      onClick={toggleMobileMenu}
+                      className={`mobile-menu-item hover:text-cyan-400 ${
+                        isActive("/dashboard/managersCommon/assignTask") ? "text-cyan-400 font-semibold bg-gray-700" : ""
+                      }`}
+                    >
+                      Assign Task
+                    </Link>
+                    <button
+                      onClick={() => {
+                        handleAddMember();
+                        toggleMobileMenu();
+                      }}
+                      className="mobile-menu-item text-left hover:text-cyan-400 w-full"
+                    >
+                      Add Member
+                    </button>
+                    <button
+                      onClick={() => {
+                        handleManageMeedian();
+                        toggleMobileMenu();
+                      }}
+                      className="mobile-menu-item text-left hover:text-cyan-400 w-full"
+                    >
+                      Manage Meedian
+                    </button>
+                  </>
+                )}
+                {role === "team_manager" && (
+                  <>
+                    <Link
+                      href="/dashboard/team_manager"
+                      onClick={toggleMobileMenu}
+                      className={`mobile-menu-item hover:text-cyan-400 ${
+                        isActive("/dashboard/team_manager") ? "text-cyan-400 font-semibold bg-gray-700" : ""
+                      }`}
+                    >
+                      My Dashboard
+                    </Link>
+                    <Link
+                      href="/dashboard/managersCommon/routineTasks"
+                      onClick={toggleMobileMenu}
+                      className={`mobile-menu-item hover:text-cyan-400 ${
+                        isActive("/dashboard/managersCommon/routineTasks") ? "text-cyan-400 font-semibold bg-gray-700" : ""
+                      }`}
+                    >
+                      Routine Tasks
+                    </Link>
+                    <Link
+                      href="/dashboard/managersCommon/assignTask"
+                      onClick={toggleMobileMenu}
+                      className={`mobile-menu-item hover:text-cyan-400 ${
+                        isActive("/dashboard/managersCommon/assignTask") ? "text-cyan-400 font-semibold bg-gray-700" : ""
+                      }`}
+                    >
+                      Assign Task
+                    </Link>
+                    <Link
+                      href="/dashboard/team_manager/myHistory"
+                      onClick={toggleMobileMenu}
+                      className={`mobile-menu-item hover:text-cyan-400 ${
+                        isActive("/dashboard/team_manager/myHistory") ? "text-cyan-400 font-semibold bg-gray-700" : ""
+                      }`}
+                    >
+                      My History
+                    </Link>
+                  </>
+                )}
+                {role === "member" && (
+                  <>
+                    <Link
+                      href="/dashboard/member"
+                      onClick={toggleMobileMenu}
+                      className={`mobile-menu-item hover:text-cyan-400 ${
+                        isActive("/dashboard/member") ? "text-cyan-400 font-semibold bg-gray-700" : ""
+                      }`}
+                    >
+                      My Dashboard
+                    </Link>
+                    <Link
+                      href="/dashboard/member/myHistory"
+                      onClick={toggleMobileMenu}
+                      className={`mobile-menu-item hover:text-cyan-400 ${
+                        isActive("/dashboard/member/myHistory") ? "text-cyan-400 font-semibold bg-gray-700" : ""
+                      }`}
+                    >
+                      My History
+                    </Link>
+                  </>
+                )}
+                {status === "unauthenticated" && (
+                  <>
+                    <button
+                      onClick={() => {
+                        handleLogin("admin");
+                        toggleMobileMenu();
+                      }}
+                      className="mobile-menu-item text-left hover:text-cyan-400 w-full"
+                    >
+                      Admin Login
+                    </button>
+                    <button
+                      onClick={() => {
+                        handleLogin("team_manager");
+                        toggleMobileMenu();
+                      }}
+                      className="mobile-menu-item text-left hover:text-cyan-400 w-full"
+                    >
+                      Team Manager Login
+                    </button>
+                    <button
+                      onClick={() => {
+                        handleLogin("member");
+                        toggleMobileMenu();
+                      }}
+                      className="mobile-menu-item text-left hover:text-cyan-400 w-full"
+                    >
+                      Member Login
+                    </button>
+                  </>
+                )}
+                {(role === "admin" || role === "team_manager" || role === "member") && (
+                  <button
+                    onClick={() => {
+                      openLogoutModal();
+                      toggleMobileMenu();
+                    }}
+                    className="mobile-menu-item text-left text-red-400 hover:text-red-500 w-full"
+                  >
+                    Logout
+                  </button>
+                )}
+              </div>
+            </div>
           </>
         )}
-      </div>
-    </nav>
+      </nav>
+
+      {/* Logout Modal Portal */}
+      {mounted && typeof window !== "undefined" && isLogoutModalOpen && document?.body &&
+        createPortal(<LogoutModal />, document.body)}
+    </>
   );
 }

@@ -1,548 +1,551 @@
 "use client";
-import { useEffect, useState } from "react";
-import { CheckCircleIcon } from "@heroicons/react/24/solid";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-
-const closingWindows = {
-  residential: { start: "19:30", end: "20:00" },
-  non_residential: { start: "12:00", end: "12:30" },
-  semi_residential: { start: "17:30", end: "18:00" },
-};
-
-function getClosingWindow(type) {
-  const today = new Date().toISOString().split("T")[0];
-  const { start, end } = closingWindows[type] || closingWindows.residential;
-  return {
-    startTime: new Date(`${today}T${start}:00`),
-    endTime: new Date(`${today}T${end}:00`),
-  };
-}
+import Link from "next/link";
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 
 export default function MemberDashboard() {
-  const [routineTasks, setRoutineTasks] = useState([]);
+  const { data: session, status } = useSession();
+  const router = useRouter();
+  const [user, setUser] = useState(null);
   const [assignedTasks, setAssignedTasks] = useState([]);
-  const [messages, setMessages] = useState([]);
-  const [users, setUsers] = useState([]);
-  const [selectedRecipient, setSelectedRecipient] = useState("");
-  const [messageContent, setMessageContent] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [locked, setLocked] = useState(false);
-  const [memberType, setMemberType] = useState(null);
-  const [timeLeft, setTimeLeft] = useState(null);
-  const [isDayClosed, setIsDayClosed] = useState(false);
-  const [userDetails, setUserDetails] = useState({ name: "", email: "", id: null });
-  const [showRoutineView, setShowRoutineView] = useState(false);
+  const [routineTasks, setRoutineTasks] = useState([]);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
+  const [openCloseTimes, setOpenCloseTimes] = useState(null);
+  const [canCloseDay, setCanCloseDay] = useState(false);
+  const [assignedTaskSummary, setAssignedTaskSummary] = useState({
+    total: 0,
+    notStarted: 0,
+    inProgress: 0,
+    pendingVerification: 0,
+    completed: 0,
+  });
+  const [routineTaskSummary, setRoutineTaskSummary] = useState({
+    total: 0,
+    notStarted: 0,
+    inProgress: 0,
+    pendingVerification: 0,
+    completed: 0,
+  });
+  const [selectedTask, setSelectedTask] = useState(null);
+  const [showStatusModal, setShowStatusModal] = useState(false);
+  const [showCloseDayModal, setShowCloseDayModal] = useState(false);
+  const [newStatus, setNewStatus] = useState("");
+  const [closeDayTasks, setCloseDayTasks] = useState([]);
+  const [closeDayComment, setCloseDayComment] = useState("");
+  const [carouselPosition, setCarouselPosition] = useState(0);
+  const carouselRef = useRef(null);
 
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      const sessionRes = await fetch("/api/auth/session");
-      const session = await sessionRes.json();
-      if (!session.user || session.user.role !== "member") {
-        console.error("Unauthorized access");
-        setLoading(false);
+  // Redirect if not member
+  useEffect(() => {
+    if (status === "authenticated" && session?.user?.role !== "member") {
+      router.push(
+        session?.user?.role === "admin" ? "/dashboard/admin" : "/dashboard/team_manager"
+      );
+    }
+  }, [status, session, router]);
+
+  // Fetch user data, tasks, and open/close times
+  useEffect(() => {
+    const fetchUserData = async () => {
+      try {
+        const res = await fetch("/api/member/profile");
+        const data = await res.json();
+        if (res.ok) {
+          setUser(data.user);
+          fetchOpenCloseTimes(data.user.type);
+        } else {
+          setError(data.error || "Failed to fetch user data");
+          setTimeout(() => setError(""), 3000);
+        }
+      } catch (err) {
+        setError("Failed to fetch user data");
+        setTimeout(() => setError(""), 3000);
+      }
+    };
+
+    const fetchOpenCloseTimes = async (userType) => {
+      if (!userType) {
+        console.error("User type is undefined while fetching open/close times");
+        setError("User type is missing");
         return;
       }
-      setUserDetails({
-        name: session.user.name || "Member",
-        email: session.user.email || "N/A",
-        id: session.user.id || null,
-      });
-      setMemberType(session.user.type || "residential");
 
-      const routineRes = await fetch("/api/member/routine-status");
-      const routineData = await routineRes.json();
-      if (routineData.error) {
-        console.error("Error fetching routine tasks:", routineData.error);
-        setRoutineTasks([]);
-      } else {
-        setRoutineTasks(routineData.tasks || []);
-        setLocked(routineData.locked || false);
-        setIsDayClosed(routineData.isDayClosed || false);
+      try {
+        const res = await fetch(`/api/member/openCloseTimes?userType=${userType}`);
+        const data = await res.json();
+
+        if (res.ok) {
+          setOpenCloseTimes(data.times);
+          checkClosingWindow(data.times);
+        } else {
+          setError(data.error || "Failed to fetch open/close times");
+          setTimeout(() => setError(""), 3000);
+        }
+      } catch (err) {
+        console.error("Fetch open/close error:", err);
+        setError("Failed to fetch open/close times");
+        setTimeout(() => setError(""), 3000);
       }
+    };
 
-      const assignedRes = await fetch("/api/member/assigned-tasks");
-      const assignedData = await assignedRes.json();
-      if (assignedData.error) {
-        console.error("Error fetching assigned tasks:", assignedData.error);
-        setAssignedTasks([]);
-      } else {
-        setAssignedTasks(assignedData.tasks || []);
+    const fetchAssignedTasks = async () => {
+      try {
+        const res = await fetch(`/api/member/assignedTasks?date=${selectedDate}`);
+        const data = await res.json();
+        if (res.ok) {
+          const tasks = data.tasks || [];
+          setAssignedTasks(tasks);
+          const summary = tasks.reduce(
+            (acc, task) => {
+              acc.total += 1;
+              if (task.status === "not_started") acc.notStarted += 1;
+              if (task.status === "in_progress") acc.inProgress += 1;
+              if (task.status === "pending_verification") acc.pendingVerification += 1;
+              if (task.status === "verified" || task.status === "done") acc.completed += 1;
+              return acc;
+            },
+            { total: 0, notStarted: 0, inProgress: 0, pendingVerification: 0, completed: 0 }
+          );
+          setAssignedTaskSummary(summary);
+        } else {
+          setError(data.error || "Failed to fetch assigned tasks");
+          setTimeout(() => setError(""), 3000);
+        }
+      } catch (err) {
+        setError("Failed to fetch assigned tasks");
+        setTimeout(() => setError(""), 3000);
       }
+    };
 
-      const usersRes = await fetch("/api/member/users");
-      const usersData = await usersRes.json();
-      if (usersData.error) {
-        console.error("Error fetching users:", usersData.error);
-        setUsers([]);
-      } else {
-        setUsers(usersData.users || []);
+    const fetchRoutineTasks = async () => {
+      try {
+        const res = await fetch(`/api/member/routine-tasks?action=routineTasks&date=${selectedDate}`);
+        const data = await res.json();
+        if (res.ok) {
+          const tasks = data.tasks || [];
+          setRoutineTasks(tasks);
+          const summary = tasks.reduce(
+            (acc, task) => {
+              acc.total += 1;
+              if (task.status === "not_started") acc.notStarted += 1;
+              if (task.status === "in_progress") acc.inProgress += 1;
+              if (task.status === "pending_verification") acc.pendingVerification += 1;
+              if (task.status === "verified" || task.status === "done") acc.completed += 1;
+              return acc;
+            },
+            { total: 0, notStarted: 0, inProgress: 0, pendingVerification: 0, completed: 0 }
+          );
+          setRoutineTaskSummary(summary);
+          setCloseDayTasks(tasks.map((task) => ({ id: task.id, description: task.description, markAsCompleted: false })));
+        } else {
+          setError(data.error || "Failed to fetch routine tasks");
+          setTimeout(() => setError(""), 3000);
+        }
+      } catch (err) {
+        setError("Failed to fetch routine tasks");
+        setTimeout(() => setError(""), 3000);
       }
+    };
 
-      const messagesRes = await fetch("/api/member/messages");
-      const messagesData = await messagesRes.json();
-      if (messagesData.error) {
-        console.error("Error fetching messages:", messagesData.error);
-        setMessages([]);
-      } else {
-        setMessages(messagesData.messages || []);
-      }
-    } catch (error) {
-      console.error("Error fetching data:", error);
-      setRoutineTasks([]);
-      setAssignedTasks([]);
-      setUsers([]);
-      setMessages([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+    const checkClosingWindow = (times) => {
+      const now = new Date();
+      const closingStart = new Date(times.closingWindowStart);
+      const closingEnd = new Date(times.closingWindowEnd);
+      setCanCloseDay(now >= closingStart && now <= closingEnd);
+    };
 
-  const handleRoutineStatusChange = async (id, newStatus) => {
+    fetchUserData();
+    fetchAssignedTasks();
+    fetchRoutineTasks();
+  }, [selectedDate]);
+
+  const handleStatusUpdate = async () => {
+    if (!selectedTask || !newStatus) return;
+
     try {
-      const res = await fetch("/api/member/routine-status", {
+      const res = await fetch("/api/member/assignedTasks/status", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, status: newStatus }),
+        body: JSON.stringify({ taskId: selectedTask.id, status: newStatus }),
       });
-
-      if (res.ok) {
-        setRoutineTasks((prev) =>
-          prev.map((t) => (t.id === id ? { ...t, status: newStatus } : t))
-        );
-      } else {
-        console.error("Error updating routine task status");
-        alert("Failed to update task status.");
-      }
-    } catch (error) {
-      console.error("Error updating routine task status:", error);
-      alert("Failed to update task status.");
-    }
-  };
-
-  const handleAssignedStatusChange = async (id, newStatus) => {
-    try {
-      const res = await fetch("/api/member/assigned-tasks", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, status: newStatus }),
-      });
-
+      const data = await res.json();
       if (res.ok) {
         setAssignedTasks((prev) =>
-          prev.map((t) => (t.id === id ? { ...t, status: newStatus } : t))
+          prev.map((task) =>
+            task.id === selectedTask.id ? { ...task, status: newStatus } : task
+          )
         );
+        setAssignedTaskSummary((prev) => {
+          const updatedTasks = assignedTasks.map((task) =>
+            task.id === selectedTask.id ? { ...task, status: newStatus } : task
+          );
+          return updatedTasks.reduce(
+            (acc, task) => {
+              acc.total += 1;
+              if (task.status === "not_started") acc.notStarted += 1;
+              if (task.status === "in_progress") acc.inProgress += 1;
+              if (task.status === "pending_verification") acc.pendingVerification += 1;
+              if (task.status === "verified" || task.status === "done") acc.completed += 1;
+              return acc;
+            },
+            { total: 0, notStarted: 0, inProgress: 0, pendingVerification: 0, completed: 0 }
+          );
+        });
+        setSuccess("Task status updated successfully!");
+        setShowStatusModal(false);
+        setSelectedTask(null);
+        setNewStatus("");
+        setTimeout(() => setSuccess(""), 3000);
       } else {
-        console.error("Error updating assigned task status");
-        alert("Failed to update task status.");
+        setError(data.error || "Failed to update task status");
+        setTimeout(() => setError(""), 3000);
       }
-    } catch (error) {
-      console.error("Error updating assigned task status:", error);
-      alert("Failed to update task status.");
+    } catch (err) {
+      setError("Failed to update task status");
+      setTimeout(() => setError(""), 3000);
     }
   };
 
-  const handleDayClose = async () => {
+  const handleCloseDay = async () => {
     try {
-      const res = await fetch("/api/member/day-close", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-
-      if (res.ok) {
-        setIsDayClosed(true);
-        setLocked(true);
-        alert("Day closed successfully!");
-      } else {
-        console.error("Error closing day");
-        alert("Failed to close day.");
-      }
-    } catch (error) {
-      console.error("Error closing day:", error);
-      alert("Failed to close day.");
-    }
-  };
-
-  const handleSendMessage = async () => {
-    if (!selectedRecipient || !messageContent.trim()) {
-      alert("Please select a recipient and enter a message.");
-      return;
-    }
-
-    try {
-      const res = await fetch("/api/member/messages", {
+      const res = await fetch("/api/member/routine-tasks?action=closeDay", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          recipientId: selectedRecipient,
-          content: messageContent,
+          userId: user.id,
+          date: selectedDate,
+          tasks: closeDayTasks,
+          comment: closeDayComment,
         }),
       });
-
+      const data = await res.json();
       if (res.ok) {
-        const newMessage = await res.json();
-        setMessages((prev) => [...prev, newMessage.message]);
-        setMessageContent("");
-        alert("Message sent successfully!");
+        setSuccess("Day closed successfully!");
+        setCanCloseDay(false);
+        setShowCloseDayModal(false);
+        setCloseDayTasks([]);
+        setCloseDayComment("");
+        setRoutineTasks((prev) =>
+          prev.map((task) => {
+            const taskUpdate = closeDayTasks.find((t) => t.id === task.id);
+            return taskUpdate && taskUpdate.markAsCompleted
+              ? { ...task, status: "completed", isLocked: true }
+              : { ...task, isLocked: true };
+          })
+        );
+        setRoutineTaskSummary((prev) => {
+          const updatedTasks = routineTasks.map((task) => {
+            const taskUpdate = closeDayTasks.find((t) => t.id === task.id);
+            return taskUpdate && taskUpdate.markAsCompleted
+              ? { ...task, status: "completed", isLocked: true }
+              : { ...task, isLocked: true };
+          });
+          return updatedTasks.reduce(
+            (acc, task) => {
+              acc.total += 1;
+              if (task.status === "not_started") acc.notStarted += 1;
+              if (task.status === "in_progress") acc.inProgress += 1;
+              if (task.status === "pending_verification") acc.pendingVerification += 1;
+              if (task.status === "verified" || task.status === "done" || task.status === "completed") acc.completed += 1;
+              return acc;
+            },
+            { total: 0, notStarted: 0, inProgress: 0, pendingVerification: 0, completed: 0 }
+          );
+        });
+        setTimeout(() => setSuccess(""), 3000);
       } else {
-        console.error("Error sending message");
-        alert("Failed to send message.");
+        setError(data.error || "Failed to close day");
+        setTimeout(() => setError(""), 3000);
       }
-    } catch (error) {
-      console.error("Error sending message:", error);
-      alert("Failed to send message.");
+    } catch (err) {
+      setError("Failed to close day");
+      setTimeout(() => setError(""), 3000);
     }
   };
 
-  useEffect(() => {
-    fetchData();
+  const handleTaskSelect = (task) => {
+    setSelectedTask(task);
+    setNewStatus(task.status);
+    setShowStatusModal(true);
+  };
 
-    const interval = setInterval(() => {
-      const now = new Date();
-      if (memberType) {
-        const { startTime, endTime } = getClosingWindow(memberType);
-        const timeToClose = Math.max(0, endTime - now);
-        setTimeLeft(timeToClose > 0 ? Math.floor(timeToClose / 1000) : 0);
-
-        if (now >= startTime && now <= endTime && !locked) {
-          fetchData();
-        }
-      }
-    }, 30000);
-
-    return () => clearInterval(interval);
-  }, [memberType, locked]);
+  const handleCarouselScroll = (direction) => {
+    const container = carouselRef.current;
+    if (!container) return;
+    const scrollAmount = 200;
+    const newPosition =
+      direction === "left"
+        ? Math.max(carouselPosition - scrollAmount, 0)
+        : Math.min(carouselPosition + scrollAmount, container.scrollWidth - container.clientWidth);
+    setCarouselPosition(newPosition);
+    container.scrollTo({ left: newPosition, behavior: "smooth" });
+  };
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      className="min-h-screen bg-gray-50 flex items-start justify-center p-4 pt-1"
-    >
-      <div className="bg-white rounded-xl shadow-lg p-6 w-full max-w-7xl flex flex-col">
-        {/* Welcome Section */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3 }}
-          className="mb-6 text-center"
-        >
-          <h2 className="text-3xl font-bold text-teal-900">
-            Welcome, {userDetails.name}!
-          </h2>
-          <p className="text-sm text-gray-600 mt-2">
-            Email: {userDetails.email} | Type: {memberType || "N/A"}
-          </p>
-          <p className="text-sm text-gray-500 mt-1">
-            Today: {new Date().toLocaleDateString()}
-          </p>
-        </motion.div>
-
-        {/* Closing Window */}
-        {memberType && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, delay: 0.1 }}
-            className="mb-6 text-sm text-gray-600 bg-teal-50 p-4 rounded-lg shadow border border-teal-200"
-          >
-            <p>
-              <strong>Closing Window ({memberType}):</strong>{" "}
-              {closingWindows[memberType]?.start} to {closingWindows[memberType]?.end}
-            </p>
-            {timeLeft !== null && timeLeft > 0 && (
-              <p className="text-green-600 mt-1">
-                ⏳ Time left: {Math.floor(timeLeft / 60)}m {timeLeft % 60}s
-              </p>
-            )}
-          </motion.div>
-        )}
-
-        {/* Tasks Section */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-          {/* Routine Tasks */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, delay: 0.2 }}
-            className="bg-white rounded-xl shadow-md p-6 border border-teal-200"
-          >
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold text-teal-900">Routine Tasks</h3>
-              <button
-                onClick={() => setShowRoutineView(true)}
-                className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-all duration-300 text-sm font-semibold"
-              >
-                Show My Routine
-              </button>
-            </div>
-            {loading ? (
-              <p className="text-gray-500">Loading...</p>
-            ) : routineTasks.length === 0 ? (
-              <p className="text-gray-500">No routine tasks assigned for today.</p>
-            ) : (
-              <ul className="space-y-4">
-                {routineTasks.slice(0, 5).map((task, index) => (
-                  <motion.li
-                    key={task.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.3, delay: index * 0.1 }}
-                    className="flex items-center justify-between bg-teal-50 p-4 rounded-lg border border-teal-200 hover:bg-teal-100 transition-all duration-300"
-                  >
-                    <div className="flex items-center">
-                      {task.status === "done" ? (
-                        <CheckCircleIcon className="h-6 w-6 text-green-500 mr-2" />
-                      ) : (
-                        <div className="h-6 w-6 border-2 border-gray-300 rounded-full mr-2" />
-                      )}
-                      <div>
-                        <p className="font-semibold text-teal-900">{task.title}</p>
-                        <p className="text-sm text-gray-500">{task.description}</p>
-                      </div>
-                    </div>
-                    <select
-                      disabled={locked || isDayClosed || task.isLocked}
-                      className="p-2 border rounded text-sm"
-                      value={task.status}
-                      onChange={(e) => handleRoutineStatusChange(task.id, e.target.value)}
-                    >
-                      <option value="not_started">⛔ Not Started</option>
-                      <option value="in_progress">🔄 In Progress</option>
-                      <option value="done">✅ Done</option>
-                    </select>
-                  </motion.li>
-                ))}
-              </ul>
-            )}
-          </motion.div>
-
-          {/* Assigned Tasks */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, delay: 0.3 }}
-            className="bg-white rounded-xl shadow-md p-6 border border-teal-200"
-          >
-            <h3 className="text-lg font-semibold text-teal-900 mb-4">Assigned Tasks</h3>
-            {loading ? (
-              <p className="text-gray-500">Loading...</p>
-            ) : assignedTasks.length === 0 ? (
-              <p className="text-gray-500">No assigned tasks for today.</p>
-            ) : (
-              <ul className="space-y-4">
-                {assignedTasks.map((task, index) => (
-                  <motion.li
-                    key={task.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.3, delay: index * 0.1 }}
-                    className="flex items-center justify-between bg-teal-50 p-4 rounded-lg border border-teal-200 hover:bg-teal-100 transition-all duration-300"
-                  >
-                    <div>
-                      <p className="font-semibold text-teal-900">{task.title}</p>
-                      <p className="text-sm text-gray-500">{task.description}</p>
-                    </div>
-                    <select
-                      disabled={locked || isDayClosed}
-                      className="p-2 border rounded text-sm"
-                      value={task.status}
-                      onChange={(e) => handleAssignedStatusChange(task.id, e.target.value)}
-                    >
-                      <option value="not_started">⛔ Not Started</option>
-                      <option value="in_progress">🔄 In Progress</option>
-                      <option value="done">✅ Done</option>
-                    </select>
-                  </motion.li>
-                ))}
-              </ul>
-            )}
-          </motion.div>
-        </div>
-
-        {/* Routine Tasks Full View */}
-        <AnimatePresence>
-          {showRoutineView && (
-            <motion.div
-              initial={{ opacity: 0, y: 50 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 50 }}
-              transition={{ duration: 0.3 }}
-              className="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50 p-4"
-            >
+    <div className="h-screen flex flex-col bg-gradient-to-br from-teal-50 to-gray-100 p-3">
+      {/* Assigned Tasks Carousel */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg p-4 mb-1"
+      >
+        <h2 className="text-xl font-bold text-gray-800 mb-2">Assigned Tasks</h2>
+        <div className="relative">
+          <div className="overflow-x-auto whitespace-nowrap pb-2" ref={carouselRef}>
+            {assignedTasks.map((task, index) => (
               <motion.div
-                className="bg-white rounded-xl shadow-lg p-6 w-full max-w-4xl max-h-[80vh] overflow-y-auto border border-teal-200"
-                initial={{ scale: 0.9 }}
-                animate={{ scale: 1 }}
-                transition={{ duration: 0.3 }}
+                key={task.id}
+                className="inline-block w-64 bg-white/90 backdrop-blur-sm rounded-lg shadow-md p-3 mr-3"
+                initial={{ x: index * 100 }}
+                animate={{ x: 0 }}
+                transition={{ duration: 0.5, delay: index * 0.1 }}
               >
-                <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-xl font-bold text-teal-900">My Routine Tasks</h3>
-                  <button
-                    onClick={() => setShowRoutineView(false)}
-                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-all duration-300 text-sm font-semibold"
-                  >
-                    Close (Current Time: {new Date().toLocaleTimeString()})
-                  </button>
-                </div>
-                {loading ? (
-                  <p className="text-gray-500">Loading...</p>
-                ) : routineTasks.length === 0 ? (
-                  <p className="text-gray-500">No routine tasks assigned.</p>
-                ) : (
-                  <ul className="space-y-4">
-                    {routineTasks.map((task, index) => (
-                      <motion.li
-                        key={task.id}
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.3, delay: index * 0.1 }}
-                        className="flex items-center justify-between bg-teal-50 p-4 rounded-lg border border-teal-200 hover:bg-teal-100 transition-all duration-300"
-                      >
-                        <div className="flex items-center">
-                          {task.status === "done" ? (
-                            <CheckCircleIcon className="h-6 w-6 text-green-500 mr-2" />
-                          ) : (
-                            <div className="h-6 w-6 border-2 border-gray-300 rounded-full mr-2" />
-                          )}
-                          <div>
-                            <p className="font-semibold text-teal-900">{task.title}</p>
-                            <p className="text-sm text-gray-500">{task.description}</p>
-                          </div>
-                        </div>
-                        <select
-                          disabled={locked || isDayClosed || task.isLocked}
-                          className="p-2 border rounded text-sm"
-                          value={task.status}
-                          onChange={(e) => handleRoutineStatusChange(task.id, e.target.value)}
-                        >
-                          <option value="in_progress">🔄 In Progress</option>
-                          <option value="done">✅ Done</option>
-                        </select>
-                      </motion.li>
-                    ))}
-                  </ul>
-                )}
+                <p className="text-sm font-medium text-gray-700">
+                  {task.title}: {task.status}
+                </p>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => handleTaskSelect(task)}
+                  className="mt-2 px-3 py-1 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm"
+                >
+                  Update Status
+                </motion.button>
               </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Messaging Section */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, delay: 0.4 }}
-          className="bg-white rounded-xl shadow-md p-6 mb-6 border border-teal-200"
-        >
-          <h3 className="text-lg font-semibold text-teal-900 mb-4">Messages</h3>
-          {loading ? (
-            <p className="text-gray-500">Loading...</p>
-          ) : (
+            ))}
+          </div>
+          {assignedTasks.length > 3 && (
             <>
-              <div className="mb-4">
-                <div className="flex flex-col sm:flex-row gap-4">
-                  <select
-                    className="p-2 border rounded w-full sm:w-1/3 text-sm"
-                    value={selectedRecipient}
-                    onChange={(e) => setSelectedRecipient(e.target.value)}
-                  >
-                    <option value="">Select Recipient</option>
-                    {users.map((user) => (
-                      <motion.option
-                        key={user.id}
-                        value={user.id}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        transition={{ duration: 0.2 }}
-                      >
-                        {user.name} ({user.role === "admin" ? "Admin" : user.type})
-                      </motion.option>
-                    ))}
-                  </select>
-                  <input
-                    type="text"
-                    className="p-2 border rounded w-full sm:w-2/3 text-sm"
-                    placeholder="Type your message..."
-                    value={messageContent}
-                    onChange={(e) => setMessageContent(e.target.value)}
-                  />
-                  <button
-                    onClick={handleSendMessage}
-                    className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-all duration-300 text-sm font-semibold"
-                  >
-                    Send
-                  </button>
-                </div>
-              </div>
-              <div className="max-h-64 overflow-y-auto border-t pt-4">
-                {messages.length === 0 ? (
-                  <p className="text-gray-500">No messages yet.</p>
-                ) : (
-                  <ul className="space-y-2">
-                    {messages.map((msg, index) => (
-                      <motion.li
-                        key={msg.id}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.3, delay: index * 0.1 }}
-                        className={`p-2 rounded ${
-                          msg.senderId === parseInt(userDetails.id)
-                            ? "bg-blue-100 text-right"
-                            : "bg-gray-100 text-left"
-                        } border border-teal-200`}
-                      >
-                        <p className="text-sm font-semibold text-teal-900">
-                          {msg.senderId === parseInt(userDetails.id)
-                            ? "You"
-                            : msg.senderName || "Unknown"}
-                          {" → "}
-                          {msg.recipientId === parseInt(userDetails.id) ? "You" : "Other"}
-                        </p>
-                        <p className="text-sm">{msg.content}</p>
-                        <p className="text-xs text-gray-400">
-                          {new Date(msg.createdAt).toLocaleString()}
-                        </p>
-                      </motion.li>
-                    ))}
-                  </ul>
-                )}
-              </div>
+              <button
+                onClick={() => handleCarouselScroll("left")}
+                className="absolute left-0 top-1/2 transform -translate-y-1/2 bg-gray-600 text-white p-2 rounded-full"
+              >
+                ←
+              </button>
+              <button
+                onClick={() => handleCarouselScroll("right")}
+                className="absolute right-0 top-1/2 transform -translate-y-1/2 bg-gray-600 text-white p-2 rounded-full"
+              >
+                →
+              </button>
             </>
           )}
-        </motion.div>
+        </div>
+      </motion.div>
 
-        {/* Lock Warning and Day Close Button */}
-        {locked && (
+      {/* Task Summary */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg p-4 mb-1 z-10"
+      >
+        <div className="flex flex-row items-center justify-between mb-3">
+          <h2 className="text-xl font-bold text-gray-800">Task Summary</h2>
+          <div className="flex-shrink-0">
+            <label className="block text-sm font-medium text-gray-700">Time Period</label>
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="mt-1 px-3 py-1 border rounded-lg focus:ring-2 focus:ring-teal-500 text-sm"
+            />
+          </div>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+          <div className="text-center p-4 bg-gradient-to-r from-teal-50 to-teal-100 rounded-lg backdrop-blur-sm">
+            <p className="text-sm font-medium text-gray-700">Total Tasks</p>
+            <p className="text-4xl font-bold text-teal-800">{assignedTaskSummary.total}</p>
+          </div>
+          <div className="text-center p-4 bg-gradient-to-r from-green-50 to-green-100 rounded-lg backdrop-blur-sm">
+            <p className="text-sm font-medium text-gray-700">Completed</p>
+            <p className="text-4xl font-bold text-green-700">{assignedTaskSummary.completed}</p>
+          </div>
+          <div className="text-center p-4 bg-gradient-to-r from-yellow-50 to-yellow-100 rounded-lg backdrop-blur-sm">
+            <p className="text-sm font-medium text-gray-700">In Progress</p>
+            <p className="text-4xl font-bold text-yellow-700">{assignedTaskSummary.inProgress}</p>
+          </div>
+          <div className="text-center p-4 bg-gradient-to-r from-red-50 to-red-100 rounded-lg backdrop-blur-sm">
+            <p className="text-sm font-medium text-gray-700">Not Started</p>
+            <p className="text-4xl font-bold text-red-700">{assignedTaskSummary.notStarted}</p>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* Routine Tasks */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.1 }}
+        className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg p-4 mb-1"
+      >
+        <h2 className="text-xl font-bold text-gray-800 mb-2">Routine Tasks</h2>
+        <div className="space-y-2">
+          {routineTasks.map((task) => (
+            <div key={task.id} className="p-2 bg-gray-50 rounded-lg">
+              <p className="text-sm font-medium text-gray-700">
+                {task.description}: {task.status}
+                {task.isLocked && " (Locked)"}
+              </p>
+            </div>
+          ))}
+        </div>
+        {canCloseDay && (
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => setShowCloseDayModal(true)}
+            className="mt-4 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm"
+          >
+            Close Day
+          </motion.button>
+        )}
+      </motion.div>
+
+      {/* Status Update Modal */}
+      <AnimatePresence>
+        {showStatusModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-gray-900/60 flex items-center justify-center p-4 z-50"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ duration: 0.3 }}
+              className="bg-white/90 backdrop-blur-sm rounded-xl shadow-lg p-4 w-full max-w-md"
+            >
+              <h2 className="text-lg font-bold text-gray-800 mb-2">Update Task Status</h2>
+              <select
+                value={newStatus}
+                onChange={(e) => setNewStatus(e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg mb-3 bg-gray-50 focus:ring-2 focus:ring-teal-500 text-sm"
+              >
+                <option value="not_started">Not Started</option>
+                <option value="in_progress">In Progress</option>
+                <option value="pending_verification">Pending Verification</option>
+                <option value="done">Done</option>
+              </select>
+              <div className="flex justify-end space-x-2">
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setShowStatusModal(false)}
+                  className="px-3 py-1 bg-gray-500 text-white rounded-lg hover:bg-gray-600 text-sm"
+                >
+                  Cancel
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={handleStatusUpdate}
+                  disabled={!newStatus}
+                  className={`px-3 py-1 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm ${!newStatus ? "opacity-50 cursor-not-allowed" : ""}`}
+                >
+                  Update
+                </motion.button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Close Day Modal */}
+      <AnimatePresence>
+        {showCloseDayModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-gray-900/60 flex items-center justify-center p-4 z-50"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ duration: 0.3 }}
+              className="bg-white/90 backdrop-blur-sm rounded-xl shadow-lg p-4 w-full max-w-md"
+            >
+              <h2 className="text-lg font-bold text-gray-800 mb-2">Close Day</h2>
+              <p className="text-sm text-gray-600 mb-3">Mark tasks as completed for {selectedDate}</p>
+              {routineTasks.map((task) => (
+                <div key={task.id} className="flex items-center space-x-2 mb-2">
+                  <input
+                    type="checkbox"
+                    checked={closeDayTasks.find((t) => t.id === task.id)?.markAsCompleted || false}
+                    onChange={(e) => {
+                      setCloseDayTasks((prev) =>
+                        prev.map((t) =>
+                          t.id === task.id ? { ...t, markAsCompleted: e.target.checked } : t
+                        )
+                      );
+                    }}
+                    className="h-4 w-4 text-teal-600"
+                    disabled={task.isLocked}
+                  />
+                  <p className="text-sm text-gray-700">{task.description}</p>
+                </div>
+              ))}
+              <textarea
+                value={closeDayComment}
+                onChange={(e) => setCloseDayComment(e.target.value)}
+                placeholder="Add a comment (optional)"
+                className="w-full px-3 py-2 border rounded-lg mb-3 bg-gray-50 focus:ring-2 focus:ring-teal-500 text-sm"
+              />
+              <div className="flex justify-end space-x-2">
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setShowCloseDayModal(false)}
+                  className="px-3 py-1 bg-gray-500 text-white rounded-lg hover:bg-gray-600 text-sm"
+                >
+                  Cancel
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={handleCloseDay}
+                  className="px-3 py-1 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm"
+                >
+                  Close Day
+                </motion.button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Success/Error Messages */}
+      <AnimatePresence>
+        {success && (
           <motion.p
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ duration: 0.3 }}
-            className="text-sm text-red-500 mb-4 text-center"
+            exit={{ opacity: 0 }}
+            className="text-sm text-green-500 mt-1 text-center absolute bottom-2 w-full"
           >
-            Task updates are locked for today.
+            {success}
           </motion.p>
         )}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, delay: 0.5 }}
-          className="text-center"
-        >
-          <button
-            onClick={handleDayClose}
-            disabled={isDayClosed || locked}
-            className={`px-6 py-2 rounded-lg text-sm font-semibold ${
-              isDayClosed || locked
-                ? "bg-gray-300 cursor-not-allowed"
-                : "bg-teal-600 text-white hover:bg-teal-700 hover:shadow-lg transition-all duration-300"
-            }`}
+        {error && (
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="text-sm text-red-500 mt-1 text-center absolute bottom-2 w-full"
           >
-            Close Day
-          </button>
-        </motion.div>
-      </div>
-    </motion.div>
+            {error}
+          </motion.p>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }

@@ -5,6 +5,17 @@
   --foreground: #171717;
 }
 
+@keyframes logo-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .logo-animation, .logo-animation:hover {
+    animation: none;
+  }
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -23,4 +34,40 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Ensure main container takes full viewport height */
+.main-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  padding: 1rem;
+}
+
+/* Landscape-only modal enforcement */
+.landscape-only {
+  position: relative;
+}
+
+@media (orientation: portrait) {
+  .landscape-only .modal-content {
+    display: none;
+  }
+  .landscape-only .portrait-warning {
+    display: flex;
+  }
+}
+
+@media (orientation: landscape) {
+  .landscape-only .modal-content {
+    display: block;
+  }
+  .landscape-only .portrait-warning {
+    display: none;
+  }
 }

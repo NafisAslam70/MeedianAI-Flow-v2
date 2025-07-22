@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { users, routineTasks as routineTasksTable, tasks, taskAssignments } from "@/lib/schema";
+import { users, routineTasks, assignedTasks, assignedTaskStatus } from "@/lib/schema";
 import { auth } from "@/lib/auth";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcrypt";
@@ -18,9 +18,10 @@ export async function POST(req) {
       password,
       role,
       type,
+      team_manager_type,
       userId,
       routineTasks: routineTasksInput,
-      assignedTasks,
+      assignedTasks: assignedTasksInput,
       taskOnly,
     } = await req.json();
 
@@ -45,8 +46,6 @@ export async function POST(req) {
         return NextResponse.json({ error: "Invalid user ID" }, { status: 400 });
       }
 
-      console.log("Received routineTasks:", routineTasksInput);
-
       const validTasks = routineTasksInput.filter(
         (task) =>
           task &&
@@ -58,31 +57,19 @@ export async function POST(req) {
 
       if (validTasks.length === 0) {
         return NextResponse.json(
-          {
-            error: "At least one valid routine task with a non-empty description is required",
-          },
+          { error: "At least one valid routine task with a non-empty description is required" },
           { status: 400 }
         );
       }
 
-      console.log("Filtered validTasks:", validTasks);
-
-      const insertValues = validTasks.map((task, index) => {
-        if (!task || !task.description) {
-          console.error(`Invalid task at index ${index}:`, task);
-          throw new Error(`Invalid task data at index ${index}`);
-        }
-        return {
-          description: task.description.trim(),
-          memberId: parsedUserId,
-          createdAt: new Date(),
-        };
-      });
-
-      console.log("Insert values:", insertValues);
+      const insertValues = validTasks.map((task) => ({
+        description: task.description.trim(),
+        memberId: parsedUserId,
+        createdAt: new Date(),
+      }));
 
       try {
-        await db.insert(routineTasksTable).values(insertValues);
+        await db.insert(routineTasks).values(insertValues);
       } catch (error) {
         console.error("Bulk insertion failed:", {
           message: error.message,
@@ -93,7 +80,7 @@ export async function POST(req) {
         console.log("Attempting sequential insertion...");
         for (const value of insertValues) {
           try {
-            await db.insert(routineTasksTable).values(value);
+            await db.insert(routineTasks).values(value);
           } catch (singleError) {
             console.error(`Failed to insert task: ${value.description}`, {
               message: singleError.message,
@@ -120,11 +107,14 @@ export async function POST(req) {
     if (password.length < 6) {
       return NextResponse.json({ error: "Password must be at least 6 characters long" }, { status: 400 });
     }
-    if (!["admin", "member"].includes(role)) {
+    if (!["admin", "team_manager", "member"].includes(role)) {
       return NextResponse.json({ error: "Invalid role" }, { status: 400 });
     }
     if (!["residential", "non_residential", "semi_residential"].includes(type)) {
       return NextResponse.json({ error: "Invalid user type" }, { status: 400 });
+    }
+    if (role === "team_manager" && !["head_incharge", "coordinator", "accountant", "chief_counsellor", "hostel_incharge", "principal"].includes(team_manager_type)) {
+      return NextResponse.json({ error: "Invalid team manager type" }, { status: 400 });
     }
 
     const existingUser = await db
@@ -146,12 +136,13 @@ export async function POST(req) {
         password: hashedPassword,
         role,
         type,
+        team_manager_type: role === "team_manager" ? team_manager_type : null,
       })
       .returning({ id: users.id, role: users.role });
 
     let assignedTaskIds = [];
-    if (Array.isArray(assignedTasks) && assignedTasks.length > 0) {
-      const validAssignedTasks = assignedTasks.filter(
+    if (Array.isArray(assignedTasksInput) && assignedTasksInput.length > 0) {
+      const validAssignedTasks = assignedTasksInput.filter(
         (task) =>
           task &&
           typeof task === "object" &&
@@ -162,7 +153,7 @@ export async function POST(req) {
 
       if (validAssignedTasks.length > 0) {
         const insertedTasks = await db
-          .insert(tasks)
+          .insert(assignedTasks)
           .values(
             validAssignedTasks.map((task) => ({
               title: task.title,
@@ -172,9 +163,9 @@ export async function POST(req) {
               taskType: "assigned",
             }))
           )
-          .returning({ id: tasks.id });
+          .returning({ id: assignedTasks.id });
 
-        await db.insert(taskAssignments).values(
+        await db.insert(assignedTaskStatus).values(
           insertedTasks.map((task) => ({
             taskId: task.id,
             memberId: newUser.id,

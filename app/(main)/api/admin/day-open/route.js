@@ -1,58 +1,86 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { eq, gte } from "drizzle-orm";
-import { users, routineTasks, routineTaskDailyStatuses, appState } from "@/lib/schema";
+import { openCloseTimes, userTypeEnum } from "@/lib/schema";
+import { eq, and, sql } from "drizzle-orm";
+import { auth } from "@/lib/auth";
 
-export async function POST() {
-  const now = new Date();
-  const today = new Date(now.toISOString().split("T")[0]);
-
-  const existing = await db
-    .select()
-    .from(appState)
-    .where(gte(appState.dayOpenedAt, today));
-
-  if (existing.length > 0) {
-    return NextResponse.json({ message: "Day already opened." }, { status: 400 });
+export async function POST(req) {
+  const session = await auth();
+  if (!session || session.user?.role !== "admin") {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Pick default closing window (residential: 19:30–20:00)
-  const closingWindowStart = new Date(`${today.toISOString().split("T")[0]}T19:30:00`);
-  const closingWindowEnd = new Date(`${today.toISOString().split("T")[0]}T20:00:00`);
-
-  // Insert app state with closing window
-  await db.insert(appState).values({
-    dayOpenedAt: now,
-    closingWindowStart,
-    closingWindowEnd,
-  });
-
-  const members = await db.select().from(users).where(eq(users.role, "member"));
-
-  for (const member of members) {
-    const routines = await db
-      .select()
-      .from(routineTasks)
-      .where(eq(routineTasks.memberId, member.id));
-
-    for (const routine of routines) {
-      const existingStatus = await db
-        .select()
-        .from(routineTaskDailyStatuses)
-        .where(
-          eq(routineTaskDailyStatuses.routineTaskId, routine.id)
-        )
-        .where(gte(routineTaskDailyStatuses.date, today));
-
-      if (existingStatus.length === 0) {
-        await db.insert(routineTaskDailyStatuses).values({
-          routineTaskId: routine.id,
-          date: now,
-          status: "not_started",
-        });
-      }
+  try {
+    const { userType, closingWindowType, customClosingTime } = await req.json();
+    if (!userType || !userTypeEnum.enumValues.includes(userType)) {
+      return NextResponse.json({ error: "Invalid or missing user type" }, { status: 400 });
     }
-  }
 
-  return NextResponse.json({ message: "Day opened and tasks created." });
+    const currentDate = new Date().toISOString().split("T")[0];
+    let dayClosedAt = null;
+    let closingWindowStart = null;
+    let closingWindowEnd = null;
+
+    if (closingWindowType === "custom" && customClosingTime) {
+      dayClosedAt = new Date(customClosingTime).toISOString();
+      closingWindowStart = new Date(new Date(customClosingTime).setMinutes(new Date(customClosingTime).getMinutes() - 30)).toISOString();
+      closingWindowEnd = dayClosedAt;
+    } else {
+      // Fetch default times from openCloseTimes or appState
+      const [record] = await db
+        .select()
+        .from(openCloseTimes)
+        .where(eq(openCloseTimes.userType, userType))
+        .limit(1);
+      if (!record) {
+        return NextResponse.json({ error: "No schedule found for this user type" }, { status: 400 });
+      }
+      dayClosedAt = record.dayClosedAt;
+      closingWindowStart = record.closingWindowStart;
+      closingWindowEnd = record.closingWindowEnd;
+    }
+
+    // Check if day is already opened for this userType
+    const [existingRecord] = await db
+      .select()
+      .from(openCloseTimes)
+      .where(
+        and(
+          eq(openCloseTimes.userType, userType),
+          eq(sql`DATE(${openCloseTimes.dayOpenedAt})`, currentDate)
+        )
+      );
+
+    if (existingRecord && existingRecord.isDayOpened) {
+      return NextResponse.json({ message: `Day already opened for ${userType}` });
+    }
+
+    // Update or insert record to mark day as opened
+    if (existingRecord) {
+      await db
+        .update(openCloseTimes)
+        .set({
+          isDayOpened: true,
+          dayOpenedAt: new Date().toISOString(),
+          dayClosedAt,
+          closingWindowStart,
+          closingWindowEnd,
+        })
+        .where(eq(openCloseTimes.id, existingRecord.id));
+    } else {
+      await db.insert(openCloseTimes).values({
+        userType,
+        dayOpenedAt: new Date().toISOString(),
+        dayClosedAt,
+        closingWindowStart,
+        closingWindowEnd,
+        isDayOpened: true,
+      });
+    }
+
+    return NextResponse.json({ message: `Day opened successfully for ${userType}` });
+  } catch (error) {
+    console.error("Error opening day:", error);
+    return NextResponse.json({ error: "Failed to open day" }, { status: 500 });
+  }
 }
