@@ -72,6 +72,7 @@ export async function middleware(request) {
   console.log("🔍 MIDDLEWARE HIT:");
   console.log("🔗 Path:", pathname);
   console.log("📦 Token:", token);
+  console.log("🍪 Raw Cookie:", request.headers.get("cookie")); 
 
   if (pathname.startsWith("/api")) return NextResponse.next();
 
