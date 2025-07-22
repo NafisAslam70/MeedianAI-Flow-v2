@@ -61,6 +61,7 @@
 import { NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 
+// Routes that need a valid session
 const protectedRoutes = [
   "/dashboard/admin",
   "/dashboard/team_manager",
@@ -71,50 +72,47 @@ const protectedRoutes = [
 export async function middleware(req) {
   const { pathname } = req.nextUrl;
 
-  // Skip protection for non-protected routes
-  const isProtected = protectedRoutes.some((route) => pathname.startsWith(route));
+  // Skip protection if route not in list
+  const isProtected = protectedRoutes.some((route) =>
+    pathname.startsWith(route)
+  );
   if (!isProtected) return NextResponse.next();
 
-  // Use next-auth's getToken() for decoding encrypted session
+  // Decrypt the JWT cookie
   const token = await getToken({
     req,
     secret: process.env.NEXTAUTH_SECRET,
+    // leave `cookieName` unset so it works for both dev & prod names
   });
 
-  console.log("🔍 MIDDLEWARE HIT:");
-  console.log("🔗 Path:", pathname);
-  console.log("📦 Token:", token);
-  console.log("🍪 Cookies:", req.cookies.getAll());
-
   if (!token) {
-    console.log("🚫 No token found. Redirecting to /login");
-    const url = req.nextUrl.clone();
-    url.pathname = "/login";
-    return NextResponse.redirect(url);
+    // Not logged in → send to /login
+    const loginURL = req.nextUrl.clone();
+    loginURL.pathname = "/login";
+    loginURL.searchParams.set("callbackUrl", pathname);
+    return NextResponse.redirect(loginURL);
   }
 
+  // Role‑based guards
   const role = token.role;
 
   if (pathname.startsWith("/dashboard/admin") && role !== "admin") {
-    console.log(`🚫 Role ${role} not authorized for /dashboard/admin`);
     return NextResponse.redirect(new URL("/login", req.url));
   }
 
   if (pathname.startsWith("/dashboard/team_manager") && role !== "team_manager") {
-    console.log(`🚫 Role ${role} not authorized for /dashboard/team_manager`);
     return NextResponse.redirect(new URL("/login", req.url));
   }
 
   if (pathname.startsWith("/dashboard/residential_staff") && role !== "residential_staff") {
-    console.log(`🚫 Role ${role} not authorized for /dashboard/residential_staff`);
     return NextResponse.redirect(new URL("/login", req.url));
   }
 
   if (pathname.startsWith("/dashboard/non_residential_staff") && role !== "non_residential_staff") {
-    console.log(`🚫 Role ${role} not authorized for /dashboard/non_residential_staff`);
     return NextResponse.redirect(new URL("/login", req.url));
   }
 
+  // All good
   return NextResponse.next();
 }
 
