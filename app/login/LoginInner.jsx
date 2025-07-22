@@ -39,13 +39,7 @@ export default function LoginInner() {
   useEffect(() => {
     if (status === "authenticated" && session?.user?.role) {
       const userRole = session.user.role;
-      if (userRole === "admin") {
-        router.push("/dashboard/admin");
-      } else if (userRole === "team_manager") {
-        router.push("/dashboard/team_manager");
-      } else {
-        router.push("/dashboard/member");
-      }
+      router.push(`/dashboard/${userRole}`);
     }
   }, [status, session, router]);
 
@@ -83,14 +77,33 @@ export default function LoginInner() {
         role: selectedRole,
         team_manager_type: selectedRole === "team_manager" ? teamManagerType : undefined,
         redirect: false,
+        callbackUrl: `/dashboard/${selectedRole}`,
       });
 
       if (result?.error) {
         setError(decodeURIComponent(result.error) || "Authentication failed. Please check your credentials.");
+        setIsLoggingIn(false);
+        return;
       }
+
+      // Poll for session update
+      let attempts = 0;
+      const maxAttempts = 10;
+      const checkSession = async () => {
+        const { data: session } = await import("next-auth/react").then((mod) => mod.useSession());
+        if (session?.user?.role) {
+          router.push(`/dashboard/${session.user.role}`);
+        } else if (attempts < maxAttempts) {
+          attempts++;
+          setTimeout(checkSession, 100);
+        } else {
+          setError("Session not established. Please try again.");
+          setIsLoggingIn(false);
+        }
+      };
+      checkSession();
     } catch (err) {
       setError("An unexpected error occurred. Please try again.");
-    } finally {
       setIsLoggingIn(false);
     }
   };
@@ -126,7 +139,6 @@ export default function LoginInner() {
       className="fixed inset-0 bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 p-6 flex items-center justify-center"
     >
       <div className="w-full h-full bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 rounded-2xl shadow-2xl p-8 flex flex-col gap-8 overflow-y-auto">
-        {/* Error Message */}
         <AnimatePresence>
           {error && (
             <motion.p
@@ -142,7 +154,6 @@ export default function LoginInner() {
           )}
         </AnimatePresence>
 
-        {/* Role Selection */}
         {!selectedRole && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -188,7 +199,6 @@ export default function LoginInner() {
           </motion.div>
         )}
 
-        {/* Login Form */}
         {selectedRole && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}

@@ -72,9 +72,7 @@ export async function middleware(req) {
   const { pathname } = req.nextUrl;
 
   // Skip protection if route not protected
-  const isProtected = protectedRoutes.some((route) =>
-    pathname.startsWith(route)
-  );
+  const isProtected = protectedRoutes.some((route) => pathname.startsWith(route));
   if (!isProtected) return NextResponse.next();
 
   // Use next-auth's getToken() for decoding encrypted session
@@ -83,30 +81,35 @@ export async function middleware(req) {
   console.log("🔍 MIDDLEWARE HIT:");
   console.log("🔗 Path:", pathname);
   console.log("📦 Token:", token);
+  console.log("🍪 Cookies:", req.cookies.getAll());
 
   if (!token) {
-    console.log("🚫 No token found. Redirecting to /");
+    console.log("🚫 No token found. Redirecting to /login");
     const url = req.nextUrl.clone();
-    url.pathname = "/";
+    url.pathname = "/login";
     return NextResponse.redirect(url);
   }
 
   const role = token.role;
 
   if (pathname.startsWith("/dashboard/admin") && role !== "admin") {
-    return NextResponse.redirect(new URL("/", req.url));
+    console.log(`🚫 Role ${role} not authorized for /dashboard/admin`);
+    return NextResponse.redirect(new URL("/login", req.url));
   }
 
   if (pathname.startsWith("/dashboard/team_manager") && role !== "team_manager") {
-    return NextResponse.redirect(new URL("/", req.url));
+    console.log(`🚫 Role ${role} not authorized for /dashboard/team_manager`);
+    return NextResponse.redirect(new URL("/login", req.url));
   }
 
   if (pathname.startsWith("/dashboard/residential_staff") && role !== "residential_staff") {
-    return NextResponse.redirect(new URL("/", req.url));
+    console.log(`🚫 Role ${role} not authorized for /dashboard/residential_staff`);
+    return NextResponse.redirect(new URL("/login", req.url));
   }
 
   if (pathname.startsWith("/dashboard/non_residential_staff") && role !== "non_residential_staff") {
-    return NextResponse.redirect(new URL("/", req.url));
+    console.log(`🚫 Role ${role} not authorized for /dashboard/non_residential_staff`);
+    return NextResponse.redirect(new URL("/login", req.url));
   }
 
   return NextResponse.next();
