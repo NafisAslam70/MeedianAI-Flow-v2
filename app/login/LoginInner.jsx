@@ -88,16 +88,28 @@ export default function LoginInner() {
 
       // Poll for session update
       let attempts = 0;
-      const maxAttempts = 10;
+      const maxAttempts = 20;
+      const pollInterval = 200;
+      const maxPollTime = 10000;
+      const startTime = Date.now();
+
       const checkSession = async () => {
+        if (Date.now() - startTime > maxPollTime) {
+          setError("Session establishment timed out. Please try again.");
+          setIsLoggingIn(false);
+          return;
+        }
+
         const { data: session } = await import("next-auth/react").then((mod) => mod.useSession());
         if (session?.user?.role) {
           router.push(`/dashboard/${session.user.role}`);
+          setIsLoggingIn(false);
         } else if (attempts < maxAttempts) {
           attempts++;
-          setTimeout(checkSession, 100);
+          setTimeout(checkSession, pollInterval);
         } else {
-          setError("Session not established. Please try again.");
+          // Fallback: Redirect to callbackUrl
+          router.push(`/dashboard/${selectedRole}`);
           setIsLoggingIn(false);
         }
       };

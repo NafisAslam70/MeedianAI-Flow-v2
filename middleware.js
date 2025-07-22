@@ -71,12 +71,16 @@ const protectedRoutes = [
 export async function middleware(req) {
   const { pathname } = req.nextUrl;
 
-  // Skip protection if route not protected
+  // Skip protection for non-protected routes
   const isProtected = protectedRoutes.some((route) => pathname.startsWith(route));
   if (!isProtected) return NextResponse.next();
 
   // Use next-auth's getToken() for decoding encrypted session
-  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+  const token = await getToken({
+    req,
+    secret: process.env.NEXTAUTH_SECRET,
+    // Remove cookieName to use default (handles both next-auth.session-token and __Secure-next-auth.session-token)
+  });
 
   console.log("🔍 MIDDLEWARE HIT:");
   console.log("🔗 Path:", pathname);
