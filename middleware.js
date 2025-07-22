@@ -79,7 +79,6 @@ export async function middleware(req) {
   const token = await getToken({
     req,
     secret: process.env.NEXTAUTH_SECRET,
-    // Remove cookieName to use default (handles both next-auth.session-token and __Secure-next-auth.session-token)
   });
 
   console.log("🔍 MIDDLEWARE HIT:");
