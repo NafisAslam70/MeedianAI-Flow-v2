@@ -69,6 +69,10 @@ export async function middleware(request) {
 
   const { pathname } = request.nextUrl;
 
+  console.log("🔍 MIDDLEWARE HIT:");
+  console.log("🔗 Path:", pathname);
+  console.log("📦 Token:", token);
+
   // Allow API routes to bypass middleware
   if (pathname.startsWith("/api")) {
     return NextResponse.next();
