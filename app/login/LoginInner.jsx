@@ -36,12 +36,9 @@ export default function LoginInner() {
     console.log("Login session:", { status, session });
   }, [status, session]);
 
-useEffect(() => {
-  if (status === "authenticated" && session?.user?.role) {
-    const userRole = session.user.role;
-
-    // Delay the redirect slightly to allow cookie to set properly
-    const timer = setTimeout(() => {
+  useEffect(() => {
+    if (status === "authenticated" && session?.user?.role) {
+      const userRole = session.user.role;
       if (userRole === "admin") {
         router.push("/dashboard/admin");
       } else if (userRole === "team_manager") {
@@ -49,12 +46,8 @@ useEffect(() => {
       } else {
         router.push("/dashboard/member");
       }
-    }, 300); // 300ms delay to allow middleware to access token
-
-    return () => clearTimeout(timer);
-  }
-}, [status, session, router]);
-
+    }
+  }, [status, session, router]);
 
   const handleRoleSelect = () => {
     if (tempRole) {
