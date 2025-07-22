@@ -58,66 +58,55 @@
 //   matcher: ["/dashboard/:path*"],
 // };
 
-import { getToken } from "next-auth/jwt";
 import { NextResponse } from "next/server";
+import { getToken } from "next-auth/jwt";
 
-export async function middleware(request) {
-  const token = await getToken({
-    req: request,
-    secret: process.env.NEXTAUTH_SECRET,
-  });
+const protectedRoutes = [
+  "/dashboard/admin",
+  "/dashboard/team_manager",
+  "/dashboard/residential_staff",
+  "/dashboard/non_residential_staff",
+];
 
-  const { pathname } = request.nextUrl;
+export async function middleware(req) {
+  const { pathname } = req.nextUrl;
+
+  // Skip protection if route not protected
+  const isProtected = protectedRoutes.some((route) =>
+    pathname.startsWith(route)
+  );
+  if (!isProtected) return NextResponse.next();
+
+  // Use next-auth's getToken() for decoding encrypted session
+  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
 
   console.log("🔍 MIDDLEWARE HIT:");
   console.log("🔗 Path:", pathname);
   console.log("📦 Token:", token);
 
-  // Allow API routes to bypass middleware
-  if (pathname.startsWith("/api")) {
-    return NextResponse.next();
+  if (!token) {
+    console.log("🚫 No token found. Redirecting to /");
+    const url = req.nextUrl.clone();
+    url.pathname = "/";
+    return NextResponse.redirect(url);
   }
 
-  // Define protected routes
-  const isProtected = pathname.startsWith("/dashboard");
-  const isAdminRoute = pathname.startsWith("/dashboard/admin");
-  const isTeamManagerRoute = pathname.startsWith("/dashboard/team_manager");
-  const isMemberRoute = pathname.startsWith("/dashboard/member");
-  const isAdminOnlyRoute = pathname.startsWith("/dashboard/admin/addUser") || pathname.startsWith("/dashboard/admin/manageMeedian");
-  const isManagersCommonRoute = pathname.startsWith("/dashboard/managersCommon");
+  const role = token.role;
 
-  // If no token and trying to access protected routes, redirect to home
-  if (isProtected && !token) {
-    return NextResponse.redirect(new URL("/", request.url));
+  if (pathname.startsWith("/dashboard/admin") && role !== "admin") {
+    return NextResponse.redirect(new URL("/", req.url));
   }
 
-  // If token exists, enforce role-based routing
-  if (token) {
-    const role = token.role;
+  if (pathname.startsWith("/dashboard/team_manager") && role !== "team_manager") {
+    return NextResponse.redirect(new URL("/", req.url));
+  }
 
-    // Members can only access /dashboard/member routes
-    if (role === "member" && !isMemberRoute) {
-      return NextResponse.redirect(new URL("/dashboard/member", request.url));
-    }
+  if (pathname.startsWith("/dashboard/residential_staff") && role !== "residential_staff") {
+    return NextResponse.redirect(new URL("/", req.url));
+  }
 
-    // Admins can access /dashboard/admin, /dashboard/managersCommon, and admin-only routes
-    if (role === "admin") {
-      if (isMemberRoute || isTeamManagerRoute) {
-        return NextResponse.redirect(new URL("/dashboard/admin", request.url));
-      }
-    }
-
-    // Team Managers can access /dashboard/team_manager and /dashboard/managersCommon
-    if (role === "team_manager") {
-      if (isMemberRoute || isAdminOnlyRoute) {
-        return NextResponse.redirect(new URL("/dashboard/team_manager", request.url));
-      }
-    }
-
-    // Admins and Team Managers can access /dashboard/managersCommon routes
-    if (isManagersCommonRoute && role !== "admin" && role !== "team_manager") {
-      return NextResponse.redirect(new URL("/dashboard/member", request.url));
-    }
+  if (pathname.startsWith("/dashboard/non_residential_staff") && role !== "non_residential_staff") {
+    return NextResponse.redirect(new URL("/", req.url));
   }
 
   return NextResponse.next();
