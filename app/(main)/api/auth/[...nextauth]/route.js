@@ -132,6 +132,10 @@ export const authOptions = {
   session: {
     strategy: "jwt",
   },
+  jwt: {
+    encryption: false, // <--- force JWT signing instead of encryption
+  },
+
 
   // ✅ Critical: set cookie path to allow middleware to read session token
   cookies: {
