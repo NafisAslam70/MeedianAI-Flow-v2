@@ -7,7 +7,8 @@ import { debounce } from "lodash";
 import useSWR from "swr";
 import Skeleton from "react-loading-skeleton";
 import "react-loading-skeleton/dist/skeleton.css";
-import TaskList from "@/components/assignPg_TaskList";
+import TaskList from "@/components/assignTask/TaskList";
+import TaskForm from "@/components/assignTask/TaskForm";
 
 const fetcher = (url) =>
   fetch(url, { headers: { "Content-Type": "application/json" } }).then(async (res) => {
@@ -17,150 +18,6 @@ const fetcher = (url) =>
     }
     return res.json();
   });
-
-const TaskForm = ({
-  formData,
-  setFormData,
-  members,
-  loading,
-  isRecording,
-  isTranslating,
-  handleSubmit,
-  inputMode,
-  setInputMode,
-  setShowModal,
-  setVoiceInput,
-}) => {
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
-  };
-
-  return (
-    <div className="w-full sm:w-1/2 flex flex-col gap-4 h-full">
-      <div className="flex items-center gap-3">
-        <svg className="w-6 sm:w-8 h-6 sm:h-8 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
-        </svg>
-        <h2 className="text-lg sm:text-2xl font-bold text-gray-800">Create New Task</h2>
-      </div>
-      <div className="flex flex-wrap gap-2 items-center">
-        {formData.assignees.length > 0 ? (
-          <>
-            {formData.assignees.map((assigneeId, index) => {
-              const member = members.find((m) => m.id === assigneeId);
-              return (
-                member && (
-                  <span
-                    key={`assignee-${assigneeId}-${index}`}
-                    className="px-2 py-1 bg-teal-100 text-teal-800 rounded-full text-xs sm:text-sm font-medium flex items-center"
-                  >
-                    {member.name}
-                    <button
-                      onClick={() =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          assignees: prev.assignees.filter((id) => id !== assigneeId),
-                        }))
-                      }
-                      className="ml-2 text-red-600 hover:text-red-800"
-                    >
-                      ×
-                    </button>
-                  </span>
-                )
-              );
-            })}
-            <motion.button
-              onClick={() => {
-                setTempAssignees(formData.assignees);
-                setShowModal("assignee");
-              }}
-              className="px-2 py-1 bg-teal-100 text-teal-800 rounded-full text-xs sm:text-sm font-medium hover:bg-teal-200"
-              whileHover={{ scale: 1.03 }}
-              whileTap={{ scale: 0.95 }}
-            >
-              Edit Assignees
-            </motion.button>
-          </>
-        ) : (
-          <motion.button
-            onClick={() => setShowModal("assignee")}
-            className="px-2 py-1 bg-teal-100 text-teal-800 rounded-full text-xs sm:text-sm font-medium hover:bg-teal-200"
-            whileHover={{ scale: 1.03 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            Select Assignees
-          </motion.button>
-        )}
-      </div>
-      <div className="flex gap-2">
-        <motion.button
-          onClick={() => setInputMode("text")}
-          className={`flex-1 px-3 py-1 sm:px-4 sm:py-2 rounded-lg text-xs sm:text-base font-semibold ${inputMode === "text" ? "bg-teal-600 text-white hover:bg-teal-700" : "bg-gray-200 text-gray-800 hover:bg-gray-300"}`}
-          whileHover={{ scale: 1.03 }}
-          whileTap={{ scale: 0.95 }}
-        >
-          Text Input
-        </motion.button>
-        <motion.button
-          onClick={() => {
-            setInputMode("voice");
-            setShowModal("voice");
-            setVoiceInput({ title: "", description: "", recording: "title" });
-          }}
-          className={`flex-1 px-3 py-1 sm:px-4 sm:py-2 rounded-lg text-xs sm:text-base font-semibold ${inputMode === "voice" ? "bg-teal-600 text-white hover:bg-teal-700" : "bg-gray-200 text-gray-800 hover:bg-gray-300"}`}
-          whileHover={{ scale: 1.03 }}
-          whileTap={{ scale: 0.95 }}
-        >
-          Voice Input
-        </motion.button>
-      </div>
-      {inputMode === "text" && (
-        <div className="grid grid-cols-1 gap-4">
-          <div>
-            <label htmlFor="title" className="block text-xs sm:text-sm font-medium text-gray-700">
-              Task Title
-            </label>
-            <input
-              type="text"
-              id="title"
-              name="title"
-              value={formData.title}
-              onChange={handleInputChange}
-              className="mt-1 w-full p-2 sm:p-3 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-xs sm:text-base"
-              placeholder="Enter task title"
-              required
-            />
-          </div>
-          <div>
-            <label htmlFor="description" className="block text-xs sm:text-sm font-medium text-gray-700">
-              Task Description
-            </label>
-            <textarea
-              id="description"
-              name="description"
-              value={formData.description}
-              onChange={handleInputChange}
-              className="mt-1 w-full p-2 sm:p-3 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-xs sm:text-base"
-              placeholder="Enter task description"
-              rows={4}
-            />
-          </div>
-        </div>
-      )}
-      <motion.button
-        onClick={handleSubmit}
-        disabled={loading || members.length === 0 || isRecording || isTranslating}
-        className={`w-full px-4 py-2 sm:px-6 sm:py-3 rounded-lg text-white text-xs sm:text-base font-semibold ${loading || members.length === 0 || isRecording || isTranslating ? "bg-gray-400 cursor-not-allowed" : "bg-teal-600 hover:bg-teal-700"}`}
-        whileHover={{ scale: loading || members.length === 0 || isRecording || isTranslating ? 1 : 1.03 }}
-        whileTap={{ scale: loading || members.length === 0 || isRecording || isTranslating ? 1 : 0.95 }}
-      >
-        Assign Task
-      </motion.button>
-    </div>
-  );
-};
 
 const ManageTasksModal = ({ tasks, members, onClose, onEditTask, onManageSprints }) => {
   return (
@@ -191,6 +48,10 @@ const ManageTasksModal = ({ tasks, members, onClose, onEditTask, onManageSprints
                 <p className="text-sm text-gray-500">Assignees: {task.assignees?.map((a) => a.name).join(", ") || "None"}</p>
                 <p className="text-sm text-gray-500">Sprints: {task.sprints?.length || 0}</p>
                 <p className="text-sm text-gray-500">Status: {task.status || "not_started"}</p>
+                <p className="text-sm text-gray-500">Deadline: {task.deadline ? new Date(task.deadline).toLocaleString() : "Not set"}</p>
+                <p className="text-sm text-gray-500">
+                  Assigned By: {members ? members.find((m) => m.id === task.createdBy)?.name || "Unknown" : "Loading..."}
+                </p>
                 <div className="flex gap-2 mt-2">
                   <motion.button
                     onClick={() => onEditTask(task)}
@@ -235,8 +96,10 @@ export default function AssignTask() {
     taskType: "assigned",
     assignees: [],
     sprints: [],
+    deadline: null,
+    resources: "",
   });
-  const [members, setMembers] = useState([]);
+  const [members, setMembers] = useState(null);
   const [previousTasks, setPreviousTasks] = useState([]);
   const [selectedTask, setSelectedTask] = useState(null);
   const [editingTask, setEditingTask] = useState(null);
@@ -347,6 +210,18 @@ export default function AssignTask() {
     }
   };
 
+  const refreshTasks = async () => {
+    setFetchingTasks(true);
+    try {
+      await mutateTasks();
+    } catch (err) {
+      console.error("Refresh tasks error:", err);
+      setError("Failed to refresh tasks. Please try again.");
+    } finally {
+      setFetchingTasks(false);
+    }
+  };
+
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
@@ -376,6 +251,17 @@ export default function AssignTask() {
     setShowModal(null);
     setSuccessMessage("Assignees updated successfully");
     setTimeout(() => setSuccessMessage(""), 3000);
+    // Log the assignee update
+    fetch("/api/managersCommon/general-logs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userId: session?.user?.id,
+        action: "assignees_updated",
+        details: `Assignees updated for ${editingTask ? `task ID ${editingTask.id}` : "new task"} by ${session?.user?.name || "Unknown"}`,
+        createdAt: new Date().toISOString(),
+      }),
+    });
   };
 
   const addSprint = () => {
@@ -425,6 +311,8 @@ export default function AssignTask() {
           assignees: formData.assignees,
           sprints: [],
           createdAt: new Date().toISOString(),
+          deadline: formData.deadline ? new Date(formData.deadline).toISOString() : null,
+          resources: formData.resources,
         }),
       });
 
@@ -439,19 +327,34 @@ export default function AssignTask() {
         title: formData.title,
         description: formData.description,
         taskType: formData.taskType,
-        assignees: formData.assignees.map((id) => members.find((m) => m.id === id)).filter(Boolean),
+        assignees: members ? formData.assignees.map((id) => members.find((m) => m.id === id)).filter(Boolean) : [],
         sprints: [],
         status: "not_started",
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        createdBy: session?.user?.id,
+        deadline: formData.deadline,
+        resources: formData.resources,
       };
       setPreviousTasks((prev) => [newTaskData, ...prev]);
       setNewTask(newTaskData);
       setShowModal("postAssign");
-      setFormData((prev) => ({ ...prev, title: "", description: "", sprints: [] }));
+      setFormData((prev) => ({ ...prev, title: "", description: "", sprints: [], deadline: null, resources: "" }));
       setSuccessMessage("Task assigned successfully");
       setTimeout(() => setSuccessMessage(""), 3000);
-      mutateTasks();
+      await mutateTasks();
+      // Log the creation
+      await fetch("/api/managersCommon/assigned-task-logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          taskId,
+          userId: session?.user?.id,
+          action: "created",
+          details: `Task "${formData.title}" created by ${session?.user?.name || "Unknown"} with ${formData.assignees.length} assignees`,
+          createdAt: new Date().toISOString(),
+        }),
+      });
     } catch (err) {
       console.error("Submit error:", err);
       setError(`Error assigning task: ${err.message}`);
@@ -480,6 +383,8 @@ export default function AssignTask() {
           assignees: editingTask.assignees,
           sprints: editingTask.sprints,
           updatedAt: new Date().toISOString(),
+          deadline: editingTask.deadline ? new Date(editingTask.deadline).toISOString() : null,
+          resources: editingTask.resources,
         }),
       });
 
@@ -488,7 +393,7 @@ export default function AssignTask() {
         throw new Error(errorData.error || `HTTP ${response.status}`);
       }
 
-      const updatedTask = { ...editingTask, updatedAt: new Date().toISOString() };
+      const updatedTask = { ...editingTask, updatedAt: new Date().toISOString(), createdBy: editingTask.createdBy || session?.user?.id };
       setPreviousTasks((prev) => {
         const updatedTasks = prev.map((task) => (task.id === taskId ? updatedTask : task));
         return updatedTasks.sort((a, b) => {
@@ -501,7 +406,19 @@ export default function AssignTask() {
       setShowModal(null);
       setSuccessMessage("Task updated successfully");
       setTimeout(() => setSuccessMessage(""), 3000);
-      mutateTasks();
+      await mutateTasks();
+      // Log the update
+      await fetch("/api/managersCommon/assigned-task-logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          taskId,
+          userId: session?.user?.id,
+          action: "updated",
+          details: `Task "${editingTask.title}" updated by ${session?.user?.name || "Unknown"}`,
+          createdAt: new Date().toISOString(),
+        }),
+      });
     } catch (err) {
       console.error("Edit task error:", err);
       setError(`Error updating task: ${err.message}`);
@@ -518,6 +435,7 @@ export default function AssignTask() {
 
     try {
       for (const taskId of taskIdsToDelete) {
+        const task = previousTasks.find((t) => t.id === taskId);
         const response = await fetch(`/api/managersCommon/assign-tasks/${taskId}`, {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
@@ -527,6 +445,19 @@ export default function AssignTask() {
           const errorData = await response.json().catch(() => ({}));
           throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText || "Failed to delete task"}`);
         }
+
+        // Log the deletion
+        await fetch("/api/managersCommon/assigned-task-logs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            taskId,
+            userId: session?.user?.id,
+            action: "deleted",
+            details: `Task "${task?.title || taskId}" deleted by ${session?.user?.name || "Unknown"}`,
+            createdAt: new Date().toISOString(),
+          }),
+        });
       }
 
       setPreviousTasks((prev) => prev.filter((task) => !taskIdsToDelete.includes(task.id)));
@@ -538,7 +469,7 @@ export default function AssignTask() {
       setSelectedTaskIds([]);
       setSuccessMessage(`${taskIdsToDelete.length} task${taskIdsToDelete.length > 1 ? "s" : ""} deleted successfully`);
       setTimeout(() => setSuccessMessage(""), 3000);
-      mutateTasks();
+      await mutateTasks();
     } catch (err) {
       console.error("Delete task error:", err);
       setError(`Error deleting task${taskIdsToDelete.length > 1 ? "s" : ""}: ${err.message}. Please check if the DELETE endpoint is correctly configured at /api/managersCommon/assign-tasks/[taskId].`);
@@ -602,7 +533,19 @@ export default function AssignTask() {
       setFormData((prev) => ({ ...prev, sprints: [] }));
       setSuccessMessage("Sprints updated successfully");
       setTimeout(() => setSuccessMessage(""), 3000);
-      mutateTasks();
+      await mutateTasks();
+      // Log the sprint update
+      await fetch("/api/managersCommon/assigned-task-logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          taskId,
+          userId: session?.user?.id,
+          action: "sprints_updated",
+          details: `Sprints updated for task ID ${taskId} by ${session?.user?.name || "Unknown"}`,
+          createdAt: new Date().toISOString(),
+        }),
+      });
     } catch (err) {
       console.error("Update sprints error:", err);
       setError(`Error updating sprints: ${err.message}`);
@@ -697,13 +640,26 @@ export default function AssignTask() {
     setTranslationSuccess(false);
     setSuccessMessage("Voice input translated and confirmed");
     setTimeout(() => setSuccessMessage(""), 3000);
+    // Log the translation confirmation
+    fetch("/api/managersCommon/general-logs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userId: session?.user?.id,
+        action: "translation_confirmed",
+        details: `Voice input translated and confirmed for task creation by ${session?.user?.name || "Unknown"}`,
+        createdAt: new Date().toISOString(),
+      }),
+    });
   };
 
-  const filteredMembers = members.filter(
-    (member) =>
-      member.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      member.email?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredMembers = members
+    ? members.filter(
+        (member) =>
+          member.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          member.email?.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : [];
 
   if (status === "loading" || !membersData) {
     return (
@@ -765,6 +721,7 @@ export default function AssignTask() {
             deleting={deleting}
             getStatusColor={getStatusColor}
             setSelectedTask={setSelectedTask}
+            refreshTasks={refreshTasks}
           />
           <TaskForm
             formData={formData}
@@ -778,6 +735,7 @@ export default function AssignTask() {
             setInputMode={setInputMode}
             setShowModal={setShowModal}
             setVoiceInput={setVoiceInput}
+            setTempAssignees={setTempAssignees}
           />
         </div>
       </motion.div>
@@ -897,11 +855,22 @@ export default function AssignTask() {
                     <strong>Assignees:</strong>{" "}
                     {(newTask || selectedTask).assignees?.map((a) => a.name).join(", ") || "None"}
                   </p>
-                  <p className="text-gray-500 text-xs sm:text-base mb-4">
+                  <p className="text-gray-500 text-xs sm:text-base mb-2">
                     <strong>Sprints:</strong>{" "}
                     {(newTask || selectedTask).sprints?.length > 0
                       ? (newTask || selectedTask).sprints.map((s) => `${s.title} (${s.status})`).join(", ")
                       : "None"}
+                  </p>
+                  <p className="text-gray-500 text-xs sm:text-base mb-2">
+                    <strong>Deadline:</strong>{" "}
+                    {(newTask || selectedTask).deadline ? new Date((newTask || selectedTask).deadline).toLocaleString() : "Not set"}
+                  </p>
+                  <p className="text-gray-500 text-xs sm:text-base mb-2">
+                    <strong>Assigned By:</strong>{" "}
+                    {members ? members.find((m) => m.id === (newTask || selectedTask).createdBy)?.name || "Unknown" : "Loading..."}
+                  </p>
+                  <p className="text-gray-500 text-xs sm:text-base mb-4">
+                    <strong>Resources:</strong> {(newTask || selectedTask).resources || "None"}
                   </p>
                   <div className="flex gap-3">
                     <motion.button
@@ -980,10 +949,34 @@ export default function AssignTask() {
                       />
                     </div>
                     <div>
+                      <label className="block text-xs sm:text-sm font-medium text-gray-700">Deadline</label>
+                      <DatePicker
+                        selected={editingTask.deadline}
+                        onChange={(date) => setEditingTask((prev) => ({ ...prev, deadline: date }))}
+                        showTimeSelect
+                        timeFormat="HH:mm"
+                        timeIntervals={15}
+                        dateFormat="MMMM d, yyyy h:mm aa"
+                        className="mt-1 w-full p-2 sm:p-3 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-xs sm:text-base"
+                        placeholderText="Select deadline"
+                      />
+                    </div>
+                    <div>
+                      <label                       className="block text-xs sm:text-sm font-medium text-gray-700">Resources (Links or Notes)</label>
+                      <textarea
+                        name="resources"
+                        value={editingTask.resources || ""}
+                        onChange={handleEditInputChange}
+                        className="mt-1 w-full p-2 sm:p-3 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-xs sm:text-base"
+                        placeholder="Enter links or suggestive notes"
+                        rows={3}
+                      />
+                    </div>
+                    <div>
                       <label className="block text-xs sm:text-sm font-medium text-gray-700">Assignees</label>
                       <div className="flex flex-wrap gap-2 mt-2">
                         {editingTask.assignees.map((assigneeId, index) => {
-                          const member = members.find((m) => m.id === assigneeId);
+                          const member = members ? members.find((m) => m.id === assigneeId) : null;
                           return (
                             member && (
                               <span

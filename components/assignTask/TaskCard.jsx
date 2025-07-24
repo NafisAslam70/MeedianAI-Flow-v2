@@ -1,6 +1,8 @@
 import { motion } from "framer-motion";
 
-const TaskCard = ({ task, selectedTaskIds, setSelectedTaskIds, setSelectedTask, setShowModal, getStatusColor }) => {
+const TaskCard = ({ task, selectedTaskIds, setSelectedTaskIds, setSelectedTask, setShowModal, getStatusColor, members }) => {
+  const assignedBy = members ? members.find((m) => m.id === task.createdBy)?.name || "Unknown" : "Loading...";
+
   return (
     <div className="flex items-start gap-2">
       <input
@@ -31,6 +33,7 @@ const TaskCard = ({ task, selectedTaskIds, setSelectedTaskIds, setSelectedTask, 
           </p>
           <p className="text-xs sm:text-sm text-gray-500">Sprints: {task.sprints?.length || 0}</p>
           <p className="text-xs sm:text-sm text-gray-500">Status: {task.status || "not_started"}</p>
+          <p className="text-xs sm:text-sm text-gray-500">Assigned By: {assignedBy}</p>
         </div>
       </motion.div>
     </div>

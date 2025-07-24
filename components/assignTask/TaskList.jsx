@@ -1,7 +1,7 @@
 import { motion } from "framer-motion";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
-import TaskCard from "./assignPg_TaskCard";
+import TaskCard from "./TaskCard";
 
 const TaskList = ({
   filteredTasks,
@@ -22,6 +22,7 @@ const TaskList = ({
   deleting,
   getStatusColor,
   setSelectedTask,
+  refreshTasks,
 }) => {
   const [startDate, endDate] = dateRange;
 
@@ -35,16 +36,25 @@ const TaskList = ({
       </div>
       {filteredTasks.length > 0 && (
         <div className="mb-3 flex justify-between items-center">
-          <motion.button
-            onClick={() => {
-              const allSelected = selectedTaskIds.length === filteredTasks.length;
-              setSelectedTaskIds(allSelected ? [] : filteredTasks.map((t) => t.id));
-            }}
-            className="px-3 py-1 bg-teal-500 text-white rounded-md text-sm hover:bg-teal-600"
-            whileHover={{ scale: 1.02 }}
-          >
-            {selectedTaskIds.length === filteredTasks.length ? "Unselect All" : "Select All"}
-          </motion.button>
+          <div className="flex gap-2">
+            <motion.button
+              onClick={() => {
+                const allSelected = selectedTaskIds.length === filteredTasks.length;
+                setSelectedTaskIds(allSelected ? [] : filteredTasks.map((t) => t.id));
+              }}
+              className="px-3 py-1 bg-teal-500 text-white rounded-md text-sm hover:bg-teal-600"
+              whileHover={{ scale: 1.02 }}
+            >
+              {selectedTaskIds.length === filteredTasks.length ? "Unselect All" : "Select All"}
+            </motion.button>
+            <motion.button
+              onClick={refreshTasks}
+              className="px-3 py-1 bg-blue-500 text-white rounded-md text-sm hover:bg-blue-600"
+              whileHover={{ scale: 1.02 }}
+            >
+              Refresh
+            </motion.button>
+          </div>
           {selectedTaskIds.length > 0 && (
             <motion.button
               onClick={handleBulkDelete}
@@ -72,11 +82,11 @@ const TaskList = ({
           className="flex-1 min-w-[100px] sm:min-w-[120px] p-2 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-xs sm:text-sm"
         >
           <option value="">By Member</option>
-          {members.map((member) => (
+          {members ? members.map((member) => (
             <option key={member.id} value={member.id}>
               {member.name}
             </option>
-          ))}
+          )) : []}
         </select>
         <DatePicker
           selectsRange={true}
@@ -122,6 +132,7 @@ const TaskList = ({
               setSelectedTask={setSelectedTask}
               setShowModal={setShowModal}
               getStatusColor={getStatusColor}
+              members={members}
             />
           ))
         ) : (
