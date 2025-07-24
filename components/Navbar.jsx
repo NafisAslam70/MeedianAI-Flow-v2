@@ -1,3 +1,4 @@
+
 "use client";
 import { useSession, signOut } from "next-auth/react";
 import Link from "next/link";
@@ -19,6 +20,8 @@ export default function Navbar() {
   }, []);
 
   const role = session?.user?.role;
+  const userName = session?.user?.name || "User";
+  const userImage = session?.user?.image || "/default-avatar.png";
 
   const handleLogout = async () => {
     setIsLogoutModalOpen(false);
@@ -153,6 +156,74 @@ export default function Navbar() {
         .nav-button:hover {
           transform: translateY(-2px);
         }
+        .user-info {
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+          background: #374151;
+          padding: 0.5rem 1rem;
+          border-radius: 12px;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+          transition: all 0.3s ease;
+        }
+        .user-info:hover {
+          transform: translateY(-2px);
+          background: #4b5563;
+        }
+        .user-info img {
+          width: 32px;
+          height: 32px;
+          border-radius: 50%;
+          border: 2px solid #22d3ee;
+          object-fit: cover;
+        }
+        .user-info-text {
+          display: flex;
+          flex-direction: column;
+          color: #d1d5db;
+        }
+        .user-info-text .name {
+          font-weight: 600;
+          font-size: 0.9rem;
+          text-transform: capitalize;
+        }
+        .user-info-text .role {
+          font-size: 0.75rem;
+          color: #9ca3af;
+          text-transform: capitalize;
+        }
+        .mobile-user-info {
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+          background: #374151;
+          padding: 0.75rem;
+          border-radius: 12px;
+          margin-bottom: 1rem;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        }
+        .mobile-user-info img {
+          width: 40px;
+          height: 40px;
+          border-radius: 50%;
+          border: 2px solid #22d3ee;
+          object-fit: cover;
+        }
+        .mobile-user-info-text {
+          display: flex;
+          flex-direction: column;
+          color: #d1d5db;
+        }
+        .mobile-user-info-text .name {
+          font-weight: 600;
+          font-size: 1rem;
+          text-transform: capitalize;
+        }
+        .mobile-user-info-text .role {
+          font-size: 0.85rem;
+          color: #9ca3af;
+          text-transform: capitalize;
+        }
       `}</style>
 
       <nav className="bg-gradient-to-r from-gray-900 to-gray-800 text-white px-6 py-4 w-full sticky top-0 z-40 shadow-lg">
@@ -183,8 +254,8 @@ export default function Navbar() {
                 </Link>
                 <Link
                   href="/dashboard/managersCommon/assignTask"
-                  className={`nav-item hover:text-cyan-300 ${isActive("/dashboard/managersCommon/assignTask") ? "text-cyan-300 active" : ""}`
-            }>
+                  className={`nav-item hover:text-cyan-300 ${isActive("/dashboard/managersCommon/assignTask") ? "text-cyan-300 active" : ""}`}
+                >
                   Assign Task
                 </Link>
                 <button
@@ -272,15 +343,24 @@ export default function Navbar() {
             )}
           </div>
 
-          {/* Right Section: Logout and Mobile Toggle */}
+          {/* Right Section: User Info, Logout, and Mobile Toggle */}
           <div className="flex items-center gap-4">
             {(role === "admin" || role === "team_manager" || role === "member") && (
-              <button
-                onClick={openLogoutModal}
-                className="hidden md:block nav-button bg-red-600 hover:bg-red-700 text-white"
-              >
-                Logout
-              </button>
+              <>
+                <div className="user-info hidden md:flex">
+                  <img src={userImage} alt="User Avatar" />
+                  <div className="user-info-text">
+                    <span className="name">{userName}</span>
+                    <span className="role">{role.replace("_", " ")}</span>
+                  </div>
+                </div>
+                <button
+                  onClick={openLogoutModal}
+                  className="hidden md:block nav-button bg-red-600 hover:bg-red-700 text-white"
+                >
+                  Logout
+                </button>
+              </>
             )}
             <div className="md:hidden">
               <button onClick={toggleMobileMenu} className="text-white p-2 rounded-full hover:bg-gray-700 transition duration-200">
@@ -301,6 +381,15 @@ export default function Navbar() {
                   <X size={24} />
                 </button>
               </div>
+              {(role === "admin" || role === "team_manager" || role === "member") && (
+                <div className="mobile-user-info">
+                  <img src={userImage} alt="User Avatar" />
+                  <div className="mobile-user-info-text">
+                    <span className="name">{userName}</span>
+                    <span className="role">{role.replace("_", " ")}</span>
+                  </div>
+                </div>
+              )}
               <div className="space-y-2">
                 {role === "admin" && (
                   <>
