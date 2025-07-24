@@ -1,7 +1,7 @@
 import { motion } from "framer-motion";
 
 const TaskCard = ({ task, selectedTaskIds, setSelectedTaskIds, setSelectedTask, setShowModal, getStatusColor, members }) => {
-  const assignedBy = members ? members.find((m) => m.id === task.createdBy)?.name || "Unknown" : "Loading...";
+  const assignedBy = members ? members.find((m) => m.id === task.createdBy)?.name || "you" : "Loading...";
 
   return (
     <div className="flex items-start gap-2">

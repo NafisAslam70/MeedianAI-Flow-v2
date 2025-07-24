@@ -20,6 +20,8 @@ export async function GET(req) {
         taskType: assignedTasks.taskType,
         createdBy: assignedTasks.createdBy,
         createdAt: assignedTasks.createdAt,
+        deadline: assignedTasks.deadline,
+        resources: assignedTasks.resources,
         assignees: sql`json_agg(
           json_build_object(
             'id', ${users.id},
@@ -42,10 +44,6 @@ export async function GET(req) {
       .leftJoin(users, eq(assignedTaskStatus.memberId, users.id))
       .leftJoin(sprints, eq(sprints.taskStatusId, assignedTaskStatus.id))
       .groupBy(assignedTasks.id);
-
-    // if (session.user.role === "team_manager" && session.user.team_manager_type) {
-    //   query = query.where(eq(users.team_manager_type, session.user.team_manager_type));
-    // }
 
     const tasks = await query;
 
@@ -98,7 +96,7 @@ export async function POST(req) {
   }
 
   try {
-    const { title, description, taskType, createdBy, assignees } = await req.json();
+    const { title, description, taskType, createdBy, assignees, deadline, resources } = await req.json();
 
     if (!title || !assignees || assignees.length === 0) {
       return NextResponse.json({ error: "Title and at least one assignee are required" }, { status: 400 });
@@ -120,7 +118,7 @@ export async function POST(req) {
       return NextResponse.json({ error: "One or more assignees are invalid or not accessible" }, { status: 400 });
     }
 
-    // Insert new task (no transaction)
+    // Insert new task
     const [newTask] = await db
       .insert(assignedTasks)
       .values({
@@ -129,6 +127,8 @@ export async function POST(req) {
         taskType: taskType || "assigned",
         createdBy: parseInt(createdBy),
         createdAt: new Date(),
+        deadline: deadline ? new Date(deadline) : null,
+        resources: resources || null,
       })
       .returning({ id: assignedTasks.id });
 

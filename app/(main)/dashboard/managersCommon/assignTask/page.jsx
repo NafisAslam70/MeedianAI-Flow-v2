@@ -7,6 +7,8 @@ import { debounce } from "lodash";
 import useSWR from "swr";
 import Skeleton from "react-loading-skeleton";
 import "react-loading-skeleton/dist/skeleton.css";
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
 import TaskList from "@/components/assignTask/TaskList";
 import TaskForm from "@/components/assignTask/TaskForm";
 
@@ -143,8 +145,15 @@ export default function AssignTask() {
   }, [status, session, router]);
 
   useEffect(() => {
-    if (membersData?.users) {
-      const uniqueMembers = Array.from(new Map(membersData.users.map((m) => [m.id, m])).values());
+    if (membersData?.users && session?.user) {
+      const uniqueMembers = Array.from(
+        new Map(
+          [
+            { id: session.user.id, name: session.user.name, email: session.user.email, role: session.user.role },
+            ...membersData.users,
+          ].map((m) => [m.id, m])
+        ).values()
+      );
       setMembers(uniqueMembers);
     } else if (membersError) {
       console.error("Members fetch error:", membersError);
@@ -307,7 +316,7 @@ export default function AssignTask() {
           title: formData.title,
           description: formData.description,
           taskType: formData.taskType,
-          createdBy: session?.user?.id,
+          createdBy: parseInt(session?.user?.id),
           assignees: formData.assignees,
           sprints: [],
           createdAt: new Date().toISOString(),
@@ -332,7 +341,7 @@ export default function AssignTask() {
         status: "not_started",
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-        createdBy: session?.user?.id,
+        createdBy: parseInt(session?.user?.id),
         deadline: formData.deadline,
         resources: formData.resources,
       };
@@ -382,6 +391,7 @@ export default function AssignTask() {
           description: editingTask.description,
           assignees: editingTask.assignees,
           sprints: editingTask.sprints,
+          createdBy: parseInt(session?.user?.id),
           updatedAt: new Date().toISOString(),
           deadline: editingTask.deadline ? new Date(editingTask.deadline).toISOString() : null,
           resources: editingTask.resources,
@@ -393,7 +403,11 @@ export default function AssignTask() {
         throw new Error(errorData.error || `HTTP ${response.status}`);
       }
 
-      const updatedTask = { ...editingTask, updatedAt: new Date().toISOString(), createdBy: editingTask.createdBy || session?.user?.id };
+      const updatedTask = {
+        ...editingTask,
+        updatedAt: new Date().toISOString(),
+        createdBy: parseInt(session?.user?.id),
+      };
       setPreviousTasks((prev) => {
         const updatedTasks = prev.map((task) => (task.id === taskId ? updatedTask : task));
         return updatedTasks.sort((a, b) => {
@@ -499,7 +513,11 @@ export default function AssignTask() {
       const response = await fetch(`/api/managersCommon/assign-tasks/${taskId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sprints: validSprints, updatedAt: new Date().toISOString() }),
+        body: JSON.stringify({
+          sprints: validSprints,
+          updatedAt: new Date().toISOString(),
+          createdBy: parseInt(session?.user?.id),
+        }),
       });
 
       if (!response.ok) {
@@ -516,6 +534,7 @@ export default function AssignTask() {
             ? "done"
             : "not_started",
         updatedAt: new Date().toISOString(),
+        createdBy: parseInt(session?.user?.id),
       };
 
       setPreviousTasks((prev) => {
@@ -878,6 +897,7 @@ export default function AssignTask() {
                         setEditingTask({
                           ...selectedTask,
                           assignees: Array.from(new Set(selectedTask.assignees?.map((a) => a.id) || [])),
+                          deadline: selectedTask.deadline ? new Date(selectedTask.deadline) : null,
                         });
                         setFormData((prev) => ({ ...prev, sprints: selectedTask.sprints || [] }));
                         setShowModal("editTask");
@@ -962,7 +982,7 @@ export default function AssignTask() {
                       />
                     </div>
                     <div>
-                      <label                       className="block text-xs sm:text-sm font-medium text-gray-700">Resources (Links or Notes)</label>
+                      <label className="block text-xs sm:text-sm font-medium text-gray-700">Resources (Links or Notes)</label>
                       <textarea
                         name="resources"
                         value={editingTask.resources || ""}
@@ -1284,7 +1304,11 @@ export default function AssignTask() {
                   members={members}
                   onClose={() => setShowModal(null)}
                   onEditTask={(task) => {
-                    setEditingTask({ ...task, assignees: Array.from(new Set(task.assignees?.map((a) => a.id) || [])) });
+                    setEditingTask({
+                      ...task,
+                      assignees: Array.from(new Set(task.assignees?.map((a) => a.id) || [])),
+                      deadline: task.deadline ? new Date(task.deadline) : null,
+                    });
                     setFormData((prev) => ({ ...prev, sprints: task.sprints || [] }));
                     setShowModal("editTask");
                   }}
