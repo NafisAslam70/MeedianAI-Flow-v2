@@ -1,5 +1,6 @@
+
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
@@ -128,15 +129,21 @@ export default function AssignTask() {
   const [deleting, setDeleting] = useState(false);
   const [assigneesChanged, setAssigneesChanged] = useState(false);
 
-  const { data: membersData, error: membersError } = useSWR("/api/managersCommon/users", fetcher, {
+  // Stable cache buster to prevent excessive fetching
+  const cacheBuster = useMemo(() => new Date().getTime(), []);
+
+  const { data: membersData, error: membersError } = useSWR(`/api/managersCommon/users?cb=${cacheBuster}`, fetcher, {
     revalidateOnFocus: false,
     dedupingInterval: 60000,
     revalidateOnReconnect: false,
+    refreshInterval: 0, // Disable polling
   });
-  const { data: tasksData, error: tasksError, mutate: mutateTasks } = useSWR("/api/managersCommon/assign-tasks", fetcher, {
+
+  const { data: tasksData, error: tasksError, mutate: mutateTasks } = useSWR(`/api/managersCommon/assign-tasks?cb=${cacheBuster}`, fetcher, {
     revalidateOnFocus: false,
     dedupingInterval: 60000,
     revalidateOnReconnect: false,
+    refreshInterval: 0, // Disable polling
   });
 
   useEffect(() => {
@@ -156,6 +163,7 @@ export default function AssignTask() {
         ).values()
       );
       setMembers(uniqueMembers);
+      console.log(`Users fetched for task assignment: ${uniqueMembers.length}`, { userId: session.user.id });
     } else if (membersError) {
       console.error("Members fetch error:", membersError);
       setError(
@@ -223,6 +231,7 @@ export default function AssignTask() {
   const refreshTasks = async () => {
     setFetchingTasks(true);
     try {
+      await mutateTasks(undefined, { revalidate: true });
       window.location.reload();
     } catch (err) {
       console.error("Refresh tasks error:", err);
@@ -230,18 +239,6 @@ export default function AssignTask() {
       setFetchingTasks(false);
     }
   };
-
-  // const refreshTasks = async () => {
-  //   setFetchingTasks(true);
-  //   try {
-  //     await mutateTasks();
-  //   } catch (err) {
-  //     console.error("Refresh tasks error:", err);
-  //     setError("Failed to refresh tasks. Please try again.");
-  //   } finally {
-  //     setFetchingTasks(false);
-  //   }
-  // };
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -330,7 +327,7 @@ export default function AssignTask() {
           description: formData.description,
           taskType: formData.taskType,
           createdBy: parseInt(session?.user?.id),
-          assignees: formData.assignees,
+          assignees: Array.from(new Set(formData.assignees)),
           sprints: [],
           createdAt: new Date().toISOString(),
           deadline: formData.deadline ? new Date(formData.deadline).toISOString() : null,
@@ -349,7 +346,7 @@ export default function AssignTask() {
         title: formData.title,
         description: formData.description,
         taskType: formData.taskType,
-        assignees: members ? formData.assignees.map((id) => members.find((m) => m.id === id)).filter(Boolean) : [],
+        assignees: members ? Array.from(new Set(formData.assignees)).map((id) => members.find((m) => m.id === id)).filter(Boolean) : [],
         sprints: [],
         status: "not_started",
         createdAt: new Date().toISOString(),
@@ -406,7 +403,7 @@ export default function AssignTask() {
         resources: editingTask.resources,
       };
       if (assigneesChanged) {
-        body.assignees = editingTask.assignees;
+        body.assignees = Array.from(new Set(editingTask.assignees)); // Deduplicate assignees
       }
 
       const response = await fetch(`/api/managersCommon/assign-tasks/${taskId}`, {
@@ -422,9 +419,20 @@ export default function AssignTask() {
 
       const updatedTask = {
         ...editingTask,
+        assignees: members ? Array.from(new Set(editingTask.assignees)).map((id) => members.find((m) => m.id === id)).filter(Boolean) : [],
         updatedAt: new Date().toISOString(),
         createdBy: parseInt(session?.user?.id),
       };
+
+      // Update client-side cache with the new task data
+      await mutateTasks(
+        (current) => ({
+          ...current,
+          assignedTasks: current.assignedTasks.map((task) => (task.id === taskId ? updatedTask : task)),
+        }),
+        { revalidate: true }
+      );
+
       setPreviousTasks((prev) => {
         const updatedTasks = prev.map((task) => (task.id === taskId ? updatedTask : task));
         return updatedTasks.sort((a, b) => {
@@ -438,7 +446,6 @@ export default function AssignTask() {
       setAssigneesChanged(false);
       setSuccessMessage("Task updated successfully");
       setTimeout(() => setSuccessMessage(""), 3000);
-      await mutateTasks();
       await fetch("/api/managersCommon/assigned-task-logs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -451,10 +458,10 @@ export default function AssignTask() {
         }),
       });
 
-      // Trigger full page reload after successful update
+      // Trigger page reload after update
       setTimeout(() => {
         window.location.reload();
-      }, 500); // Short delay to ensure success message is visible
+      }, 1500); // Increased delay for server commit
     } catch (err) {
       console.error("Edit task error:", err);
       setError(`Error updating task: ${err.message}`);
@@ -478,7 +485,7 @@ export default function AssignTask() {
         });
 
         if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
+          const errorData = await res.json().catch(() => ({}));
           throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText || "Failed to delete task"}`);
         }
 
@@ -558,6 +565,14 @@ export default function AssignTask() {
         createdBy: parseInt(session?.user?.id),
       };
 
+      await mutateTasks(
+        (current) => ({
+          ...current,
+          assignedTasks: current.assignedTasks.map((task) => (task.id === taskId ? updatedTask : task)),
+        }),
+        { revalidate: true }
+      );
+
       setPreviousTasks((prev) => {
         const updatedTasks = prev.map((task) => (task.id === taskId ? updatedTask : task));
         return updatedTasks.sort((a, b) => {
@@ -573,7 +588,6 @@ export default function AssignTask() {
       setFormData((prev) => ({ ...prev, sprints: [] }));
       setSuccessMessage("Sprints updated successfully");
       setTimeout(() => setSuccessMessage(""), 3000);
-      await mutateTasks();
       await fetch("/api/managersCommon/assigned-task-logs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -835,7 +849,7 @@ export default function AssignTask() {
                       filteredMembers.map((member) => (
                         <motion.div
                           key={`member-${member.id}`}
-                          className="flex items-center p-2 hover:bg-teal-50 rounded-lg"
+                          className={`flex items-center p-2 rounded-lg ${tempAssignees.includes(member.id) ? "bg-teal-100" : "hover:bg-teal-50"}`}
                           initial={{ opacity: 0 }}
                           animate={{ opacity: 1 }}
                         >
@@ -845,6 +859,7 @@ export default function AssignTask() {
                             checked={tempAssignees.includes(member.id)}
                             onChange={() => handleAssigneeSelect(member.id)}
                             className="h-4 sm:h-5 w-4 sm:w-5 text-teal-600 border-teal-200 rounded focus:ring-teal-500"
+                            disabled={tempAssignees.includes(member.id)}
                           />
                           <label htmlFor={`member-${member.id}`} className="ml-2 sm:ml-3 text-xs sm:text-base text-gray-700">
                             {member.name} ({member.email}, {member.role})
@@ -899,16 +914,15 @@ export default function AssignTask() {
                       ? (newTask || selectedTask).sprints.map((s) => `${s.title} (${s.status})`).join(", ")
                       : "None"}
                   </p>
-<p className="text-gray-500 text-xs sm:text-base mb-2">
-  <strong>Deadline:</strong>{" "}
-  {(newTask || selectedTask).deadline
-    ? new Date((newTask || selectedTask).deadline).toLocaleString()
-    : "Not set"}
-</p>
-
+                  <p className="text-gray-500 text-xs sm:text-base mb-2">
+                    <strong>Deadline:</strong>{" "}
+                    {(newTask || selectedTask).deadline
+                      ? new Date((newTask || selectedTask).deadline).toLocaleString()
+                      : "Not set"}
+                  </p>
                   <p className="text-gray-500 text-xs sm:text-base mb-2">
                     <strong>Assigned By:</strong>{" "}
-                    {members ? members.find((m) => m.id === (newTask || selectedTask).createdBy)?.name || "Unknown" : "Loading..."}
+                    {members ? members.find((m) => m.id === (newTask || selectedTask).createdBy)?.name || "You" : "Loading..."}
                   </p>
                   <p className="text-gray-500 text-xs sm:text-base mb-4">
                     <strong>Resources:</strong> {(newTask || selectedTask).resources || "None"}
