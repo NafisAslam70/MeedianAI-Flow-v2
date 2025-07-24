@@ -43,9 +43,9 @@ export async function GET(req) {
       .leftJoin(sprints, eq(sprints.taskStatusId, assignedTaskStatus.id))
       .groupBy(assignedTasks.id);
 
-    if (session.user.role === "team_manager" && session.user.team_manager_type) {
-      query = query.where(eq(users.team_manager_type, session.user.team_manager_type));
-    }
+    // if (session.user.role === "team_manager" && session.user.team_manager_type) {
+    //   query = query.where(eq(users.team_manager_type, session.user.team_manager_type));
+    // }
 
     const tasks = await query;
 

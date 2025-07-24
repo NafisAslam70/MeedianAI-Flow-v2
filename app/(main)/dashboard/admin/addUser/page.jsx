@@ -80,8 +80,9 @@ export default function AddUser() {
     }
   }, [tasksData, tasksError]);
 
-  // Redirect if not admin
+  // Redirect if not admin, but skip during session loading
   useEffect(() => {
+    if (status === "loading") return; // Prevent redirects during session loading
     if (status === "authenticated" && session?.user?.role !== "admin") {
       router.push("/dashboard/member");
     } else if (status === "unauthenticated") {
