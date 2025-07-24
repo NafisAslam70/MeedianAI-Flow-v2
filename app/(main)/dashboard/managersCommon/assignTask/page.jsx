@@ -126,6 +126,7 @@ export default function AssignTask() {
   const [deleteTaskId, setDeleteTaskId] = useState(null);
   const [selectedTaskIds, setSelectedTaskIds] = useState([]);
   const [deleting, setDeleting] = useState(false);
+  const [assigneesChanged, setAssigneesChanged] = useState(false);
 
   const { data: membersData, error: membersError } = useSWR("/api/managersCommon/users", fetcher, {
     revalidateOnFocus: false,
@@ -222,14 +223,25 @@ export default function AssignTask() {
   const refreshTasks = async () => {
     setFetchingTasks(true);
     try {
-      await mutateTasks();
+      window.location.reload();
     } catch (err) {
       console.error("Refresh tasks error:", err);
       setError("Failed to refresh tasks. Please try again.");
-    } finally {
       setFetchingTasks(false);
     }
   };
+
+  // const refreshTasks = async () => {
+  //   setFetchingTasks(true);
+  //   try {
+  //     await mutateTasks();
+  //   } catch (err) {
+  //     console.error("Refresh tasks error:", err);
+  //     setError("Failed to refresh tasks. Please try again.");
+  //   } finally {
+  //     setFetchingTasks(false);
+  //   }
+  // };
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -248,19 +260,20 @@ export default function AssignTask() {
       }
       return [...prev, memberId];
     });
+    setAssigneesChanged(true);
   }, 300);
 
   const confirmAssignees = () => {
     const uniqueAssignees = Array.from(new Set(tempAssignees));
     if (editingTask) {
       setEditingTask((prev) => ({ ...prev, assignees: uniqueAssignees }));
+      setShowModal("editTask");
     } else {
       setFormData((prev) => ({ ...prev, assignees: uniqueAssignees }));
+      setShowModal(null);
     }
-    setShowModal(null);
     setSuccessMessage("Assignees updated successfully");
     setTimeout(() => setSuccessMessage(""), 3000);
-    // Log the assignee update
     fetch("/api/managersCommon/general-logs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -352,7 +365,6 @@ export default function AssignTask() {
       setSuccessMessage("Task assigned successfully");
       setTimeout(() => setSuccessMessage(""), 3000);
       await mutateTasks();
-      // Log the creation
       await fetch("/api/managersCommon/assigned-task-logs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -376,6 +388,8 @@ export default function AssignTask() {
   const handleEditTask = async (taskId) => {
     if (!editingTask?.title || editingTask.assignees.length === 0) {
       setError("Task title and at least one assignee are required.");
+      setLoading(false);
+      setLoadingAction("");
       return;
     }
 
@@ -383,19 +397,22 @@ export default function AssignTask() {
     setLoadingAction("Saving...");
 
     try {
+      const body = {
+        title: editingTask.title,
+        description: editingTask.description,
+        sprints: editingTask.sprints,
+        updatedAt: new Date().toISOString(),
+        deadline: editingTask.deadline ? new Date(editingTask.deadline).toISOString() : null,
+        resources: editingTask.resources,
+      };
+      if (assigneesChanged) {
+        body.assignees = editingTask.assignees;
+      }
+
       const response = await fetch(`/api/managersCommon/assign-tasks/${taskId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: editingTask.title,
-          description: editingTask.description,
-          assignees: editingTask.assignees,
-          sprints: editingTask.sprints,
-          createdBy: parseInt(session?.user?.id),
-          updatedAt: new Date().toISOString(),
-          deadline: editingTask.deadline ? new Date(editingTask.deadline).toISOString() : null,
-          resources: editingTask.resources,
-        }),
+        body: JSON.stringify(body),
       });
 
       if (!response.ok) {
@@ -418,10 +435,10 @@ export default function AssignTask() {
       });
       setEditingTask(null);
       setShowModal(null);
+      setAssigneesChanged(false);
       setSuccessMessage("Task updated successfully");
       setTimeout(() => setSuccessMessage(""), 3000);
       await mutateTasks();
-      // Log the update
       await fetch("/api/managersCommon/assigned-task-logs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -433,6 +450,11 @@ export default function AssignTask() {
           createdAt: new Date().toISOString(),
         }),
       });
+
+      // Trigger full page reload after successful update
+      setTimeout(() => {
+        window.location.reload();
+      }, 500); // Short delay to ensure success message is visible
     } catch (err) {
       console.error("Edit task error:", err);
       setError(`Error updating task: ${err.message}`);
@@ -460,7 +482,6 @@ export default function AssignTask() {
           throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText || "Failed to delete task"}`);
         }
 
-        // Log the deletion
         await fetch("/api/managersCommon/assigned-task-logs", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -553,7 +574,6 @@ export default function AssignTask() {
       setSuccessMessage("Sprints updated successfully");
       setTimeout(() => setSuccessMessage(""), 3000);
       await mutateTasks();
-      // Log the sprint update
       await fetch("/api/managersCommon/assigned-task-logs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -659,7 +679,6 @@ export default function AssignTask() {
     setTranslationSuccess(false);
     setSuccessMessage("Voice input translated and confirmed");
     setTimeout(() => setSuccessMessage(""), 3000);
-    // Log the translation confirmation
     fetch("/api/managersCommon/general-logs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -837,7 +856,7 @@ export default function AssignTask() {
                   <div className="flex gap-3 mt-4">
                     <motion.button
                       onClick={() => {
-                        setShowModal(null);
+                        setShowModal(editingTask ? "editTask" : null);
                         setTempAssignees(editingTask ? editingTask.assignees : formData.assignees);
                         setSearchQuery("");
                       }}
@@ -880,10 +899,13 @@ export default function AssignTask() {
                       ? (newTask || selectedTask).sprints.map((s) => `${s.title} (${s.status})`).join(", ")
                       : "None"}
                   </p>
-                  <p className="text-gray-500 text-xs sm:text-base mb-2">
-                    <strong>Deadline:</strong>{" "}
-                    {(newTask || selectedTask).deadline ? new Date((newTask || selectedTask).deadline).toLocaleString() : "Not set"}
-                  </p>
+<p className="text-gray-500 text-xs sm:text-base mb-2">
+  <strong>Deadline:</strong>{" "}
+  {(newTask || selectedTask).deadline
+    ? new Date((newTask || selectedTask).deadline).toLocaleString()
+    : "Not set"}
+</p>
+
                   <p className="text-gray-500 text-xs sm:text-base mb-2">
                     <strong>Assigned By:</strong>{" "}
                     {members ? members.find((m) => m.id === (newTask || selectedTask).createdBy)?.name || "Unknown" : "Loading..."}
@@ -900,6 +922,7 @@ export default function AssignTask() {
                           deadline: selectedTask.deadline ? new Date(selectedTask.deadline) : null,
                         });
                         setFormData((prev) => ({ ...prev, sprints: selectedTask.sprints || [] }));
+                        setAssigneesChanged(false);
                         setShowModal("editTask");
                       }}
                       className="flex-1 px-3 py-2 sm:px-6 sm:py-3 bg-yellow-600 text-white rounded-lg text-xs sm:text-base font-semibold hover:bg-yellow-700"
@@ -1005,12 +1028,13 @@ export default function AssignTask() {
                               >
                                 {member.name}
                                 <button
-                                  onClick={() =>
+                                  onClick={() => {
                                     setEditingTask((prev) => ({
                                       ...prev,
                                       assignees: prev.assignees.filter((id) => id !== assigneeId),
-                                    }))
-                                  }
+                                    }));
+                                    setAssigneesChanged(true);
+                                  }}
                                   className="ml-2 text-red-600 hover:text-red-800"
                                 >
                                   ×
@@ -1047,6 +1071,7 @@ export default function AssignTask() {
                       onClick={() => {
                         setEditingTask(null);
                         setShowModal(null);
+                        setAssigneesChanged(false);
                       }}
                       className="flex-1 px-3 py-2 sm:px-6 sm:py-3 bg-gray-200 text-gray-800 rounded-lg text-xs sm:text-base font-semibold hover:bg-gray-300"
                       whileHover={{ scale: 1.03 }}
@@ -1310,6 +1335,7 @@ export default function AssignTask() {
                       deadline: task.deadline ? new Date(task.deadline) : null,
                     });
                     setFormData((prev) => ({ ...prev, sprints: task.sprints || [] }));
+                    setAssigneesChanged(false);
                     setShowModal("editTask");
                   }}
                   onManageSprints={(task) => {

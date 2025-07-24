@@ -224,7 +224,7 @@ export async function PATCH(req, { params }) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
     }
 
-    // Update task details if provided
+    //    // Update task details if provided
     if (title || description || deadline !== undefined || resources !== undefined) {
       await db
         .update(assignedTasks)
@@ -238,7 +238,7 @@ export async function PATCH(req, { params }) {
         .where(eq(assignedTasks.id, taskId));
     }
 
-    // Update assignees if provided
+    // Update assignees only if provided and non-empty
     if (Array.isArray(assignees) && assignees.length > 0) {
       const parsedAssignees = assignees.map((id) => parseInt(id)).filter((id) => !isNaN(id));
 
