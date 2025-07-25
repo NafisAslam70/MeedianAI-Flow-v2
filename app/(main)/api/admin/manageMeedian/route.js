@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
-import { users, openCloseTimes, dailySlots, schoolCalendar, students } from "@/lib/schema";
+import { users, openCloseTimes, dailySlots, dailySlotAssignments, schoolCalendar, students } from "@/lib/schema";
 import { eq } from "drizzle-orm";
 
 // GET Handler: Fetch data based on section parameter
@@ -62,8 +62,23 @@ export async function GET(req) {
         })
         .from(dailySlots)
         .orderBy(dailySlots.id);
-      console.log("Fetched slots data:", slots);
-      return NextResponse.json({ slots }, { status: 200 });
+
+      // Fetch assignments from dailySlotAssignments
+      const assignments = await db
+        .select({
+          slotId: dailySlotAssignments.slotId,
+          memberId: dailySlotAssignments.memberId,
+        })
+        .from(dailySlotAssignments);
+
+      // Combine slot data with assignments
+      const slotsWithAssignments = slots.map((slot) => ({
+        ...slot,
+        assignedMemberId: assignments.find((a) => a.slotId === slot.id)?.memberId || slot.assignedMemberId || null,
+      }));
+
+      console.log("Fetched slots data with assignments:", slotsWithAssignments);
+      return NextResponse.json({ slots: slotsWithAssignments }, { status: 200 });
     }
 
     if (section === "students") {
@@ -76,7 +91,7 @@ export async function GET(req) {
           residentialStatus: students.residential_status,
         })
         .from(students)
-        .orderBy(students.class_name, students.name); // Sort by class and name
+        .orderBy(students.class_name, students.name);
       console.log("Fetched student data:", studentData);
       return NextResponse.json({ students: studentData }, { status: 200 });
     }
@@ -102,7 +117,7 @@ export async function GET(req) {
     return NextResponse.json({ error: "Invalid section" }, { status: 400 });
   } catch (error) {
     console.error(`Error fetching ${section}:`, error);
-    return NextResponse.json({ error: `Failed to fetch ${section}` }, { status: 500 });
+    return NextResponse.json({ error: `Failed to fetch ${section}: ${error.message}` }, { status: 500 });
   }
 }
 
@@ -153,10 +168,51 @@ export async function POST(req) {
       return NextResponse.json({ entry: newEntry[0], message: "Calendar entry added successfully" }, { status: 201 });
     }
 
+    if (section === "slots") {
+      const { slotId, memberId } = body;
+      if (!slotId || !memberId) {
+        console.error("Missing required slot assignment fields:", { slotId, memberId });
+        return NextResponse.json({ error: "Missing required fields: slotId or memberId" }, { status: 400 });
+      }
+
+      // Validate slotId and memberId
+      const slotExists = await db
+        .select({ id: dailySlots.id })
+        .from(dailySlots)
+        .where(eq(dailySlots.id, slotId));
+      if (slotExists.length === 0) {
+        console.error("Invalid slotId:", slotId);
+        return NextResponse.json({ error: `Invalid slotId: ${slotId}` }, { status: 400 });
+      }
+
+      const userIds = new Set(
+        (await db.select({ id: users.id }).from(users)).map((user) => user.id)
+      );
+      if (!userIds.has(memberId)) {
+        console.error("Invalid memberId:", memberId);
+        return NextResponse.json({ error: `Invalid memberId: ${memberId}` }, { status: 400 });
+      }
+
+      const newAssignment = await db
+        .insert(dailySlotAssignments)
+        .values({
+          slotId,
+          memberId,
+        })
+        .returning({
+          id: dailySlotAssignments.id,
+          slotId: dailySlotAssignments.slotId,
+          memberId: dailySlotAssignments.memberId,
+        });
+
+      console.log("Added new slot assignment:", newAssignment[0]);
+      return NextResponse.json({ assignment: newAssignment[0], message: "Slot assignment added successfully" }, { status: 201 });
+    }
+
     return NextResponse.json({ error: "Invalid section" }, { status: 400 });
   } catch (error) {
     console.error(`Error adding ${section}:`, error);
-    return NextResponse.json({ error: `Failed to add ${section}` }, { status: 500 });
+    return NextResponse.json({ error: `Failed to add ${section}: ${error.message}` }, { status: 500 });
   }
 }
 
@@ -184,7 +240,7 @@ export async function PATCH(req) {
       for (const user of updates) {
         if (!user.id || !user.name || !user.email || !user.role || !user.type) {
           console.error("Missing required user fields:", user);
-          return NextResponse.json({ error: "Missing required user fields" }, { status: 400 });
+          return NextResponse.json({ error: `Missing required user fields for user ${user.id}` }, { status: 400 });
         }
 
         const updateData = {
@@ -197,10 +253,7 @@ export async function PATCH(req) {
           updateData.password = user.password;
         }
 
-        await db
-          .update(users)
-          .set(updateData)
-          .where(eq(users.id, user.id));
+        await db.update(users).set(updateData).where(eq(users.id, user.id));
       }
 
       console.log("Team updated successfully:", updates);
@@ -215,9 +268,15 @@ export async function PATCH(req) {
       }
 
       for (const time of times) {
-        if (!time.userType || !time.dayOpenedAt || !time.dayClosedAt || !time.closingWindowStart || !time.closingWindowEnd) {
+        if (
+          !time.userType ||
+          !time.dayOpenedAt ||
+          !time.dayClosedAt ||
+          !time.closingWindowStart ||
+          !time.closingWindowEnd
+        ) {
           console.error("Missing required time fields:", time);
-          return NextResponse.json({ error: "Missing required time fields" }, { status: 400 });
+          return NextResponse.json({ error: `Missing required time fields for userType ${time.userType}` }, { status: 400 });
         }
 
         await db
@@ -238,30 +297,65 @@ export async function PATCH(req) {
     if (section === "slots") {
       const { updates } = body;
       if (!Array.isArray(updates) || updates.length === 0) {
-        console.error("Invalid or empty slots updates:", body);
+        console.error("Invalid or empty slot assignments updates:", body);
         return NextResponse.json({ error: "Invalid or empty updates" }, { status: 400 });
       }
 
-      for (const slot of updates) {
-        if (!slot.id || !slot.name || !slot.startTime || !slot.endTime) {
-          console.error("Missing required slot fields:", slot);
-          return NextResponse.json({ error: "Missing required slot fields" }, { status: 400 });
+      // Fetch valid user IDs and slot IDs
+      const userIds = new Set(
+        (await db.select({ id: users.id }).from(users)).map((user) => user.id)
+      );
+      const slotIds = new Set(
+        (await db.select({ id: dailySlots.id }).from(dailySlots)).map((slot) => slot.id)
+      );
+
+      const updatedAssignments = [];
+      for (const update of updates) {
+        const { slotId, memberId } = update;
+        if (!slotId || !memberId) {
+          console.error("Missing required slot assignment fields:", update);
+          return NextResponse.json({ error: `Missing required fields for slot assignment: slotId or memberId` }, { status: 400 });
         }
 
-        await db
-          .update(dailySlots)
-          .set({
-            name: slot.name,
-            startTime: slot.startTime,
-            endTime: slot.endTime,
-            hasSubSlots: slot.hasSubSlots ?? false,
-            assignedMemberId: slot.assignedMemberId,
-          })
-          .where(eq(dailySlots.id, slot.id));
+        // Validate slotId and memberId
+        if (!slotIds.has(slotId)) {
+          console.error("Invalid slotId:", slotId);
+          return NextResponse.json({ error: `Invalid slotId: ${slotId}` }, { status: 400 });
+        }
+        if (!userIds.has(memberId)) {
+          console.error("Invalid memberId:", memberId);
+          return NextResponse.json({ error: `Invalid memberId: ${memberId}` }, { status: 400 });
+        }
+
+        // Check if an assignment already exists
+        const existingAssignment = await db
+          .select({ id: dailySlotAssignments.id })
+          .from(dailySlotAssignments)
+          .where(eq(dailySlotAssignments.slotId, slotId));
+
+        if (existingAssignment.length > 0) {
+          // Update existing assignment
+          await db
+            .update(dailySlotAssignments)
+            .set({
+              memberId,
+            })
+            .where(eq(dailySlotAssignments.slotId, slotId));
+        } else {
+          // Insert new assignment
+          await db
+            .insert(dailySlotAssignments)
+            .values({
+              slotId,
+              memberId,
+            });
+        }
+
+        updatedAssignments.push({ slotId, memberId });
       }
 
-      console.log("Slots updated successfully:", updates);
-      return NextResponse.json({ message: "Slots updated successfully" }, { status: 200 });
+      console.log("Slot assignments updated successfully:", updatedAssignments);
+      return NextResponse.json({ message: "Slot assignments updated successfully", assignments: updatedAssignments }, { status: 200 });
     }
 
     if (section === "schoolCalendar") {
@@ -275,7 +369,7 @@ export async function PATCH(req) {
         const { id, majorTerm, minorTerm, startDate, endDate, name, weekNumber, isMajorTermBoundary } = update;
         if (!id || !majorTerm || !minorTerm || !startDate || !endDate || !name) {
           console.error("Missing required calendar fields:", update);
-          return NextResponse.json({ error: "Missing required fields for update" }, { status: 400 });
+          return NextResponse.json({ error: `Missing required fields for calendar entry ${id}` }, { status: 400 });
         }
 
         await db
@@ -299,11 +393,11 @@ export async function PATCH(req) {
     return NextResponse.json({ error: "Invalid section" }, { status: 400 });
   } catch (error) {
     console.error(`Error updating ${section}:`, error);
-    return NextResponse.json({ error: `Failed to update ${section}` }, { status: 500 });
+    return NextResponse.json({ error: `Failed to update ${section}: ${error.message}` }, { status: 500 });
   }
 }
 
-// DELETE Handler: Delete a calendar entry
+// DELETE Handler: Delete a calendar entry or slot assignment
 export async function DELETE(req) {
   const session = await auth();
   if (!session || !["admin", "team_manager"].includes(session.user?.role)) {
@@ -315,25 +409,37 @@ export async function DELETE(req) {
   const section = searchParams.get("section");
 
   try {
+    const body = await req.json();
+
     if (section === "schoolCalendar") {
-      const body = await req.json();
       const { id } = body;
       if (!id) {
         console.error("Missing required field: id", body);
         return NextResponse.json({ error: "Missing required field: id" }, { status: 400 });
       }
 
-      await db
-        .delete(schoolCalendar)
-        .where(eq(schoolCalendar.id, id));
+      await db.delete(schoolCalendar).where(eq(schoolCalendar.id, id));
 
       console.log(`Deleted calendar entry with id: ${id}`);
       return NextResponse.json({ message: "Calendar entry deleted successfully" }, { status: 200 });
     }
 
+    if (section === "slots") {
+      const { slotId } = body;
+      if (!slotId) {
+        console.error("Missing required field: slotId", body);
+        return NextResponse.json({ error: "Missing required field: slotId" }, { status: 400 });
+      }
+
+      await db.delete(dailySlotAssignments).where(eq(dailySlotAssignments.slotId, slotId));
+
+      console.log(`Deleted slot assignment for slotId: ${slotId}`);
+      return NextResponse.json({ message: "Slot assignment deleted successfully" }, { status: 200 });
+    }
+
     return NextResponse.json({ error: "Invalid section" }, { status: 400 });
   } catch (error) {
     console.error(`Error deleting ${section}:`, error);
-    return NextResponse.json({ error: `Failed to delete ${section}` }, { status: 500 });
+    return NextResponse.json({ error: `Failed to delete ${section}: ${error.message}` }, { status: 500 });
   }
 }
