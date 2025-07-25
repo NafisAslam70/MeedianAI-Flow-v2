@@ -1,19 +1,25 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
-import { users, openCloseTimes, dailySlots, schoolCalendar } from "@/lib/schema";
+import { users, openCloseTimes, dailySlots, schoolCalendar, students } from "@/lib/schema";
 import { eq } from "drizzle-orm";
 
 // GET Handler: Fetch data based on section parameter
 export async function GET(req) {
   const session = await auth();
-  if (!session || !["admin", "team_manager"].includes(session.user?.role)) {
+  const { searchParams } = new URL(req.url);
+  const section = searchParams.get("section");
+
+  // Allow members for 'slots' section
+  if (section === "slots") {
+    if (!session || !["admin", "team_manager", "member"].includes(session.user?.role)) {
+      console.error("Unauthorized access attempt:", { user: session?.user });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+  } else if (!session || !["admin", "team_manager"].includes(session.user?.role)) {
     console.error("Unauthorized access attempt:", { user: session?.user });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-
-  const { searchParams } = new URL(req.url);
-  const section = searchParams.get("section");
 
   try {
     if (section === "team") {
@@ -52,11 +58,27 @@ export async function GET(req) {
           startTime: dailySlots.startTime,
           endTime: dailySlots.endTime,
           hasSubSlots: dailySlots.hasSubSlots,
+          assignedMemberId: dailySlots.assignedMemberId,
         })
         .from(dailySlots)
         .orderBy(dailySlots.id);
       console.log("Fetched slots data:", slots);
       return NextResponse.json({ slots }, { status: 200 });
+    }
+
+    if (section === "students") {
+      const studentData = await db
+        .select({
+          id: students.id,
+          name: students.name,
+          fatherName: students.father_name,
+          className: students.class_name,
+          residentialStatus: students.residential_status,
+        })
+        .from(students)
+        .orderBy(students.class_name, students.name); // Sort by class and name
+      console.log("Fetched student data:", studentData);
+      return NextResponse.json({ students: studentData }, { status: 200 });
     }
 
     if (section === "schoolCalendar") {
@@ -233,6 +255,7 @@ export async function PATCH(req) {
             startTime: slot.startTime,
             endTime: slot.endTime,
             hasSubSlots: slot.hasSubSlots ?? false,
+            assignedMemberId: slot.assignedMemberId,
           })
           .where(eq(dailySlots.id, slot.id));
       }

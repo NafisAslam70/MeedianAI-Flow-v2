@@ -15,15 +15,22 @@ export default function ManageTeamPage() {
   const [users, setUsers] = useState([]);
   const [slots, setSlots] = useState([]);
   const [members, setMembers] = useState([]);
-  const [allotments, setAllotments] = useState([]);
-  const [msprAssignments, setMsprAssignments] = useState([]);
   const [calendar, setCalendar] = useState([]);
-  const [loading, setLoading] = useState({ team: true, slots: true, tod: true, mspr: true, calendar: true });
-  const [saving, setSaving] = useState({ team: false, slots: false, tod: false, mspr: false, calendar: false });
+  const [students, setStudents] = useState([]);
+  const [loading, setLoading] = useState({
+    team: true,
+    slots: true,
+    calendar: true,
+    students: true,
+  });
+  const [saving, setSaving] = useState({
+    team: false,
+    slots: false,
+    calendar: false,
+  });
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [activeSection, setActiveSection] = useState(null);
-  const [selectedWeek, setSelectedWeek] = useState("2025-04-07");
   const [editSlot, setEditSlot] = useState(null);
   const userTypes = ["residential", "non_residential", "semi_residential"];
   const roleTypes = ["member", "admin"];
@@ -36,24 +43,14 @@ export default function ManageTeamPage() {
   });
 
   // Fetch slots with SWR
-  const { data: slotData, error: slotError } = useSWR(activeSection && ["n-mris", "mspr", "mhcp"].includes(activeSection) ? "/api/admin/manageMeedian?section=slots" : null, fetcher, {
-    revalidateOnFocus: false,
-    dedupingInterval: 60000,
-    revalidateOnReconnect: false,
-  });
-
-  // Fetch MRI allotments
-  const { data: allotmentData, error: allotmentError } = useSWR(
-    activeSection === "tod" ? `/api/admin/manageMeedian?section=mriSlotAssignments&week=${selectedWeek}` : null,
+  const { data: slotData, error: slotError } = useSWR(
+    activeSection && ["n-mris", "mspr", "mhcp"].includes(activeSection) ? "/api/admin/manageMeedian?section=slots" : null,
     fetcher,
-    { revalidateOnFocus: false, dedupingInterval: 60000, revalidateOnReconnect: false }
-  );
-
-  // Fetch MSPR assignments
-  const { data: msprData, error: msprError } = useSWR(
-    activeSection === "tod" ? `/api/admin/manageMeedian?section=msprSlotAssignments&week=${selectedWeek}` : null,
-    fetcher,
-    { revalidateOnFocus: false, dedupingInterval: 60000, revalidateOnReconnect: false }
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 60000,
+      revalidateOnReconnect: false,
+    }
   );
 
   // Fetch school calendar
@@ -63,16 +60,27 @@ export default function ManageTeamPage() {
     revalidateOnReconnect: false,
   });
 
+  // Fetch students with SWR
+  const { data: studentData, error: studentError } = useSWR(
+    activeSection === "students" ? "/api/admin/manageMeedian?section=students" : null,
+    fetcher,
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 60000,
+      revalidateOnReconnect: false,
+    }
+  );
+
   useEffect(() => {
     if (userData) {
       setUsers(userData.users || []);
       setMembers(userData.users.filter((u) => u.role === "member" || u.role === "team_manager") || []);
-      setLoading((prev) => ({ ...prev, team: false, tod: false }));
+      setLoading((prev) => ({ ...prev, team: false }));
     }
     if (userError) {
       console.error("User fetch error:", userError);
       setError(`Failed to load users: ${userError.message}. Check database, auth, or server logs.`);
-      setLoading((prev) => ({ ...prev, team: false, tod: false }));
+      setLoading((prev) => ({ ...prev, team: false }));
     }
   }, [userData, userError]);
 
@@ -84,6 +92,7 @@ export default function ManageTeamPage() {
           ...slot,
           startTime: slot.startTime ? slot.startTime.split(":")[0] + ":" + slot.startTime.split(":")[1] : "",
           endTime: slot.endTime ? slot.endTime.split(":")[0] + ":" + slot.endTime.split(":")[1] : "",
+          assignedMemberId: slot.assignedMemberId,
         }))
       );
       setLoading((prev) => ({ ...prev, slots: false }));
@@ -94,26 +103,6 @@ export default function ManageTeamPage() {
       setLoading((prev) => ({ ...prev, slots: false }));
     }
   }, [slotData, slotError]);
-
-  useEffect(() => {
-    if (allotmentData) {
-      setAllotments(allotmentData.assignments || []);
-    }
-    if (allotmentError) {
-      console.error("Allotments fetch error:", allotmentError);
-      setError(`Failed to load MRI allotments: ${allotmentError.message}`);
-    }
-  }, [allotmentData, allotmentError]);
-
-  useEffect(() => {
-    if (msprData) {
-      setMsprAssignments(msprData.assignments || []);
-    }
-    if (msprError) {
-      console.error("MSPR fetch error:", msprError);
-      setError(`Failed to load MSPR assignments: ${msprError.message}`);
-    }
-  }, [msprData, msprError]);
 
   useEffect(() => {
     if (calendarData) {
@@ -127,6 +116,18 @@ export default function ManageTeamPage() {
       setLoading((prev) => ({ ...prev, calendar: false }));
     }
   }, [calendarData, calendarError]);
+
+  useEffect(() => {
+    if (studentData) {
+      setStudents(studentData.students || []);
+      setLoading((prev) => ({ ...prev, students: false }));
+    }
+    if (studentError) {
+      console.error("Students fetch error:", studentError);
+      setError(`Failed to load students: ${studentError.message}. Check database or server logs.`);
+      setLoading((prev) => ({ ...prev, students: false }));
+    }
+  }, [studentData, studentError]);
 
   const handleUserChange = (id, field, value) => {
     setUsers((prev) =>
@@ -161,7 +162,7 @@ export default function ManageTeamPage() {
   const handleSlotChange = (id, field, value) => {
     setSlots((prev) =>
       prev.map((slot) =>
-        slot.id === atob(slot.id) ? { // Use atob for decoding if needed
+        slot.id === id ? {
           ...slot,
           [field]: field === "startTime" || field === "endTime" ? value + ":00" : value,
         } : slot
@@ -170,6 +171,17 @@ export default function ManageTeamPage() {
   };
 
   const saveSlotChanges = async () => {
+    setSlots((prev) =>
+      prev.map((slot) =>
+        slot.id === editSlot.id
+          ? {
+              ...editSlot,
+              startTime: editSlot.startTime + ":00",
+              endTime: editSlot.endTime + ":00",
+            }
+          : slot
+      )
+    );
     setSaving((prev) => ({ ...prev, slots: true }));
     setError("");
     setSuccess("");
@@ -191,95 +203,6 @@ export default function ManageTeamPage() {
     } finally {
       setSaving((prev) => ({ ...prev, slots: false }));
       setEditSlot(null);
-    }
-  };
-
-  const handleAllotmentChange = (slotId, memberId, title) => {
-    setAllotments((prev) => {
-      const existing = prev.find((a) => a.slotId === slotId && a.mriId === getCurrentMriId());
-      if (existing) {
-        return prev.map((a) => (a.slotId === slotId && a.mriId === getCurrentMriId() ? { ...a, memberId, title } : a));
-      }
-      return [...prev, { mriId: getCurrentMriId(), slotId, memberId, title: title || "Regular Week" }];
-    });
-  };
-
-  const handleMsprChange = (slotId, routineTaskId, subSlotIndex, title) => {
-    setMsprAssignments((prev) => {
-      const existing = prev.find((a) => a.slotId === slotId && a.subSlotIndex === subSlotIndex);
-      if (existing) {
-        return prev.map((a) => (a.slotId === slotId && a.subSlotIndex === subSlotIndex ? { ...a, routineTaskId, title } : a));
-      }
-      return [...prev, { msprId: getCurrentMsprId(slotId), slotId, routineTaskId, subSlotIndex, title: title || "Regular Week" }];
-    });
-  };
-
-  const getCurrentMriId = () => {
-    const weekEntry = calendar.find((c) => new Date(c.startDate) <= new Date(selectedWeek) && new Date(c.endDate) >= new Date(selectedWeek));
-    if (weekEntry) {
-      return allotmentData?.find((a) => a.calendarId === weekEntry.id)?.mriId || null;
-    }
-    return null;
-  };
-
-  const getCurrentMsprId = (slotId) => {
-    const slot = slots.find((s) => s.id === slotId);
-    const weekEntry = calendar.find((c) => new Date(c.startDate) <= new Date(selectedWeek) && new Date(c.endDate) >= new Date(selectedWeek));
-    if (slot?.mspDivision && weekEntry) {
-      return msprData?.find((m) => m.mspDivision === slot.mspDivision && m.calendarId === weekEntry.id)?.id || null;
-    }
-    return null;
-  };
-
-  const saveMriAllotments = async () => {
-    setSaving((prev) => ({ ...prev, tod: true }));
-    setError("");
-    setSuccess("");
-    try {
-      const weekEntry = calendar.find((c) => new Date(c.startDate) <= new Date(selectedWeek) && new Date(c.endDate) >= new Date(selectedWeek));
-      if (!weekEntry) throw new Error("No calendar entry for selected week");
-      const res = await fetch("/api/admin/manageMeedian?section=mriSlotAssignments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assignments: allotments, weekStartDate: selectedWeek, calendarId: weekEntry.id }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || `Save failed: ${res.status}`);
-      setSuccess("MRI allotments saved successfully!");
-      setTimeout(() => setSuccess(""), 3000);
-      const updatedAllotments = await fetcher(`/api/admin/manageMeedian?section=mriSlotAssignments&week=${selectedWeek}`);
-      setAllotments(updatedAllotments.assignments || []);
-    } catch (err) {
-      console.error("Save MRI allotments error:", err);
-      setError(`Error saving MRI allotments: ${err.message}`);
-    } finally {
-      setSaving((prev) => ({ ...prev, tod: false }));
-    }
-  };
-
-  const saveMsprAllotments = async () => {
-    setSaving((prev) => ({ ...prev, mspr: true }));
-    setError("");
-    setSuccess("");
-    try {
-      const weekEntry = calendar.find((c) => new Date(c.startDate) <= new Date(selectedWeek) && new Date(c.endDate) >= new Date(selectedWeek));
-      if (!weekEntry) throw new Error("No calendar entry for selected week");
-      const res = await fetch("/api/admin/manageMeedian?section=msprSlotAssignments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assignments: msprAssignments, weekStartDate: selectedWeek, calendarId: weekEntry.id }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || `Save failed: ${res.status}`);
-      setSuccess("MSPR allotments saved successfully!");
-      setTimeout(() => setSuccess(""), 3000);
-      const updatedMspr = await fetcher(`/api/admin/manageMeedian?section=msprSlotAssignments&week=${selectedWeek}`);
-      setMsprAssignments(updatedMspr.assignments || []);
-    } catch (err) {
-      console.error("Save MSPR allotments error:", err);
-      setError(`Error saving MSPR allotments: ${err.message}`);
-    } finally {
-      setSaving((prev) => ({ ...prev, mspr: false }));
     }
   };
 
@@ -357,20 +280,6 @@ export default function ManageTeamPage() {
     } finally {
       setSaving((prev) => ({ ...prev, calendar: false }));
     }
-  };
-
-  const getWeekStartDate = (date) => {
-    const d = new Date(date);
-    const day = d.getDay();
-    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-    d.setDate(diff);
-    d.setHours(0, 0, 0, 0);
-    return d.toISOString().split("T")[0];
-  };
-
-  const handleWeekChange = (e) => {
-    const newWeek = getWeekStartDate(e.target.value);
-    setSelectedWeek(newWeek);
   };
 
   const handleBack = () => {
@@ -529,18 +438,23 @@ export default function ManageTeamPage() {
 
               <motion.div
                 className="flex-1 bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 rounded-2xl shadow-lg p-6 sm:p-8 flex flex-col justify-between cursor-pointer h-full"
-                onClick={() => setActiveSection("tod")}
+                onClick={() => setActiveSection("students")}
                 whileHover={{ scale: 1.03, boxShadow: "0 10px 20px rgba(0, 0, 128, 0.3)" }}
                 whileTap={{ scale: 0.95 }}
               >
                 <div className="text-center">
                   <div className="flex justify-center mb-4">
                     <svg className="w-12 h-12 sm:w-16 sm:h-16 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="2"
+                        d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"
+                      />
                     </svg>
                   </div>
-                  <h2 className="text-xl sm:text-2xl font-semibold text-gray-700 mb-2">TOD Allotment</h2>
-                  <p className="text-base sm:text-lg text-gray-600">Assign teachers to duty slots.</p>
+                  <h2 className="text-xl sm:text-2xl font-semibold text-gray-700 mb-2">Manage Meedian Students</h2>
+                  <p className="text-base sm:text-lg text-gray-600">View and manage student details, grouped by hostel and day scholars.</p>
                 </div>
               </motion.div>
 
@@ -677,100 +591,85 @@ export default function ManageTeamPage() {
                       <div className="space-y-4">
                         <div className="bg-green-100 rounded-2xl shadow-lg p-4 h-full">
                           <h3 className="font-semibold text-gray-700 mb-2">Block 1 (Slots 1-6)</h3>
-                          {slots.filter((slot) => !slot.mspDivision && !slot.mhcpDivision && slot.id >= 1 && slot.id <= 6).map((slot) => {
-                            const allotment = allotments.find((a) => a.slotId === slot.id && a.mriId === getCurrentMriId());
-                            return (
-                              <motion.div
-                                key={slot.id}
-                                className="bg-white rounded-lg p-2 mb-2"
-                                whileHover={{ scale: 1.02, boxShadow: "0 4px 8px rgba(0, 0, 0, 0.1)" }}
-                                transition={{ duration: 0.2 }}
-                                onClick={() => confirmEdit(slot)}
-                              >
-                                <p>Slot {slot.id}: {slot.name}</p>
-                                <p>{slot.startTime} - {slot.endTime}</p>
-                                <p>TOD: {allotment?.memberId ? members.find((m) => m.id === allotment.memberId)?.name : "Not Assigned"}</p>
-                              </motion.div>
-                            );
-                          })}
+                          {slots.filter((slot) => !slot.mspDivision && !slot.mhcpDivision && slot.id >= 1 && slot.id <= 6).map((slot) => (
+                            <motion.div
+                              key={slot.id}
+                              className="bg-white rounded-lg p-2 mb-2"
+                              whileHover={{ scale: 1.02, boxShadow: "0 4px 8px rgba(0, 0, 0, 0.1)" }}
+                              transition={{ duration: 0.2 }}
+                              onClick={() => confirmEdit(slot)}
+                            >
+                              <p>Slot {slot.id}: {slot.name}</p>
+                              <p>{slot.startTime} - {slot.endTime}</p>
+                              <p>Assigned: {slot.assignedMemberId ? members.find(m => m.id === slot.assignedMemberId)?.name : "None"}</p>
+                            </motion.div>
+                          ))}
                         </div>
                         <div className="bg-green-100 rounded-2xl shadow-lg p-4 h-full">
                           <h3 className="font-semibold text-gray-700 mb-2">Block 3 (Slots 10-11)</h3>
-                          {slots.filter((slot) => !slot.mspDivision && !slot.mhcpDivision && slot.id >= 10 && slot.id <= 11).map((slot) => {
-                            const allotment = allotments.find((a) => a.slotId === slot.id && a.mriId === getCurrentMriId());
-                            return (
-                              <motion.div
-                                key={slot.id}
-                                className="bg-white rounded-lg p-2 mb-2"
-                                whileHover={{ scale: 1.02, boxShadow: "0 4px 8px rgba(0, 0, 0, 0.1)" }}
-                                transition={{ duration: 0.2 }}
-                                onClick={() => confirmEdit(slot)}
-                              >
-                                <p>Slot {slot.id}: {slot.name}</p>
-                                <p>{slot.startTime} - {slot.endTime}</p>
-                                <p>TOD: {allotment?.memberId ? members.find((m) => m.id === allotment.memberId)?.name : "Not Assigned"}</p>
-                              </motion.div>
-                            );
-                          })}
+                          {slots.filter((slot) => !slot.mspDivision && !slot.mhcpDivision && slot.id >= 10 && slot.id <= 11).map((slot) => (
+                            <motion.div
+                              key={slot.id}
+                              className="bg-white rounded-lg p-2 mb-2"
+                              whileHover={{ scale: 1.02, boxShadow: "0 4px 8px rgba(0, 0, 0, 0.1)" }}
+                              transition={{ duration: 0.2 }}
+                              onClick={() => confirmEdit(slot)}
+                            >
+                              <p>Slot {slot.id}: {slot.name}</p>
+                              <p>{slot.startTime} - {slot.endTime}</p>
+                              <p>Assigned: {slot.assignedMemberId ? members.find(m => m.id === slot.assignedMemberId)?.name : "None"}</p>
+                            </motion.div>
+                          ))}
                         </div>
                       </div>
                       <div className="space-y-4">
                         <div className="bg-green-100 rounded-2xl shadow-lg p-4 h-full">
                           <h3 className="font-semibold text-gray-700 mb-2">Block 2 (Slots 7-9)</h3>
-                          {slots.filter((slot) => !slot.mspDivision && !slot.mhcpDivision && slot.id >= 7 && slot.id <= 9).map((slot) => {
-                            const allotment = allotments.find((a) => a.slotId === slot.id && a.mriId === getCurrentMriId());
-                            return (
-                              <motion.div
-                                key={slot.id}
-                                className="bg-white rounded-lg p-2 mb-2"
-                                whileHover={{ scale: 1.02, boxShadow: "0 4px 8px rgba(0, 0, 0, 0.1)" }}
-                                transition={{ duration: 0.2 }}
-                                onClick={() => confirmEdit(slot)}
-                              >
-                                <p>Slot {slot.id}: {slot.name}</p>
-                                <p>{slot.startTime} - {slot.endTime}</p>
-                                <p>TOD: {allotment?.memberId ? members.find((m) => m.id === allotment.memberId)?.name : "Not Assigned"}</p>
-                              </motion.div>
-                            );
-                          })}
+                          {slots.filter((slot) => !slot.mspDivision && !slot.mhcpDivision && slot.id >= 7 && slot.id <= 9).map((slot) => (
+                            <motion.div
+                              key={slot.id}
+                              className="bg-white rounded-lg p-2 mb-2"
+                              whileHover={{ scale: 1.02, boxShadow: "0 4px 8px rgba(0, 0, 0, 0.1)" }}
+                              transition={{ duration: 0.2 }}
+                              onClick={() => confirmEdit(slot)}
+                            >
+                              <p>Slot {slot.id}: {slot.name}</p>
+                              <p>{slot.startTime} - {slot.endTime}</p>
+                              <p>Assigned: {slot.assignedMemberId ? members.find(m => m.id === slot.assignedMemberId)?.name : "None"}</p>
+                            </motion.div>
+                          ))}
                         </div>
                         <div className="bg-green-100 rounded-2xl shadow-lg p-4 h-full">
                           <h3 className="font-semibold text-gray-700 mb-2">Block 4 (Slots 12-14)</h3>
-                          {slots.filter((slot) => !slot.mspDivision && !slot.mhcpDivision && slot.id >= 12 && slot.id <= 14).map((slot) => {
-                            const allotment = allotments.find((a) => a.slotId === slot.id && a.mriId === getCurrentMriId());
-                            return (
-                              <motion.div
-                                key={slot.id}
-                                className="bg-white rounded-lg p-2 mb-2"
-                                whileHover={{ scale: 1.02, boxShadow: "0 4px 8px rgba(0, 0, 0, 0.1)" }}
-                                transition={{ duration: 0.2 }}
-                                onClick={() => confirmEdit(slot)}
-                              >
-                                <p>Slot {slot.id}: {slot.name}</p>
-                                <p>{slot.startTime} - {slot.endTime}</p>
-                                <p>TOD: {allotment?.memberId ? members.find((m) => m.id === allotment.memberId)?.name : "Not Assigned"}</p>
-                              </motion.div>
-                            );
-                          })}
+                          {slots.filter((slot) => !slot.mspDivision && !slot.mhcpDivision && slot.id >= 12 && slot.id <= 14).map((slot) => (
+                            <motion.div
+                              key={slot.id}
+                              className="bg-white rounded-lg p-2 mb-2"
+                              whileHover={{ scale: 1.02, boxShadow: "0 4px 8px rgba(0, 0, 0, 0.1)" }}
+                              transition={{ duration: 0.2 }}
+                              onClick={() => confirmEdit(slot)}
+                            >
+                              <p>Slot {slot.id}: {slot.name}</p>
+                              <p>{slot.startTime} - {slot.endTime}</p>
+                              <p>Assigned: {slot.assignedMemberId ? members.find(m => m.id === slot.assignedMemberId)?.name : "None"}</p>
+                            </motion.div>
+                          ))}
                         </div>
                         <div className="bg-green-100 rounded-2xl shadow-lg p-4 h-full">
                           <h3 className="font-semibold text-gray-700 mb-2">Block 5 (Slots 15-17)</h3>
-                          {slots.filter((slot) => !slot.mspDivision && !slot.mhcpDivision && slot.id >= 15 && slot.id <= 17).map((slot) => {
-                            const allotment = allotments.find((a) => a.slotId === slot.id && a.mriId === getCurrentMriId());
-                            return (
-                              <motion.div
-                                key={slot.id}
-                                className="bg-white rounded-lg p-2 mb-2"
-                                whileHover={{ scale: 1.02, boxShadow: "0 4px 8px rgba(0, 0, 0, 0.1)" }}
-                                transition={{ duration: 0.2 }}
-                                onClick={() => confirmEdit(slot)}
-                              >
-                                <p>Slot {slot.id}: {slot.name}</p>
-                                <p>{slot.startTime} - {slot.endTime}</p>
-                                <p>TOD: {allotment?.memberId ? members.find((m) => m.id === allotment.memberId)?.name : "Not Assigned"}</p>
-                              </motion.div>
-                            );
-                          })}
+                          {slots.filter((slot) => !slot.mspDivision && !slot.mhcpDivision && slot.id >= 15 && slot.id <= 17).map((slot) => (
+                            <motion.div
+                              key={slot.id}
+                              className="bg-white rounded-lg p-2 mb-2"
+                              whileHover={{ scale: 1.02, boxShadow: "0 4px 8px rgba(0, 0, 0, 0.1)" }}
+                              transition={{ duration: 0.2 }}
+                              onClick={() => confirmEdit(slot)}
+                            >
+                              <p>Slot {slot.id}: {slot.name}</p>
+                              <p>{slot.startTime} - {slot.endTime}</p>
+                              <p>Assigned: {slot.assignedMemberId ? members.find(m => m.id === slot.assignedMemberId)?.name : "None"}</p>
+                            </motion.div>
+                          ))}
                         </div>
                       </div>
                     </div>
@@ -819,13 +718,13 @@ export default function ManageTeamPage() {
                             />
                           </div>
                           <div>
-                            <label className="block text-sm font-medium text-gray-700">TOD</label>
+                            <label className="block text-sm font-medium text-gray-700">Assigned Member</label>
                             <select
-                              value={allotments.find((a) => a.slotId === editSlot.id && a.mriId === getCurrentMriId())?.memberId || ""}
-                              onChange={(e) => handleAllotmentChange(editSlot.id, parseInt(e.target.value), allotments.find((a) => a.slotId === editSlot.id && a.mriId === getCurrentMriId())?.title || "")}
+                              value={editSlot.assignedMemberId || ""}
+                              onChange={(e) => setEditSlot({ ...editSlot, assignedMemberId: e.target.value ? parseInt(e.target.value) : null })}
                               className="mt-1 w-full p-2 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-base"
                             >
-                              <option value="">Select Teacher</option>
+                              <option value="">None</option>
                               {members.map((member) => (
                                 <option key={member.id} value={member.id}>
                                   {member.name}
@@ -939,6 +838,88 @@ export default function ManageTeamPage() {
                   setError={setError}
                   setSuccess={setSuccess}
                 />
+              )}
+              {activeSection === "students" && (
+                <div className="space-y-4 h-full">
+                  {loading.students ? (
+                    <p className="text-gray-600 text-center text-lg">Loading students...</p>
+                  ) : students.length === 0 ? (
+                    <p className="text-gray-600 text-center text-lg">No students found. Please check the database.</p>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 h-full">
+                      {/* Hostellers */}
+                      <div className="bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 rounded-2xl shadow-lg p-6">
+                        <h2 className="text-xl font-semibold text-gray-700 mb-4">Hostellers</h2>
+                        {Object.entries(
+                          students
+                            .filter((student) => student.residentialStatus === "hosteller")
+                            .reduce((acc, student) => {
+                              (acc[student.className] = acc[student.className] || []).push(student);
+                              return acc;
+                            }, {})
+                        ).sort().map(([className, classStudents]) => (
+                          <motion.div
+                            key={className}
+                            className="mb-4"
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.3 }}
+                          >
+                            <h3 className="text-lg font-medium text-teal-900 mb-2">{className}</h3>
+                            <div className="space-y-2">
+                              {classStudents.map((student) => (
+                                <div
+                                  key={student.id}
+                                  className="bg-white rounded-lg p-3 shadow-sm flex justify-between items-center"
+                                >
+                                  <div>
+                                    <p className="text-gray-700">{student.name}</p>
+                                    <p className="text-sm text-gray-500">Father: {student.fatherName || "N/A"}</p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </motion.div>
+                        ))}
+                      </div>
+                      {/* Day Scholars */}
+                      <div className="bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 rounded-2xl shadow-lg p-6">
+                        <h2 className="text-xl font-semibold text-gray-700 mb-4">Day Scholars</h2>
+                        {Object.entries(
+                          students
+                            .filter((student) => student.residentialStatus === "dayscholar")
+                            .reduce((acc, student) => {
+                              (acc[student.className] = acc[student.className] || []).push(student);
+                              return acc;
+                            }, {})
+                        ).sort().map(([className, classStudents]) => (
+                          <motion.div
+                            key={className}
+                            className="mb-4"
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.3 }}
+                          >
+                            <h3 className="text-lg font-medium text-teal-900 mb-2">{className}</h3>
+                            <div className="space-y-2">
+                              {classStudents.map((student) => (
+                                <div
+                                  key={student.id}
+                                  className="bg-white rounded-lg p-3 shadow-sm flex justify-between items-center"
+                                >
+                                  <div>
+                                    <p className="text-gray-700">{student.name}</p>
+                                    <p className="text-sm text-gray-500">Father: {student.fatherName || "N/A"}</p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </motion.div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
             </motion.div>
           )}
