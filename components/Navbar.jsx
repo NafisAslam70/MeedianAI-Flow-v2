@@ -229,7 +229,7 @@
 //       `}</style>
 
 //       <nav className="bg-gradient-to-r from-gray-900 to-gray-800 text-white px-6 py-4 w-full sticky top-0 z-40 shadow-lg">
-//         <div className="flex items-center justify-between w-full max-w-7xl mx-auto">
+//         <div className="flex items-center justify-between w-full px-4 sm:px-6 lg:px-8">
 //           {/* Left Section: Logo */}
 //           <div className="flex items-center gap-3">
 //             <img src="/flow1.png" alt="Logo" className="w-10 h-10 rounded-full border border-cyan-400 p-1" />
@@ -807,7 +807,7 @@ export default function Navbar() {
       `}</style>
 
       <nav className="bg-gradient-to-r from-gray-900 to-gray-800 text-white px-6 py-4 w-full sticky top-0 z-40 shadow-lg">
-        <div className="flex items-center justify-between w-full max-w-7xl mx-auto">
+        <div className="flex items-center justify-between w-full px-4 sm:px-6 lg:px-8">
           {/* Left Section: Logo */}
           <div className="flex items-center gap-3">
             <img src="/flow1.png" alt="Logo" className="w-10 h-10 rounded-full border border-cyan-400 p-1" />
@@ -817,7 +817,7 @@ export default function Navbar() {
           </div>
 
           {/* Center Section: Nav Items */}
-          <div className="hidden md:flex flex-1 justify-center space-x-4">
+         <div className="hidden md:flex absolute left-1/2 transform -translate-x-1/2 space-x-4">
             {role === "admin" && (
               <>
                 <Link

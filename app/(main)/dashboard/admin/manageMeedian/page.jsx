@@ -2,8 +2,9 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import useSWR from "swr";
-import ManageCalendar from "@/components/ManageCalendar";
-import ManageDayClose from "@/components/ManageDayClose";
+import ManageCalendar from "@/components/manageMeedian/ManageCalendar";
+import ManageDayClose from "@/components/manageMeedian/ManageDayClose";
+import ManageSlotsPage from "@/components/manageMeedian/ManageSlotsPage"; // Imported ManageSlotsPage
 
 const fetcher = (url) =>
   fetch(url, { headers: { "Content-Type": "application/json" } }).then((res) => {
@@ -31,7 +32,6 @@ export default function ManageTeamPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [activeSection, setActiveSection] = useState(null);
-  const [editSlot, setEditSlot] = useState(null);
   const userTypes = ["residential", "non_residential", "semi_residential"];
   const roleTypes = ["member", "admin"];
 
@@ -159,53 +159,6 @@ export default function ManageTeamPage() {
     }
   };
 
-  const handleSlotChange = (id, field, value) => {
-    setSlots((prev) =>
-      prev.map((slot) =>
-        slot.id === id ? {
-          ...slot,
-          [field]: field === "startTime" || field === "endTime" ? value + ":00" : value,
-        } : slot
-      )
-    );
-  };
-
-  const saveSlotChanges = async () => {
-    setSlots((prev) =>
-      prev.map((slot) =>
-        slot.id === editSlot.id
-          ? {
-              ...editSlot,
-              startTime: editSlot.startTime + ":00",
-              endTime: editSlot.endTime + ":00",
-            }
-          : slot
-      )
-    );
-    setSaving((prev) => ({ ...prev, slots: true }));
-    setError("");
-    setSuccess("");
-    try {
-      const res = await fetch("/api/admin/manageMeedian?section=slots", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ updates: slots }),
-      });
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.error || `Save failed: ${res.status}`);
-      }
-      setSuccess("Slot changes saved successfully!");
-      setTimeout(() => setSuccess(""), 3000);
-    } catch (err) {
-      console.error("Save slots error:", err);
-      setError(`Error saving slots: ${err.message}`);
-    } finally {
-      setSaving((prev) => ({ ...prev, slots: false }));
-      setEditSlot(null);
-    }
-  };
-
   const handleCalendarChange = (id, field, value) => {
     setCalendar((prev) =>
       prev.map((c) => (c.id === id ? { ...c, [field]: value } : c))
@@ -286,14 +239,6 @@ export default function ManageTeamPage() {
     setActiveSection(null);
     setError("");
     setSuccess("");
-  };
-
-  const confirmEdit = (slot) => {
-    setEditSlot(slot);
-  };
-
-  const cancelEdit = () => {
-    setEditSlot(null);
   };
 
   return (
@@ -583,178 +528,19 @@ export default function ManageTeamPage() {
                 />
               )}
               {activeSection === "n-mris" && (
-                <div className="space-y-4 h-full">
-                  {loading.slots ? (
-                    <p className="text-gray-600 text-center text-lg">Loading slots...</p>
-                  ) : (
-                    <div className="grid grid-cols-2 gap-4 h-full">
-                      <div className="space-y-4">
-                        <div className="bg-green-100 rounded-2xl shadow-lg p-4 h-full">
-                          <h3 className="font-semibold text-gray-700 mb-2">Block 1 (Slots 1-6)</h3>
-                          {slots.filter((slot) => !slot.mspDivision && !slot.mhcpDivision && slot.id >= 1 && slot.id <= 6).map((slot) => (
-                            <motion.div
-                              key={slot.id}
-                              className="bg-white rounded-lg p-2 mb-2"
-                              whileHover={{ scale: 1.02, boxShadow: "0 4px 8px rgba(0, 0, 0, 0.1)" }}
-                              transition={{ duration: 0.2 }}
-                              onClick={() => confirmEdit(slot)}
-                            >
-                              <p>Slot {slot.id}: {slot.name}</p>
-                              <p>{slot.startTime} - {slot.endTime}</p>
-                              <p>Assigned: {slot.assignedMemberId ? members.find(m => m.id === slot.assignedMemberId)?.name : "None"}</p>
-                            </motion.div>
-                          ))}
-                        </div>
-                        <div className="bg-green-100 rounded-2xl shadow-lg p-4 h-full">
-                          <h3 className="font-semibold text-gray-700 mb-2">Block 3 (Slots 10-11)</h3>
-                          {slots.filter((slot) => !slot.mspDivision && !slot.mhcpDivision && slot.id >= 10 && slot.id <= 11).map((slot) => (
-                            <motion.div
-                              key={slot.id}
-                              className="bg-white rounded-lg p-2 mb-2"
-                              whileHover={{ scale: 1.02, boxShadow: "0 4px 8px rgba(0, 0, 0, 0.1)" }}
-                              transition={{ duration: 0.2 }}
-                              onClick={() => confirmEdit(slot)}
-                            >
-                              <p>Slot {slot.id}: {slot.name}</p>
-                              <p>{slot.startTime} - {slot.endTime}</p>
-                              <p>Assigned: {slot.assignedMemberId ? members.find(m => m.id === slot.assignedMemberId)?.name : "None"}</p>
-                            </motion.div>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="space-y-4">
-                        <div className="bg-green-100 rounded-2xl shadow-lg p-4 h-full">
-                          <h3 className="font-semibold text-gray-700 mb-2">Block 2 (Slots 7-9)</h3>
-                          {slots.filter((slot) => !slot.mspDivision && !slot.mhcpDivision && slot.id >= 7 && slot.id <= 9).map((slot) => (
-                            <motion.div
-                              key={slot.id}
-                              className="bg-white rounded-lg p-2 mb-2"
-                              whileHover={{ scale: 1.02, boxShadow: "0 4px 8px rgba(0, 0, 0, 0.1)" }}
-                              transition={{ duration: 0.2 }}
-                              onClick={() => confirmEdit(slot)}
-                            >
-                              <p>Slot {slot.id}: {slot.name}</p>
-                              <p>{slot.startTime} - {slot.endTime}</p>
-                              <p>Assigned: {slot.assignedMemberId ? members.find(m => m.id === slot.assignedMemberId)?.name : "None"}</p>
-                            </motion.div>
-                          ))}
-                        </div>
-                        <div className="bg-green-100 rounded-2xl shadow-lg p-4 h-full">
-                          <h3 className="font-semibold text-gray-700 mb-2">Block 4 (Slots 12-14)</h3>
-                          {slots.filter((slot) => !slot.mspDivision && !slot.mhcpDivision && slot.id >= 12 && slot.id <= 14).map((slot) => (
-                            <motion.div
-                              key={slot.id}
-                              className="bg-white rounded-lg p-2 mb-2"
-                              whileHover={{ scale: 1.02, boxShadow: "0 4px 8px rgba(0, 0, 0, 0.1)" }}
-                              transition={{ duration: 0.2 }}
-                              onClick={() => confirmEdit(slot)}
-                            >
-                              <p>Slot {slot.id}: {slot.name}</p>
-                              <p>{slot.startTime} - {slot.endTime}</p>
-                              <p>Assigned: {slot.assignedMemberId ? members.find(m => m.id === slot.assignedMemberId)?.name : "None"}</p>
-                            </motion.div>
-                          ))}
-                        </div>
-                        <div className="bg-green-100 rounded-2xl shadow-lg p-4 h-full">
-                          <h3 className="font-semibold text-gray-700 mb-2">Block 5 (Slots 15-17)</h3>
-                          {slots.filter((slot) => !slot.mspDivision && !slot.mhcpDivision && slot.id >= 15 && slot.id <= 17).map((slot) => (
-                            <motion.div
-                              key={slot.id}
-                              className="bg-white rounded-lg p-2 mb-2"
-                              whileHover={{ scale: 1.02, boxShadow: "0 4px 8px rgba(0, 0, 0, 0.1)" }}
-                              transition={{ duration: 0.2 }}
-                              onClick={() => confirmEdit(slot)}
-                            >
-                              <p>Slot {slot.id}: {slot.name}</p>
-                              <p>{slot.startTime} - {slot.endTime}</p>
-                              <p>Assigned: {slot.assignedMemberId ? members.find(m => m.id === slot.assignedMemberId)?.name : "None"}</p>
-                            </motion.div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  {editSlot && (
-                    <motion.div
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
-                    >
-                      <motion.div
-                        initial={{ scale: 0.8, opacity: 0 }}
-                        animate={{ scale: 1, opacity: 1 }}
-                        exit={{ scale: 0.8, opacity: 0 }}
-                        transition={{ duration: 0.3 }}
-                        className="bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 rounded-2xl shadow-2xl p-6 w-full max-w-md"
-                      >
-                        <h2 className="text-xl font-bold text-gray-800 mb-4">Edit Slot</h2>
-                        <div className="space-y-4">
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700">Slot Name</label>
-                            <input
-                              type="text"
-                              value={editSlot.name}
-                              onChange={(e) => setEditSlot({ ...editSlot, name: e.target.value })}
-                              className="mt-1 w-full p-2 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-base"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700">Start Time</label>
-                            <input
-                              type="time"
-                              value={editSlot.startTime}
-                              onChange={(e) => setEditSlot({ ...editSlot, startTime: e.target.value })}
-                              className="mt-1 w-full p-2 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-base"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700">End Time</label>
-                            <input
-                              type="time"
-                              value={editSlot.endTime}
-                              onChange={(e) => setEditSlot({ ...editSlot, endTime: e.target.value })}
-                              className="mt-1 w-full p-2 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-base"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700">Assigned Member</label>
-                            <select
-                              value={editSlot.assignedMemberId || ""}
-                              onChange={(e) => setEditSlot({ ...editSlot, assignedMemberId: e.target.value ? parseInt(e.target.value) : null })}
-                              className="mt-1 w-full p-2 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-base"
-                            >
-                              <option value="">None</option>
-                              {members.map((member) => (
-                                <option key={member.id} value={member.id}>
-                                  {member.name}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-                        <div className="mt-4 flex justify-end gap-2">
-                          <motion.button
-                            onClick={cancelEdit}
-                            className="px-4 py-2 bg-gray-400 text-white rounded-lg hover:bg-gray-500 transition-all duration-200"
-                            whileHover={{ scale: 1.03 }}
-                            whileTap={{ scale: 0.95 }}
-                          >
-                            Cancel
-                          </motion.button>
-                          <motion.button
-                            onClick={saveSlotChanges}
-                            className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-all duration-200"
-                            whileHover={{ scale: 1.03 }}
-                            whileTap={{ scale: 0.95 }}
-                          >
-                            Save
-                          </motion.button>
-                        </div>
-                      </motion.div>
-                    </motion.div>
-                  )}
-                </div>
+                <ManageSlotsPage
+                  slots={slots}
+                  setSlots={setSlots}
+                  loading={loading.slots}
+                  setLoading={(value) => setLoading((prev) => ({ ...prev, slots: value }))}
+                  saving={saving.slots}
+                  setSaving={(value) => setSaving((prev) => ({ ...prev, slots: value }))}
+                  error={error}
+                  setError={setError}
+                  success={success}
+                  setSuccess={setSuccess}
+                  members={members}
+                />
               )}
               {activeSection === "mspr" && (
                 <div className="space-y-4 h-full">
