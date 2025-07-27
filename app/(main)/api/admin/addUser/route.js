@@ -1,6 +1,7 @@
+// /api/admin/addUser.js
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { users, routineTasks, assignedTasks, assignedTaskStatus } from "@/lib/schema";
+import { users, routineTasks, assignedTasks, assignedTaskStatus, userOpenCloseTimes } from "@/lib/schema";
 import { auth } from "@/lib/auth";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcrypt";
@@ -16,18 +17,20 @@ export async function POST(req) {
       name,
       email,
       password,
+      whatsapp_number,
       role,
       type,
+      member_scope,
       team_manager_type,
       userId,
       routineTasks: routineTasksInput,
       assignedTasks: assignedTasksInput,
       taskOnly,
+      useCustomTimes,
+      dayOpenTime,
+      dayCloseTime,
     } = await req.json();
 
-    // -----------------------
-    // Routine Task-Only Mode
-    // -----------------------
     if (taskOnly) {
       if (!userId || !Array.isArray(routineTasksInput) || routineTasksInput.length === 0) {
         return NextResponse.json(
@@ -95,11 +98,11 @@ export async function POST(req) {
       return NextResponse.json({ message: "Routine tasks inserted successfully" });
     }
 
-    // -----------------------
-    // Full User Creation Flow
-    // -----------------------
-    if (!name || !email || !password) {
-      return NextResponse.json({ error: "Name, email, and password are required" }, { status: 400 });
+    if (!name || !email || !password || !whatsapp_number) {
+      return NextResponse.json(
+        { error: "Name, email, password, and WhatsApp number are required" },
+        { status: 400 }
+      );
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return NextResponse.json({ error: "Invalid email format" }, { status: 400 });
@@ -107,14 +110,26 @@ export async function POST(req) {
     if (password.length < 6) {
       return NextResponse.json({ error: "Password must be at least 6 characters long" }, { status: 400 });
     }
+    if (!/^\+?\d{10,15}$/.test(whatsapp_number)) {
+      return NextResponse.json({ error: "Invalid WhatsApp number format" }, { status: 400 });
+    }
     if (!["admin", "team_manager", "member"].includes(role)) {
       return NextResponse.json({ error: "Invalid role" }, { status: 400 });
     }
     if (!["residential", "non_residential", "semi_residential"].includes(type)) {
       return NextResponse.json({ error: "Invalid user type" }, { status: 400 });
     }
+    if (!["o_member", "i_member", "s_member"].includes(member_scope)) {
+      return NextResponse.json({ error: "Invalid member scope" }, { status: 400 });
+    }
     if (role === "team_manager" && !["head_incharge", "coordinator", "accountant", "chief_counsellor", "hostel_incharge", "principal"].includes(team_manager_type)) {
       return NextResponse.json({ error: "Invalid team manager type" }, { status: 400 });
+    }
+    if (useCustomTimes && (!dayOpenTime || !dayCloseTime)) {
+      return NextResponse.json(
+        { error: "Custom open and close times are required when useCustomTimes is true" },
+        { status: 400 }
+      );
     }
 
     const existingUser = await db
@@ -134,11 +149,23 @@ export async function POST(req) {
         name,
         email: email.toLowerCase(),
         password: hashedPassword,
+        whatsapp_number,
         role,
         type,
+        member_scope,
         team_manager_type: role === "team_manager" ? team_manager_type : null,
       })
       .returning({ id: users.id, role: users.role });
+
+    if (useCustomTimes) {
+      await db.insert(userOpenCloseTimes).values({
+        userId: newUser.id,
+        dayOpenedAt: dayOpenTime,
+        dayClosedAt: dayCloseTime,
+        useCustomTimes: true,
+        createdAt: new Date(),
+      });
+    }
 
     let assignedTaskIds = [];
     if (Array.isArray(assignedTasksInput) && assignedTasksInput.length > 0) {

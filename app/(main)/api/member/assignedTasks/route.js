@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { assignedTasks, assignedTaskStatus, sprints } from "@/lib/schema";
+import { assignedTasks, assignedTaskStatus, sprints, assignedTaskLogs } from "@/lib/schema";
 import { auth } from "@/lib/auth";
 import { eq, and, gte, lte } from "drizzle-orm";
 
@@ -14,40 +14,193 @@ export async function GET(req) {
 
     const userId = parseInt(session.user.id);
     const { searchParams } = new URL(req.url);
-    const date = searchParams.get("date");
+    const action = searchParams.get("action");
 
-    if (!date) {
-      return NextResponse.json({ error: "Date is required" }, { status: 400 });
+    if (!action) {
+      return NextResponse.json({ error: "Action is required" }, { status: 400 });
     }
 
-    const startOfDay = new Date(date);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(date);
-    endOfDay.setHours(23, 59, 59, 999);
+    if (action === "tasks") {
+      const date = searchParams.get("date");
+      if (!date) {
+        return NextResponse.json({ error: "Date is required for tasks" }, { status: 400 });
+      }
 
-    const tasks = await db
-      .select({
-        id: assignedTaskStatus.id,
-        title: assignedTasks.title,
-        description: assignedTasks.description,
-        status: assignedTaskStatus.status,
-        assignedDate: assignedTaskStatus.assignedDate,
-      })
-      .from(assignedTaskStatus)
-      .innerJoin(assignedTasks, eq(assignedTaskStatus.taskId, assignedTasks.id))
-      .where(
-        and(
-          eq(assignedTaskStatus.memberId, userId),
-          gte(assignedTaskStatus.assignedDate, startOfDay),
-          lte(assignedTaskStatus.assignedDate, endOfDay)
-        )
+      const startOfDay = new Date(date);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(date);
+      endOfDay.setHours(23, 59, 59, 999);
+
+      const tasks = await db
+        .select({
+          id: assignedTaskStatus.taskId,
+          title: assignedTasks.title,
+          description: assignedTasks.description,
+          status: assignedTaskStatus.status,
+          assignedDate: assignedTaskStatus.assignedDate,
+          taskStatusId: assignedTaskStatus.id,
+        })
+        .from(assignedTaskStatus)
+        .innerJoin(assignedTasks, eq(assignedTaskStatus.taskId, assignedTasks.id))
+        .where(
+          and(
+            eq(assignedTaskStatus.memberId, userId),
+            gte(assignedTaskStatus.assignedDate, startOfDay),
+            lte(assignedTaskStatus.assignedDate, endOfDay)
+          )
+        );
+
+      // Fetch sprints for each task
+      const tasksWithSprints = await Promise.all(
+        tasks.map(async (task) => {
+          const taskSprints = await db
+            .select({
+              id: sprints.id,
+              title: sprints.title,
+              description: sprints.description,
+              status: sprints.status,
+            })
+            .from(sprints)
+            .where(eq(sprints.taskStatusId, task.taskStatusId));
+
+          return {
+            ...task,
+            sprints: taskSprints,
+          };
+        })
       );
 
-    console.log("Assigned tasks fetched:", tasks.length, { userId, date });
+      console.log("Assigned tasks fetched:", tasksWithSprints.length, { userId, date });
 
-    return NextResponse.json({ tasks });
+      return NextResponse.json({ tasks: tasksWithSprints });
+    }
+
+    if (action === "sprints") {
+      const taskId = parseInt(searchParams.get("taskId"));
+      const memberId = parseInt(searchParams.get("memberId"));
+
+      if (!taskId || !memberId || memberId !== userId) {
+        return NextResponse.json({ error: "Invalid task ID or member ID" }, { status: 400 });
+      }
+
+      const taskStatus = await db
+        .select({ id: assignedTaskStatus.id })
+        .from(assignedTaskStatus)
+        .where(
+          and(
+            eq(assignedTaskStatus.taskId, taskId),
+            eq(assignedTaskStatus.memberId, userId)
+          )
+        )
+        .limit(1);
+
+      if (!taskStatus.length) {
+        return NextResponse.json({ error: "Task not assigned to user" }, { status: 404 });
+      }
+
+      const sprintsData = await db
+        .select({
+          id: sprints.id,
+          title: sprints.title,
+          description: sprints.description,
+          status: sprints.status,
+        })
+        .from(sprints)
+        .where(eq(sprints.taskStatusId, taskStatus[0].id));
+
+      console.log("Sprints fetched:", sprintsData.length, { taskId, userId });
+
+      return NextResponse.json({ sprints: sprintsData });
+    }
+
+    if (action === "assignees") {
+      const taskId = parseInt(searchParams.get("taskId"));
+
+      if (!taskId) {
+        return NextResponse.json({ error: "Task ID is required" }, { status: 400 });
+      }
+
+      // Verify user is assigned to the task
+      const userTask = await db
+        .select()
+        .from(assignedTaskStatus)
+        .where(
+          and(
+            eq(assignedTaskStatus.taskId, taskId),
+            eq(assignedTaskStatus.memberId, userId)
+          )
+        )
+        .limit(1);
+
+      if (!userTask.length) {
+        return NextResponse.json({ error: "User not assigned to task" }, { status: 403 });
+      }
+
+      const assignees = await db
+        .select({
+          memberId: assignedTaskStatus.memberId,
+        })
+        .from(assignedTaskStatus)
+        .where(eq(assignedTaskStatus.taskId, taskId));
+
+      console.log("Assignees fetched:", assignees.length, { taskId, userId });
+
+      return NextResponse.json({ assignees });
+    }
+
+    return NextResponse.json({ error: "Invalid action" }, { status: 400 });
   } catch (error) {
-    console.error("Error fetching assigned tasks:", error);
-    return NextResponse.json({ error: `Failed to fetch assigned tasks: ${error.message}` }, { status: 500 });
+    console.error("Error processing request:", error);
+    return NextResponse.json({ error: `Failed to process request: ${error.message}` }, { status: 500 });
+  }
+}
+
+export async function POST(req) {
+  try {
+    const session = await auth();
+    if (!session || !session.user || session.user.role !== "member") {
+      console.error("Unauthorized access attempt:", { session });
+      return NextResponse.json({ error: "Unauthorized: Member access required" }, { status: 401 });
+    }
+
+    const userId = parseInt(session.user.id);
+    const { taskId, action, details } = await req.json();
+
+    if (!taskId || !action || !details) {
+      return NextResponse.json({ error: "Task ID, action, and details are required" }, { status: 400 });
+    }
+
+    const taskStatus = await db
+      .select()
+      .from(assignedTaskStatus)
+      .where(
+        and(
+          eq(assignedTaskStatus.taskId, taskId),
+          eq(assignedTaskStatus.memberId, userId)
+        )
+      )
+      .limit(1);
+
+    if (!taskStatus.length) {
+      return NextResponse.json({ error: "Task not assigned to user" }, { status: 404 });
+    }
+
+    const [log] = await db
+      .insert(assignedTaskLogs)
+      .values({
+        taskId,
+        userId,
+        action,
+        details,
+        createdAt: new Date(),
+      })
+      .returning();
+
+    console.log("Task log created:", { taskId, action, userId });
+
+    return NextResponse.json({ log });
+  } catch (error) {
+    console.error("Error creating task log:", error);
+    return NextResponse.json({ error: `Failed to create task log: ${error.message}` }, { status: 500 });
   }
 }

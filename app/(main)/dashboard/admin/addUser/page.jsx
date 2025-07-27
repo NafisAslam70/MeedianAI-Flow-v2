@@ -13,7 +13,6 @@ const fetcher = (url) =>
     return res.json();
   });
 
-// Lazy-load ManageTasksModal
 const ManageTasksModal = React.lazy(() => import("@/components/ManageRoutineModal"));
 
 export default function AddUser() {
@@ -23,9 +22,14 @@ export default function AddUser() {
     name: "",
     email: "",
     password: "",
+    whatsapp_number: "",
     role: "member",
     type: "residential",
+    member_scope: "i_member",
     team_manager_type: "",
+    useCustomTimes: false,
+    dayOpenTime: "",
+    dayCloseTime: "",
   });
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -39,8 +43,9 @@ export default function AddUser() {
   const [loadingAction, setLoadingAction] = useState("");
   const [selectedUserId, setSelectedUserId] = useState("");
   const [tempUserId, setTempUserId] = useState("");
+  const [users, setUsers] = useState([]); // Define users state
 
-  // SWR for fetching users and tasks
+  // SWR for fetching users (no need for openCloseTimes since type-based times are handled backend)
   const { data: usersData, error: usersError } = useSWR("/api/managersCommon/users", fetcher, {
     revalidateOnFocus: false,
     dedupingInterval: 60000,
@@ -56,10 +61,9 @@ export default function AddUser() {
     }
   );
 
-  // Update users state with deduplication
-  const [users, setUsers] = useState([]);
+  // Update users state
   useEffect(() => {
-    if (usersData?.users) {
+    if (usersData && usersData.users) {
       const uniqueUsers = Array.from(new Map(usersData.users.map((u) => [u.id, u])).values());
       setUsers(uniqueUsers);
     }
@@ -80,10 +84,10 @@ export default function AddUser() {
     }
   }, [tasksData, tasksError]);
 
-  // Redirect if not admin, but skip during session loading
+  // Redirect if not admin
   useEffect(() => {
-    if (status === "loading") return; // Prevent redirects during session loading
-    if (status === "authenticated" && session?.user?.role !== "admin") {
+    if (status === "loading") return;
+    if (status === "authenticated" && session && session.user && session.user.role !== "admin") {
       router.push("/dashboard/member");
     } else if (status === "unauthenticated") {
       router.push("/login?role=admin");
@@ -91,8 +95,11 @@ export default function AddUser() {
   }, [status, session, router]);
 
   const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
+    const { name, value, type: inputType, checked } = e.target;
+    setFormData((prev) => ({
+      ...prev,
+      [name]: inputType === "checkbox" ? checked : value,
+    }));
   };
 
   const handleUserSelect = () => {
@@ -103,9 +110,14 @@ export default function AddUser() {
         name: "",
         email: "",
         password: "",
+        whatsapp_number: "",
         role: "member",
         type: "residential",
+        member_scope: "i_member",
         team_manager_type: "",
+        useCustomTimes: false,
+        dayOpenTime: "",
+        dayCloseTime: "",
       });
       setNewUserId(null);
       setShowTaskModal(false);
@@ -120,8 +132,8 @@ export default function AddUser() {
     setSuccess("");
     setLoading(true);
 
-    if (!formData.name || !formData.email || !formData.password) {
-      setError("Name, email, and password are required.");
+    if (!formData.name || !formData.email || !formData.password || !formData.whatsapp_number) {
+      setError("Name, email, password, and WhatsApp number are required.");
       setLoading(false);
       return;
     }
@@ -135,8 +147,18 @@ export default function AddUser() {
       setLoading(false);
       return;
     }
+    if (!/^\+?\d{10,15}$/.test(formData.whatsapp_number)) {
+      setError("Invalid WhatsApp number format (e.g., +1234567890).");
+      setLoading(false);
+      return;
+    }
     if (formData.role === "team_manager" && !formData.team_manager_type) {
       setError("Team manager type is required for team manager role.");
+      setLoading(false);
+      return;
+    }
+    if (formData.useCustomTimes && (!formData.dayOpenTime || !formData.dayCloseTime)) {
+      setError("Custom open and close times are required when using custom times.");
       setLoading(false);
       return;
     }
@@ -144,16 +166,12 @@ export default function AddUser() {
     try {
       const response = await fetch("/api/admin/addUser", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formData),
       });
 
       const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || `HTTP error ${response.status}`);
-      }
+      if (!response.ok) throw new Error(data.error || `HTTP error ${response.status}`);
 
       setSuccess(`User added successfully as ${data.role}!`);
       setNewUserId(data.userId);
@@ -167,7 +185,6 @@ export default function AddUser() {
     }
   };
 
-  // Handle adding a new routine task
   const handleAddTask = async () => {
     if (!newUserId && !selectedUserId) {
       setError("No user selected.");
@@ -218,7 +235,6 @@ export default function AddUser() {
     }
   };
 
-  // Handle editing a routine task
   const handleEditTask = async (taskId) => {
     if (!newTaskDescription.trim()) {
       setError("Task description is required.");
@@ -231,10 +247,7 @@ export default function AddUser() {
       const response = await fetch("/api/managersCommon/routine-tasks", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          taskId,
-          description: newTaskDescription,
-        }),
+        body: JSON.stringify({ taskId, description: newTaskDescription }),
       });
 
       if (!response.ok) {
@@ -243,9 +256,7 @@ export default function AddUser() {
       }
 
       setRoutineTasks((prev) =>
-        prev.map((task) =>
-          task.id === taskId ? { ...task, description: newTaskDescription } : task
-        )
+        prev.map((task) => (task.id === taskId ? { ...task, description: newTaskDescription } : task))
       );
       setNewTaskDescription("");
       setEditingTask(null);
@@ -261,7 +272,6 @@ export default function AddUser() {
     }
   };
 
-  // Handle deleting a routine task
   const handleDeleteTask = async (taskId) => {
     setLoading(true);
     setLoadingAction("delete");
@@ -294,10 +304,10 @@ export default function AddUser() {
     router.push("/dashboard/admin");
   };
 
-  // Categorize users
-  const admins = users.filter((user) => user.role === "admin");
-  const teamManagers = users.filter((user) => user.role === "team_manager");
-  const teamMembers = users.filter((user) => !["admin", "team_manager"].includes(user.role));
+  // Guard against undefined users
+  const admins = users ? users.filter((user) => user.role === "admin") : [];
+  const teamManagers = users ? users.filter((user) => user.role === "team_manager") : [];
+  const teamMembers = users ? users.filter((user) => !["admin", "team_manager"].includes(user.role)) : [];
 
   if (status === "loading" || !usersData) {
     return (
@@ -322,7 +332,6 @@ export default function AddUser() {
       className="fixed inset-0 bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 p-6 flex items-center justify-center"
     >
       <div className="w-full h-full bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 rounded-2xl shadow-2xl p-8 flex flex-col gap-8 overflow-y-auto">
-        {/* Error and Success Messages */}
         <AnimatePresence>
           {(error || success) && (
             <motion.p
@@ -343,7 +352,6 @@ export default function AddUser() {
           )}
         </AnimatePresence>
 
-        {/* User Selection */}
         {!selectedUserId && !newUserId && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -353,12 +361,16 @@ export default function AddUser() {
           >
             <div className="flex items-center gap-4">
               <svg className="w-12 h-12 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v2h5m-2-2a3 3 0 005.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v2h5m-2-2a3 3 0 005.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+                />
               </svg>
               <h2 className="text-2xl sm:text-3xl font-bold text-gray-800">Select a Team Member or Add New</h2>
             </div>
             <div className="flex flex-col gap-6">
-              {/* Admins */}
               {admins.length > 0 && (
                 <div>
                   <h4 className="text-lg font-semibold text-gray-700 mb-2">Admins</h4>
@@ -383,7 +395,6 @@ export default function AddUser() {
                   </div>
                 </div>
               )}
-              {/* Team Managers */}
               {teamManagers.length > 0 && (
                 <div>
                   <h4 className="text-lg font-semibold text-gray-700 mb-2">Team Managers</h4>
@@ -408,7 +419,6 @@ export default function AddUser() {
                   </div>
                 </div>
               )}
-              {/* Team Members */}
               {teamMembers.length > 0 && (
                 <div>
                   <h4 className="text-lg font-semibold text-gray-700 mb-2">Team Members</h4>
@@ -462,7 +472,6 @@ export default function AddUser() {
           </motion.div>
         )}
 
-        {/* Add User Form or Task Management */}
         {(selectedUserId || newUserId) && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -523,6 +532,21 @@ export default function AddUser() {
                       />
                     </div>
                     <div>
+                      <label htmlFor="whatsapp_number" className="block text-sm font-medium text-gray-700">
+                        WhatsApp Number
+                      </label>
+                      <input
+                        type="text"
+                        id="whatsapp_number"
+                        name="whatsapp_number"
+                        value={formData.whatsapp_number}
+                        onChange={handleInputChange}
+                        className="mt-1 w-full p-3 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-lg"
+                        placeholder="+1234567890"
+                        required
+                      />
+                    </div>
+                    <div>
                       <label htmlFor="role" className="block text-sm font-medium text-gray-700">
                         Role
                       </label>
@@ -577,6 +601,67 @@ export default function AddUser() {
                         <option value="semi_residential">Semi Residential</option>
                       </select>
                     </div>
+                    <div>
+                      <label htmlFor="member_scope" className="block text-sm font-medium text-gray-700">
+                        Member Scope
+                      </label>
+                      <select
+                        id="member_scope"
+                        name="member_scope"
+                        value={formData.member_scope}
+                        onChange={handleInputChange}
+                        className="mt-1 w-full p-3 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-lg"
+                      >
+                        <option value="i_member">Inside Member</option>
+                        <option value="o_member">Outside Member</option>
+                        <option value="s_member">Star Member</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label htmlFor="useCustomTimes" className="block text-sm font-medium text-gray-700">
+                        Use Custom Open/Close Times
+                      </label>
+                      <input
+                        type="checkbox"
+                        id="useCustomTimes"
+                        name="useCustomTimes"
+                        checked={formData.useCustomTimes}
+                        onChange={handleInputChange}
+                        className="mt-1 h-5 w-5 text-teal-600 focus:ring-teal-500"
+                      />
+                    </div>
+                    {formData.useCustomTimes && (
+                      <>
+                        <div>
+                          <label htmlFor="dayOpenTime" className="block text-sm font-medium text-gray-700">
+                            Day Open Time
+                          </label>
+                          <input
+                            type="time"
+                            id="dayOpenTime"
+                            name="dayOpenTime"
+                            value={formData.dayOpenTime}
+                            onChange={handleInputChange}
+                            className="mt-1 w-full p-3 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-lg"
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label htmlFor="dayCloseTime" className="block text-sm font-medium text-gray-700">
+                            Day Close Time
+                          </label>
+                          <input
+                            type="time"
+                            id="dayCloseTime"
+                            name="dayCloseTime"
+                            value={formData.dayCloseTime}
+                            onChange={handleInputChange}
+                            className="mt-1 w-full p-3 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-lg"
+                            required
+                          />
+                        </div>
+                      </>
+                    )}
                   </div>
                   <div className="flex justify-end gap-4">
                     <motion.button
@@ -607,7 +692,12 @@ export default function AddUser() {
               <div>
                 <div className="flex items-center gap-4">
                   <svg className="w-12 h-12 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+                    />
                   </svg>
                   <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">
                     Routine Tasks for {users.find((u) => u.id === (newUserId || selectedUserId))?.name || "New User"}
@@ -659,7 +749,6 @@ export default function AddUser() {
           </motion.div>
         )}
 
-        {/* Routine Tasks Modal */}
         <Suspense fallback={<p className="text-center text-lg text-gray-600">Loading modal...</p>}>
           <AnimatePresence>
             {showTaskModal && (newUserId || selectedUserId) && (

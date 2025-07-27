@@ -30,6 +30,9 @@ export async function GET(req) {
           email: users.email,
           role: users.role,
           type: users.type,
+          whatsapp_number: users.whatsapp_number,
+          member_scope: users.member_scope,
+          team_manager_type: users.team_manager_type,
         })
         .from(users);
       console.log("Fetched team data:", userData);
@@ -63,7 +66,6 @@ export async function GET(req) {
         .from(dailySlots)
         .orderBy(dailySlots.id);
 
-      // Fetch assignments from dailySlotAssignments
       const assignments = await db
         .select({
           slotId: dailySlotAssignments.slotId,
@@ -71,7 +73,6 @@ export async function GET(req) {
         })
         .from(dailySlotAssignments);
 
-      // Combine slot data with assignments
       const slotsWithAssignments = slots.map((slot) => ({
         ...slot,
         assignedMemberId: assignments.find((a) => a.slotId === slot.id)?.memberId || slot.assignedMemberId || null,
@@ -175,7 +176,6 @@ export async function POST(req) {
         return NextResponse.json({ error: "Missing required fields: slotId or memberId" }, { status: 400 });
       }
 
-      // Validate slotId and memberId
       const slotExists = await db
         .select({ id: dailySlots.id })
         .from(dailySlots)
@@ -238,9 +238,46 @@ export async function PATCH(req) {
       }
 
       for (const user of updates) {
-        if (!user.id || !user.name || !user.email || !user.role || !user.type) {
+        if (
+          !user.id ||
+          !user.name ||
+          !user.email ||
+          !user.role ||
+          !user.type ||
+          !user.whatsapp_number ||
+          !user.member_scope
+        ) {
           console.error("Missing required user fields:", user);
           return NextResponse.json({ error: `Missing required user fields for user ${user.id}` }, { status: 400 });
+        }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(user.email)) {
+          console.error("Invalid email format:", user.email);
+          return NextResponse.json({ error: `Invalid email format for user ${user.id}` }, { status: 400 });
+        }
+        if (!/^\+?\d{10,15}$/.test(user.whatsapp_number)) {
+          console.error("Invalid WhatsApp number format:", user.whatsapp_number);
+          return NextResponse.json({ error: `Invalid WhatsApp number format for user ${user.id}` }, { status: 400 });
+        }
+        if (!["admin", "team_manager", "member"].includes(user.role)) {
+          console.error("Invalid role:", user.role);
+          return NextResponse.json({ error: `Invalid role for user ${user.id}` }, { status: 400 });
+        }
+        if (!["residential", "non_residential", "semi_residential"].includes(user.type)) {
+          console.error("Invalid user type:", user.type);
+          return NextResponse.json({ error: `Invalid user type for user ${user.id}` }, { status: 400 });
+        }
+        if (!["o_member", "i_member", "s_member"].includes(user.member_scope)) {
+          console.error("Invalid member scope:", user.member_scope);
+          return NextResponse.json({ error: `Invalid member scope for user ${user.id}` }, { status: 400 });
+        }
+        if (
+          user.role === "team_manager" &&
+          !["head_incharge", "coordinator", "accountant", "chief_counsellor", "hostel_incharge", "principal"].includes(
+            user.team_manager_type
+          )
+        ) {
+          console.error("Invalid team manager type:", user.team_manager_type);
+          return NextResponse.json({ error: `Invalid team manager type for user ${user.id}` }, { status: 400 });
         }
 
         const updateData = {
@@ -248,9 +285,21 @@ export async function PATCH(req) {
           email: user.email,
           role: user.role,
           type: user.type,
+          whatsapp_number: user.whatsapp_number,
+          member_scope: user.member_scope,
+          team_manager_type: user.role === "team_manager" ? user.team_manager_type : null,
         };
         if (user.password) {
-          updateData.password = user.password;
+          updateData.password = await bcrypt.hash(user.password, 10);
+        }
+
+        const existingUser = await db
+          .select({ id: users.id })
+          .from(users)
+          .where(eq(users.email, user.email.toLowerCase()));
+        if (existingUser.length > 0 && existingUser[0].id !== user.id) {
+          console.error("Email already in use:", user.email);
+          return NextResponse.json({ error: `Email already in use for user ${user.id}` }, { status: 400 });
         }
 
         await db.update(users).set(updateData).where(eq(users.id, user.id));
@@ -301,7 +350,6 @@ export async function PATCH(req) {
         return NextResponse.json({ error: "Invalid or empty updates" }, { status: 400 });
       }
 
-      // Fetch valid user IDs and slot IDs
       const userIds = new Set(
         (await db.select({ id: users.id }).from(users)).map((user) => user.id)
       );
@@ -311,47 +359,47 @@ export async function PATCH(req) {
 
       const updatedAssignments = [];
       for (const update of updates) {
-        const { slotId, memberId } = update;
-        if (!slotId || !memberId) {
+        const { slotId, memberId, startTime, endTime } = update;
+        if (!slotId || (!memberId && !startTime && !endTime)) {
           console.error("Missing required slot assignment fields:", update);
-          return NextResponse.json({ error: `Missing required fields for slot assignment: slotId or memberId` }, { status: 400 });
+          return NextResponse.json({ error: `Missing required fields for slot assignment: slotId or memberId/startTime/endTime` }, { status: 400 });
         }
 
-        // Validate slotId and memberId
         if (!slotIds.has(slotId)) {
           console.error("Invalid slotId:", slotId);
           return NextResponse.json({ error: `Invalid slotId: ${slotId}` }, { status: 400 });
         }
-        if (!userIds.has(memberId)) {
+        if (memberId && !userIds.has(memberId)) {
           console.error("Invalid memberId:", memberId);
           return NextResponse.json({ error: `Invalid memberId: ${memberId}` }, { status: 400 });
         }
 
-        // Check if an assignment already exists
-        const existingAssignment = await db
-          .select({ id: dailySlotAssignments.id })
-          .from(dailySlotAssignments)
-          .where(eq(dailySlotAssignments.slotId, slotId));
-
-        if (existingAssignment.length > 0) {
-          // Update existing assignment
-          await db
-            .update(dailySlotAssignments)
-            .set({
-              memberId,
-            })
+        if (memberId) {
+          const existingAssignment = await db
+            .select({ id: dailySlotAssignments.id })
+            .from(dailySlotAssignments)
             .where(eq(dailySlotAssignments.slotId, slotId));
-        } else {
-          // Insert new assignment
-          await db
-            .insert(dailySlotAssignments)
-            .values({
-              slotId,
-              memberId,
-            });
+
+          if (existingAssignment.length > 0) {
+            await db
+              .update(dailySlotAssignments)
+              .set({ memberId })
+              .where(eq(dailySlotAssignments.slotId, slotId));
+          } else {
+            await db
+              .insert(dailySlotAssignments)
+              .values({ slotId, memberId });
+          }
+          updatedAssignments.push({ slotId, memberId });
         }
 
-        updatedAssignments.push({ slotId, memberId });
+        if (startTime && endTime) {
+          await db
+            .update(dailySlots)
+            .set({ startTime, endTime })
+            .where(eq(dailySlots.id, slotId));
+          updatedAssignments.push({ slotId, startTime, endTime });
+        }
       }
 
       console.log("Slot assignments updated successfully:", updatedAssignments);

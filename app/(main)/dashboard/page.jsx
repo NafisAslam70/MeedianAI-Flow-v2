@@ -11,12 +11,19 @@ const fetcher = (url) =>
     return res.json();
   });
 
+const formatTimeLeft = (seconds) => {
+  const minutes = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+};
+
 export default function GeneralDashboard() {
   const { data: session } = useSession();
   const [slots, setSlots] = useState([]);
   const [members, setMembers] = useState([]);
   const [currentSlot, setCurrentSlot] = useState(null);
   const [currentBlock, setCurrentBlock] = useState(null);
+  const [timeLeft, setTimeLeft] = useState(null);
   const [announcements, setAnnouncements] = useState([]);
   const [showTutorialsModal, setShowTutorialsModal] = useState(false);
   const [showNMRIsModal, setShowNMRIsModal] = useState(false);
@@ -47,13 +54,13 @@ export default function GeneralDashboard() {
       console.log("Fetched user data:", userData); // Debug
       const users = Array.isArray(userData) ? userData : userData.users || [];
       setMembers(users);
-      console.log("Set members:", users.length);
+      console.log("Set members:", users.length, "Users:", JSON.stringify(users, null, 2));
     }
     if (userError) {
       console.error("Users fetch error:", userError);
       setError("Failed to load members. TOD names may not display.");
       setTimeout(() => setError(null), 3000);
-      setMembers([]); // Ensure members is an array
+      setMembers([]);
     }
 
     // Placeholder announcements
@@ -61,6 +68,7 @@ export default function GeneralDashboard() {
   }, [slotData, slotError, userData, userError]);
 
   useEffect(() => {
+    let intervalId = null;
     const now = new Date();
     let foundSlot = null;
     let foundBlock = null;
@@ -75,16 +83,40 @@ export default function GeneralDashboard() {
 
     if (foundSlot) {
       const slotId = foundSlot.id;
-      if (slotId >= 1 && slotId <= 6) foundBlock = "Block 1";
-      else if (slotId >= 7 && slotId <= 9) foundBlock = "Block 2";
-      else if (slotId >= 10 && slotId <= 11) foundBlock = "Block 3";
-      else if (slotId >= 12 && slotId <= 14) foundBlock = "Block 4";
-      else if (slotId >= 15 && slotId <= 16) foundBlock = "Block 5";
-      else if (slotId === 145) foundBlock = "Block 6";
+      if (slotId >= 1 && slotId <= 6) foundBlock = `BLOCK 1: ${foundSlot.name}`;
+      else if (slotId >= 7 && slotId <= 9) foundBlock = `BLOCK 2: ${foundSlot.name}`;
+      else if (slotId >= 10 && slotId <= 11) foundBlock = `BLOCK 3: ${foundSlot.name}`;
+      else if (slotId >= 12 && slotId <= 14) foundBlock = `BLOCK 4: ${foundSlot.name}`;
+      else if (slotId >= 15 && slotId <= 16) foundBlock = `BLOCK 5: ${foundSlot.name}`;
+      else if (slotId === 145) foundBlock = `BLOCK 6: ${foundSlot.name}`;
+
+      // Calculate initial time left
+      const endTime = new Date(now.toDateString() + " " + foundSlot.endTime);
+      const secondsLeft = Math.max(0, Math.floor((endTime - now) / 1000));
+      setTimeLeft(secondsLeft);
+
+      // Start countdown
+      intervalId = setInterval(() => {
+        const currentTime = new Date();
+        const newSecondsLeft = Math.max(0, Math.floor((endTime - currentTime) / 1000));
+        setTimeLeft(newSecondsLeft);
+        if (newSecondsLeft <= 0) {
+          clearInterval(intervalId);
+          setCurrentSlot(null);
+          setCurrentBlock(null);
+          setTimeLeft(null);
+        }
+      }, 1000);
+    } else {
+      setTimeLeft(null);
     }
 
     setCurrentSlot(foundSlot);
     setCurrentBlock(foundBlock);
+
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
   }, [slots]);
 
   if (!session) {
@@ -100,6 +132,29 @@ export default function GeneralDashboard() {
       </div>
     );
   }
+
+  // Get TOD name for a slot
+  const getTODName = (slot) => {
+    if (!slot || !slot.assignedMemberId) {
+      console.log("No slot or assignedMemberId:", slot); // Debug
+      return "Unassigned";
+    }
+    console.log(
+      "Checking TOD for slot:",
+      slot.id,
+      "Assigned ID:",
+      slot.assignedMemberId,
+      "User ID:",
+      session.user.id,
+      "User Name:",
+      session.user.name
+    ); // Debug
+    if (String(slot.assignedMemberId) === String(session.user.id)) {
+      return `${session.user.name}(you)`;
+    }
+    const member = Array.isArray(members) && members.find((m) => String(m.id) === String(slot.assignedMemberId));
+    return member ? member.name : "Unassigned";
+  };
 
   return (
     <motion.div
@@ -156,18 +211,33 @@ export default function GeneralDashboard() {
         {/* Top Horizontal Row */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <motion.div
-            className="bg-white rounded-xl shadow-lg p-6 border border-teal-100 backdrop-blur-sm"
+            className="bg-white rounded-xl shadow-lg p-6 border border-teal-100 backdrop-blur-sm flex flex-col items-center justify-center min-h-[200px]"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
             whileHover={{ scale: 1.05, boxShadow: "0 10px 20px rgba(0, 128, 0, 0.2)" }}
             whileTap={{ scale: 0.98 }}
           >
-            <h2 className="text-xl font-bold text-gray-800 mb-4">Current Block & Slot</h2>
-            <p className="text-sm font-medium text-gray-700">Current Block: {currentBlock || "No active block"}</p>
-            <p className="text-sm font-medium text-gray-700">
-              Current Slot: {currentSlot ? `${currentSlot.name} (${currentSlot.startTime} - ${currentSlot.endTime})` : "No active slot"}
-            </p>
+            <motion.div
+              className="text-center"
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ duration: 0.5, delay: 0.2 }}
+            >
+              <div className="relative mb-4">
+                <p className="text-4xl font-bold text-teal-700 bg-teal-50 rounded-lg p-2">
+                  {currentBlock || "NO ACTIVE BLOCK"}
+                </p>
+                <span className="absolute left-0 right-0 bottom-0 h-1 bg-gradient-to-r from-teal-400 to-blue-400 rounded-full" />
+              </div>
+              {currentSlot && (
+                <>
+                  <p className="text-2xl font-semibold text-gray-800 mb-2">{`${currentSlot.startTime} - ${currentSlot.endTime}`}</p>
+                  <p className="text-sm font-medium text-gray-700 mb-2">TOD: {getTODName(currentSlot)}</p>
+                  <p className="text-lg font-semibold text-teal-600">{timeLeft !== null ? `${formatTimeLeft(timeLeft)} left` : "Ended"}</p>
+                </>
+              )}
+            </motion.div>
           </motion.div>
 
           <motion.div
@@ -394,7 +464,11 @@ export default function GeneralDashboard() {
                             .map((slot, index) => (
                               <motion.div
                                 key={slot.id}
-                                className="grid grid-cols-12 gap-4 items-center p-3 rounded-lg hover:bg-gray-50 transition-all duration-200"
+                                className={`grid grid-cols-12 gap-4 items-center p-3 rounded-lg transition-all duration-200 ${
+                                  String(slot.assignedMemberId) === String(session.user.id)
+                                    ? "bg-teal-50 border-2 border-teal-500 shadow-sm"
+                                    : "hover:bg-gray-50"
+                                }`}
                                 initial={{ opacity: 0, y: 10 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 transition={{ duration: 0.2, delay: index * 0.1 }}
@@ -402,7 +476,7 @@ export default function GeneralDashboard() {
                                 <div className="col-span-2 text-sm font-medium text-gray-700">Slot {slot.id}</div>
                                 <div className="col-span-4 text-sm font-medium text-gray-700">{slot.name}</div>
                                 <div className="col-span-3 text-sm font-medium text-gray-700">
-                                  {Array.isArray(members) && members.find((m) => m.id === slot.assignedMemberId)?.name || "Unassigned"}
+                                  {getTODName(slot)}
                                 </div>
                                 <div className="col-span-3 text-sm font-medium text-gray-700">{`${slot.startTime} - ${slot.endTime}`}</div>
                               </motion.div>

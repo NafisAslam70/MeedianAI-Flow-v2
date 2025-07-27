@@ -32,15 +32,22 @@ export default function ManageTeamPage() {
   const [editTimingsSlot, setEditTimingsSlot] = useState(null);
   const userTypes = ["residential", "non_residential", "semi_residential"];
   const roleTypes = ["member", "admin", "team_manager"];
+  const memberScopes = ["i_member", "o_member", "s_member"];
+  const teamManagerTypes = [
+    "head_incharge",
+    "coordinator",
+    "accountant",
+    "chief_counsellor",
+    "hostel_incharge",
+    "principal",
+  ];
 
-  // Fetch users with SWR
   const { data: userData, error: userError } = useSWR("/api/admin/manageMeedian?section=team", fetcher, {
     revalidateOnFocus: false,
     dedupingInterval: 60000,
     revalidateOnReconnect: false,
   });
 
-  // Fetch slots with SWR
   const { data: slotData, error: slotError } = useSWR(
     activeSection && ["n-mris", "mspr", "mhcp"].includes(activeSection) ? "/api/admin/manageMeedian?section=slots" : null,
     fetcher,
@@ -51,7 +58,6 @@ export default function ManageTeamPage() {
     }
   );
 
-  // Fetch school calendar
   const { data: calendarData, error: calendarError } = useSWR(
     "/api/admin/manageMeedian?section=schoolCalendar",
     fetcher,
@@ -62,7 +68,6 @@ export default function ManageTeamPage() {
     }
   );
 
-  // Fetch students with SWR
   const { data: studentData, error: studentError } = useSWR(
     activeSection === "students" ? "/api/admin/manageMeedian?section=students" : null,
     fetcher,
@@ -75,7 +80,7 @@ export default function ManageTeamPage() {
 
   useEffect(() => {
     if (userData) {
-      console.log("Fetched users:", userData.users); // Debug: Log fetched users
+      console.log("Fetched users:", userData.users);
       setUsers(userData.users || []);
       setMembers(userData.users.filter((u) => u.role === "member" || u.role === "team_manager") || []);
       setLoading((prev) => ({ ...prev, team: false }));
@@ -89,9 +94,8 @@ export default function ManageTeamPage() {
 
   useEffect(() => {
     if (slotData) {
-      console.log("Fetched slots:", slotData.slots); // Debug: Log fetched slots
+      console.log("Fetched slots:", slotData.slots);
       setSlots(slotData.slots || []);
-      // Initialize bulkAssignments with current assignments
       setBulkAssignments(
         slotData.slots.reduce((acc, slot) => ({
           ...acc,
@@ -109,7 +113,7 @@ export default function ManageTeamPage() {
 
   useEffect(() => {
     if (calendarData) {
-      console.log("Fetched calendar:", calendarData.calendar); // Debug: Log fetched calendar
+      console.log("Fetched calendar:", calendarData.calendar);
       setCalendar(calendarData.calendar || []);
       setLoading((prev) => ({ ...prev, calendar: false }));
     }
@@ -122,7 +126,7 @@ export default function ManageTeamPage() {
 
   useEffect(() => {
     if (studentData) {
-      console.log("Fetched students:", studentData.students); // Debug: Log fetched students
+      console.log("Fetched students:", studentData.students);
       setStudents(studentData.students || []);
       setLoading((prev) => ({ ...prev, students: false }));
     }
@@ -142,7 +146,7 @@ export default function ManageTeamPage() {
     setError("");
     setSuccess("");
     try {
-      console.log("Saving team changes:", users); // Debug: Log team updates
+      console.log("Saving team changes:", users);
       const res = await fetch("/api/admin/manageMeedian?section=team", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -150,13 +154,13 @@ export default function ManageTeamPage() {
       });
       const responseData = await res.json();
       if (!res.ok) {
-        console.error("Team save response error:", responseData); // Debug: Log error response
+        console.error("Team save response error:", responseData);
         throw new Error(responseData.error || `Save failed: ${res.status}`);
       }
-      console.log("Team save response:", responseData); // Debug: Log success response
+      console.log("Team save response:", responseData);
       setSuccess("Team changes saved successfully!");
       setTimeout(() => setSuccess(""), 3000);
-      await mutate("/api/admin/manageMeedian?section=team"); // Refresh team data
+      await mutate("/api/admin/manageMeedian?section=team");
     } catch (err) {
       console.error("Save team error:", err);
       setError(`Error saving team: ${err.message}`);
@@ -170,7 +174,7 @@ export default function ManageTeamPage() {
     setError("");
     setSuccess("");
     try {
-      console.log("Saving slot assignment:", { slotId, memberId }); // Debug: Log assignment
+      console.log("Saving slot assignment:", { slotId, memberId });
       const res = await fetch("/api/admin/manageMeedian?section=slots", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -178,10 +182,10 @@ export default function ManageTeamPage() {
       });
       const responseData = await res.json();
       if (!res.ok) {
-        console.error("Slot assignment save response error:", responseData); // Debug: Log error response
+        console.error("Slot assignment save response error:", responseData);
         throw new Error(responseData.error || `Save failed: ${res.status}`);
       }
-      console.log("Slot assignment save response:", responseData); // Debug: Log success response
+      console.log("Slot assignment save response:", responseData);
       setSlots((prev) =>
         prev.map((slot) =>
           slot.id === slotId ? { ...slot, assignedMemberId: memberId } : slot
@@ -190,7 +194,7 @@ export default function ManageTeamPage() {
       setBulkAssignments((prev) => ({ ...prev, [slotId]: memberId }));
       setSuccess("Slot assignment saved successfully!");
       setTimeout(() => setSuccess(""), 3000);
-      await mutate("/api/admin/manageMeedian?section=slots", undefined, { revalidate: true }); // Force revalidation
+      await mutate("/api/admin/manageMeedian?section=slots", undefined, { revalidate: true });
     } catch (err) {
       console.error("Save slot assignment error:", err);
       setError(`Error saving slot assignment: ${err.message}. Check server logs for details.`);
@@ -205,7 +209,7 @@ export default function ManageTeamPage() {
     setError("");
     setSuccess("");
     try {
-      console.log("Deleting slot assignment for slotId:", slotId); // Debug: Log deletion
+      console.log("Deleting slot assignment for slotId:", slotId);
       const res = await fetch("/api/admin/manageMeedian?section=slots", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
@@ -213,10 +217,10 @@ export default function ManageTeamPage() {
       });
       const responseData = await res.json();
       if (!res.ok) {
-        console.error("Delete slot assignment response error:", responseData); // Debug: Log error response
+        console.error("Delete slot assignment response error:", responseData);
         throw new Error(responseData.error || `Delete failed: ${res.status}`);
       }
-      console.log("Delete slot assignment response:", responseData); // Debug: Log success response
+      console.log("Delete slot assignment response:", responseData);
       setSlots((prev) =>
         prev.map((slot) =>
           slot.id === slotId ? { ...slot, assignedMemberId: null } : slot
@@ -246,7 +250,7 @@ export default function ManageTeamPage() {
           slotId: parseInt(slotId),
           memberId,
         }));
-      console.log("Saving bulk assignments:", updates); // Debug: Log bulk assignments
+      console.log("Saving bulk assignments:", updates);
       const res = await fetch("/api/admin/manageMeedian?section=slots", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -282,7 +286,7 @@ export default function ManageTeamPage() {
     setError("");
     setSuccess("");
     try {
-      console.log("Saving slot timings:", { slotId, startTime, endTime }); // Debug: Log timings
+      console.log("Saving slot timings:", { slotId, startTime, endTime });
       const res = await fetch("/api/admin/manageMeedian?section=slots", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -290,10 +294,10 @@ export default function ManageTeamPage() {
       });
       const responseData = await res.json();
       if (!res.ok) {
-        console.error("Slot timings save response error:", responseData); // Debug: Log error response
+        console.error("Slot timings save response error:", responseData);
         throw new Error(responseData.error || `Save failed: ${res.status}`);
       }
-      console.log("Slot timings save response:", responseData); // Debug: Log success response
+      console.log("Slot timings save response:", responseData);
       setSlots((prev) =>
         prev.map((slot) =>
           slot.id === slotId ? { ...slot, startTime, endTime } : slot
@@ -320,7 +324,7 @@ export default function ManageTeamPage() {
     setError("");
     setSuccess("");
     try {
-      console.log("Saving calendar changes:", calendar); // Debug: Log calendar updates
+      console.log("Saving calendar changes:", calendar);
       const res = await fetch("/api/admin/manageMeedian?section=schoolCalendar", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -328,10 +332,10 @@ export default function ManageTeamPage() {
       });
       const responseData = await res.json();
       if (!res.ok) {
-        console.error("Calendar save response error:", responseData); // Debug: Log error response
+        console.error("Calendar save response error:", responseData);
         throw new Error(responseData.error || `Save failed: ${res.status}`);
       }
-      console.log("Calendar save response:", responseData); // Debug: Log success response
+      console.log("Calendar save response:", responseData);
       setSuccess("School calendar saved successfully!");
       setTimeout(() => setSuccess(""), 3000);
       await mutate("/api/admin/manageMeedian?section=schoolCalendar");
@@ -348,7 +352,7 @@ export default function ManageTeamPage() {
     setError("");
     setSuccess("");
     try {
-      console.log("Adding calendar entry:", entry); // Debug: Log new entry
+      console.log("Adding calendar entry:", entry);
       const res = await fetch("/api/admin/manageMeedian?section=schoolCalendar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -356,10 +360,10 @@ export default function ManageTeamPage() {
       });
       const responseData = await res.json();
       if (!res.ok) {
-        console.error("Add calendar entry response error:", responseData); // Debug: Log error response
+        console.error("Add calendar entry response error:", responseData);
         throw new Error(responseData.error || `Save failed: ${res.status}`);
       }
-      console.log("Add calendar entry response:", responseData); // Debug: Log success response
+      console.log("Add calendar entry response:", responseData);
       setCalendar((prev) => [...prev, responseData.entry]);
       setSuccess("Calendar entry added successfully!");
       setTimeout(() => setSuccess(""), 3000);
@@ -377,7 +381,7 @@ export default function ManageTeamPage() {
     setError("");
     setSuccess("");
     try {
-      console.log("Deleting calendar entry with id:", id); // Debug: Log deletion
+      console.log("Deleting calendar entry with id:", id);
       const res = await fetch("/api/admin/manageMeedian?section=schoolCalendar", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
@@ -385,10 +389,10 @@ export default function ManageTeamPage() {
       });
       const responseData = await res.json();
       if (!res.ok) {
-        console.error("Delete calendar entry response error:", responseData); // Debug: Log error response
+        console.error("Delete calendar entry response error:", responseData);
         throw new Error(responseData.error || `Delete failed: ${res.status}`);
       }
-      console.log("Delete calendar entry response:", responseData); // Debug: Log success response
+      console.log("Delete calendar entry response:", responseData);
       setCalendar((prev) => prev.filter((entry) => entry.id !== id));
       setSuccess("Calendar entry deleted successfully!");
       setTimeout(() => setSuccess(""), 3000);
@@ -418,7 +422,6 @@ export default function ManageTeamPage() {
       className="fixed inset-0 bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 p-4 flex items-center justify-center"
     >
       <div className="w-full h-full bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 rounded-2xl shadow-2xl p-6 sm:p-8 flex flex-col gap-6 sm:gap-8 overflow-y-auto">
-        {/* Error/Success Message */}
         <AnimatePresence>
           {(error || success) && (
             <motion.p
@@ -438,7 +441,6 @@ export default function ManageTeamPage() {
           )}
         </AnimatePresence>
 
-        {/* Header */}
         <motion.h1
           initial={{ y: -20, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
@@ -448,7 +450,6 @@ export default function ManageTeamPage() {
           ⚙️ Meedian Management Portal
         </motion.h1>
 
-        {/* Navigation */}
         <div className="flex gap-4">
           <motion.button
             onClick={handleBack}
@@ -483,7 +484,7 @@ export default function ManageTeamPage() {
           <motion.div
             onClick={() => setActiveSection("mhcp")}
             className={`flex-1 bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 rounded-2xl shadow-lg p-6 flex flex-col justify-between cursor-pointer ${
-             activeSection === "mhcp" || activeSection === "mhcp1" || activeSection === "mhcp2"
+              activeSection === "mhcp" || activeSection === "mhcp1" || activeSection === "mhcp2"
                 ? "bg-teal-700 text-white"
                 : "hover:bg-teal-100"
             }`}
@@ -504,7 +505,6 @@ export default function ManageTeamPage() {
           </motion.div>
         </div>
 
-        {/* Manage All Allotments Button */}
         {activeSection === "n-mris" && (
           <motion.button
             onClick={() => setShowBulkModal(true)}
@@ -516,7 +516,6 @@ export default function ManageTeamPage() {
           </motion.button>
         )}
 
-        {/* View All Allotted TODs */}
         {activeSection === "n-mris" && (
           <div className="space-y-4 mt-4">
             <h3 className="text-xl font-semibold text-gray-700 text-center">Current Allotted TODs</h3>
@@ -552,7 +551,6 @@ export default function ManageTeamPage() {
           </div>
         )}
 
-        {/* Manage Slot Timings Button */}
         {activeSection === "n-mris" && (
           <motion.button
             onClick={() => setShowManageTimingsModal(true)}
@@ -564,7 +562,6 @@ export default function ManageTeamPage() {
           </motion.button>
         )}
 
-        {/* Main View or Detailed View */}
         <AnimatePresence mode="wait">
           {activeSection === null ? (
             <motion.div
@@ -736,6 +733,16 @@ export default function ManageTeamPage() {
                                 />
                               </div>
                               <div>
+                                <label className="block text-sm font-medium text-gray-700">WhatsApp Number</label>
+                                <input
+                                  type="text"
+                                  value={user.whatsapp_number}
+                                  onChange={(e) => handleUserChange(user.id, "whatsapp_number", e.target.value)}
+                                  className="mt-1 w-full p-2 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-base"
+                                  placeholder="+1234567890"
+                                />
+                              </div>
+                              <div>
                                 <label className="block text-sm font-medium text-gray-700">Password (optional)</label>
                                 <input
                                   type="password"
@@ -750,7 +757,7 @@ export default function ManageTeamPage() {
                                 <select
                                   value={user.role}
                                   onChange={(e) => handleUserChange(user.id, "role", e.target.value)}
-                                  className="mt-1 w-full p-2 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-base"
+                                  className="mt-1 w-full p-2 border border-teal-200 rounded-lg focus Adult: ring-2 focus:ring-teal-500 focus:border-teal-500 text-base"
                                 >
                                   {roleTypes.map((role) => (
                                     <option key={role} value={role}>
@@ -759,6 +766,23 @@ export default function ManageTeamPage() {
                                   ))}
                                 </select>
                               </div>
+                              {user.role === "team_manager" && (
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700">Team Manager Type</label>
+                                  <select
+                                    value={user.team_manager_type || ""}
+                                    onChange={(e) => handleUserChange(user.id, "team_manager_type", e.target.value)}
+                                    className="mt-1 w-full p-2 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-base"
+                                  >
+                                    <option value="">Select Type</option>
+                                    {teamManagerTypes.map((type) => (
+                                      <option key={type} value={type}>
+                                        {type.replace("_", " ").toUpperCase()}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                              )}
                               <div>
                                 <label className="block text-sm font-medium text-gray-700">Type</label>
                                 <select
@@ -769,6 +793,20 @@ export default function ManageTeamPage() {
                                   {userTypes.map((type) => (
                                     <option key={type} value={type}>
                                       {type.replace("_", " ").toUpperCase()}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700">Member Scope</label>
+                                <select
+                                  value={user.member_scope}
+                                  onChange={(e) => handleUserChange(user.id, "member_scope", e.target.value)}
+                                  className="mt-1 w-full p-2 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-base"
+                                >
+                                  {memberScopes.map((scope) => (
+                                    <option key={scope} value={scope}>
+                                      {scope.replace("_", " ").toUpperCase()}
                                     </option>
                                   ))}
                                 </select>
@@ -876,21 +914,6 @@ export default function ManageTeamPage() {
                   </div>
                 </div>
               )}
-              {activeSection === "calendar" && (
-                <ManageCalendar
-                  calendar={calendar}
-                  loading={loading.calendar}
-                  saving={saving.calendar}
-                  onCalendarChange={handleCalendarChange}
-                  onSaveCalendar={saveCalendarChanges}
-                  onAddEntry={addCalendarEntry}
-                  onDeleteEntry={deleteCalendarEntry}
-                  error={error}
-                  success={success}
-                  setError={setError}
-                  setSuccess={setSuccess}
-                />
-              )}
               {activeSection === "students" && (
                 <div className="space-y-4 h-full">
                   {loading.students ? (
@@ -899,7 +922,6 @@ export default function ManageTeamPage() {
                     <p className="text-gray-600 text-center text-lg">No students found. Please check the database.</p>
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 h-full">
-                      {/* Hostellers */}
                       <div className="bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 rounded-2xl shadow-lg p-6">
                         <h2 className="text-xl font-semibold text-gray-700 mb-4">Hostellers</h2>
                         {Object.entries(
@@ -936,7 +958,6 @@ export default function ManageTeamPage() {
                             </motion.div>
                           ))}
                       </div>
-                      {/* Day Scholars */}
                       <div className="bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 rounded-2xl shadow-lg p-6">
                         <h2 className="text-xl font-semibold text-gray-700 mb-4">Day Scholars</h2>
                         {Object.entries(
@@ -981,7 +1002,6 @@ export default function ManageTeamPage() {
           )}
         </AnimatePresence>
 
-        {/* Bulk Allotment Modal */}
         <AnimatePresence>
           {showBulkModal && (
             <motion.div
@@ -995,7 +1015,7 @@ export default function ManageTeamPage() {
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.8, opacity: 0 }}
                 transition={{ duration: 0.3 }}
-                className="bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 rounded-2xl shadow-2xl p-6 w-full max-w-5xl max-h-[80vh] overflow-y-auto"
+                className="bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 rounded-2xl shadow-2xl p-6 w-full max -w-5xl max-h-[80vh] overflow-y-auto"
               >
                 <h2 className="text-2xl font-bold text-gray-800 mb-6 text-center">Manage All Allotments</h2>
                 {["Block 1 (Slots 1-6)", "Block 2 (Slots 7-9)", "Block 3 (Slots 10-11)", "Block 4 (Slots 12-14)", "Block 5 (Slots 15-16)", "Block 6 (Slot 145)"].map((blockTitle, blockIndex) => (
@@ -1103,6 +1123,134 @@ export default function ManageTeamPage() {
                   </motion.button>
                 </div>
               </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Manage Slot Timings Modal */}
+        <AnimatePresence>
+          {showManageTimingsModal && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
+            >
+              <motion.div
+                initial={{ scale: 0.8, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.8, opacity: 0 }}
+                transition={{ duration: 0.3 }}
+                className="bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 rounded-2xl shadow-2xl p-6 w-full max-w-5xl max-h-[80vh] overflow-y-auto"
+              >
+                <h2 className="text-2xl font-bold text-gray-800 mb-6 text-center">Manage Slot Timings</h2>
+                {["Block 1 (Slots 1-6)", "Block 2 (Slots 7-9)", "Block 3 (Slots 10-11)", "Block 4 (Slots 12-14)", "Block 5 (Slots 15-16)", "Block 6 (Slot 145)"].map((blockTitle, blockIndex) => (
+                  <div key={blockIndex} className="mb-8">
+                    <h3 className="text-lg font-semibold text-gray-700 mb-4 text-center">{blockTitle}</h3>
+                    <div className="grid grid-cols-12 gap-4 mb-6">
+                      <div className="col-span-2 font-medium text-gray-700">Slot ID</div>
+                      <div className="col-span-4 font-medium text-gray-700">Slot Name</div>
+                      <div className="col-span-3 font-medium text-gray-700">Start Time</div>
+                      <div className="col-span-3 font-medium text-gray-700">End Time</div>
+                    </div>
+                    {slots
+                      .filter((slot) => {
+                        if (blockTitle === "Block 1 (Slots 1-6)") return slot.id >= 1 && slot.id <= 6;
+                        if (blockTitle === "Block 2 (Slots 7-9)") return slot.id >= 7 && slot.id <= 9;
+                        if (blockTitle === "Block 3 (Slots 10-11)") return slot.id >= 10 && slot.id <= 11;
+                        if (blockTitle === "Block 4 (Slots 12-14)") return slot.id >= 12 && slot.id <= 14;
+                        if (blockTitle === "Block 5 (Slots 15-16)") return slot.id >= 15 && slot.id <= 16;
+                        if (blockTitle === "Block 6 (Slot 145)") return slot.id === 145;
+                        return false;
+                      })
+                      .map((slot) => (
+                        <div key={slot.id} className="grid grid-cols-12 gap-4 items-center mb-4">
+                          <div className="col-span-2 text-gray-700">Slot {slot.id}</div>
+                          <div className="col-span-4 text-gray-700">{slot.name}</div>
+                          <input
+                            type="time"
+                            value={editTimingsSlot === slot.id ? slots.find((s) => s.id === slot.id).startTime || "" : slot.startTime}
+                            onChange={(e) => {
+                              setEditTimingsSlot(slot.id);
+                              setSlots((prev) =>
+                                prev.map((s) =>
+                                  s.id === slot.id ? { ...s, startTime: e.target.value } : s
+                                )
+                              );
+                            }}
+                            className="col-span-3 p-2 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
+                          />
+                          <input
+                            type="time"
+                            value={editTimingsSlot === slot.id ? slots.find((s) => s.id === slot.id).endTime || "" : slot.endTime}
+                            onChange={(e) => {
+                              setEditTimingsSlot(slot.id);
+                              setSlots((prev) =>
+                                prev.map((s) =>
+                                  s.id === slot.id ? { ...s, endTime: e.target.value } : s
+                                )
+                              );
+                            }}
+                            className="col-span-3 p-2 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
+                          />
+                        </div>
+                      ))}
+                  </div>
+                ))}
+                <div className="mt-6 flex justify-end gap-2">
+                  <motion.button
+                    onClick={() => setShowManageTimingsModal(false)}
+                    className="px-6 py-3 bg-gray-400 text-white rounded-lg hover:bg-gray-500 transition-all duration-200"
+                    whileHover={{ scale: 1.03 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    Cancel
+                  </motion.button>
+                  <motion.button
+                    onClick={() => {
+                      slots.forEach((slot) => {
+                        if (slot.startTime && slot.endTime) {
+                          saveSlotTimings(slot.id, slot.startTime, slot.endTime);
+                        }
+                      });
+                    }}
+                    className="px-6 py-3 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-all duration-200"
+                    whileHover={{ scale: 1.03 }}
+                    whileTap={{ scale: 0.95 }}
+                    disabled={saving.slots}
+                  >
+                    {saving.slots ? "Saving..." : "Save Timings"}
+                  </motion.button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Calendar Section */}
+        <AnimatePresence>
+          {activeSection === "calendar" && (
+            <motion.div
+              key="calendar"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.3 }}
+              className="w-full h-full flex flex-col gap-4"
+            >
+              <ManageCalendar
+                calendar={calendar}
+                loading={loading.calendar}
+                saving={saving.calendar}
+                onCalendarChange={handleCalendarChange}
+                onSaveCalendar={saveCalendarChanges}
+                onAddEntry={addCalendarEntry}
+                onDeleteEntry={deleteCalendarEntry}
+                error={error}
+                success={success}
+                setError={setError}
+                setSuccess={setSuccess}
+              />
             </motion.div>
           )}
         </AnimatePresence>

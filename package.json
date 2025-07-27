@@ -44,6 +44,7 @@
     "react-hook-form": "^7.60.0",
     "react-loading-skeleton": "^3.5.0",
     "react-toastify": "^11.0.5",
+    "redis": "^5.6.1",
     "simple-peer": "^9.11.1",
     "socket.io": "^4.8.1",
     "socket.io-client": "^4.8.1",
