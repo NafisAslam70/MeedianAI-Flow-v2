@@ -89,9 +89,9 @@ export default function MyMRIs() {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.5 }}
-      className="fixed inset-0 bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 p-8 flex items-center justify-center"
+      className="fixed inset-0 bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100"
     >
-      <div className="w-full h-full bg-white rounded-2xl shadow-2xl p-8 flex flex-col gap-8 overflow-y-auto">
+      <div className="w-full h-full bg-white rounded-none shadow-none p-4 flex flex-col gap-4 overflow-y-auto">
         {/* Error Message */}
         <AnimatePresence>
           {error && (
@@ -108,9 +108,9 @@ export default function MyMRIs() {
         </AnimatePresence>
 
         {/* Content */}
-        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-full w-full">
           {/* Today's MRIs Column (Narrower) */}
-          <div className="bg-white rounded-xl shadow-lg p-6 border border-teal-100 backdrop-blur-sm h-full flex flex-col lg:col-span-1">
+          <div className="bg-white rounded-xl shadow-lg p-4 border border-teal-100 backdrop-blur-sm h-full flex flex-col lg:col-span-1">
             <motion.h2
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -219,7 +219,7 @@ export default function MyMRIs() {
           </div>
 
           {/* My All Rituals Column (Wider) */}
-          <div className="bg-white rounded-xl shadow-lg p-6 border border-teal-100 backdrop-blur-sm h-full flex flex-col lg:col-span-2">
+          <div className="bg-white rounded-xl shadow-lg p-4 border border-teal-100 backdrop-blur-sm h-full flex flex-col lg:col-span-2">
             <motion.h2
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
