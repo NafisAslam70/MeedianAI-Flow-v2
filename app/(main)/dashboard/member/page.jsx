@@ -1,9 +1,11 @@
-
+// pages/MemberDashboard.jsx
 "use client";
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import AssignedTaskCards from "@/components/member/AssignedTaskCards";
+import ChatBox from "@/components/ChatBox";
 
 // In-memory cache for tasks
 const taskCache = new Map();
@@ -12,6 +14,7 @@ export default function MemberDashboard() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [user, setUser] = useState(null);
+  const [users, setUsers] = useState([]);
   const [assignedTasks, setAssignedTasks] = useState([]);
   const [routineTasks, setRoutineTasks] = useState([]);
   const [error, setError] = useState("");
@@ -37,16 +40,17 @@ export default function MemberDashboard() {
   });
   const [selectedTask, setSelectedTask] = useState(null);
   const [showStatusModal, setShowStatusModal] = useState(false);
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showCloseDayModal, setShowCloseDayModal] = useState(false);
   const [newStatus, setNewStatus] = useState("");
   const [selectedSprint, setSelectedSprint] = useState("");
   const [sprints, setSprints] = useState([]);
+  const [taskLogs, setTaskLogs] = useState([]);
+  const [newLogComment, setNewLogComment] = useState("");
   const [closeDayTasks, setCloseDayTasks] = useState([]);
   const [closeDayComment, setCloseDayComment] = useState("");
-  const [carouselPosition, setCarouselPosition] = useState(0);
   const [isUpdating, setIsUpdating] = useState(false);
   const [sendNotification, setSendNotification] = useState(true);
-  const carouselRef = useRef(null);
 
   useEffect(() => {
     if (status === "authenticated" && session?.user?.role !== "member") {
@@ -74,9 +78,25 @@ export default function MemberDashboard() {
       }
     };
 
+    const fetchUsers = async () => {
+      try {
+        const res = await fetch("/api/member/users");
+        const data = await res.json();
+        if (res.ok) {
+          setUsers(data.users || []);
+        } else {
+          setError(data.error || "Failed to fetch users");
+          setTimeout(() => setError(""), 3000);
+        }
+      } catch (err) {
+        setError("Failed to fetch users");
+        setTimeout(() => setError(""), 3000);
+      }
+    };
+
     const fetchOpenCloseTimes = async (userType) => {
       if (!userType) {
-        console.error("User type is undefined while fetching open/close times");
+        console.error("User type is undefined");
         setError("User type is missing");
         return;
       }
@@ -104,18 +124,7 @@ export default function MemberDashboard() {
       if (taskCache.has(cacheKey)) {
         const tasks = taskCache.get(cacheKey);
         setAssignedTasks(tasks);
-        const summary = tasks.reduce(
-          (acc, task) => {
-            acc.total += 1;
-            if (task.status === "not_started") acc.notStarted += 1;
-            if (task.status === "in_progress") acc.inProgress += 1;
-            if (task.status === "pending_verification") acc.pendingVerification += 1;
-            if (task.status === "verified" || task.status === "done") acc.completed += 1;
-            return acc;
-          },
-          { total: 0, notStarted: 0, inProgress: 0, pendingVerification: 0, completed: 0 }
-        );
-        setAssignedTaskSummary(summary);
+        updateTaskSummary(tasks);
         return;
       }
 
@@ -125,20 +134,20 @@ export default function MemberDashboard() {
         const data = await res.json();
         if (res.ok) {
           const tasks = data.tasks || [];
-          taskCache.set(cacheKey, tasks);
-          setAssignedTasks(tasks);
-          const summary = tasks.reduce(
-            (acc, task) => {
-              acc.total += 1;
-              if (task.status === "not_started") acc.notStarted += 1;
-              if (task.status === "in_progress") acc.inProgress += 1;
-              if (task.status === "pending_verification") acc.pendingVerification += 1;
-              if (task.status === "verified" || task.status === "done") acc.completed += 1;
-              return acc;
-            },
-            { total: 0, notStarted: 0, inProgress: 0, pendingVerification: 0, completed: 0 }
-          );
-          setAssignedTaskSummary(summary);
+          const updatedTasks = tasks.map(task => {
+            if (task.sprints && task.sprints.length > 0) {
+              const hasInProgress = task.sprints.some(sprint => sprint.status === "in_progress");
+              const allDone = task.sprints.every(sprint => sprint.status === "done" || sprint.status === "verified");
+              return {
+                ...task,
+                status: hasInProgress ? "in_progress" : allDone ? "done" : task.status
+              };
+            }
+            return task;
+          });
+          taskCache.set(cacheKey, updatedTasks);
+          setAssignedTasks(updatedTasks);
+          updateTaskSummary(updatedTasks);
         } else {
           setError(data.error || "Failed to fetch assigned tasks");
           setTimeout(() => setError(""), 3000);
@@ -156,19 +165,7 @@ export default function MemberDashboard() {
       if (taskCache.has(cacheKey)) {
         const tasks = taskCache.get(cacheKey);
         setRoutineTasks(tasks);
-        const summary = tasks.reduce(
-          (acc, task) => {
-            const status = task.status || "not_started";
-            acc.total += 1;
-            if (status === "not_started") acc.notStarted += 1;
-            if (status === "in_progress") acc.inProgress += 1;
-            if (status === "pending_verification") acc.pendingVerification += 1;
-            if (status === "verified" || status === "done" || status === "completed") acc.completed += 1;
-            return acc;
-          },
-          { total: 0, notStarted: 0, inProgress: 0, pendingVerification: 0, completed: 0 }
-        );
-        setRoutineTaskSummary(summary);
+        updateRoutineTaskSummary(tasks);
         setCloseDayTasks(tasks.map((task) => ({
           id: task.id,
           description: task.description || "Untitled Task",
@@ -183,22 +180,9 @@ export default function MemberDashboard() {
         const data = await res.json();
         if (res.ok) {
           const tasks = data.tasks || [];
-          console.log("Routine tasks fetched:", tasks); // Debug log
           taskCache.set(cacheKey, tasks);
           setRoutineTasks(tasks);
-          const summary = tasks.reduce(
-            (acc, task) => {
-              const status = task.status || "not_started";
-              acc.total += 1;
-              if (status === "not_started") acc.notStarted += 1;
-              if (status === "in_progress") acc.inProgress += 1;
-              if (status === "pending_verification") acc.pendingVerification += 1;
-              if (status === "verified" || status === "done" || status === "completed") acc.completed += 1;
-              return acc;
-            },
-            { total: 0, notStarted: 0, inProgress: 0, pendingVerification: 0, completed: 0 }
-          );
-          setRoutineTaskSummary(summary);
+          updateRoutineTaskSummary(tasks);
           setCloseDayTasks(tasks.map((task) => ({
             id: task.id,
             description: task.description || "Untitled Task",
@@ -217,6 +201,37 @@ export default function MemberDashboard() {
       }
     };
 
+    const updateTaskSummary = (tasks) => {
+      const summary = tasks.reduce(
+        (acc, task) => {
+          acc.total += 1;
+          if (task.status === "not_started") acc.notStarted += 1;
+          if (task.status === "in_progress") acc.inProgress += 1;
+          if (task.status === "pending_verification") acc.pendingVerification += 1;
+          if (task.status === "verified" || task.status === "done") acc.completed += 1;
+          return acc;
+        },
+        { total: 0, notStarted: 0, inProgress: 0, pendingVerification: 0, completed: 0 }
+      );
+      setAssignedTaskSummary(summary);
+    };
+
+    const updateRoutineTaskSummary = (tasks) => {
+      const summary = tasks.reduce(
+        (acc, task) => {
+          const status = task.status || "not_started";
+          acc.total += 1;
+          if (status === "not_started") acc.notStarted += 1;
+          if (status === "in_progress") acc.inProgress += 1;
+          if (status === "pending_verification") acc.pendingVerification += 1;
+          if (status === "verified" || status === "done" || status === "completed") acc.completed += 1;
+          return acc;
+        },
+        { total: 0, notStarted: 0, inProgress: 0, pendingVerification: 0, completed: 0 }
+      );
+      setRoutineTaskSummary(summary);
+    };
+
     const checkClosingWindow = (times) => {
       const now = new Date();
       const closingStart = new Date(times.closingWindowStart);
@@ -225,6 +240,7 @@ export default function MemberDashboard() {
     };
 
     fetchUserData();
+    fetchUsers();
     fetchAssignedTasks();
     fetchRoutineTasks();
   }, [selectedDate, session]);
@@ -249,6 +265,22 @@ export default function MemberDashboard() {
       }
     } catch (err) {
       setError("Failed to fetch sprints");
+      setTimeout(() => setError(""), 3000);
+    }
+  };
+
+  const fetchTaskLogs = async (taskId) => {
+    try {
+      const res = await fetch(`/api/member/assignedTasks?taskId=${taskId}&action=logs`);
+      const data = await res.json();
+      if (res.ok) {
+        setTaskLogs(data.logs || []);
+      } else {
+        setError(data.error || "Failed to fetch task logs");
+        setTimeout(() => setError(""), 3000);
+      }
+    } catch (err) {
+      setError("Failed to fetch task logs");
       setTimeout(() => setError(""), 3000);
     }
   };
@@ -300,7 +332,6 @@ export default function MemberDashboard() {
       let messageContent;
 
       if (sprints.length > 0 && selectedSprint) {
-        // Update sprint status
         res = await fetch("/api/member/assignedTasks/status", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -314,7 +345,6 @@ export default function MemberDashboard() {
         });
         messageContent = `Task "${selectedTask.title}" sprint "${sprints.find(s => s.id === parseInt(selectedSprint))?.title}" updated to status: ${newStatus}`;
       } else {
-        // Update task status directly
         res = await fetch("/api/member/assignedTasks/status", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -330,18 +360,48 @@ export default function MemberDashboard() {
 
       const data = await res.json();
       if (res.ok) {
-        // Update local task state
-        setAssignedTasks((prev) =>
-          prev.map((task) =>
-            task.id === selectedTask.id ? { ...task, status: newStatus } : task
-          )
-        );
+        setAssignedTasks((prev) => {
+          const updatedTasks = prev.map((task) => {
+            if (task.id === selectedTask.id) {
+              if (sprints.length > 0 && selectedSprint) {
+                const updatedSprints = task.sprints.map((sprint) =>
+                  sprint.id === parseInt(selectedSprint) ? { ...sprint, status: newStatus } : sprint
+                );
+                const hasInProgress = updatedSprints.some(sprint => sprint.status === "in_progress");
+                const allDone = updatedSprints.every(sprint => sprint.status === "done" || sprint.status === "verified");
+                return {
+                  ...task,
+                  sprints: updatedSprints,
+                  status: hasInProgress ? "in_progress" : allDone ? "done" : task.status
+                };
+              }
+              return { ...task, status: newStatus };
+            }
+            return task;
+          });
+          taskCache.set(`assignedTasks:${selectedDate}:${session?.user?.id}`, updatedTasks);
+          return updatedTasks;
+        });
 
-        // Update task summary
         setAssignedTaskSummary((prev) => {
-          const updatedTasks = assignedTasks.map((task) =>
-            task.id === selectedTask.id ? { ...task, status: newStatus } : task
-          );
+          const updatedTasks = assignedTasks.map((task) => {
+            if (task.id === selectedTask.id) {
+              if (sprints.length > 0 && selectedSprint) {
+                const updatedSprints = task.sprints.map((sprint) =>
+                  sprint.id === parseInt(selectedSprint) ? { ...sprint, status: newStatus } : sprint
+                );
+                const hasInProgress = updatedSprints.some(sprint => sprint.status === "in_progress");
+                const allDone = updatedSprints.every(sprint => sprint.status === "done" || sprint.status === "verified");
+                return {
+                  ...task,
+                  sprints: updatedSprints,
+                  status: hasInProgress ? "in_progress" : allDone ? "done" : task.status
+                };
+              }
+              return { ...task, status: newStatus };
+            }
+            return task;
+          });
           return updatedTasks.reduce(
             (acc, task) => {
               acc.total += 1;
@@ -355,7 +415,11 @@ export default function MemberDashboard() {
           );
         });
 
-        // Log the update
+        // Update task log
+        const logDetails = newLogComment || (sprints.length > 0 && selectedSprint
+          ? `Updated sprint ${sprints.find(s => s.id === parseInt(selectedSprint))?.title} to ${newStatus}`
+          : `Updated task status to ${newStatus}`);
+
         await fetch("/api/member/assignedTasks", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -363,13 +427,11 @@ export default function MemberDashboard() {
             taskId: selectedTask.id,
             userId: user.id,
             action: "status_update",
-            details: sprints.length > 0 && selectedSprint
-              ? `Updated sprint ${sprints.find(s => s.id === parseInt(selectedSprint))?.title} to ${newStatus}`
-              : `Updated task status to ${newStatus}`,
+            details: logDetails,
           }),
         });
 
-        // Notify assignees if selected
+        // Notify assignees
         await notifyAssignees(selectedTask.id, messageContent);
 
         setSuccess("Task status updated successfully!");
@@ -378,6 +440,8 @@ export default function MemberDashboard() {
         setNewStatus("");
         setSelectedSprint("");
         setSprints([]);
+        setTaskLogs([]);
+        setNewLogComment("");
         setSendNotification(true);
         setTimeout(() => setSuccess(""), 3000);
       } else {
@@ -397,6 +461,7 @@ export default function MemberDashboard() {
     setNewStatus(sprint.status || "not_started");
     setSprints(task.sprints || []);
     setSelectedSprint(sprint.id.toString());
+    fetchTaskLogs(task.id);
     setShowStatusModal(true);
   };
 
@@ -404,7 +469,14 @@ export default function MemberDashboard() {
     setSelectedTask(task);
     setNewStatus(task.status || "not_started");
     await fetchSprints(task.id, user.id);
+    await fetchTaskLogs(task.id);
     setShowStatusModal(true);
+  };
+
+  const handleTaskDetails = async (task) => {
+    setSelectedTask(task);
+    await fetchTaskLogs(task.id);
+    setShowDetailsModal(true);
   };
 
   const handleCloseDay = async () => {
@@ -454,7 +526,6 @@ export default function MemberDashboard() {
             { total: 0, notStarted: 0, inProgress: 0, pendingVerification: 0, completed: 0 }
           );
         });
-        // Clear routine tasks cache after closing day
         taskCache.delete(`routineTasks:${selectedDate}:${session?.user?.id}`);
         setTimeout(() => setSuccess(""), 3000);
       } else {
@@ -466,25 +537,6 @@ export default function MemberDashboard() {
       setTimeout(() => setError(""), 3000);
     }
   };
-
-  const handleCarouselScroll = (direction) => {
-    const container = carouselRef.current;
-    if (!container) return;
-    const scrollAmount = 200;
-    const newPosition =
-      direction === "left"
-        ? Math.max(carouselPosition - scrollAmount, 0)
-        : Math.min(carouselPosition + scrollAmount, container.scrollWidth - container.clientWidth);
-    setCarouselPosition(newPosition);
-    container.scrollTo({ left: newPosition, behavior: "smooth" });
-  };
-
-  // Clear cache on unmount to reset on next visit
-  useEffect(() => {
-    return () => {
-      taskCache.clear();
-    };
-  }, []);
 
   if (status === "loading") {
     return (
@@ -504,6 +556,20 @@ export default function MemberDashboard() {
       </div>
     );
   }
+
+  const getAssignedBy = (createdBy) => {
+    const user = users.find(u => u.id === createdBy);
+    if (!user) return "Unknown";
+    if (user.role === "admin") return "Superintendent";
+    if (user.role === "team_manager") {
+      return user.team_manager_type 
+        ? user.team_manager_type.split("_").map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(" ")
+        : "Team Manager";
+    }
+    return user.type
+      ? user.type.split("_").map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(" ")
+      : "Member";
+  };
 
   return (
     <motion.div
@@ -537,91 +603,18 @@ export default function MemberDashboard() {
           )}
         </AnimatePresence>
 
-        {/* Assigned Tasks Carousel */}
+        {/* Assigned Tasks */}
         <div className="flex-1">
           <h2 className="text-xl font-bold text-gray-800 mb-4">Assigned Tasks</h2>
-          {isLoadingAssignedTasks ? (
-            <div className="flex items-center justify-center py-8">
-              <motion.div
-                animate={{ rotate: 360 }}
-                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                className="w-8 h-8 border-2 border-t-teal-600 border-teal-200 rounded-full"
-              />
-            </div>
-          ) : (
-            <div className="relative">
-              <div className="overflow-x-auto whitespace-nowrap pb-4" ref={carouselRef}>
-                {assignedTasks.length === 0 ? (
-                  <p className="text-sm text-gray-600 text-center">No assigned tasks for {selectedDate}</p>
-                ) : (
-                  assignedTasks.map((task, index) => (
-                    <motion.div
-                      key={task.id}
-                      className="inline-block w-80 bg-gradient-to-br from-white to-gray-50 rounded-xl shadow-lg p-4 mr-4 hover:shadow-xl transition-shadow duration-300"
-                      initial={{ x: index * 100, opacity: 0 }}
-                      animate={{ x: 0, opacity: 1 }}
-                      transition={{ duration: 0.5, delay: index * 0.1 }}
-                    >
-                      <p className="text-base font-semibold text-gray-800 truncate">
-                        {task.title || "Untitled Task"}
-                      </p>
-                      <p className="text-sm text-gray-600 mt-1">Status: <span className="font-medium capitalize">{(task.status || "not_started").replace("_", " ")}</span></p>
-                      {task.sprints && task.sprints.length > 0 && (
-                        <div className="mt-3">
-                          <p className="text-xs font-semibold text-gray-700 mb-2">Sprints:</p>
-                          <div className="space-y-2">
-                            {task.sprints.map((sprint) => (
-                              <motion.div
-                                key={sprint.id}
-                                className="p-2 bg-gray-100 rounded-lg cursor-pointer hover:bg-teal-100 hover:shadow-md transition-all duration-200"
-                                whileHover={{ scale: 1.02 }}
-                                whileTap={{ scale: 0.98 }}
-                                onClick={() => handleSprintSelect(task, sprint)}
-                              >
-                                <p className="text-xs font-medium text-gray-800 truncate">{sprint.title || "Untitled Sprint"}</p>
-                                <p className="text-xs text-gray-600 capitalize">Status: {(sprint.status || "not_started").replace("_", " ")}</p>
-                              </motion.div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => handleTaskSelect(task)}
-                        className={`mt-3 px-4 py-1.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium transition-colors duration-200 ${
-                          task.sprints && task.sprints.length > 0 ? "opacity-50 cursor-not-allowed" : ""
-                        }`}
-                        disabled={task.sprints && task.sprints.length > 0}
-                      >
-                        Update Task Status
-                      </motion.button>
-                    </motion.div>
-                  ))
-                )}
-              </div>
-              {assignedTasks.length > 2 && (
-                <>
-                  <motion.button
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                    onClick={() => handleCarouselScroll("left")}
-                    className="absolute left-0 top-1/2 transform -translate-y-1/2 bg-teal-600 text-white p-3 rounded-full shadow-md hover:bg-teal-700 transition-colors duration-200"
-                  >
-                    ←
-                  </motion.button>
-                  <motion.button
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                    onClick={() => handleCarouselScroll("right")}
-                    className="absolute right-0 top-1/2 transform -translate-y-1/2 bg-teal-600 text-white p-3 rounded-full shadow-md hover:bg-teal-700 transition-colors duration-200"
-                  >
-                    →
-                  </motion.button>
-                </>
-              )}
-            </div>
-          )}
+          <AssignedTaskCards
+            assignedTasks={assignedTasks}
+            isLoadingAssignedTasks={isLoadingAssignedTasks}
+            selectedDate={selectedDate}
+            handleTaskSelect={handleTaskSelect}
+            handleSprintSelect={handleSprintSelect}
+            handleTaskDetails={handleTaskDetails}
+            users={users}
+          />
         </div>
 
         {/* Task Summary */}
@@ -769,7 +762,30 @@ export default function MemberDashboard() {
                     onChange={(e) => setSendNotification(e.target.checked)}
                     className="h-4 w-4 text-teal-600 focus:ring-teal-500"
                   />
-                  <label className="ml-2 text-sm text-gray-700">Send update message to all assignees</label>
+                  <label className="ml-2 text-sm text-gray-700">Notify assignees of update</label>
+                </div>
+                <div className="mb-4">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-2">Task Discussion</h3>
+                  <div className="max-h-40 overflow-y-auto space-y-2 mb-2">
+                    {taskLogs.length === 0 ? (
+                      <p className="text-sm text-gray-500">No discussion yet.</p>
+                    ) : (
+                      taskLogs.map((log) => (
+                        <div key={log.id} className="p-2 bg-gray-50 rounded-lg">
+                          <p className="text-xs text-gray-600">
+                            {users.find(u => u.id === log.userId)?.name || "Unknown"} ({new Date(log.createdAt).toLocaleString()}):
+                          </p>
+                          <p className="text-sm text-gray-700">{log.details}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  <textarea
+                    value={newLogComment}
+                    onChange={(e) => setNewLogComment(e.target.value)}
+                    placeholder="Add a comment to the task discussion..."
+                    className="w-full px-4 py-2 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-teal-500 text-sm transition-all duration-200"
+                  />
                 </div>
                 <div className="flex justify-end space-x-2">
                   <motion.button
@@ -781,6 +797,8 @@ export default function MemberDashboard() {
                       setNewStatus("");
                       setSelectedSprint("");
                       setSprints([]);
+                      setTaskLogs([]);
+                      setNewLogComment("");
                       setSendNotification(true);
                     }}
                     className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 text-sm font-medium transition-colors duration-200"
@@ -805,6 +823,68 @@ export default function MemberDashboard() {
                     ) : (
                       "Update"
                     )}
+                  </motion.button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Task Details Modal */}
+        <AnimatePresence>
+          {showDetailsModal && selectedTask && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 z-50"
+            >
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                transition={{ duration: 0.3 }}
+                className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md border border-blue-100"
+              >
+                <h2 className="text-lg font-bold text-gray-800 mb-4">Task Details</h2>
+                <div className="space-y-3">
+                  <p className="text-sm"><strong>Title:</strong> {selectedTask.title || "Untitled Task"}</p>
+                  <p className="text-sm"><strong>Description:</strong> {selectedTask.description || "No description"}</p>
+                  <p className="text-sm"><strong>Assigned By:</strong> {getAssignedBy(selectedTask.createdBy)}</p>
+                  <p className="text-sm"><strong>Status:</strong> {(selectedTask.status || "not_started").replace("_", " ")}</p>
+                  <p className="text-sm"><strong>Assigned Date:</strong> {new Date(selectedTask.assignedDate).toLocaleDateString()}</p>
+                  <p className="text-sm"><strong>Deadline:</strong> {selectedTask.deadline ? new Date(selectedTask.deadline).toLocaleDateString() : "No deadline"}</p>
+                  <p className="text-sm"><strong>Resources:</strong> {selectedTask.resources || "No resources"}</p>
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-700 mb-2">Discussion</h3>
+                    <div className="max-h-40 overflow-y-auto space-y-2">
+                      {taskLogs.length === 0 ? (
+                        <p className="text-sm text-gray-500">No discussion yet.</p>
+                      ) : (
+                        taskLogs.map((log) => (
+                          <div key={log.id} className="p-2 bg-gray-50 rounded-lg">
+                            <p className="text-xs text-gray-600">
+                              {users.find(u => u.id === log.userId)?.name || "Unknown"} ({new Date(log.createdAt).toLocaleString()}):
+                            </p>
+                            <p className="text-sm text-gray-700">{log.details}</p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex justify-end mt-4">
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => {
+                      setShowDetailsModal(false);
+                      setSelectedTask(null);
+                      setTaskLogs([]);
+                    }}
+                    className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 text-sm font-medium transition-colors duration-200"
+                  >
+                    Close
                   </motion.button>
                 </div>
               </motion.div>
@@ -876,6 +956,8 @@ export default function MemberDashboard() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        <ChatBox userDetails={user} />
       </div>
     </motion.div>
   );

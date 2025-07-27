@@ -68,14 +68,49 @@ export default function GeneralDashboard() {
   }, [slotData, slotError, userData, userError]);
 
   useEffect(() => {
+    console.log("Slots for active check:", slots);
     let intervalId = null;
     const now = new Date();
+    console.log("Current time:", now.toString());
     let foundSlot = null;
     let foundBlock = null;
 
     slots.forEach((slot) => {
-      const startTime = new Date(now.toDateString() + " " + slot.startTime);
-      const endTime = new Date(now.toDateString() + " " + slot.endTime);
+      // Validate time format
+      if (!slot.startTime || !slot.endTime || !/^\d{2}:\d{2}:\d{2}$/.test(slot.startTime) || !/^\d{2}:\d{2}:\d{2}$/.test(slot.endTime)) {
+        console.warn(`Invalid time format for slot ${slot.id}: ${slot.startTime} - ${slot.endTime}`);
+        return;
+      }
+
+      // Parse hours for midnight-spanning check
+      const startHours = parseInt(slot.startTime.split(":")[0], 10);
+      const endHours = parseInt(slot.endTime.split(":")[0], 10);
+      const isMidnightSpanning = endHours < startHours;
+
+      // Set start and end dates
+      let startDate = now.toDateString();
+      let endDate = now.toDateString();
+      if (isMidnightSpanning) {
+        // For midnight-spanning slots, start on previous day
+        const prevDay = new Date(now);
+        prevDay.setDate(now.getDate() - 1);
+        startDate = prevDay.toDateString();
+      }
+
+      const startTime = new Date(`${startDate} ${slot.startTime}`);
+      const endTime = new Date(`${endDate} ${slot.endTime}`);
+      if (isNaN(startTime) || isNaN(endTime)) {
+        console.warn(`Invalid date object for slot ${slot.id}: startTime=${slot.startTime}, endTime=${slot.endTime}`);
+        return;
+      }
+
+      console.log(`Slot ${slot.id}:`, {
+        name: slot.name,
+        startTime: startTime.toString(),
+        endTime: endTime.toString(),
+        isActive: now >= startTime && now < endTime,
+      });
+
       if (now >= startTime && now < endTime) {
         foundSlot = slot;
       }
@@ -88,10 +123,15 @@ export default function GeneralDashboard() {
       else if (slotId >= 10 && slotId <= 11) foundBlock = `BLOCK 3: ${foundSlot.name}`;
       else if (slotId >= 12 && slotId <= 14) foundBlock = `BLOCK 4: ${foundSlot.name}`;
       else if (slotId >= 15 && slotId <= 16) foundBlock = `BLOCK 5: ${foundSlot.name}`;
-      else if (slotId === 17) foundBlock = `BLOCK 6: ${foundSlot.name}`; // Updated for slot 17
+      else if (slotId === 17) foundBlock = `BLOCK 6: ${foundSlot.name}`;
 
       // Calculate initial time left
-      const endTime = new Date(now.toDateString() + " " + foundSlot.endTime);
+      const endDate = now.toDateString();
+      const endTime = new Date(`${endDate} ${foundSlot.endTime}`);
+      if (endTime < now) {
+        // If endTime is earlier today, it means it’s the next day
+        endTime.setDate(endTime.getDate() + 1);
+      }
       const secondsLeft = Math.max(0, Math.floor((endTime - now) / 1000));
       setTimeLeft(secondsLeft);
 
@@ -108,7 +148,7 @@ export default function GeneralDashboard() {
         }
       }, 1000);
     } else {
-      setTimeLeft(null);
+      console.log("No active slot found for current time:", now.toString());
     }
 
     setCurrentSlot(foundSlot);
@@ -137,7 +177,7 @@ export default function GeneralDashboard() {
     if (!slot || !slot.assignedMemberId) return "Unassigned";
     console.log("Checking TOD for slot:", slot.id, "Assigned ID:", slot.assignedMemberId, "User ID:", session.user.id);
     if (String(slot.assignedMemberId) === String(session.user.id)) {
-      return `${session.user.name}(you)`;
+      return `${session.user.name} (you)`;
     }
     const member = Array.isArray(members) && members.find((m) => String(m.id) === String(slot.assignedMemberId));
     return member?.name || "Unassigned";
@@ -435,7 +475,7 @@ export default function GeneralDashboard() {
                       "Block 3 (Slots 10-11)",
                       "Block 4 (Slots 12-14)",
                       "Block 5 (Slots 15-16)",
-                      "Block 6 (Slot 17)", // Updated label
+                      "Block 6 (Slot 17)",
                     ].map((blockTitle, blockIndex) => (
                       <div key={blockIndex} className="mb-8">
                         <h3 className="text-lg font-semibold text-gray-800 mb-4 text-center">{blockTitle}</h3>
@@ -455,7 +495,7 @@ export default function GeneralDashboard() {
                               if (blockTitle === "Block 3 (Slots 10-11)") return slot.id >= 10 && slot.id <= 11;
                               if (blockTitle === "Block 4 (Slots 12-14)") return slot.id >= 12 && slot.id <= 14;
                               if (blockTitle === "Block 5 (Slots 15-16)") return slot.id >= 15 && slot.id <= 16;
-                              if (blockTitle === "Block 6 (Slot 17)") return slot.id === 17; // Updated for slot 17
+                              if (blockTitle === "Block 6 (Slot 17)") return slot.id === 17;
                               return false;
                             })
                             .map((slot, index) => (

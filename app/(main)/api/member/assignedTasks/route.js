@@ -1,3 +1,4 @@
+// api/member/assignedTasks/route.js
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { assignedTasks, assignedTaskStatus, sprints, assignedTaskLogs } from "@/lib/schema";
@@ -39,6 +40,9 @@ export async function GET(req) {
           status: assignedTaskStatus.status,
           assignedDate: assignedTaskStatus.assignedDate,
           taskStatusId: assignedTaskStatus.id,
+          createdBy: assignedTasks.createdBy,
+          deadline: assignedTasks.deadline,
+          resources: assignedTasks.resources,
         })
         .from(assignedTaskStatus)
         .innerJoin(assignedTasks, eq(assignedTaskStatus.taskId, assignedTasks.id))
@@ -50,7 +54,6 @@ export async function GET(req) {
           )
         );
 
-      // Fetch sprints for each task
       const tasksWithSprints = await Promise.all(
         tasks.map(async (task) => {
           const taskSprints = await db
@@ -120,7 +123,6 @@ export async function GET(req) {
         return NextResponse.json({ error: "Task ID is required" }, { status: 400 });
       }
 
-      // Verify user is assigned to the task
       const userTask = await db
         .select()
         .from(assignedTaskStatus)
@@ -146,6 +148,46 @@ export async function GET(req) {
       console.log("Assignees fetched:", assignees.length, { taskId, userId });
 
       return NextResponse.json({ assignees });
+    }
+
+    if (action === "logs") {
+      const taskId = parseInt(searchParams.get("taskId"));
+
+      if (!taskId) {
+        return NextResponse.json({ error: "Task ID is required" }, { status: 400 });
+      }
+
+      const userTask = await db
+        .select()
+        .from(assignedTaskStatus)
+        .where(
+          and(
+            eq(assignedTaskStatus.taskId, taskId),
+            eq(assignedTaskStatus.memberId, userId)
+          )
+        )
+        .limit(1);
+
+      if (!userTask.length) {
+        return NextResponse.json({ error: "User not assigned to task" }, { status: 403 });
+      }
+
+      const logs = await db
+        .select({
+          id: assignedTaskLogs.id,
+          taskId: assignedTaskLogs.taskId,
+          userId: assignedTaskLogs.userId,
+          action: assignedTaskLogs.action,
+          details: assignedTaskLogs.details,
+          createdAt: assignedTaskLogs.createdAt,
+        })
+        .from(assignedTaskLogs)
+        .where(eq(assignedTaskLogs.taskId, taskId))
+        .orderBy(assignedTaskLogs.createdAt);
+
+      console.log("Task logs fetched:", logs.length, { taskId, userId });
+
+      return NextResponse.json({ logs });
     }
 
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });

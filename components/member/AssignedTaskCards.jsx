@@ -9,7 +9,7 @@ export default function AssignedTaskCards({
   selectedDate,
   handleTaskSelect,
   handleSprintSelect,
-  handleCarouselScroll,
+  handleTaskDetails,
   users,
 }) {
   const carouselRef = useRef(null);
@@ -34,7 +34,9 @@ export default function AssignedTaskCards({
         ? user.team_manager_type.split("_").map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(" ")
         : "Team Manager";
     }
-    return "Member";
+    return user.type
+      ? user.type.split("_").map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(" ")
+      : "Member";
   };
 
   return (
@@ -85,17 +87,27 @@ export default function AssignedTaskCards({
                   </div>
                 </div>
               )}
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => handleTaskSelect(task)}
-                className={`mt-4 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium transition-colors duration-200 w-full ${
-                  task.sprints && task.sprints.length > 0 ? "opacity-50 cursor-not-allowed" : ""
-                }`}
-                disabled={task.sprints && task.sprints.length > 0}
-              >
-                Update Task Status
-              </motion.button>
+              <div className="flex gap-2 mt-4">
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => handleTaskSelect(task)}
+                  className={`flex-1 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium transition-colors duration-200 ${
+                    task.sprints && task.sprints.length > 0 ? "opacity-50 cursor-not-allowed" : ""
+                  }`}
+                  disabled={task.sprints && task.sprints.length > 0}
+                >
+                  Update Status
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => handleTaskDetails(task)}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium transition-colors duration-200"
+                >
+                  View Details
+                </motion.button>
+              </div>
             </motion.div>
           ))
         )}

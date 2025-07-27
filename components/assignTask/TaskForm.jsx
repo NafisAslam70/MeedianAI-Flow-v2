@@ -1,6 +1,8 @@
 import { motion } from "framer-motion";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 
 const TaskForm = ({
   formData,
@@ -16,6 +18,9 @@ const TaskForm = ({
   setVoiceInput,
   setTempAssignees,
 }) => {
+  const { data: session } = useSession();
+  const router = useRouter();
+
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
@@ -23,11 +28,23 @@ const TaskForm = ({
 
   return (
     <div className="w-full sm:w-1/2 flex flex-col gap-4 h-full overflow-y-auto">
-      <div className="flex items-center gap-3">
-        <svg className="w-6 sm:w-8 h-6 sm:h-8 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
-        </svg>
-        <h2 className="text-lg sm:text-2xl font-bold text-gray-800">Create New Task</h2>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <svg className="w-6 sm:w-8 h-6 sm:h-8 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+          </svg>
+          <h2 className="text-lg sm:text-2xl font-bold text-gray-800">Create New Task</h2>
+        </div>
+        {["admin", "team_manager"].includes(session?.user?.role) && (
+          <motion.button
+            onClick={() => router.push("/dashboard/managersCommon/announcements")}
+            className="px-4 py-2 sm:px-6 sm:py-3 bg-teal-600 text-white rounded-lg text-sm sm:text-base font-semibold hover:bg-teal-700"
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.95 }}
+          >
+            Post an Announcement
+          </motion.button>
+        )}
       </div>
       <div className="flex flex-wrap gap-2 items-center">
         {formData.assignees.length > 0 ? (
