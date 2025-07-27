@@ -313,7 +313,7 @@ export default function AnnouncementsPage() {
           <div className="flex justify-end gap-4">
             <motion.button
               type="button"
-              onClick={() => router.push("/dashboard/admin/assignTask")}
+              onClick={() => router.push("/dashboard/managersCommon/assignTask")}
               className="px-6 py-3 bg-gray-200 text-gray-800 rounded-2xl text-lg font-semibold hover:bg-gray-300"
               whileHover={{ scale: 1.03 }}
               whileTap={{ scale: 0.95 }}
