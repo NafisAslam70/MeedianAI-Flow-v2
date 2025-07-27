@@ -39,7 +39,7 @@ export default function GeneralDashboard() {
 
   useEffect(() => {
     if (slotData) {
-      console.log("Fetched slots:", slotData.slots); // Debug
+      console.log("Fetched slots:", slotData.slots);
       setSlots(slotData.slots || []);
       setIsLoadingSlots(false);
     }
@@ -51,10 +51,10 @@ export default function GeneralDashboard() {
     }
 
     if (userData) {
-      console.log("Fetched user data:", userData); // Debug
+      console.log("Fetched user data:", userData);
       const users = Array.isArray(userData) ? userData : userData.users || [];
       setMembers(users);
-      console.log("Set members:", users.length, "Users:", JSON.stringify(users, null, 2));
+      console.log("Set members:", users.length, "Users:", users);
     }
     if (userError) {
       console.error("Users fetch error:", userError);
@@ -88,7 +88,7 @@ export default function GeneralDashboard() {
       else if (slotId >= 10 && slotId <= 11) foundBlock = `BLOCK 3: ${foundSlot.name}`;
       else if (slotId >= 12 && slotId <= 14) foundBlock = `BLOCK 4: ${foundSlot.name}`;
       else if (slotId >= 15 && slotId <= 16) foundBlock = `BLOCK 5: ${foundSlot.name}`;
-      else if (slotId === 145) foundBlock = `BLOCK 6: ${foundSlot.name}`;
+      else if (slotId === 17) foundBlock = `BLOCK 6: ${foundSlot.name}`; // Updated for slot 17
 
       // Calculate initial time left
       const endTime = new Date(now.toDateString() + " " + foundSlot.endTime);
@@ -133,27 +133,14 @@ export default function GeneralDashboard() {
     );
   }
 
-  // Get TOD name for a slot
   const getTODName = (slot) => {
-    if (!slot || !slot.assignedMemberId) {
-      console.log("No slot or assignedMemberId:", slot); // Debug
-      return "Unassigned";
-    }
-    console.log(
-      "Checking TOD for slot:",
-      slot.id,
-      "Assigned ID:",
-      slot.assignedMemberId,
-      "User ID:",
-      session.user.id,
-      "User Name:",
-      session.user.name
-    ); // Debug
+    if (!slot || !slot.assignedMemberId) return "Unassigned";
+    console.log("Checking TOD for slot:", slot.id, "Assigned ID:", slot.assignedMemberId, "User ID:", session.user.id);
     if (String(slot.assignedMemberId) === String(session.user.id)) {
       return `${session.user.name}(you)`;
     }
     const member = Array.isArray(members) && members.find((m) => String(m.id) === String(slot.assignedMemberId));
-    return member ? member.name : "Unassigned";
+    return member?.name || "Unassigned";
   };
 
   return (
@@ -224,17 +211,26 @@ export default function GeneralDashboard() {
               animate={{ scale: 1, opacity: 1 }}
               transition={{ duration: 0.5, delay: 0.2 }}
             >
-              <div className="relative mb-4">
-                <p className="text-4xl font-bold text-teal-700 bg-teal-50 rounded-lg p-2">
-                  {currentBlock || "NO ACTIVE BLOCK"}
-                </p>
-                <span className="absolute left-0 right-0 bottom-0 h-1 bg-gradient-to-r from-teal-400 to-blue-400 rounded-full" />
-              </div>
-              {currentSlot && (
+              {isLoadingSlots ? (
+                <div className="flex flex-col items-center">
+                  <div className="w-8 h-8 border-4 border-teal-600 border-t-transparent rounded-full animate-spin"></div>
+                  <p className="text-lg font-semibold text-gray-700 mt-2">Loading...</p>
+                </div>
+              ) : (
                 <>
-                  <p className="text-2xl font-semibold text-gray-800 mb-2">{`${currentSlot.startTime} - ${currentSlot.endTime}`}</p>
-                  <p className="text-sm font-medium text-gray-700 mb-2">TOD: {getTODName(currentSlot)}</p>
-                  <p className="text-lg font-semibold text-teal-600">{timeLeft !== null ? `${formatTimeLeft(timeLeft)} left` : "Ended"}</p>
+                  <div className="relative mb-4">
+                    <p className="text-4xl font-bold text-teal-700 bg-teal-50 rounded-lg p-2">
+                      {currentBlock || "No Active Block"}
+                    </p>
+                    <span className="absolute left-0 right-0 bottom-0 h-1 bg-gradient-to-r from-teal-400 to-blue-400 rounded-full" />
+                  </div>
+                  {currentSlot && (
+                    <>
+                      <p className="text-2xl font-semibold text-gray-800 mb-2">{`${currentSlot.startTime} - ${currentSlot.endTime}`}</p>
+                      <p className="text-sm font-medium text-gray-700 mb-2">TOD: {getTODName(currentSlot)}</p>
+                      <p className="text-lg font-semibold text-teal-600">{timeLeft !== null ? `${formatTimeLeft(timeLeft)} left` : "Ended"}</p>
+                    </>
+                  )}
                 </>
               )}
             </motion.div>
@@ -369,7 +365,7 @@ export default function GeneralDashboard() {
                   </motion.button>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <iframe
+                  <Iframe
                     width="100%"
                     height="315"
                     src="https://www.youtube.com/embed/dQw4w9WgXcQ"
@@ -378,8 +374,8 @@ export default function GeneralDashboard() {
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                     allowFullScreen
                     className="rounded-lg shadow-md"
-                  ></iframe>
-                  <iframe
+                  />
+                  <Iframe
                     width="100%"
                     height="315"
                     src="https://www.youtube.com/embed/3tmd-ClpJxA"
@@ -388,7 +384,7 @@ export default function GeneralDashboard() {
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                     allowFullScreen
                     className="rounded-lg shadow-md"
-                  ></iframe>
+                  />
                 </div>
               </motion.div>
             </motion.div>
@@ -426,9 +422,10 @@ export default function GeneralDashboard() {
                   <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    className="text-center text-sm font-medium text-gray-700"
+                    className="flex flex-col items-center text-center"
                   >
-                    Loading slots...
+                    <div className="w-8 h-8 border-4 border-teal-600 border-t-transparent rounded-full animate-spin"></div>
+                    <p className="text-sm font-medium text-gray-700 mt-2">Loading slots...</p>
                   </motion.div>
                 ) : (
                   <div className="space-y-8">
@@ -438,7 +435,7 @@ export default function GeneralDashboard() {
                       "Block 3 (Slots 10-11)",
                       "Block 4 (Slots 12-14)",
                       "Block 5 (Slots 15-16)",
-                      "Block 6 (Slot 145)",
+                      "Block 6 (Slot 17)", // Updated label
                     ].map((blockTitle, blockIndex) => (
                       <div key={blockIndex} className="mb-8">
                         <h3 className="text-lg font-semibold text-gray-800 mb-4 text-center">{blockTitle}</h3>
@@ -458,17 +455,13 @@ export default function GeneralDashboard() {
                               if (blockTitle === "Block 3 (Slots 10-11)") return slot.id >= 10 && slot.id <= 11;
                               if (blockTitle === "Block 4 (Slots 12-14)") return slot.id >= 12 && slot.id <= 14;
                               if (blockTitle === "Block 5 (Slots 15-16)") return slot.id >= 15 && slot.id <= 16;
-                              if (blockTitle === "Block 6 (Slot 145)") return slot.id === 145;
+                              if (blockTitle === "Block 6 (Slot 17)") return slot.id === 17; // Updated for slot 17
                               return false;
                             })
                             .map((slot, index) => (
                               <motion.div
                                 key={slot.id}
-                                className={`grid grid-cols-12 gap-4 items-center p-3 rounded-lg transition-all duration-200 ${
-                                  String(slot.assignedMemberId) === String(session.user.id)
-                                    ? "bg-teal-50 border-2 border-teal-500 shadow-sm"
-                                    : "hover:bg-gray-50"
-                                }`}
+                                className="grid grid-cols-12 gap-4 items-center p-3 rounded-lg hover:bg-gray-50 transition-all duration-200"
                                 initial={{ opacity: 0, y: 10 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 transition={{ duration: 0.2, delay: index * 0.1 }}
@@ -493,4 +486,9 @@ export default function GeneralDashboard() {
       </div>
     </motion.div>
   );
+}
+
+// Iframe component to avoid React hydration errors
+function Iframe(props) {
+  return <iframe {...props} />;
 }
