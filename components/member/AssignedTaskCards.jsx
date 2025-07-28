@@ -1,4 +1,3 @@
-// components/member/AssignedTaskCards.jsx
 "use client";
 import { motion } from "framer-motion";
 import { useRef, useState } from "react";
@@ -11,6 +10,7 @@ export default function AssignedTaskCards({
   handleSprintSelect,
   handleTaskDetails,
   users,
+  refreshTasks,
 }) {
   const carouselRef = useRef(null);
   const [carouselPosition, setCarouselPosition] = useState(0);
@@ -145,6 +145,14 @@ export default function AssignedTaskCards({
           </motion.button>
         </>
       )}
+      <motion.button
+        whileHover={{ scale: 1.05 }}
+        whileTap={{ scale: 0.95 }}
+        onClick={() => refreshTasks()}
+        className="absolute top-4 right-4 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium transition-colors duration-200"
+      >
+        Refresh Tasks
+      </motion.button>
     </div>
   );
 }

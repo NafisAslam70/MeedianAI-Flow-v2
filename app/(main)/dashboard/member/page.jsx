@@ -1,14 +1,26 @@
-// pages/MemberDashboard.jsx
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import useSWR from "swr";
 import AssignedTaskCards from "@/components/member/AssignedTaskCards";
-import ChatBox from "@/components/ChatBox";
+import MRISummary from "@/components/member/MRISummary";
 
 // In-memory cache for tasks
 const taskCache = new Map();
+
+const fetcher = (url) =>
+  fetch(url, { headers: { "Content-Type": "application/json" } }).then((res) => {
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    return res.json();
+  });
+
+const formatTimeLeft = (seconds) => {
+  const minutes = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+};
 
 export default function MemberDashboard() {
   const { data: session, status } = useSession();
@@ -42,6 +54,7 @@ export default function MemberDashboard() {
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showCloseDayModal, setShowCloseDayModal] = useState(false);
+  const [activeTab, setActiveTab] = useState('dashboard');
   const [newStatus, setNewStatus] = useState("");
   const [selectedSprint, setSelectedSprint] = useState("");
   const [sprints, setSprints] = useState([]);
@@ -51,6 +64,61 @@ export default function MemberDashboard() {
   const [closeDayComment, setCloseDayComment] = useState("");
   const [isUpdating, setIsUpdating] = useState(false);
   const [sendNotification, setSendNotification] = useState(true);
+  const [activeSlot, setActiveSlot] = useState(null);
+  const [timeLeft, setTimeLeft] = useState(null);
+
+  // Fetch slots for current MRI
+  const { data: mriData, error: mriError } = useSWR(
+    user ? `/api/member/myMRIs?section=today&userId=${user.id}&date=${selectedDate}` : null,
+    fetcher
+  );
+
+  useEffect(() => {
+    if (!mriData || !mriData.nMRIs || mriData.nMRIs.length === 0) return;
+
+    const now = new Date();
+    let found = null;
+
+    for (const slot of mriData.nMRIs) {
+      const [startTimeStr, endTimeStr] = slot.time.split(" - ");
+      if (!startTimeStr || !endTimeStr) continue;
+      const startHours = parseInt(startTimeStr.split(":")[0], 10);
+      const endHours = parseInt(endTimeStr.split(":")[0], 10);
+      const isMidnightSpanning = endHours < startHours;
+      let startDate = now.toDateString();
+      let endDate = now.toDateString();
+      if (isMidnightSpanning) {
+        const prevDay = new Date(now);
+        prevDay.setDate(now.getDate() - 1);
+        startDate = prevDay.toDateString();
+      }
+      const startTime = new Date(`${startDate} ${startTimeStr}`);
+      const endTime = new Date(`${endDate} ${endTimeStr}`);
+      if (now >= startTime && now <= endTime) {
+        found = { ...slot, startTime, endTime };
+        break;
+      }
+    }
+
+    if (found) {
+      setActiveSlot(found);
+      const secondsLeft = Math.max(0, Math.floor((found.endTime - now) / 1000));
+      setTimeLeft(secondsLeft);
+
+      const intervalId = setInterval(() => {
+        const now = new Date();
+        const remaining = Math.max(0, Math.floor((found.endTime - now) / 1000));
+        setTimeLeft(remaining);
+        if (remaining <= 0) {
+          clearInterval(intervalId);
+          setActiveSlot(null);
+          setTimeLeft(null);
+        }
+      }, 1000);
+
+      return () => clearInterval(intervalId);
+    }
+  }, [mriData]);
 
   useEffect(() => {
     if (status === "authenticated" && session?.user?.role !== "member") {
@@ -415,7 +483,6 @@ export default function MemberDashboard() {
           );
         });
 
-        // Update task log
         const logDetails = newLogComment || (sprints.length > 0 && selectedSprint
           ? `Updated sprint ${sprints.find(s => s.id === parseInt(selectedSprint))?.title} to ${newStatus}`
           : `Updated task status to ${newStatus}`);
@@ -431,7 +498,6 @@ export default function MemberDashboard() {
           }),
         });
 
-        // Notify assignees
         await notifyAssignees(selectedTask.id, messageContent);
 
         setSuccess("Task status updated successfully!");
@@ -496,6 +562,7 @@ export default function MemberDashboard() {
         setSuccess("Day closed successfully!");
         setCanCloseDay(false);
         setShowCloseDayModal(false);
+        setActiveTab('dashboard');
         setCloseDayTasks([]);
         setCloseDayComment("");
         setRoutineTasks((prev) =>
@@ -538,6 +605,33 @@ export default function MemberDashboard() {
     }
   };
 
+  const getAssignedBy = (createdBy) => {
+    const user = users.find(u => u.id === createdBy);
+    if (!user) return "Unknown";
+    if (user.role === "admin") return "Superintendent";
+    if (user.role === "team_manager") {
+      return user.team_manager_type 
+        ? user.team_manager_type.split("_").map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(" ")
+        : "Team Manager";
+    }
+    return user.type
+      ? user.type.split("_").map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(" ")
+      : "Member";
+  };
+
+  const getTODName = (assignedMemberId) => {
+    if (!assignedMemberId) return "Unassigned";
+    if (String(assignedMemberId) === String(session?.user?.id)) {
+      return `${session?.user?.name} (You)`;
+    }
+    const member = users.find((m) => String(m.id) === String(assignedMemberId));
+    return member?.name || "Unassigned";
+  };
+
+  const handleBack = () => {
+    setActiveTab('dashboard');
+  };
+
   if (status === "loading") {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-gray-100">
@@ -557,20 +651,6 @@ export default function MemberDashboard() {
     );
   }
 
-  const getAssignedBy = (createdBy) => {
-    const user = users.find(u => u.id === createdBy);
-    if (!user) return "Unknown";
-    if (user.role === "admin") return "Superintendent";
-    if (user.role === "team_manager") {
-      return user.team_manager_type 
-        ? user.team_manager_type.split("_").map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(" ")
-        : "Team Manager";
-    }
-    return user.type
-      ? user.type.split("_").map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(" ")
-      : "Member";
-  };
-
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -578,7 +658,7 @@ export default function MemberDashboard() {
       transition={{ duration: 0.5 }}
       className="fixed inset-0 bg-gray-100 p-8 flex items-center justify-center"
     >
-      <div className="w-full h-full bg-white rounded-2xl shadow-2xl p-8 flex flex-col gap-8 overflow-y-auto">
+      <div className="w-full h-full bg-white rounded-2xl shadow-2xl p-8 flex flex-col gap-6 overflow-y-auto">
         {/* Error/Success Messages */}
         <AnimatePresence>
           {success && (
@@ -603,100 +683,311 @@ export default function MemberDashboard() {
           )}
         </AnimatePresence>
 
-        {/* Assigned Tasks */}
-        <div className="flex-1">
-          <h2 className="text-xl font-bold text-gray-800 mb-4">Assigned Tasks</h2>
-          <AssignedTaskCards
-            assignedTasks={assignedTasks}
-            isLoadingAssignedTasks={isLoadingAssignedTasks}
-            selectedDate={selectedDate}
-            handleTaskSelect={handleTaskSelect}
-            handleSprintSelect={handleSprintSelect}
-            handleTaskDetails={handleTaskDetails}
-            users={users}
-          />
-        </div>
-
-        {/* Task Summary */}
-        <div className="flex-1">
-          <div className="flex flex-row items-center justify-between mb-4">
-            <h2 className="text-xl font-bold text-gray-800">Task Summary</h2>
-            <div className="flex-shrink-0">
-              <label className="block text-sm font-medium text-gray-700">Time Period</label>
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                className="mt-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 text-sm bg-gray-50 transition-all duration-200"
-              />
-            </div>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-            <div className="text-center p-4 bg-gradient-to-r from-teal-50 to-teal-100 rounded-xl shadow-md hover:shadow-lg transition-shadow duration-200">
-              <p className="text-sm font-medium text-gray-700">Total Tasks</p>
-              <p className="text-3xl font-bold text-teal-800">{assignedTaskSummary.total}</p>
-            </div>
-            <div className="text-center p-4 bg-gradient-to-r from-green-50 to-green-100 rounded-xl shadow-md hover:shadow-lg transition-shadow duration-200">
-              <p className="text-sm font-medium text-gray-700">Completed</p>
-              <p className="text-3xl font-bold text-green-700">{assignedTaskSummary.completed}</p>
-            </div>
-            <div className="text-center p-4 bg-gradient-to-r from-yellow-50 to-yellow-100 rounded-xl shadow-md hover:shadow-lg transition-shadow duration-200">
-              <p className="text-sm font-medium text-gray-700">In Progress</p>
-              <p className="text-3xl font-bold text-yellow-700">{assignedTaskSummary.inProgress}</p>
-            </div>
-            <div className="text-center p-4 bg-gradient-to-r from-red-50 to-red-100 rounded-xl shadow-md hover:shadow-lg transition-shadow duration-200">
-              <p className="text-sm font-medium text-gray-700">Not Started</p>
-              <p className="text-3xl font-bold text-red-700">{assignedTaskSummary.notStarted}</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Actions */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {canCloseDay && (
+        <AnimatePresence mode="wait">
+          {activeTab === 'dashboard' ? (
             <motion.div
-              whileHover={{ scale: 1.05, boxShadow: "0 10px 20px rgba(0, 128, 0, 0.2)" }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => setShowCloseDayModal(true)}
-              className="bg-gradient-to-br from-white to-gray-50 rounded-xl shadow-lg p-4 flex flex-col items-center justify-center min-h-[160px] cursor-pointer hover:shadow-xl transition-all duration-200"
+              key="dashboard"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.3 }}
+              className="w-full h-full flex flex-col gap-6"
             >
-              <svg className="w-12 h-12 text-teal-600 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
-              </svg>
-              <h3 className="text-xl font-bold text-gray-800 mb-1">Close Day</h3>
-              <p className="text-gray-600 text-sm text-center">Close tasks for the day</p>
-            </motion.div>
-          )}
-        </div>
+              {/* Quick Glance Row */}
+              <div className="h-[40%] bg-gradient-to-br from-white to-gray-50 rounded-xl shadow-lg p-6 overflow-y-auto">
+                <h2 className="text-lg font-bold text-gray-800 mb-4">MRIs Summary</h2>
+                <div className="grid grid-cols-1 gap-4">
+                  <MRISummary selectedDate={selectedDate} userId={user?.id} />
+                </div>
+              </div>
 
-        {/* Routine Tasks */}
-        <div className="flex-1">
-          <h2 className="text-xl font-bold text-gray-800 mb-4">Routine Tasks</h2>
-          {isLoadingRoutineTasks ? (
-            <div className="flex items-center justify-center py-8">
-              <motion.div
-                animate={{ rotate: 360 }}
-                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                className="w-8 h-8 border-2 border-t-teal-600 border-teal-200 rounded-full"
-              />
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {routineTasks.length === 0 ? (
-                <p className="text-sm text-gray-600 text-center">No routine tasks available for {selectedDate}</p>
-              ) : (
-                routineTasks.map((task) => (
-                  <div key={task.id} className="p-3 bg-gray-50 rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200">
-                    <p className="text-sm font-medium text-gray-700">
-                      {task.description || "Untitled Task"}: <span className="capitalize">{(task.status || "unknown").replace("_", " ")}</span>
-                      {task.isLocked && " (Locked)"}
-                    </p>
+              {/* Perform Row */}
+              <div className="h-[75%] flex gap-6">
+                {/* Your Current MRI */}
+                <div className="w-[30%] bg-gradient-to-br from-white to-gray-50 rounded-xl shadow-lg p-6 flex flex-col items-center justify-center">
+                  <h2 className="text-2xl font-bold text-gray-800 mb-4">Your Current MRI</h2>
+                  {mriError ? (
+                    <p className="text-base text-red-600">Failed to load current MRI</p>
+                  ) : !mriData ? (
+                    <motion.div
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                      className="w-8 h-8 border-2 border-t-teal-600 border-teal-200 rounded-full"
+                    />
+                  ) : activeSlot ? (
+                    <div className="text-center space-y-3">
+                      <p className="text-xl font-semibold text-gray-700">{activeSlot.name}</p>
+                      <p className="text-base text-gray-600">{activeSlot.time}</p>
+                      <p className="text-sm text-gray-600">
+                        Time Left: {timeLeft !== null ? formatTimeLeft(timeLeft) : "Ended"}
+                      </p>
+                      <p className="text-base text-gray-600">
+                        TOD: {getTODName(activeSlot.assignedMemberId)}
+                      </p>
+                      {activeSlot.assignedMemberId !== session?.user?.id && (
+                        <p className="text-base text-gray-600">No Current MRI for you</p>
+                      )}
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        className={`px-6 py-3 rounded-lg text-lg font-medium transition-colors duration-200 ${
+                          activeSlot.assignedMemberId === session?.user?.id
+                            ? "bg-teal-600 text-white hover:bg-teal-700"
+                            : "bg-gray-400 text-white cursor-not-allowed"
+                        }`}
+                        disabled={activeSlot.assignedMemberId !== session?.user?.id}
+                        onClick={() => {
+                          if (activeSlot.assignedMemberId === session?.user?.id) {
+                            console.log("Perform MRI:", activeSlot);
+                            // TODO: Implement actual action
+                          }
+                        }}
+                      >
+                        Perform the Ritual
+                      </motion.button>
+                    </div>
+                  ) : (
+                    <div className="text-center space-y-3">
+                      <p className="text-base text-gray-600">No active MRI slot at the moment</p>
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        className="px-6 py-3 bg-gray-400 text-white rounded-lg text-lg font-medium cursor-not-allowed transition-colors duration-200"
+                        disabled
+                      >
+                        Perform the Ritual
+                      </motion.button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Ad Hocs & Other Routine */}
+                <div className="w-[70%] bg-gradient-to-br from-white to-gray-50 rounded-xl shadow-lg p-6 flex flex-row gap-4 overflow-y-auto">
+                  {/* Manage Assigned Tasks Card */}
+                  <div className="flex-1 bg-gradient-to-br from-teal-50 to-teal-100 rounded-xl shadow-md p-4">
+                    <h2 className="text-lg font-bold text-teal-800 mb-2">Assigned Tasks</h2>
+                    <div className="flex gap-2">
+                      <div className="flex-1 p-2 bg-teal-200 rounded-lg text-center">
+                        <p className="text-xs font-medium text-teal-700">Total</p>
+                        <p className="text-base font-bold text-teal-800">{assignedTaskSummary.total}</p>
+                      </div>
+                      <div className="flex-1 p-2 bg-green-200 rounded-lg text-center">
+                        <p className="text-xs font-medium text-green-700">Completed</p>
+                        <p className="text-base font-bold text-green-800">{assignedTaskSummary.completed}</p>
+                      </div>
+                      <div className="flex-1 p-2 bg-yellow-200 rounded-lg text-center">
+                        <p className="text-xs font-medium text-yellow-700">In Progress</p>
+                        <p className="text-base font-bold text-yellow-800">{assignedTaskSummary.inProgress}</p>
+                      </div>
+                      <div className="flex-1 p-2 bg-red-200 rounded-lg text-center">
+                        <p className="text-xs font-medium text-red-700">Not Started</p>
+                        <p className="text-base font-bold text-red-800">{assignedTaskSummary.notStarted}</p>
+                      </div>
+                    </div>
+                    <motion.button
+                      onClick={() => setActiveTab('assigned')}
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      className="mt-4 w-full px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium transition-colors duration-200"
+                    >
+                      Manage Assigned Tasks
+                    </motion.button>
                   </div>
-                ))
+
+                  {/* Manage Routine Tasks Card */}
+                  <div className="flex-1 bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl shadow-md p-4">
+                    <h2 className="text-lg font-bold text-blue-800 mb-2">Routine Tasks</h2>
+                    <div className="flex gap-2">
+                      <div className="flex-1 p-2 bg-teal-200 rounded-lg text-center">
+                        <p className="text-xs font-medium text-teal-700">Total</p>
+                        <p className="text-base font-bold text-teal-800">{routineTaskSummary.total}</p>
+                      </div>
+                      <div className="flex-1 p-2 bg-green-200 rounded-lg text-center">
+                        <p className="text-xs font-medium text-green-700">Completed</p>
+                        <p className="text-base font-bold text-green-800">{routineTaskSummary.completed}</p>
+                      </div>
+                      <div className="flex-1 p-2 bg-yellow-200 rounded-lg text-center">
+                        <p className="text-xs font-medium text-yellow-700">In Progress</p>
+                        <p className="text-base font-bold text-yellow-800">{routineTaskSummary.inProgress}</p>
+                      </div>
+                      <div className="flex-1 p-2 bg-red-200 rounded-lg text-center">
+                        <p className="text-xs font-medium text-red-700">Not Started</p>
+                        <p className="text-base font-bold text-red-800">{routineTaskSummary.notStarted}</p>
+                      </div>
+                    </div>
+                    <motion.button
+                      onClick={() => setActiveTab('routine')}
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      className="mt-4 w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium transition-colors duration-200"
+                    >
+                      Manage Routine Tasks
+                    </motion.button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          ) : activeTab === 'assigned' ? (
+            <motion.div
+              key="assigned"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.3 }}
+              className="w-full h-full flex flex-col gap-6"
+            >
+              <motion.button
+                onClick={handleBack}
+                className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-all duration-200 self-start"
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.95 }}
+              >
+                ← Back
+              </motion.button>
+              <div className="flex-1 overflow-y-auto">
+                <h2 className="text-2xl font-bold text-gray-800 mb-4">Assigned Tasks</h2>
+                <AssignedTaskCards
+                  assignedTasks={assignedTasks}
+                  isLoadingAssignedTasks={isLoadingAssignedTasks}
+                  selectedDate={selectedDate}
+                  handleTaskSelect={handleTaskSelect}
+                  handleSprintSelect={handleSprintSelect}
+                  handleTaskDetails={handleTaskDetails}
+                  users={users}
+                />
+              </div>
+              <div className="flex gap-2">
+                <div className="flex-1 p-3 bg-teal-100 rounded-lg shadow-md text-center">
+                  <p className="text-sm font-medium text-gray-700">Total</p>
+                  <p className="text-xl font-bold text-teal-800">{assignedTaskSummary.total}</p>
+                </div>
+                <div className="flex-1 p-3 bg-green-100 rounded-lg shadow-md text-center">
+                  <p className="text-sm font-medium text-gray-700">Completed</p>
+                  <p className="text-xl font-bold text-green-800">{assignedTaskSummary.completed}</p>
+                </div>
+                <div className="flex-1 p-3 bg-yellow-100 rounded-lg shadow-md text-center">
+                  <p className="text-sm font-medium text-gray-700">In Progress</p>
+                  <p className="text-xl font-bold text-yellow-800">{assignedTaskSummary.inProgress}</p>
+                </div>
+                <div className="flex-1 p-3 bg-red-100 rounded-lg shadow-md text-center">
+                  <p className="text-sm font-medium text-gray-700">Not Started</p>
+                  <p className="text-xl font-bold text-red-800">{assignedTaskSummary.notStarted}</p>
+                </div>
+              </div>
+            </motion.div>
+          ) : activeTab === 'routine' ? (
+            <motion.div
+              key="routine"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.3 }}
+              className="w-full h-full flex flex-col gap-6"
+            >
+              <motion.button
+                onClick={handleBack}
+                className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-all duration-200 self-start"
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.95 }}
+              >
+                ← Back
+              </motion.button>
+              <h2 className="text-2xl font-bold text-gray-800 mb-4">Routine Tasks</h2>
+              <div className="p-3 bg-gradient-to-r from-teal-50 to-teal-100 rounded-lg shadow-md mb-4">
+                <p className="text-sm font-medium text-gray-700">Routine Task Summary</p>
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  <div>
+                    <p className="text-xs text-gray-600">Total</p>
+                    <p className="text-lg font-bold text-teal-800">{routineTaskSummary.total}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-600">Completed</p>
+                    <p className="text-lg font-bold text-green-700">{routineTaskSummary.completed}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-600">In Progress</p>
+                    <p className="text-lg font-bold text-yellow-700">{routineTaskSummary.inProgress}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-600">Not Started</p>
+                    <p className="text-lg font-bold text-red-700">{routineTaskSummary.notStarted}</p>
+                  </div>
+                </div>
+              </div>
+              {isLoadingRoutineTasks ? (
+                <div className="flex items-center justify-center py-6">
+                  <motion.div
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                    className="w-6 h-6 border-2 border-t-teal-600 border-teal-200 rounded-full"
+                  />
+                </div>
+              ) : (
+                <div className="space-y-2 flex-1 overflow-y-auto">
+                  {routineTasks.length === 0 ? (
+                    <p className="text-sm text-gray-600 text-center">No routine tasks available for {selectedDate}</p>
+                  ) : (
+                    routineTasks.map((task) => (
+                      <div key={task.id} className="p-2 bg-gray-50 rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200">
+                        <p className="text-sm font-medium text-gray-700">
+                          {task.description || "Untitled Task"}: <span className="capitalize">{(task.status || "unknown").replace("_", " ")}</span>
+                          {task.isLocked && " (Locked)"}
+                        </p>
+                      </div>
+                    ))
+                  )}
+                </div>
               )}
-            </div>
-          )}
-        </div>
+              {canCloseDay && (
+                <div className="mt-4">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-2">Close Day</h3>
+                  {closeDayTasks.map((task) => (
+                    <div key={task.id} className="flex items-center space-x-2 mb-2">
+                      <input
+                        type="checkbox"
+                        checked={task.markAsCompleted || false}
+                        onChange={(e) => {
+                          setCloseDayTasks((prev) =>
+                            prev.map((t) =>
+                              t.id === task.id ? { ...t, markAsCompleted: e.target.checked } : t
+                            )
+                          );
+                        }}
+                        className="h-4 w-4 text-teal-600 focus:ring-teal-500"
+                        disabled={routineTasks.find((t) => t.id === task.id)?.isLocked}
+                      />
+                      <p className="text-sm text-gray-700">{task.description}</p>
+                    </div>
+                  ))}
+                  <textarea
+                    value={closeDayComment}
+                    onChange={(e) => setCloseDayComment(e.target.value)}
+                    placeholder="Add a comment (optional)"
+                    className="w-full px-4 py-2 border rounded-lg mb-3 bg-gray-50 focus:ring-2 focus:ring-teal-500 text-sm transition-all duration-200"
+                  />
+                  <div className="flex justify-end space-x-2">
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => setShowCloseDayModal(false)}
+                      className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 text-sm font-medium transition-colors duration-200"
+                    >
+                      Cancel
+                    </motion.button>
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={handleCloseDay}
+                      className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium transition-colors duration-200"
+                    >
+                      Close Day
+                    </motion.button>
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
 
         {/* Status Update Modal */}
         <AnimatePresence>
@@ -705,7 +996,7 @@ export default function MemberDashboard() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 z-50"
+              className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 z-60"
             >
               <motion.div
                 initial={{ scale: 0.9, opacity: 0 }}
@@ -837,7 +1128,7 @@ export default function MemberDashboard() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 z-50"
+              className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 z-60"
             >
               <motion.div
                 initial={{ scale: 0.9, opacity: 0 }}
@@ -909,7 +1200,6 @@ export default function MemberDashboard() {
                 className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md border border-teal-100"
               >
                 <h2 className="text-lg font-bold text-gray-800 mb-4">Close Day</h2>
-                <p className="text-sm text-gray-600 mb-3">Mark tasks as completed for {selectedDate}</p>
                 {closeDayTasks.map((task) => (
                   <div key={task.id} className="flex items-center space-x-2 mb-2">
                     <input
@@ -956,8 +1246,6 @@ export default function MemberDashboard() {
             </motion.div>
           )}
         </AnimatePresence>
-
-        <ChatBox userDetails={user} />
       </div>
     </motion.div>
   );

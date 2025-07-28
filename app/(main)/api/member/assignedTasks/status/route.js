@@ -8,22 +8,27 @@ export async function PATCH(req) {
   try {
     const session = await auth();
     if (!session || !session.user || session.user.role !== "member") {
-      console.error("Unauthorized access attempt:", { session });
-      return NextResponse.json({ error: "Unauthorized: Member access required" }, { status: 401 });
+      return NextResponse.json(
+        { error: "Unauthorized: Member access required" },
+        { status: 401 }
+      );
     }
 
     const userId = parseInt(session.user.id);
     const { taskId, status, sprintId, memberId, action } = await req.json();
 
-    if (!taskId || !status || !memberId || memberId !== userId || !action) {
-      return NextResponse.json({ error: "Invalid task ID, status, member ID, or action" }, { status: 400 });
+    if (!taskId || !status || memberId !== userId || !action) {
+      return NextResponse.json(
+        { error: "Invalid task ID, status, member ID, or action" },
+        { status: 400 }
+      );
     }
 
     if (!["not_started", "in_progress", "pending_verification", "done"].includes(status)) {
-      return NextResponse.json({ error: "Invalid status" }, { status: 400 });
+      return NextResponse.json({ error: "Invalid status value" }, { status: 400 });
     }
 
-    const taskStatus = await db
+    const [taskStatus] = await db
       .select({ id: assignedTaskStatus.id })
       .from(assignedTaskStatus)
       .where(
@@ -34,26 +39,23 @@ export async function PATCH(req) {
       )
       .limit(1);
 
-    if (!taskStatus.length) {
+    if (!taskStatus) {
       return NextResponse.json({ error: "Task not assigned to user" }, { status: 404 });
     }
 
     if (action === "update_task") {
       const [task] = await db
-        .select()
+        .select({ status: assignedTaskStatus.status })
         .from(assignedTaskStatus)
         .where(
           and(
             eq(assignedTaskStatus.taskId, taskId),
             eq(assignedTaskStatus.memberId, userId)
           )
-        );
+        )
+        .limit(1);
 
-      if (!task) {
-        return NextResponse.json({ error: "Task not found or not assigned to user" }, { status: 404 });
-      }
-
-      if (task.status === "verified" || task.status === "done") {
+      if (!task || ["verified", "done"].includes(task.status)) {
         return NextResponse.json({ error: "Cannot update verified or done tasks" }, { status: 400 });
       }
 
@@ -68,9 +70,9 @@ export async function PATCH(req) {
         )
         .returning();
 
-      console.log("Assigned task status updated:", { taskId, status, userId });
+      console.log("Assigned task status updated", { taskId, status, userId });
 
-      return NextResponse.json({ task: updatedTask });
+      return NextResponse.json({ task: updatedTask }, { status: 200 });
     }
 
     if (action === "update_sprint") {
@@ -79,37 +81,64 @@ export async function PATCH(req) {
       }
 
       const [sprint] = await db
-        .select()
+        .select({ status: sprints.status })
         .from(sprints)
         .where(
           and(
             eq(sprints.id, sprintId),
-            eq(sprints.taskStatusId, taskStatus[0].id)
+            eq(sprints.taskStatusId, taskStatus.id)
           )
-        );
+        )
+        .limit(1);
 
-      if (!sprint) {
-        return NextResponse.json({ error: "Sprint not found or not linked to task" }, { status: 404 });
-      }
-
-      if (sprint.status === "verified" || sprint.status === "done") {
+      if (!sprint || ["verified", "done"].includes(sprint.status)) {
         return NextResponse.json({ error: "Cannot update verified or done sprints" }, { status: 400 });
       }
 
       const [updatedSprint] = await db
         .update(sprints)
-        .set({ status, verifiedAt: status === "done" ? new Date() : null })
+        .set({
+          status,
+          verifiedAt: status === "done" ? new Date() : null,
+          updatedAt: new Date(),
+        })
         .where(eq(sprints.id, sprintId))
         .returning();
 
-      console.log("Sprint status updated:", { sprintId, status, userId });
+      // Determine task-level status from all sprint statuses
+      const allSprints = await db
+        .select({ status: sprints.status })
+        .from(sprints)
+        .where(eq(sprints.taskStatusId, taskStatus.id));
 
-      return NextResponse.json({ sprint: updatedSprint });
+      let derivedTaskStatus = "not_started";
+      if (allSprints.every(s => s.status === "done" || s.status === "verified")) {
+        derivedTaskStatus = "done";
+      } else if (allSprints.some(s => s.status === "in_progress" || s.status === "pending_verification")) {
+        derivedTaskStatus = "in_progress";
+      }
+
+      await db
+        .update(assignedTaskStatus)
+        .set({ status: derivedTaskStatus, updatedAt: new Date() })
+        .where(
+          and(
+            eq(assignedTaskStatus.taskId, taskId),
+            eq(assignedTaskStatus.memberId, userId)
+          )
+        );
+
+      console.log("Sprint status updated", { taskId, sprintId, status, derivedTaskStatus, userId });
+
+      return NextResponse.json({ sprint: updatedSprint }, { status: 200 });
     }
 
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });
   } catch (error) {
-    console.error("Error updating status:", error);
-    return NextResponse.json({ error: `Failed to update status: ${error.message}` }, { status: 500 });
+    console.error("Error updating status:", error, { body: await req.json().catch(() => ({})) });
+    return NextResponse.json(
+      { error: `Failed to update status: ${error.message}` },
+      { status: 500 }
+    );
   }
 }
