@@ -47,31 +47,21 @@ export async function PATCH(req) {
     let title = '';
     let sprintTitle = '';
     let notificationContent = '';
-    let createdBy = null;
 
-    // Fetch task title and createdBy for notifications
+    // Fetch task title for notifications
     const [taskData] = await db
-      .select({ 
-        title: assignedTasks.title,
-        createdBy: assignedTasks.createdBy 
-      })
+      .select({ title: assignedTasks.title })
       .from(assignedTasks)
       .where(eq(assignedTasks.id, taskId))
       .limit(1);
-    
-    if (!taskData) {
-      return NextResponse.json({ error: "Task not found" }, { status: 404 });
-    }
-    
     title = taskData.title;
-    createdBy = taskData.createdBy;
 
     const [updaterData] = await db
       .select({ name: users.name })
       .from(users)
       .where(eq(users.id, userId))
       .limit(1);
-    const updaterName = updaterData?.name || "Unknown";
+    const updaterName = updaterData.name;
 
     // Fetch all assignees
     const assignees = await db
@@ -108,29 +98,20 @@ export async function PATCH(req) {
 
       console.log("Assigned task status updated", { taskId, status, userId });
 
-      notificationContent = `Task "${title}" status updated to ${status} by ${updaterName}.`;
-      const now = new Date();
-      for (const assignee of assignees) {
-        if (assignee.memberId !== userId) {
-          await db.insert(messages).values({
-            senderId: userId,
-            recipientId: assignee.memberId,
-            content: notificationContent,
-            createdAt: now,
-            status: "sent",
-          });
+      if (notifyAssignees) {
+        notificationContent = `Task "${title}" status updated to ${status} by ${updaterName}.`;
+        const now = new Date();
+        for (const assignee of assignees) {
+          if (assignee.memberId !== userId) {
+            await db.insert(messages).values({
+              senderId: userId,
+              recipientId: assignee.memberId,
+              content: notificationContent,
+              createdAt: now,
+              status: "sent",
+            });
+          }
         }
-      }
-
-      // Send to creator if not the updater and not already sent as assignee
-      if (createdBy !== userId && !assignees.some(a => a.memberId === createdBy)) {
-        await db.insert(messages).values({
-          senderId: userId,
-          recipientId: createdBy,
-          content: notificationContent,
-          createdAt: now,
-          status: "sent",
-        });
       }
 
       return NextResponse.json({ task: updatedTask }, { status: 200 });
@@ -199,29 +180,20 @@ export async function PATCH(req) {
 
       console.log("Sprint status updated", { taskId, sprintId, status, derivedTaskStatus, userId });
 
-      notificationContent = `Sprint "${sprintTitle}" in task "${title}" status updated to ${status} by ${updaterName}.`;
-      const now = new Date();
-      for (const assignee of assignees) {
-        if (assignee.memberId !== userId) {
-          await db.insert(messages).values({
-            senderId: userId,
-            recipientId: assignee.memberId,
-            content: notificationContent,
-            createdAt: now,
-            status: "sent",
-          });
+      if (notifyAssignees) {
+        notificationContent = `Sprint "${sprintTitle}" in task "${title}" status updated to ${status} by ${updaterName}.`;
+        const now = new Date();
+        for (const assignee of assignees) {
+          if (assignee.memberId !== userId) {
+            await db.insert(messages).values({
+              senderId: userId,
+              recipientId: assignee.memberId,
+              content: notificationContent,
+              createdAt: now,
+              status: "sent",
+            });
+          }
         }
-      }
-
-      // Send to creator if not the updater and not already sent as assignee
-      if (createdBy !== userId && !assignees.some(a => a.memberId === createdBy)) {
-        await db.insert(messages).values({
-          senderId: userId,
-          recipientId: createdBy,
-          content: notificationContent,
-          createdAt: now,
-          status: "sent",
-        });
       }
 
       return NextResponse.json({ sprint: updatedSprint }, { status: 200 });

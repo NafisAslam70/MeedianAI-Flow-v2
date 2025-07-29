@@ -17,6 +17,8 @@ export default function ChatBox({ userDetails }) {
   const [chatboxPosition, setChatboxPosition] = useState({ x: 20, y: -20 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [unreadCounts, setUnreadCounts] = useState({});
+  const audioRef = useRef(null);
 
   const fetchData = async () => {
     try {
@@ -37,7 +39,13 @@ export default function ChatBox({ userDetails }) {
         setError(messagesData.error || "Failed to fetch messages.");
         setMessages([]);
       } else {
-        setMessages(messagesData.messages);
+        const newMessages = messagesData.messages;
+        const previousLength = messages.length;
+        setMessages(newMessages);
+        if (newMessages.length > previousLength && !showChatbox && !showHistory) {
+          playNotificationSound();
+          updateUnreadCounts(newMessages);
+        }
       }
     } catch (error) {
       console.error("Error fetching data:", error);
@@ -53,6 +61,53 @@ export default function ChatBox({ userDetails }) {
     const interval = setInterval(fetchData, 5000); // Poll every 5 seconds
     return () => clearInterval(interval);
   }, [userDetails?.id]);
+
+  useEffect(() => {
+    audioRef.current = new Audio('https://www.soundjay.com/buttons/beep-07.mp3'); // Replace with your notification sound URL
+    return () => {
+      if (audioRef.current) audioRef.current.pause();
+    };
+  }, []);
+
+  const playNotificationSound = () => {
+    if (audioRef.current) {
+      audioRef.current.play().catch((err) => console.error("Audio play error:", err));
+    }
+  };
+
+  const updateUnreadCounts = (newMessages) => {
+    const unread = newMessages.reduce((acc, msg) => {
+      if (msg.recipientId === parseInt(userDetails.id) && msg.status === "sent") {
+        const senderId = msg.senderId;
+        acc[senderId] = (acc[senderId] || 0) + 1;
+      }
+      return acc;
+    }, {});
+    setUnreadCounts(unread);
+  };
+
+  const markAsRead = async (recipientId) => {
+    try {
+      const unreadMessages = messages.filter(
+        (msg) => msg.senderId === parseInt(recipientId) && msg.recipientId === parseInt(userDetails.id) && msg.status === "sent"
+      );
+
+      for (const msg of unreadMessages) {
+        await fetch("/api/others/chat", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            messageId: msg.id,
+            status: "read",
+          }),
+        });
+      }
+      setUnreadCounts((prev) => ({ ...prev, [recipientId]: 0 }));
+      fetchData(); // Refresh messages
+    } catch (error) {
+      console.error("Error marking messages as read:", error);
+    }
+  };
 
   const handleSendMessage = async () => {
     if (!selectedRecipient || !messageContent.trim()) {
@@ -185,6 +240,7 @@ export default function ChatBox({ userDetails }) {
         return {
           ...user,
           lastMessage: userMessages[0],
+          unread: unreadCounts[user.id] || 0,
         };
       });
   };
@@ -384,6 +440,7 @@ export default function ChatBox({ userDetails }) {
                       setSelectedRecipient(user.id.toString());
                       closeAllModals();
                       setShowChatbox(true);
+                      markAsRead(user.id);
                     }}
                   >
                     <div className="flex justify-between items-center">
@@ -391,7 +448,7 @@ export default function ChatBox({ userDetails }) {
                         <p className="text-sm font-semibold text-blue-900">
                           {user.name} ({getUserDisplayRole(user)})
                         </p>
-                        <p className="text-xs text-gray-500 truncate max-w-[250px]">
+                        <p className="text-xs text-gray-600 truncate max-w-[250px]">
                           {user.lastMessage?.content || "No messages"}
                         </p>
                       </div>
@@ -401,6 +458,11 @@ export default function ChatBox({ userDetails }) {
                           : ""}
                       </p>
                     </div>
+                    {user.unread > 0 && (
+                      <span className="absolute top-2 right-2 bg-red-500 text-white text-xs font-bold rounded-full px-2 py-1">
+                        {user.unread}
+                      </span>
+                    )}
                   </motion.div>
                 ))
               )}
