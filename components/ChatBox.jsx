@@ -62,12 +62,12 @@ export default function ChatBox({ userDetails }) {
     return () => clearInterval(interval);
   }, [userDetails?.id]);
 
-  useEffect(() => {
-    audioRef.current = new Audio('https://www.soundjay.com/buttons/beep-07.mp3'); // Replace with your notification sound URL
-    return () => {
-      if (audioRef.current) audioRef.current.pause();
-    };
-  }, []);
+useEffect(() => {
+  audioRef.current = new Audio('/msg.mp3'); // Your local file path
+  return () => {
+    if (audioRef.current) audioRef.current.pause();
+  };
+}, []);
 
   const playNotificationSound = () => {
     if (audioRef.current) {
