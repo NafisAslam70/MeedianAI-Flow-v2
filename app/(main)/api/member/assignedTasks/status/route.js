@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { assignedTaskStatus, sprints } from "@/lib/schema";
+import { assignedTaskStatus, sprints, users, assignedTasks, messages } from "@/lib/schema";
 import { auth } from "@/lib/auth";
 import { eq, and } from "drizzle-orm";
 
@@ -15,7 +15,8 @@ export async function PATCH(req) {
     }
 
     const userId = parseInt(session.user.id);
-    const { taskId, status, sprintId, memberId, action } = await req.json();
+    const body = await req.json();
+    const { taskId, status, sprintId, memberId, action, notifyAssignees = false } = body;
 
     if (!taskId || !status || memberId !== userId || !action) {
       return NextResponse.json(
@@ -42,6 +43,41 @@ export async function PATCH(req) {
     if (!taskStatus) {
       return NextResponse.json({ error: "Task not assigned to user" }, { status: 404 });
     }
+
+    let title = '';
+    let sprintTitle = '';
+    let notificationContent = '';
+    let createdBy = null;
+
+    // Fetch task title and createdBy for notifications
+    const [taskData] = await db
+      .select({ 
+        title: assignedTasks.title,
+        createdBy: assignedTasks.createdBy 
+      })
+      .from(assignedTasks)
+      .where(eq(assignedTasks.id, taskId))
+      .limit(1);
+    
+    if (!taskData) {
+      return NextResponse.json({ error: "Task not found" }, { status: 404 });
+    }
+    
+    title = taskData.title;
+    createdBy = taskData.createdBy;
+
+    const [updaterData] = await db
+      .select({ name: users.name })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    const updaterName = updaterData?.name || "Unknown";
+
+    // Fetch all assignees
+    const assignees = await db
+      .select({ memberId: assignedTaskStatus.memberId })
+      .from(assignedTaskStatus)
+      .where(eq(assignedTaskStatus.taskId, taskId));
 
     if (action === "update_task") {
       const [task] = await db
@@ -71,6 +107,31 @@ export async function PATCH(req) {
         .returning();
 
       console.log("Assigned task status updated", { taskId, status, userId });
+
+      notificationContent = `Task "${title}" status updated to ${status} by ${updaterName}.`;
+      const now = new Date();
+      for (const assignee of assignees) {
+        if (assignee.memberId !== userId) {
+          await db.insert(messages).values({
+            senderId: userId,
+            recipientId: assignee.memberId,
+            content: notificationContent,
+            createdAt: now,
+            status: "sent",
+          });
+        }
+      }
+
+      // Send to creator if not the updater and not already sent as assignee
+      if (createdBy !== userId && !assignees.some(a => a.memberId === createdBy)) {
+        await db.insert(messages).values({
+          senderId: userId,
+          recipientId: createdBy,
+          content: notificationContent,
+          createdAt: now,
+          status: "sent",
+        });
+      }
 
       return NextResponse.json({ task: updatedTask }, { status: 200 });
     }
@@ -105,6 +166,14 @@ export async function PATCH(req) {
         .where(eq(sprints.id, sprintId))
         .returning();
 
+      // Fetch sprint title for notification
+      const [sprintData] = await db
+        .select({ title: sprints.title })
+        .from(sprints)
+        .where(eq(sprints.id, sprintId))
+        .limit(1);
+      sprintTitle = sprintData.title;
+
       // Determine task-level status from all sprint statuses
       const allSprints = await db
         .select({ status: sprints.status })
@@ -129,6 +198,31 @@ export async function PATCH(req) {
         );
 
       console.log("Sprint status updated", { taskId, sprintId, status, derivedTaskStatus, userId });
+
+      notificationContent = `Sprint "${sprintTitle}" in task "${title}" status updated to ${status} by ${updaterName}.`;
+      const now = new Date();
+      for (const assignee of assignees) {
+        if (assignee.memberId !== userId) {
+          await db.insert(messages).values({
+            senderId: userId,
+            recipientId: assignee.memberId,
+            content: notificationContent,
+            createdAt: now,
+            status: "sent",
+          });
+        }
+      }
+
+      // Send to creator if not the updater and not already sent as assignee
+      if (createdBy !== userId && !assignees.some(a => a.memberId === createdBy)) {
+        await db.insert(messages).values({
+          senderId: userId,
+          recipientId: createdBy,
+          content: notificationContent,
+          createdAt: now,
+          status: "sent",
+        });
+      }
 
       return NextResponse.json({ sprint: updatedSprint }, { status: 200 });
     }
