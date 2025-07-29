@@ -19,6 +19,7 @@ export default function ChatBox({ userDetails }) {
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [unreadCounts, setUnreadCounts] = useState({});
   const audioRef = useRef(null);
+  const [hasUnread, setHasUnread] = useState(false);
 
   const fetchData = async () => {
     try {
@@ -62,15 +63,17 @@ export default function ChatBox({ userDetails }) {
     return () => clearInterval(interval);
   }, [userDetails?.id]);
 
-useEffect(() => {
-  audioRef.current = new Audio('/sms.mp3'); // Your local file path
-  return () => {
-    if (audioRef.current) audioRef.current.pause();
-  };
-}, []);
+  useEffect(() => {
+    audioRef.current = new Audio('/sms.mp3'); // Your local file path
+    audioRef.current.preload = 'auto'; // Preload the audio
+    return () => {
+      if (audioRef.current) audioRef.current.pause();
+    };
+  }, []);
 
   const playNotificationSound = () => {
     if (audioRef.current) {
+      audioRef.current.currentTime = 0; // Reset to start to prevent overlapping
       audioRef.current.play().catch((err) => console.error("Audio play error:", err));
     }
   };
@@ -84,6 +87,8 @@ useEffect(() => {
       return acc;
     }, {});
     setUnreadCounts(unread);
+    const totalUnread = Object.values(unread).reduce((sum, count) => sum + count, 0);
+    setHasUnread(totalUnread > 0);
   };
 
   const markAsRead = async (recipientId) => {
@@ -103,6 +108,8 @@ useEffect(() => {
         });
       }
       setUnreadCounts((prev) => ({ ...prev, [recipientId]: 0 }));
+      const totalUnread = Object.values({...unreadCounts, [recipientId]: 0}).reduce((sum, count) => sum + count, 0);
+      setHasUnread(totalUnread > 0);
       fetchData(); // Refresh messages
     } catch (error) {
       console.error("Error marking messages as read:", error);
@@ -280,7 +287,9 @@ useEffect(() => {
         >
           <ChatBubbleLeftRightIcon className="h-6 w-6" />
         </button>
-        <button
+        <motion.button
+          animate={hasUnread ? { rotate: [0, -10, 10, -10, 10, 0] } : {}}
+          transition={{ duration: 0.5, ease: "easeInOut" }}
           onClick={() => {
             closeAllModals();
             setShowHistory(true);
@@ -289,7 +298,7 @@ useEffect(() => {
           title="Chat History"
         >
           <ClockIcon className="h-6 w-6" />
-        </button>
+        </motion.button>
         <ScheduleMeet userDetails={userDetails} position={chatboxPosition} closeAllModals={closeAllModals} />
       </div>
       <AnimatePresence>
