@@ -63,7 +63,7 @@ export default function ChatBox({ userDetails }) {
   }, [userDetails?.id]);
 
 useEffect(() => {
-  audioRef.current = new Audio('/msg.mp3'); // Your local file path
+  audioRef.current = new Audio('/sms.mp3'); // Your local file path
   return () => {
     if (audioRef.current) audioRef.current.pause();
   };
