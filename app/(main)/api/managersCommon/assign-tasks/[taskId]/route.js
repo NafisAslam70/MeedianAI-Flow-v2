@@ -10,95 +10,115 @@ import {
 import { eq, inArray } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 
-// =================== DELETE ===================
+/* -------------------------------------------------------------------------- */
+/* DELETE /api/managersCommon/assign-tasks/[taskId]                           */
+/* -------------------------------------------------------------------------- */
 export async function DELETE(req, { params }) {
   const session = await auth();
   if (!session || !["admin", "team_manager"].includes(session.user?.role)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const taskId = parseInt(params.taskId);
-  if (isNaN(taskId)) {
+  const taskId = Number(params.taskId);
+  if (Number.isNaN(taskId)) {
     return NextResponse.json({ error: "Invalid task ID" }, { status: 400 });
   }
 
   try {
     const task = await db
-      .select({ id: assignedTasks.id, title: assignedTasks.title, createdBy: assignedTasks.createdBy })
+      .select({
+        id: assignedTasks.id,
+        title: assignedTasks.title,
+        createdBy: assignedTasks.createdBy,
+      })
       .from(assignedTasks)
       .where(eq(assignedTasks.id, taskId));
 
-    if (!task || task.length === 0) {
+    if (!task.length) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
     }
 
-    // Get assignees for notifications
+    /* -------- gather assignees for notification -------------------------------- */
     const assignees = await db
       .select({ memberId: assignedTaskStatus.memberId })
       .from(assignedTaskStatus)
       .where(eq(assignedTaskStatus.taskId, taskId));
-
     const assigneeIds = assignees.map((a) => a.memberId);
 
-    // Get creator name for notifications
-    const [creatorData] = await db
+    const [creator] = await db
       .select({ name: users.name })
       .from(users)
       .where(eq(users.id, session.user.id))
       .limit(1);
-    const creatorName = creatorData?.name || "Unknown";
+    const creatorName = creator?.name ?? "Unknown";
 
+    /* ---------------- delete cascades ------------------------------------------ */
     const taskStatusIds = await db
       .select({ id: assignedTaskStatus.id })
       .from(assignedTaskStatus)
       .where(eq(assignedTaskStatus.taskId, taskId));
-
     const statusIdArray = taskStatusIds.map((ts) => ts.id);
 
-    if (statusIdArray.length > 0) {
-      await db.delete(sprintTable).where(inArray(sprintTable.taskStatusId, statusIdArray));
+    if (statusIdArray.length) {
+      await db.delete(sprintTable).where(
+        inArray(sprintTable.taskStatusId, statusIdArray),
+      );
     }
-
-    await db.delete(assignedTaskStatus).where(eq(assignedTaskStatus.taskId, taskId));
+    await db.delete(assignedTaskStatus).where(
+      eq(assignedTaskStatus.taskId, taskId),
+    );
     await db.delete(assignedTasks).where(eq(assignedTasks.id, taskId));
 
-    // Send notifications to assignees
+    /* ---------------- send notifications --------------------------------------- */
     const now = new Date();
     for (const memberId of assigneeIds) {
-      await db.insert(messages).values({
-        senderId: session.user.id,
-        recipientId: memberId,
-        content: `Task "${task[0].title}" has been deleted by ${creatorName}.`,
-        createdAt: now,
-        status: "sent",
-      });
+      if (memberId !== session.user.id) {
+        await db.insert(messages).values({
+          senderId: session.user.id,
+          recipientId: memberId,
+          content: `Task "${task[0].title}" has been deleted by ${creatorName}.`,
+          createdAt: now,
+          status: "sent",
+        });
+      }
     }
 
-    console.log("Task deleted:", { taskId, title: task[0].title, deletedBy: session.user.id });
-
-    return NextResponse.json({ message: "Task deleted successfully" }, { status: 200 });
+    console.log("Task deleted", { taskId, deletedBy: session.user.id });
+    return NextResponse.json({ message: "Task deleted successfully" });
   } catch (error) {
     console.error("Error deleting task:", error);
-    return NextResponse.json({ error: `Failed to delete task: ${error.message}` }, { status: 500 });
+    return NextResponse.json(
+      { error: `Failed to delete task: ${error.message}` },
+      { status: 500 },
+    );
   }
 }
 
-// =================== PATCH ===================
+/* -------------------------------------------------------------------------- */
+/* PATCH /api/managersCommon/assign-tasks/[taskId]                            */
+/* -------------------------------------------------------------------------- */
 export async function PATCH(req, { params }) {
   const session = await auth();
   if (!session || !["admin", "team_manager"].includes(session.user?.role)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const taskId = parseInt(params.taskId);
-  if (isNaN(taskId)) {
+  const taskId = Number(params.taskId);
+  if (Number.isNaN(taskId)) {
     return NextResponse.json({ error: "Invalid task ID" }, { status: 400 });
   }
 
   try {
-    const { title, description, assignees, sprints, deadline, resources } = await req.json();
+    const {
+      title,
+      description,
+      assignees,
+      sprints,      // may be [], meaning “clear all”
+      deadline,
+      resources,
+    } = await req.json();
 
-    // Get current task data for comparison and notifications
+    /* -------- current data ----------------------------------------------------- */
     const [currentTask] = await db
       .select({
         title: assignedTasks.title,
@@ -109,152 +129,150 @@ export async function PATCH(req, { params }) {
       .from(assignedTasks)
       .where(eq(assignedTasks.id, taskId))
       .limit(1);
-
     if (!currentTask) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
     }
 
-    // Get current assignees for comparison
     const currentAssignees = await db
       .select({ memberId: assignedTaskStatus.memberId })
       .from(assignedTaskStatus)
       .where(eq(assignedTaskStatus.taskId, taskId));
-
     const currentAssigneeIds = currentAssignees.map((a) => a.memberId);
 
-    // Get creator name for notifications
-    const [creatorData] = await db
+    const [creator] = await db
       .select({ name: users.name })
       .from(users)
       .where(eq(users.id, session.user.id))
       .limit(1);
-    const creatorName = creatorData?.name || "Unknown";
+    const creatorName = creator?.name ?? "Unknown";
 
-    let notificationContent = `Task "${title || currentTask.title}" updated by ${creatorName}: `;
+    let notification = `Task "${title || currentTask.title}" updated by ${creatorName}: `;
     let sendNotification = false;
 
-    // Update task details if provided
-    if (title || description || deadline || resources) {
+    /* -------- update core fields ---------------------------------------------- */
+    if (title !== undefined || description !== undefined || deadline !== undefined || resources !== undefined) {
       await db.update(assignedTasks)
         .set({
-          ...(title && { title }),
-          ...(description && { description }),
-          ...(deadline && { deadline: new Date(deadline) }),
-          ...(resources && { resources }),
+          ...(title !== undefined && { title }),
+          ...(description !== undefined && { description }),
+          ...(deadline !== undefined && { deadline: deadline ? new Date(deadline) : null }),
+          ...(resources !== undefined && { resources }),
           updatedAt: new Date(),
         })
         .where(eq(assignedTasks.id, taskId));
 
-      if (title && title !== currentTask.title) {
-        notificationContent += `Title changed to "${title}". `;
+      if (title !== undefined && title !== currentTask.title) { notification += `Title → "${title}". `; sendNotification = true; }
+      if (description !== undefined && description !== currentTask.description) { notification += "Description changed. "; sendNotification = true; }
+      if (deadline !== undefined && (deadline ? new Date(deadline).toISOString() : null) !== (currentTask.deadline?.toISOString() ?? null)) {
+        notification += `Deadline → ${deadline ? new Date(deadline).toLocaleString() : "cleared"}. `;
         sendNotification = true;
       }
-      if (description && description !== currentTask.description) {
-        notificationContent += "Description updated. ";
-        sendNotification = true;
-      }
-      if (deadline && deadline !== currentTask.deadline) {
-        notificationContent += `Deadline changed to ${new Date(deadline).toLocaleString()}. `;
-        sendNotification = true;
-      }
-      if (resources && resources !== currentTask.resources) {
-        notificationContent += "Resources updated. ";
-        sendNotification = true;
-      }
+      if (resources !== undefined && resources !== currentTask.resources) { notification += "Resources updated. "; sendNotification = true; }
     }
 
-    // Update assignees if provided
-    if (Array.isArray(assignees) && assignees.length > 0) {
-      const parsedAssignees = assignees.map((id) => parseInt(id));
+    /* -------- update assignees ------------------------------------------------- */
+    if (Array.isArray(assignees) && assignees.length) {
+      const parsed = assignees.map(Number).filter((id) => !Number.isNaN(id));
+      if (!parsed.length) {
+        return NextResponse.json({ error: "No valid assignees" }, { status: 400 });
+      }
 
-      let query = db
-        .select({ id: users.id })
-        .from(users)
-        .where(inArray(users.id, parsedAssignees));
-
+      let q = db.select({ id: users.id }).from(users).where(inArray(users.id, parsed));
       if (session.user.role === "team_manager" && session.user.team_manager_type) {
-        query = query.where(eq(users.team_manager_type, session.user.team_manager_type));
+        q = q.where(eq(users.team_manager_type, session.user.team_manager_type));
+      }
+      const valid = await q;
+      if (valid.length !== parsed.length) {
+        return NextResponse.json({ error: "Some assignees invalid / inaccessible" }, { status: 400 });
       }
 
-      const validAssignees = await query;
-
-      if (validAssignees.length !== parsedAssignees.length) {
-        return NextResponse.json({ error: "One or more assignees are invalid or not accessible" }, { status: 400 });
-      }
-
-      // Delete old assignments
       await db.delete(assignedTaskStatus).where(eq(assignedTaskStatus.taskId, taskId));
+      await db.insert(assignedTaskStatus).values(
+        parsed.map((memberId) => ({
+          taskId,
+          memberId,
+          status: "not_started",
+          assignedDate: new Date(),
+          updatedAt: new Date(),
+        })),
+      );
 
-      // Insert new assignments
-      const statusInserts = parsedAssignees.map((memberId) => ({
-        taskId,
-        memberId,
-        status: "not_started",
-        assignedDate: new Date(),
-        updatedAt: new Date(),
-      }));
-      await db.insert(assignedTaskStatus).values(statusInserts);
-
-      // Check if assignees changed
-      const newAssigneeIds = parsedAssignees.sort();
-      const oldAssigneeIds = currentAssigneeIds.sort();
-      if (JSON.stringify(newAssigneeIds) !== JSON.stringify(oldAssigneeIds)) {
-        notificationContent += "Assignees updated. ";
+      if (JSON.stringify(parsed.sort()) !== JSON.stringify([...currentAssigneeIds].sort())) {
+        notification += "Assignees updated. ";
         sendNotification = true;
       }
     }
 
-    // Update sprints if provided
+    /* -------- update sprints (CLEAR‑SAFE) ------------------------------------- */
     if (Array.isArray(sprints)) {
       const currentAssignments = await db
         .select({ id: assignedTaskStatus.id })
         .from(assignedTaskStatus)
         .where(eq(assignedTaskStatus.taskId, taskId));
 
-      if (currentAssignments.length > 0) {
-        await db.delete(sprintTable).where(inArray(sprintTable.taskStatusId, currentAssignments.map((a) => a.id)));
+      if (!currentAssignments.length) {
+        return NextResponse.json(
+          { error: "Cannot update sprints: task has no assignees" },
+          { status: 400 },
+        );
+      }
 
-        const sprintInserts = sprints.flatMap((sprint) =>
-          currentAssignments.map((assignment) => ({
-            taskStatusId: assignment.id,
-            title: sprint.title,
-            description: sprint.description || null,
-            status: sprint.status || "not_started",
+      /* always wipe old sprints first */
+      await db.delete(sprintTable).where(
+        inArray(sprintTable.taskStatusId, currentAssignments.map((a) => a.id)),
+      );
+
+      const sprintRows = (sprints || [])
+        .filter((s) => s.title)   // ignore untitled rows
+        .flatMap((s) =>
+          currentAssignments.map((a) => ({
+            taskStatusId: a.id,
+            title: s.title,
+            description: s.description || null,
+            status: s.status || "not_started",
             verifiedBy: null,
             verifiedAt: null,
             createdAt: new Date(),
-          }))
+          })),
         );
 
-        await db.insert(sprintTable).values(sprintInserts);
+      if (sprintRows.length) {
+        await db.insert(sprintTable).values(sprintRows);
+        notification += `${sprintRows.length} sprint row(s) added. `;
+      } else {
+        notification += "All sprints cleared. ";
+      }
+      sendNotification = true;
+    }
 
-        if (sprints.length > 0) {
-          notificationContent += `${sprints.length} sprint(s) added/updated. `;
-          sendNotification = true;
+    /* -------- notifications ---------------------------------------------------- */
+    if (sendNotification) {
+      const now = new Date();
+      const recipients =
+        Array.isArray(assignees) && assignees.length
+          ? assignees.map(Number).filter((id) => !Number.isNaN(id))
+          : currentAssigneeIds;
+
+      for (const memberId of recipients) {
+        if (memberId !== session.user.id) {
+          await db.insert(messages).values({
+            senderId: session.user.id,
+            recipientId: memberId,
+            content: notification.trim(),
+            createdAt: now,
+            status: "sent",
+          });
         }
       }
     }
 
-    // Send notifications if changes were made
-    if (sendNotification) {
-      const now = new Date();
-      const assigneeIds = assignees ? assignees.map((id) => parseInt(id)) : currentAssigneeIds;  // Use new or old assignees
-      for (const memberId of assigneeIds) {
-        await db.insert(messages).values({
-          senderId: session.user.id,
-          recipientId: memberId,
-          content: notificationContent.trim(),
-          createdAt: now,
-          status: "sent",
-        });
-      }
-    }
-
-    console.log("Task updated:", { taskId, changes: { title, description, assignees, sprints, deadline, resources }, updatedBy: session.user.id });
-
-    return NextResponse.json({ message: "Task updated successfully" }, { status: 200 });
+    console.log("Task updated", { taskId, updatedBy: session.user.id });
+    return NextResponse.json({ message: "Task updated successfully" });
   } catch (error) {
-    console.error("Error updating task:", error, { body: await req.json().catch(() => ({})) });
-    return NextResponse.json({ error: `Failed to update task: ${error.message}` }, { status: 500 });
+    console.error("Error updating task:", error);
+    return NextResponse.json(
+      { error: `Failed to update task: ${error.message}` },
+      { status: 500 },
+    );
   }
 }
