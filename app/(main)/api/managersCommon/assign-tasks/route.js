@@ -206,7 +206,7 @@ export async function POST(req) {
           recipientName: assignee.name || "User",
           updaterName: creatorName,
           taskTitle: title,
-          newStatus: "Not Started",
+          newStatus: "Assigned",
           logComment: "New task assigned",
           dateTime: dateTime,
         });

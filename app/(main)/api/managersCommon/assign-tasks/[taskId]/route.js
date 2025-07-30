@@ -20,7 +20,7 @@ async function sendWhatsappMessage(toNumber, content) {
     const messageData = {
       from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`,
       to: `whatsapp:${toNumber}`,
-      contentSid: "HXe39dfecbcc4453ae05ae2a7f7f1da414",
+      contentSid: "HX60cc1428638f310ed813993c89059169",
       contentVariables: JSON.stringify({
         1: content.recipientName || "User", // {{1}}
         2: content.updaterName || "System", // {{2}}

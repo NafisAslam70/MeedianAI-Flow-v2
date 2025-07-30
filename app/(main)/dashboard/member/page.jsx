@@ -1,4 +1,3 @@
-// FILE: pages/MemberDashboard.jsx
 "use client";
 
 import { useState, useEffect, useReducer } from "react";
@@ -27,6 +26,22 @@ const formatTimeLeft = (s) =>
     2,
     "0"
   )}`;
+
+/* ------------------------------------------------------------------ */
+/*  Derived task status helper                                         */
+/* ------------------------------------------------------------------ */
+const deriveTaskStatus = (sprints) => {
+  if (!sprints || sprints.length === 0) return "not_started";
+  const statuses = sprints.map((s) => s.status);
+  const hasPending = statuses.some((s) => s === "pending_verification");
+  const hasInProgress = statuses.some((s) => s === "in_progress");
+  const hasDone = statuses.some((s) => ["done", "verified"].includes(s));
+  const allDone = statuses.every((s) => ["done", "verified"].includes(s));
+  if (hasPending) return "pending_verification";
+  if (allDone) return "done";
+  if (hasInProgress || hasDone) return "in_progress";
+  return "not_started";
+};
 
 /* ------------------------------------------------------------------ */
 /*  Reducer                                                            */
@@ -79,14 +94,10 @@ const taskReducer = (state, action) => {
           const sprints = t.sprints.map((s) =>
             s.id === action.sprintId ? { ...s, status: action.status } : s
           );
-          const hasIP = sprints.some((s) => s.status === "in_progress");
-          const allDone = sprints.every(
-            (s) => s.status === "done" || s.status === "verified"
-          );
           return {
             ...t,
             sprints,
-            status: hasIP ? "in_progress" : allDone ? "done" : t.status,
+            status: deriveTaskStatus(sprints),
           };
         }
         return { ...t, status: action.status };
@@ -212,13 +223,9 @@ const useDashboardData = (session, selectedDate) => {
         if (r.ok) {
           const tasks = (d.tasks || []).map((t) => {
             if (t.sprints?.length) {
-              const hasIP = t.sprints.some((s) => s.status === "in_progress");
-              const allDone = t.sprints.every(
-                (s) => s.status === "done" || s.status === "verified"
-              );
               return {
                 ...t,
-                status: hasIP ? "in_progress" : allDone ? "done" : t.status,
+                status: deriveTaskStatus(t.sprints),
               };
             }
             return t;
@@ -760,7 +767,7 @@ export default function MemberDashboard() {
   const isSprint = sprints.length && selectedSprint;
   const body = isSprint
     ? {
-        sprintId: selectedSprint,
+        sprintId: parseInt(selectedSprint),
         status: newStatus,
         taskId: selectedTask.id,
         memberId: user?.id,
@@ -792,7 +799,7 @@ export default function MemberDashboard() {
       type: "UPDATE_TASK_STATUS",
       taskId: selectedTask.id,
       status: newStatus,
-      sprintId: isSprint ? +selectedSprint : undefined,
+      sprintId: isSprint ? parseInt(selectedSprint) : undefined,
     });
 
     taskCache.set(
@@ -811,7 +818,7 @@ export default function MemberDashboard() {
           newLogComment ||
           (isSprint
             ? `Updated sprint ${
-                sprints.find((s) => s.id === +selectedSprint)?.title
+                sprints.find((s) => s.id === parseInt(selectedSprint))?.title
               } to ${newStatus}`
             : `Updated task status to ${newStatus}`),
       }),
@@ -820,7 +827,7 @@ export default function MemberDashboard() {
     /* chat notifications (WhatsApp handled backend) */
     const msg = isSprint
       ? `Task "${selectedTask.title}" sprint "${
-          sprints.find((s) => s.id === +selectedSprint)?.title
+          sprints.find((s) => s.id === parseInt(selectedSprint))?.title
         }" → ${newStatus}`
       : `Task "${selectedTask.title}" → ${newStatus}`;
     await notifyAssigneesChat(selectedTask.id, msg);
