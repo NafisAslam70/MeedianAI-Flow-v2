@@ -34,7 +34,6 @@ export default function QuickCallInvite({
       .catch(() => {});
   }, [userDetails.id]);
 
-  /* helpers */
   const copyLink = async () => {
     try {
       await navigator.clipboard.writeText(meetUrl);
@@ -67,7 +66,6 @@ export default function QuickCallInvite({
 
   return (
     <>
-      {/* floating button */}
       <motion.button
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.9 }}
@@ -78,7 +76,6 @@ export default function QuickCallInvite({
         <PhoneIcon className="h-6 w-6" />
       </motion.button>
 
-      {/* modal */}
       <AnimatePresence>
         {showModal && (
           <motion.div
@@ -102,7 +99,6 @@ export default function QuickCallInvite({
 
               <h2 className="text-lg font-semibold mb-4">Start Quick Call</h2>
 
-              {/* select teammate */}
               <select
                 className="w-full mb-4 p-3 border rounded-lg bg-gray-50"
                 value={recipient}
@@ -116,9 +112,8 @@ export default function QuickCallInvite({
                 ))}
               </select>
 
-              {/* link */}
               <div className="bg-gray-100 p-3 rounded-lg flex items-center justify-between mb-4">
-                <span className="truncate text-sm">{meetUrl}</span>
+                <span className="truncate break-all text-sm">{meetUrl}</span>
                 <button
                   onClick={copyLink}
                   className="ml-2 text-gray-600 hover:text-gray-800"
@@ -128,11 +123,10 @@ export default function QuickCallInvite({
                 </button>
               </div>
 
-              {/* action */}
               <button
                 onClick={startCall}
-                className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-rose-500 to-pink-600 text-white p-3 rounded-lg hover:opacity-90 transition disabled:opacity-50"
                 disabled={!recipient}
+                className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-rose-500 to-pink-600 text-white p-3 rounded-lg hover:opacity-90 transition disabled:opacity-50"
               >
                 <PaperAirplaneIcon className="h-5 w-5" />
                 Start Call &amp; Invite
