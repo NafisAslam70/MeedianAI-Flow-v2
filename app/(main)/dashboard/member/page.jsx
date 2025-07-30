@@ -754,94 +754,96 @@ export default function MemberDashboard() {
   /*  Handle status update (task or sprint)                             */
   /* ------------------------------------------------------------------ */
   const handleStatusUpdate = async () => {
-    if (!selectedTask || !newStatus) return;
-    setIsUpdating(true);
+  if (!selectedTask || !newStatus) return;
+  setIsUpdating(true);
 
-    const isSprint = sprints.length && selectedSprint;
-    const body = isSprint
-      ? {
-          sprintId: selectedSprint,
-          status: newStatus,
-          taskId: selectedTask.id,
-          memberId: user?.id,
-          action: "update_sprint",
-          notifyAssignees: sendNotification,
-          notifyWhatsapp: sendWhatsapp,
-        }
-      : {
-          taskId: selectedTask.id,
-          status: newStatus,
-          memberId: user?.id,
-          action: "update_task",
-          notifyAssignees: sendNotification,
-          notifyWhatsapp: sendWhatsapp,
-        };
-
-    try {
-      const r = await fetch("/api/member/assignedTasks/status", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || "Update failed");
-
-      dispatch({
-        type: "UPDATE_TASK_STATUS",
+  const isSprint = sprints.length && selectedSprint;
+  const body = isSprint
+    ? {
+        sprintId: selectedSprint,
+        status: newStatus,
+        taskId: selectedTask.id,
+        memberId: user?.id,
+        action: "update_sprint",
+        notifyAssignees: sendNotification,
+        notifyWhatsapp: sendWhatsapp,
+        newLogComment: newLogComment || "No log provided", // Send log for WhatsApp
+      }
+    : {
         taskId: selectedTask.id,
         status: newStatus,
-        sprintId: isSprint ? +selectedSprint : undefined,
-      });
+        memberId: user?.id,
+        action: "update_task",
+        notifyAssignees: sendNotification,
+        notifyWhatsapp: sendWhatsapp,
+        newLogComment: newLogComment || "No log provided", // Send log for WhatsApp
+      };
 
-      taskCache.set(
-        `assignedTasks:${selectedDate}:${session?.user?.id}`,
-        state.assignedTasks
-      );
+  try {
+    const r = await fetch("/api/member/assignedTasks/status", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "Update failed");
 
-      /* create log entry */
-      await fetch("/api/member/assignedTasks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          taskId: selectedTask.id,
-          action: "status_update",
-          details:
-            newLogComment ||
-            (isSprint
-              ? `Updated sprint ${
-                  sprints.find((s) => s.id === +selectedSprint)?.title
-                } to ${newStatus}`
-              : `Updated task status to ${newStatus}`),
-        }),
-      });
+    dispatch({
+      type: "UPDATE_TASK_STATUS",
+      taskId: selectedTask.id,
+      status: newStatus,
+      sprintId: isSprint ? +selectedSprint : undefined,
+    });
 
-      /* chat notifications (WhatsApp handled backend) */
-      const msg = isSprint
-        ? `Task "${selectedTask.title}" sprint "${
-            sprints.find((s) => s.id === +selectedSprint)?.title
-          }" → ${newStatus}`
-        : `Task "${selectedTask.title}" → ${newStatus}`;
-      await notifyAssigneesChat(selectedTask.id, msg);
+    taskCache.set(
+      `assignedTasks:${selectedDate}:${session?.user?.id}`,
+      state.assignedTasks
+    );
 
-      setSuccess("Task status updated!");
-      setShowStatusModal(false);
-      /* reset modal state */
-      setSelectedTask(null);
-      setNewStatus("");
-      setSelectedSprint("");
-      setSprints([]);
-      setTaskLogs([]);
-      setNewLogComment("");
-      setSendNotification(true);
-      setSendWhatsapp(false);
-      setTimeout(() => setSuccess(""), 2500);
-    } catch (e) {
-      setError(e.message || "Update failed");
-      setTimeout(() => setError(""), 2500);
-    } finally {
-      setIsUpdating(false);
-    }
-  };
+    /* create log entry */
+    await fetch("/api/member/assignedTasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        taskId: selectedTask.id,
+        action: "status_update",
+        details:
+          newLogComment ||
+          (isSprint
+            ? `Updated sprint ${
+                sprints.find((s) => s.id === +selectedSprint)?.title
+              } to ${newStatus}`
+            : `Updated task status to ${newStatus}`),
+      }),
+    });
+
+    /* chat notifications (WhatsApp handled backend) */
+    const msg = isSprint
+      ? `Task "${selectedTask.title}" sprint "${
+          sprints.find((s) => s.id === +selectedSprint)?.title
+        }" → ${newStatus}`
+      : `Task "${selectedTask.title}" → ${newStatus}`;
+    await notifyAssigneesChat(selectedTask.id, msg);
+
+    setSuccess("Task status updated!");
+    setShowStatusModal(false);
+    /* reset modal state */
+    setSelectedTask(null);
+    setNewStatus("");
+    setSelectedSprint("");
+    setSprints([]);
+    setTaskLogs([]);
+    setNewLogComment("");
+    setSendNotification(true);
+    setSendWhatsapp(false);
+    setTimeout(() => setSuccess(""), 2500);
+  } catch (e) {
+    setError(e.message || "Update failed");
+    setTimeout(() => setError(""), 2500);
+  } finally {
+    setIsUpdating(false);
+  }
+};
 
   /* ------------------------------------------------------------------ */
   /*  Handle “close day”                                                */

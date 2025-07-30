@@ -16,7 +16,6 @@ const toTitle = (s = "") =>
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
 
-/* convert URLs to clickable links and force long URLs to break */
 const linkify = (txt) =>
   txt.replace(
     /(https?:\/\/[^\s]+)/g,
@@ -45,7 +44,7 @@ export default function ChatBox({ userDetails }) {
   const lastAlertedId  = useRef(null);
   const [jumpKey, setJumpKey] = useState(0);
 
-  /* drag state */
+  /* drag */
   const [pos, setPos] = useState({ x: 20, y: -20 });
   const [dragging, setDragging] = useState(false);
   const dragStart = useRef({ x: 0, y: 0 });
@@ -92,14 +91,13 @@ export default function ChatBox({ userDetails }) {
       setUsers(fetchedUsers);
       setMessages(fetchedMsgs);
 
-      /* unread status */
+      /* unread calc (per‑sender) */
       const unread = fetchedMsgs.filter(
         (m) =>
           m.recipientId === Number(userDetails.id) &&
           m.senderId   !== Number(userDetails.id) &&
           m.status      === "sent"
       );
-
       setUnreadCounts(
         unread.reduce((acc, m) => {
           acc[m.senderId] = (acc[m.senderId] || 0) + 1;
@@ -120,7 +118,7 @@ export default function ChatBox({ userDetails }) {
         !showHistory
       ) {
         playSound();
-        setJumpKey(Date.now());          // trigger bounce animation
+        setJumpKey(Date.now());
         lastAlertedId.current = newest.id;
       }
     } catch (e) {
@@ -129,28 +127,31 @@ export default function ChatBox({ userDetails }) {
     }
   };
 
-  /*──────── mark‑all read when opening panels ────────*/
-  const markAllRead = async () => {
-    const pending = messages.filter(
+  /*──────── mark messages from ONE partner read ────────*/
+  const markReadForPartner = async (partnerId) => {
+    const toMark = messages.filter(
       (m) =>
+        m.senderId === partnerId &&
         m.recipientId === Number(userDetails.id) &&
-        m.senderId   !== Number(userDetails.id) &&
-        m.status      === "sent"
+        m.status === "sent"
     );
-    if (!pending.length) return;
+    if (!toMark.length) return;
 
-    // local optimistic update
     setMessages((prev) =>
       prev.map((m) =>
-        pending.find((p) => p.id === m.id) ? { ...m, status: "read" } : m
+        toMark.find((p) => p.id === m.id) ? { ...m, status: "read" } : m
       )
     );
-    setUnreadCounts({});
-    setHasUnread(false);
-    stopSound();
+    setUnreadCounts((prev) => {
+      const copy = { ...prev };
+      delete copy[partnerId];
+      return copy;
+    });
+    setHasUnread(Object.keys(unreadCounts).length > 1); // update after deletion
+    if (Object.keys(unreadCounts).length <= 1) stopSound();
 
     await Promise.all(
-      pending.map((m) =>
+      toMark.map((m) =>
         fetch("/api/others/chat", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -160,7 +161,7 @@ export default function ChatBox({ userDetails }) {
     );
   };
 
-  /*──────── send a new message ────────*/
+  /*──────── send new message ────────*/
   const sendMessage = async () => {
     if (!selectedRecipient || !messageContent.trim()) {
       setError("Pick a recipient and write something.");
@@ -177,7 +178,6 @@ export default function ChatBox({ userDetails }) {
     };
     setMessages((p) => [...p, optimistic]);
     setMessageContent("");
-
     try {
       const res = await fetch("/api/others/chat", {
         method: "POST",
@@ -221,9 +221,12 @@ export default function ChatBox({ userDetails }) {
     return () => clearInterval(id);
   }, [userDetails?.id, showChatbox, showHistory]);
 
+  /* Only mark read when chatbox + a partner is open */
   useEffect(() => {
-    if ((showChatbox || showHistory) && hasUnread) markAllRead();
-  }, [showChatbox, showHistory]);
+    if (showChatbox && selectedRecipient) {
+      markReadForPartner(Number(selectedRecipient));
+    }
+  }, [showChatbox, selectedRecipient]);
 
   useEffect(() => {
     window.addEventListener("mousemove", mouseMove);
@@ -260,7 +263,6 @@ export default function ChatBox({ userDetails }) {
 
       {/* FABs */}
       <div className="flex gap-2">
-        {/* open chat */}
         <button
           onClick={() => {
             closeAll();
@@ -272,17 +274,12 @@ export default function ChatBox({ userDetails }) {
           <ChatBubbleLeftRightIcon className="h-6 w-6" />
         </button>
 
-        {/* history */}
         <motion.button
           key={jumpKey}
           initial={false}
           animate={
             hasUnread
-              ? {
-                  y: [0, -40, 0],
-                  rotate: [0, -10, 10, -10, 10, 0],
-                  scale: [1, 1.25, 1],
-                }
+              ? { y: [0, -40, 0], rotate: [0, -10, 10, -10, 10, 0], scale: [1, 1.25, 1] }
               : {}
           }
           transition={{ duration: 0.5, ease: "easeOut" }}
@@ -301,19 +298,8 @@ export default function ChatBox({ userDetails }) {
           )}
         </motion.button>
 
-        {/* schedule meet */}
-        <ScheduleMeet
-          userDetails={userDetails}
-          position={pos}
-          closeAllModals={closeAll}
-        />
-
-        {/* quick call */}
-        <QuickCallInvite
-          userDetails={userDetails}
-          position={pos}
-          closeAllModals={closeAll}
-        />
+        <ScheduleMeet userDetails={userDetails} position={pos} closeAllModals={closeAll} />
+        <QuickCallInvite userDetails={userDetails} position={pos} closeAllModals={closeAll} />
       </div>
 
       {/* CHATBOX PANEL */}
@@ -333,7 +319,6 @@ export default function ChatBox({ userDetails }) {
               </button>
             </div>
 
-            {/* recipient */}
             <select
               className="p-3 border rounded-lg w-full mb-4 bg-gray-50"
               value={selectedRecipient}
@@ -349,7 +334,6 @@ export default function ChatBox({ userDetails }) {
                 ))}
             </select>
 
-            {/* messages */}
             <div className="flex-1 overflow-y-auto pr-2 mb-2">
               {selectedRecipient ? (
                 <ul className="space-y-3">
@@ -372,22 +356,16 @@ export default function ChatBox({ userDetails }) {
                         }`}
                       >
                         <p className="text-xs text-gray-500">{new Date(m.createdAt).toLocaleTimeString()}</p>
-                        <p
-                          className="break-words"
-                          dangerouslySetInnerHTML={{ __html: linkify(m.content) }}
-                        />
+                        <p className="break-words" dangerouslySetInnerHTML={{ __html: linkify(m.content) }} />
                       </li>
                     ))}
                   <div ref={messagesEndRef} />
                 </ul>
               ) : (
-                <p className="text-gray-500 text-center mt-5">
-                  Select a recipient to start chatting.
-                </p>
+                <p className="text-gray-500 text-center mt-5">Select a recipient to start chatting.</p>
               )}
             </div>
 
-            {/* input */}
             <div className="flex gap-2">
               <input
                 type="text"
@@ -423,7 +401,6 @@ export default function ChatBox({ userDetails }) {
               </button>
             </div>
 
-            {/* build list */}
             {(() => {
               const partnerIds = new Set(
                 messages
@@ -432,23 +409,21 @@ export default function ChatBox({ userDetails }) {
                       m.senderId === Number(userDetails.id) ||
                       m.recipientId === Number(userDetails.id)
                   )
-                  .map((m) =>
-                    m.senderId === Number(userDetails.id) ? m.recipientId : m.senderId
-                  )
+                  .map((m) => (m.senderId === Number(userDetails.id) ? m.recipientId : m.senderId))
               );
 
               const partners = users
                 .filter((u) => partnerIds.has(u.id))
                 .sort((a, b) => {
-                  const lastFor = (id) =>
+                  const lastTime = (id) =>
                     messages
                       .filter(
                         (m) =>
                           (m.senderId === id && m.recipientId === Number(userDetails.id)) ||
                           (m.senderId === Number(userDetails.id) && m.recipientId === id)
                       )
-                      .sort((x, y) => new Date(y.createdAt) - new Date(x.createdAt))[0];
-                  return new Date(lastFor(b)?.createdAt || 0) - new Date(lastFor(a)?.createdAt || 0);
+                      .sort((x, y) => new Date(y.createdAt) - new Date(x.createdAt))[0]?.createdAt;
+                  return new Date(lastTime(b) || 0) - new Date(lastTime(a) || 0);
                 });
 
               if (!partners.length)

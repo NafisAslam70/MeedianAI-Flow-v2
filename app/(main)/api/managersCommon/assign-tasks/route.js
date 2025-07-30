@@ -3,6 +3,40 @@ import { db } from "@/lib/db";
 import { assignedTasks, assignedTaskStatus, users, sprints, messages } from "@/lib/schema";
 import { auth } from "@/lib/auth";
 import { eq, inArray, sql } from "drizzle-orm";
+import twilio from "twilio";
+
+const twilioClient = twilio(
+  process.env.TWILIO_ACCOUNT_SID,
+  process.env.TWILIO_AUTH_TOKEN
+);
+
+/* ---------- WhatsApp helper --------------------------------------- */
+async function sendWhatsappMessage(toNumber, content) {
+  if (!toNumber) {
+    console.log(`Skipping WhatsApp message: no toNumber`);
+    return;
+  }
+  try {
+    const messageData = {
+      from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`,
+      to: `whatsapp:${toNumber}`,
+      contentSid: "HXe39dfecbcc4453ae05ae2a7f7f1da414",
+      contentVariables: JSON.stringify({
+        1: content.recipientName || "User", // {{1}}
+        2: content.updaterName || "System", // {{2}}
+        3: content.taskTitle || "Untitled Task", // {{3}}
+        4: content.newStatus || "Unknown", // {{4}}
+        5: content.logComment || "No log provided", // {{5}}
+        6: content.dateTime || new Date().toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }), // {{6}}
+      }),
+    };
+    console.log("Sending WhatsApp message:", messageData);
+    const message = await twilioClient.messages.create(messageData);
+    console.log("WhatsApp message sent, SID:", message.sid);
+  } catch (err) {
+    console.error("Twilio send error:", err.message, err.stack);
+  }
+}
 
 // =================== GET ===================
 export async function GET(req) {
@@ -104,7 +138,7 @@ export async function POST(req) {
 
     const parsedAssignees = assignees.map((id) => parseInt(id));
     let query = db
-      .select({ id: users.id })
+      .select({ id: users.id, name: users.name, whatsapp_number: users.whatsapp_number, whatsapp_enabled: users.whatsapp_enabled })
       .from(users)
       .where(inArray(users.id, parsedAssignees));
 
@@ -162,6 +196,21 @@ export async function POST(req) {
         createdAt: now,
         status: "sent",
       });
+    }
+
+    // Send WhatsApp notifications if enabled
+    const dateTime = new Date().toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    for (const assignee of validAssignees) {
+      if (assignee.whatsapp_enabled && assignee.whatsapp_number) {
+        await sendWhatsappMessage(assignee.whatsapp_number, {
+          recipientName: assignee.name || "User",
+          updaterName: creatorName,
+          taskTitle: title,
+          newStatus: "Not Started",
+          logComment: "New task assigned",
+          dateTime: dateTime,
+        });
+      }
     }
 
     console.log("Task created:", { taskId: newTask.id, title, assignees: parsedAssignees });

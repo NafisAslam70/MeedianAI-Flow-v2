@@ -27,13 +27,14 @@ async function sendWhatsappMessage(toNumber, content, recipientRow) {
     const messageData = {
       from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`, // e.g., +15558125765
       to: `whatsapp:${toNumber}`,
-      contentSid: "HXd9ecc991d4de6a17b67aa4c45c083f84", // Current approved SID
+      contentSid: "HX60cc1428638f310ed813993c89059169", // Approved SID for task_status_update
       contentVariables: JSON.stringify({
-        1: content.type || "Task", // e.g., "Task"
-        2: content.detail || `Task '${content.taskTitle || "Untitled"}' to ${content.status.replace("_", " ")}`, // e.g., "Task 'email banana mere bhai22' to in progress"
-        3: content.date || new Date().toLocaleDateString("en-US", { dateStyle: "medium" }), // e.g., "Jul 30, 2025"
-        4: content.time || new Date().toLocaleTimeString("en-US", { timeStyle: "short", timeZone: "Asia/Singapore" }), // e.g., "3:28 AM"
-        5: content.action || "Reply if action needed", // e.g., "Reply if action needed"
+        1: content.recipientName || "User", // {{1}}: Recipient name
+        2: content.updaterName || "System", // {{2}}: Updater name
+        3: content.taskTitle || "Untitled Task", // {{3}}: Task name
+        4: content.newStatus || "Unknown", // {{4}}: New status
+        5: content.logComment || "No log provided", // {{5}}: Log comment
+        6: content.dateTime || new Date().toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }), // {{6}}: Date-time
       }),
     };
     console.log("Sending WhatsApp message:", messageData);
@@ -41,7 +42,7 @@ async function sendWhatsappMessage(toNumber, content, recipientRow) {
     console.log("WhatsApp message sent, SID:", message.sid);
   } catch (err) {
     console.error("Twilio send error:", err.message, err.stack);
-    throw err; // Propagate error to handle in PATCH
+    throw err; // Propagate error
   }
 }
 
@@ -67,6 +68,7 @@ export async function PATCH(req) {
       action,
       notifyAssignees = false,
       notifyWhatsapp = false,
+      newLogComment = "No log provided", // Added from frontend for log
     } = await req.json();
 
     if (
@@ -221,6 +223,7 @@ export async function PATCH(req) {
           id: users.id,
           whatsapp_number: users.whatsapp_number,
           whatsapp_enabled: users.whatsapp_enabled,
+          name: users.name, // Fetch recipient name
         })
         .from(users)
         .where(inArray(users.id, toIds));
@@ -234,17 +237,18 @@ export async function PATCH(req) {
         await Promise.all(
           validRecipients.map((r) =>
             sendWhatsappMessage(r.whatsapp_number, {
-              type: action === "update_task" ? "Task" : "Sprint",
-              detail: notification,
-              date: new Date().toLocaleDateString("en-US", { dateStyle: "medium" }),
-              time: new Date().toLocaleTimeString("en-US", { timeStyle: "short", timeZone: "Asia/Singapore" }),
-              action: "Reply if action needed",
+              recipientName: r.name || "User", // {{1}}
+              updaterName: updaterName, // {{2}}
+              taskTitle: task.title || "Untitled Task", // {{3}}
+              newStatus: status.replace("_", " "), // {{4}}
+              logComment: newLogComment, // {{5}} from frontend
+              dateTime: new Date().toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }), // {{6}}
             }, r)
           )
         );
       } catch (err) {
         console.error("WhatsApp notification failed:", err.message);
-        return NextResponse.json({ ok: true, warning: "WhatsApp notification failed" }, { status: 202 });
+        // Optionally log or notify user, but proceed with 200 OK for in-app success
       }
     }
 

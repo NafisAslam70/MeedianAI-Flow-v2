@@ -1,14 +1,42 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import {
-  assignedTasks,
-  assignedTaskStatus,
-  users,
-  sprints as sprintTable,
-  messages,
-} from "@/lib/schema";
+import { assignedTasks, assignedTaskStatus, users, sprints as sprintTable, messages } from "@/lib/schema";
 import { eq, inArray } from "drizzle-orm";
 import { auth } from "@/lib/auth";
+import twilio from "twilio";
+
+const twilioClient = twilio(
+  process.env.TWILIO_ACCOUNT_SID,
+  process.env.TWILIO_AUTH_TOKEN
+);
+
+/* ---------- WhatsApp helper --------------------------------------- */
+async function sendWhatsappMessage(toNumber, content) {
+  if (!toNumber) {
+    console.log(`Skipping WhatsApp message: no toNumber`);
+    return;
+  }
+  try {
+    const messageData = {
+      from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`,
+      to: `whatsapp:${toNumber}`,
+      contentSid: "HXe39dfecbcc4453ae05ae2a7f7f1da414",
+      contentVariables: JSON.stringify({
+        1: content.recipientName || "User", // {{1}}
+        2: content.updaterName || "System", // {{2}}
+        3: content.taskTitle || "Untitled Task", // {{3}}
+        4: content.newStatus || "Unknown", // {{4}}
+        5: content.logComment || "No log provided", // {{5}}
+        6: content.dateTime || new Date().toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }), // {{6}}
+      }),
+    };
+    console.log("Sending WhatsApp message:", messageData);
+    const message = await twilioClient.messages.create(messageData);
+    console.log("WhatsApp message sent, SID:", message.sid);
+  } catch (err) {
+    console.error("Twilio send error:", err.message, err.stack);
+  }
+}
 
 /* -------------------------------------------------------------------------- */
 /* DELETE /api/managersCommon/assign-tasks/[taskId]                           */
@@ -40,8 +68,9 @@ export async function DELETE(req, { params }) {
 
     /* -------- gather assignees for notification -------------------------------- */
     const assignees = await db
-      .select({ memberId: assignedTaskStatus.memberId })
+      .select({ memberId: assignedTaskStatus.memberId, name: users.name, whatsapp_number: users.whatsapp_number, whatsapp_enabled: users.whatsapp_enabled })
       .from(assignedTaskStatus)
+      .leftJoin(users, eq(assignedTaskStatus.memberId, users.id))
       .where(eq(assignedTaskStatus.taskId, taskId));
     const assigneeIds = assignees.map((a) => a.memberId);
 
@@ -52,7 +81,7 @@ export async function DELETE(req, { params }) {
       .limit(1);
     const creatorName = creator?.name ?? "Unknown";
 
-    /* ---------------- delete cascades ------------------------------------------ */
+    /*---------------- delete cascades ------------------------------------------ */
     const taskStatusIds = await db
       .select({ id: assignedTaskStatus.id })
       .from(assignedTaskStatus)
@@ -71,15 +100,28 @@ export async function DELETE(req, { params }) {
 
     /* ---------------- send notifications --------------------------------------- */
     const now = new Date();
-    for (const memberId of assigneeIds) {
-      if (memberId !== session.user.id) {
+    const dateTime = new Date().toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+
+    for (const assignee of assignees) {
+      if (assignee.memberId !== session.user.id) {
         await db.insert(messages).values({
           senderId: session.user.id,
-          recipientId: memberId,
+          recipientId: assignee.memberId,
           content: `Task "${task[0].title}" has been deleted by ${creatorName}.`,
           createdAt: now,
           status: "sent",
         });
+
+        if (assignee.whatsapp_enabled && assignee.whatsapp_number) {
+          await sendWhatsappMessage(assignee.whatsapp_number, {
+            recipientName: assignee.name || "User",
+            updaterName: creatorName,
+            taskTitle: task[0].title,
+            newStatus: "Deleted",
+            logComment: "Task deleted",
+            dateTime: dateTime,
+          });
+        }
       }
     }
 
@@ -246,13 +288,13 @@ export async function PATCH(req, { params }) {
     }
 
     /* -------- notifications ---------------------------------------------------- */
+    const recipients =
+      Array.isArray(assignees) && assignees.length
+        ? assignees.map(Number).filter((id) => !Number.isNaN(id))
+        : currentAssigneeIds;
+
     if (sendNotification) {
       const now = new Date();
-      const recipients =
-        Array.isArray(assignees) && assignees.length
-          ? assignees.map(Number).filter((id) => !Number.isNaN(id))
-          : currentAssigneeIds;
-
       for (const memberId of recipients) {
         if (memberId !== session.user.id) {
           await db.insert(messages).values({
@@ -261,6 +303,35 @@ export async function PATCH(req, { params }) {
             content: notification.trim(),
             createdAt: now,
             status: "sent",
+          });
+        }
+      }
+    }
+
+    /* -------- WhatsApp notifications for update -------------------------------- */
+    const dateTime = new Date().toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    const logComment = "Task updated";
+
+    if (recipients && recipients.length) {
+      const assigneeDetails = await db
+        .select({
+          memberId: users.id,
+          name: users.name,
+          whatsapp_number: users.whatsapp_number,
+          whatsapp_enabled: users.whatsapp_enabled,
+        })
+        .from(users)
+        .where(inArray(users.id, recipients));
+
+      for (const assignee of assigneeDetails) {
+        if (assignee.whatsapp_enabled && assignee.whatsapp_number) {
+          await sendWhatsappMessage(assignee.whatsapp_number, {
+            recipientName: assignee.name || "User",
+            updaterName: creatorName,
+            taskTitle: title || currentTask.title,
+            newStatus: "Updated",
+            logComment: logComment,
+            dateTime: dateTime,
           });
         }
       }
