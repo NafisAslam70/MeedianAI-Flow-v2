@@ -3,7 +3,7 @@ import { useSession } from "next-auth/react";
 import { useState, useEffect } from "react";
 import useSWR from "swr";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Clock, Bell, Video, Info, School, Calendar } from "lucide-react";
+import { X, Clock, Bell, Video, Info, School, Calendar, Edit, Trash, ChevronDown } from "lucide-react";
 import ManageCalendar from "@/components/manageMeedian/ManageCalendar";
 
 const fetcher = (url) =>
@@ -33,6 +33,7 @@ export default function GeneralDashboard() {
   const [showMSPRModal, setShowMSPRModal] = useState(false);
   const [showMHCPModal, setShowMHCPModal] = useState(false);
   const [showCalendarModal, setShowCalendarModal] = useState(false);
+  const [selectedAnnouncement, setSelectedAnnouncement] = useState(null); // ADDED: For modal
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [isLoadingSlots, setIsLoadingSlots] = useState(true);
@@ -41,6 +42,7 @@ export default function GeneralDashboard() {
   const { data: slotData, error: slotError } = useSWR("/api/admin/manageMeedian?section=slots", fetcher);
   const { data: userData, error: userError } = useSWR("/api/member/users", fetcher);
   const { data: calendarData, error: calendarError } = useSWR("/api/member/calendar", fetcher);
+  const { data: announcementsData, error: announcementsError } = useSWR("/api/managersCommon/announcements", fetcher);
 
   useEffect(() => {
     if (slotData) {
@@ -70,8 +72,14 @@ export default function GeneralDashboard() {
       setTimeout(() => setError(null), 3000);
       setIsLoadingCalendar(false);
     }
-    setAnnouncements(["School event tomorrow", "Holiday next week"]);
-  }, [slotData, slotError, userData, userError, calendarData, calendarError]);
+    if (announcementsData) {
+      setAnnouncements(announcementsData.announcements || []);
+    }
+    if (announcementsError) {
+      setError("Failed to load announcements.");
+      setTimeout(() => setError(null), 3000);
+    }
+  }, [slotData, slotError, userData, userError, calendarData, calendarError, announcementsData, announcementsError]);
 
   useEffect(() => {
     let intervalId = null;
@@ -276,7 +284,7 @@ export default function GeneralDashboard() {
             )}
           </motion.div>
           <motion.div
-            className="absolute top-8 right-8 sm:top-10 sm:right-10 w-40 h-40 sm:w-52 sm:h-52 bg-white/70 backdrop-blur-md rounded-2xl shadow-xl p-5 border border-white/30"
+            className="absolute top-8 right-8 sm:top-10 sm:right-10 w-40 h-40 sm:w-52 sm:h-52 bg-white/70 backdrop-blur-md rounded-2xl shadow-xl p-5 border border-white/30 overflow-y-auto" // ADDED: overflow-y-auto for long lists
             initial={{ opacity: 0, y: -30, rotate: 10 }}
             animate={{ opacity: 1, y: 0, rotate: 0 }}
             transition={{ duration: 0.6, delay: 0.5, type: "spring" }}
@@ -288,7 +296,13 @@ export default function GeneralDashboard() {
             </div>
             <ul className="mt-3 list-disc pl-5 text-sm text-gray-700 space-y-1">
               {announcements.map((ann, index) => (
-                <li key={index} className="truncate">{ann}</li>
+                <li 
+                  key={index} 
+                  className="truncate cursor-pointer hover:text-purple-600" // ADDED: clickable
+                  onClick={() => setSelectedAnnouncement(ann)}
+                >
+                  {ann.subject}: {ann.content.slice(0, 30)}...
+                </li>
               ))}
               {announcements.length === 0 && <p>No notices.</p>}
             </ul>
@@ -554,6 +568,63 @@ export default function GeneralDashboard() {
                   loading={isLoadingCalendar}
                   viewOnly={true}
                 />
+              </motion.div>
+            </motion.div>
+          )}
+          {selectedAnnouncement && ( // ADDED: Modal for announcement details in school notice format
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/70 flex items-center justify-center p-6 z-50 backdrop-blur-sm"
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.95, opacity: 0, y: 20 }}
+                className="bg-white/90 backdrop-blur-lg rounded-3xl shadow-2xl p-8 w-full max-w-3xl max-h-[85vh] overflow-y-auto border border-white/50"
+              >
+                <div className="flex justify-between items-center mb-6">
+                  <h2 className="text-2xl font-bold text-gray-900">School Notice</h2>
+                  <motion.button
+                    onClick={() => setSelectedAnnouncement(null)}
+                    className="text-gray-700 hover:text-gray-900 p-3 rounded-full bg-white/50 hover:bg-white/70 shadow-md"
+                    whileHover={{ scale: 1.1, rotate: 90 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <X size={24} />
+                  </motion.button>
+                </div>
+                <div className="border-2 border-gray-300 p-6 rounded-lg bg-white shadow-inner">
+                  <div className="text-center mb-4">
+                    <h3 className="text-xl font-bold uppercase">Notice</h3>
+                    <p className="text-sm text-gray-600">Date: {new Date(selectedAnnouncement.createdAt).toLocaleDateString()}</p>
+                  </div>
+                  <div className="mb-4">
+                    <p className="font-bold">Subject: {selectedAnnouncement.subject}</p>
+                    <p className="text-sm text-gray-600">Program: {selectedAnnouncement.program} | Target: {selectedAnnouncement.target}</p>
+                  </div>
+                  <div className="mb-4">
+                    <p>{selectedAnnouncement.content}</p>
+                  </div>
+                  {selectedAnnouncement.attachments.length > 0 && (
+                    <div className="mb-4">
+                      <p className="font-bold">Attachments:</p>
+                      <ul className="list-disc pl-5">
+                        {selectedAnnouncement.attachments.map((url, index) => (
+                          <li key={index}>
+                            <a href={url} target="_blank" rel="noopener noreferrer" className="text-teal-600 hover:underline">
+                              {url}
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  <div className="text-right mt-6">
+                    <p className="font-bold">Posted by: {selectedAnnouncement.createdByName}</p>
+                  </div>
+                </div>
               </motion.div>
             </motion.div>
           )}
