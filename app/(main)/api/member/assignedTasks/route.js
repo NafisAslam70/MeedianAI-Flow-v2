@@ -180,7 +180,7 @@ export async function POST(req) {
     }
 
     const userId = parseInt(session.user.id);
-    const { taskId, action, details } = await req.json();
+    const { taskId, action, details, notifyAssignees = false, notifyWhatsapp = false } = await req.json();
 
     if (!taskId || !action || !details) {
       return NextResponse.json({ error: "Task ID, action, and details are required" }, { status: 400 });
@@ -208,6 +208,94 @@ export async function POST(req) {
       .returning();
 
     console.log("Task log created:", { taskId, action, userId, details });
+
+    if (notifyAssignees || notifyWhatsapp) {
+      const [taskData] = await db
+        .select({ 
+          title: assignedTasks.title,
+          createdBy: assignedTasks.createdBy 
+        })
+        .from(assignedTasks)
+        .where(eq(assignedTasks.id, taskId))
+        .limit(1);
+
+      if (!taskData) {
+        console.error("Task not found for notification");
+      } else {
+        const [updaterData] = await db
+          .select({ name: users.name })
+          .from(users)
+          .where(eq(users.id, userId))
+          .limit(1);
+        const updaterName = updaterData?.name || "Unknown";
+
+        const assignees = await db
+          .select({ memberId: assignedTaskStatus.memberId })
+          .from(assignedTaskStatus)
+          .where(eq(assignedTaskStatus.taskId, taskId));
+
+        const notificationContent = `New log added to task "${taskData.title}" by ${updaterName}: ${details}`;
+
+        const [sender] = await db
+          .select({ whatsappNumber: users.whatsappNumber })
+          .from(users)
+          .where(eq(users.id, userId))
+          .limit(1);
+
+        const senderWhatsapp = sender?.whatsappNumber;
+
+        let assigneeIds = assignees.map(a => a.memberId);
+        if (taskData.createdBy !== userId && !assigneeIds.includes(taskData.createdBy)) {
+          assigneeIds.push(taskData.createdBy);
+        }
+
+        let recipientUsers = [];
+        if (assigneeIds.length > 0) {
+          recipientUsers = await db
+            .select({ id: users.id, whatsappNumber: users.whatsappNumber })
+            .from(users)
+            .where(inArray(users.id, assigneeIds));
+        }
+
+        const now = new Date();
+        for (const assignee of assignees) {
+          if (assignee.memberId !== userId && notifyAssignees) {
+            await db.insert(messages).values({
+              senderId: userId,
+              recipientId: assignee.memberId,
+              content: notificationContent,
+              createdAt: now,
+              status: "sent",
+            });
+          }
+          if (notifyWhatsapp) {
+            const recipient = recipientUsers.find(u => u.id === assignee.memberId);
+            if (recipient && recipient.whatsappNumber && senderWhatsapp) {
+              await sendWhatsappMessage(senderWhatsapp, recipient.whatsappNumber, notificationContent);
+            }
+          }
+        }
+
+        // Send to creator if not the updater and not already sent as assignee
+        if (taskData.createdBy !== userId && !assignees.some(a => a.memberId === taskData.createdBy)) {
+          if (notifyAssignees) {
+            await db.insert(messages).values({
+              senderId: userId,
+              recipientId: taskData.createdBy,
+              content: notificationContent,
+              createdAt: now,
+              status: "sent",
+            });
+          }
+          if (notifyWhatsapp) {
+            const recipient = recipientUsers.find(u => u.id === taskData.createdBy);
+            if (recipient && recipient.whatsappNumber && senderWhatsapp) {
+              await sendWhatsappMessage(senderWhatsapp, recipient.whatsappNumber, notificationContent);
+            }
+          }
+        }
+      }
+    }
 
     return NextResponse.json({ log }, { status: 201 });
   } catch (error) {

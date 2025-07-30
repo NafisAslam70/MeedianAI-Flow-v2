@@ -1,237 +1,259 @@
+// FILE: app/(main)/api/member/assignedTasks/status/route.js
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { assignedTaskStatus, sprints, users, assignedTasks, messages } from "@/lib/schema";
+import {
+  assignedTaskStatus,
+  sprints,
+  users,
+  assignedTasks,
+  messages,
+} from "@/lib/schema";
 import { auth } from "@/lib/auth";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
+import twilio from "twilio";
 
+const twilioClient = twilio(
+  process.env.TWILIO_ACCOUNT_SID,
+  process.env.TWILIO_AUTH_TOKEN
+);
+
+/* ---------- WhatsApp helper --------------------------------------- */
+async function sendWhatsappMessage(toNumber, content, recipientRow) {
+  if (!toNumber || !recipientRow?.whatsapp_enabled) {
+    console.log(`Skipping WhatsApp message: toNumber=${toNumber}, whatsapp_enabled=${recipientRow?.whatsapp_enabled}`);
+    return;
+  }
+  try {
+    const messageData = {
+      from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`, // e.g., +15558125765
+      to: `whatsapp:${toNumber}`,
+      contentSid: "HXd9ecc991d4de6a17b67aa4c45c083f84", // Current approved SID
+      contentVariables: JSON.stringify({
+        1: content.type || "Task", // e.g., "Task"
+        2: content.detail || `Task '${content.taskTitle || "Untitled"}' to ${content.status.replace("_", " ")}`, // e.g., "Task 'email banana mere bhai22' to in progress"
+        3: content.date || new Date().toLocaleDateString("en-US", { dateStyle: "medium" }), // e.g., "Jul 30, 2025"
+        4: content.time || new Date().toLocaleTimeString("en-US", { timeStyle: "short", timeZone: "Asia/Singapore" }), // e.g., "3:28 AM"
+        5: content.action || "Reply if action needed", // e.g., "Reply if action needed"
+      }),
+    };
+    console.log("Sending WhatsApp message:", messageData);
+    const message = await twilioClient.messages.create(messageData);
+    console.log("WhatsApp message sent, SID:", message.sid);
+  } catch (err) {
+    console.error("Twilio send error:", err.message, err.stack);
+    throw err; // Propagate error to handle in PATCH
+  }
+}
+
+/* ------------------------------------------------------------------ */
 export async function PATCH(req) {
   try {
+    /* 1 auth */
     const session = await auth();
-    if (!session || !session.user || session.user.role !== "member") {
-      return NextResponse.json(
-        { error: "Unauthorized: Member access required" },
-        { status: 401 }
-      );
+    if (!session || session.user?.role !== "member") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const userId = Number(session.user.id);
+    if (!Number.isInteger(userId)) {
+      return NextResponse.json({ error: "Invalid userId" }, { status: 400 });
     }
 
-    const userId = parseInt(session.user.id);
-    const body = await req.json();
-    const { taskId, status, sprintId, memberId, action, notifyAssignees = false } = body;
+    /* 2 body */
+    const {
+      taskId,
+      status,
+      sprintId,
+      memberId,
+      action,
+      notifyAssignees = false,
+      notifyWhatsapp = false,
+    } = await req.json();
 
-    if (!taskId || !status || memberId !== userId || !action) {
-      return NextResponse.json(
-        { error: "Invalid task ID, status, member ID, or action" },
-        { status: 400 }
-      );
+    if (
+      !Number.isInteger(taskId) ||
+      !status ||
+      memberId !== userId ||
+      !["update_task", "update_sprint"].includes(action) ||
+      !["not_started", "in_progress", "pending_verification", "done"].includes(status)
+    ) {
+      return NextResponse.json({ error: "Invalid input" }, { status: 400 });
     }
 
-    if (!["not_started", "in_progress", "pending_verification", "done"].includes(status)) {
-      return NextResponse.json({ error: "Invalid status value" }, { status: 400 });
-    }
-
-    const [taskStatus] = await db
+    /* 3 confirm assignment */
+    console.log(`Fetching task status for taskId=${taskId}, userId=${userId}`);
+    const taskStatusRows = await db
       .select({ id: assignedTaskStatus.id })
       .from(assignedTaskStatus)
-      .where(
-        and(
-          eq(assignedTaskStatus.taskId, taskId),
-          eq(assignedTaskStatus.memberId, userId)
-        )
-      )
+      .where(and(eq(assignedTaskStatus.taskId, taskId), eq(assignedTaskStatus.memberId, userId)))
       .limit(1);
 
-    if (!taskStatus) {
-      return NextResponse.json({ error: "Task not assigned to user" }, { status: 404 });
+    const taskStatusRow = taskStatusRows[0];
+    if (!taskStatusRow) {
+      return NextResponse.json({ error: "Task not assigned" }, { status: 404 });
     }
 
-    let title = '';
-    let sprintTitle = '';
-    let notificationContent = '';
-    let createdBy = null;
+    /* 4 fetch common rows */
+    console.log(`Fetching task, updater, assignees, and sender for taskId=${taskId}, userId=${userId}`);
+    const [taskResult, updaterResult, assigneesResult, senderResult] = await Promise.all([
+      db
+        .select({ title: assignedTasks.title, createdBy: assignedTasks.createdBy })
+        .from(assignedTasks)
+        .where(eq(assignedTasks.id, taskId))
+        .limit(1),
+      db
+        .select({ name: users.name })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1),
+      db
+        .select({ memberId: assignedTaskStatus.memberId })
+        .from(assignedTaskStatus)
+        .where(eq(assignedTaskStatus.taskId, taskId)),
+      db
+        .select({ whatsapp_number: users.whatsapp_number })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1),
+    ]);
 
-    // Fetch task title and createdBy for notifications
-    const [taskData] = await db
-      .select({ 
-        title: assignedTasks.title,
-        createdBy: assignedTasks.createdBy 
-      })
-      .from(assignedTasks)
-      .where(eq(assignedTasks.id, taskId))
-      .limit(1);
-    
-    if (!taskData) {
+    const task = taskResult[0];
+    const updater = updaterResult[0];
+    const assignees = assigneesResult || [];
+    const sender = senderResult[0];
+
+    if (!task) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
     }
-    
-    title = taskData.title;
-    createdBy = taskData.createdBy;
+    if (!updater) {
+      console.warn(`No user found for userId=${userId}`);
+    }
+    if (!sender) {
+      console.warn(`No sender data found for userId=${userId}`);
+    }
 
-    const [updaterData] = await db
-      .select({ name: users.name })
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
-    const updaterName = updaterData?.name || "Unknown";
+    const now = new Date();
+    const updaterName = updater?.name || "Unknown";
+    const senderWhatsapp = sender?.whatsapp_number;
 
-    // Fetch all assignees
-    const assignees = await db
-      .select({ memberId: assignedTaskStatus.memberId })
-      .from(assignedTaskStatus)
-      .where(eq(assignedTaskStatus.taskId, taskId));
+    /* 5 run update */
+    let notification = "";
 
     if (action === "update_task") {
-      const [task] = await db
-        .select({ status: assignedTaskStatus.status })
-        .from(assignedTaskStatus)
-        .where(
-          and(
-            eq(assignedTaskStatus.taskId, taskId),
-            eq(assignedTaskStatus.memberId, userId)
-          )
-        )
-        .limit(1);
-
-      if (!task || ["verified", "done"].includes(task.status)) {
-        return NextResponse.json({ error: "Cannot update verified or done tasks" }, { status: 400 });
-      }
-
-      const [updatedTask] = await db
+      console.log(`Updating task status for taskId=${taskId} to ${status}`);
+      await db
         .update(assignedTaskStatus)
-        .set({ status, updatedAt: new Date() })
-        .where(
-          and(
-            eq(assignedTaskStatus.taskId, taskId),
-            eq(assignedTaskStatus.memberId, userId)
-          )
-        )
-        .returning();
+        .set({ status, updatedAt: now })
+        .where(eq(assignedTaskStatus.id, taskStatusRow.id));
 
-      console.log("Assigned task status updated", { taskId, status, userId });
-
-      notificationContent = `Task "${title}" status updated to ${status} by ${updaterName}.`;
-      const now = new Date();
-      for (const assignee of assignees) {
-        if (assignee.memberId !== userId) {
-          await db.insert(messages).values({
-            senderId: userId,
-            recipientId: assignee.memberId,
-            content: notificationContent,
-            createdAt: now,
-            status: "sent",
-          });
-        }
-      }
-
-      // Send to creator if not the updater and not already sent as assignee
-      if (createdBy !== userId && !assignees.some(a => a.memberId === createdBy)) {
-        await db.insert(messages).values({
-          senderId: userId,
-          recipientId: createdBy,
-          content: notificationContent,
-          createdAt: now,
-          status: "sent",
-        });
-      }
-
-      return NextResponse.json({ task: updatedTask }, { status: 200 });
+      notification = `Task "${task.title}" status updated to ${status.replace("_", " ")} by ${updaterName}.`;
     }
 
     if (action === "update_sprint") {
-      if (!sprintId) {
-        return NextResponse.json({ error: "Sprint ID is required for sprint update" }, { status: 400 });
+      if (!Number.isInteger(sprintId)) {
+        return NextResponse.json({ error: "sprintId required and must be an integer" }, { status: 400 });
       }
 
-      const [sprint] = await db
-        .select({ status: sprints.status })
-        .from(sprints)
-        .where(
-          and(
-            eq(sprints.id, sprintId),
-            eq(sprints.taskStatusId, taskStatus.id)
-          )
-        )
-        .limit(1);
-
-      if (!sprint || ["verified", "done"].includes(sprint.status)) {
-        return NextResponse.json({ error: "Cannot update verified or done sprints" }, { status: 400 });
-      }
-
-      const [updatedSprint] = await db
+      console.log(`Updating sprint status for sprintId=${sprintId} to ${status}`);
+      const sprintResult = await db
         .update(sprints)
         .set({
           status,
-          verifiedAt: status === "done" ? new Date() : null,
-          updatedAt: new Date(),
+          verifiedAt: status === "done" ? now : null,
+          updatedAt: now,
         })
         .where(eq(sprints.id, sprintId))
-        .returning();
+        .returning({ id: sprints.id, title: sprints.title });
 
-      // Fetch sprint title for notification
-      const [sprintData] = await db
-        .select({ title: sprints.title })
-        .from(sprints)
-        .where(eq(sprints.id, sprintId))
-        .limit(1);
-      sprintTitle = sprintData.title;
+      const sprint = sprintResult[0];
+      if (!sprint) {
+        return NextResponse.json({ error: "Sprint not found" }, { status: 404 });
+      }
 
-      // Determine task-level status from all sprint statuses
-      const allSprints = await db
+      const statuses = await db
         .select({ status: sprints.status })
         .from(sprints)
-        .where(eq(sprints.taskStatusId, taskStatus.id));
+        .where(eq(sprints.taskStatusId, taskStatusRow.id));
 
-      let derivedTaskStatus = "not_started";
-      if (allSprints.every(s => s.status === "done" || s.status === "verified")) {
-        derivedTaskStatus = "done";
-      } else if (allSprints.some(s => s.status === "in_progress" || s.status === "pending_verification")) {
-        derivedTaskStatus = "in_progress";
-      }
+      const derived = statuses.every((s) => ["done", "verified"].includes(s.status))
+        ? "done"
+        : statuses.some((s) => ["in_progress", "pending_verification"].includes(s.status))
+        ? "in_progress"
+        : "not_started";
 
       await db
         .update(assignedTaskStatus)
-        .set({ status: derivedTaskStatus, updatedAt: new Date() })
-        .where(
-          and(
-            eq(assignedTaskStatus.taskId, taskId),
-            eq(assignedTaskStatus.memberId, userId)
-          )
-        );
+        .set({ status: derived, updatedAt: now })
+        .where(eq(assignedTaskStatus.id, taskStatusRow.id));
 
-      console.log("Sprint status updated", { taskId, sprintId, status, derivedTaskStatus, userId });
-
-      notificationContent = `Sprint "${sprintTitle}" in task "${title}" status updated to ${status} by ${updaterName}.`;
-      const now = new Date();
-      for (const assignee of assignees) {
-        if (assignee.memberId !== userId) {
-          await db.insert(messages).values({
-            senderId: userId,
-            recipientId: assignee.memberId,
-            content: notificationContent,
-            createdAt: now,
-            status: "sent",
-          });
-        }
-      }
-
-      // Send to creator if not the updater and not already sent as assignee
-      if (createdBy !== userId && !assignees.some(a => a.memberId === createdBy)) {
-        await db.insert(messages).values({
-          senderId: userId,
-          recipientId: createdBy,
-          content: notificationContent,
-          createdAt: now,
-          status: "sent",
-        });
-      }
-
-      return NextResponse.json({ sprint: updatedSprint }, { status: 200 });
+      notification = `Sprint "${sprint.title}" in task "${task.title}" updated to ${status.replace("_", " ")} by ${updaterName}.`;
     }
 
-    return NextResponse.json({ error: "Invalid action" }, { status: 400 });
-  } catch (error) {
-    console.error("Error updating status:", error, { body: await req.json().catch(() => ({})) });
+    /* 6 prepare recipients */
+    const toIds = [
+      ...new Set(
+        assignees
+          .map((a) => a.memberId)
+          .filter((id) => id && id !== userId && Number.isInteger(id))
+          .concat(task.createdBy)
+      ),
+    ];
+    console.log(`Prepared recipient IDs: ${toIds}`);
+
+    /* 7 CHAT notifications */
+    if (notifyAssignees && toIds.length) {
+      console.log(`Inserting chat notifications for recipients: ${toIds}`);
+      await db.insert(messages).values(
+        toIds.map((rid) => ({
+          senderId: userId,
+          recipientId: rid,
+          content: notification,
+          createdAt: now,
+          status: "sent",
+        }))
+      );
+    }
+
+    /* 8 WhatsApp */
+    if (notifyWhatsapp && senderWhatsapp && toIds.length) {
+      console.log(`Fetching WhatsApp recipients for IDs: ${toIds}`);
+      const recipients = await db
+        .select({
+          id: users.id,
+          whatsapp_number: users.whatsapp_number,
+          whatsapp_enabled: users.whatsapp_enabled,
+        })
+        .from(users)
+        .where(inArray(users.id, toIds));
+
+      const validRecipients = recipients.filter(
+        (r) => r && r.id && r.whatsapp_number && r.whatsapp_enabled !== undefined
+      );
+      console.log("Valid WhatsApp recipients:", validRecipients);
+
+      try {
+        await Promise.all(
+          validRecipients.map((r) =>
+            sendWhatsappMessage(r.whatsapp_number, {
+              type: action === "update_task" ? "Task" : "Sprint",
+              detail: notification,
+              date: new Date().toLocaleDateString("en-US", { dateStyle: "medium" }),
+              time: new Date().toLocaleTimeString("en-US", { timeStyle: "short", timeZone: "Asia/Singapore" }),
+              action: "Reply if action needed",
+            }, r)
+          )
+        );
+      } catch (err) {
+        console.error("WhatsApp notification failed:", err.message);
+        return NextResponse.json({ ok: true, warning: "WhatsApp notification failed" }, { status: 202 });
+      }
+    }
+
+    /* 9 done */
+    return NextResponse.json({ ok: true }, { status: 200 });
+  } catch (err) {
+    console.error("PATCH /assignedTasks/status error:", err.message, err.stack);
     return NextResponse.json(
-      { error: `Failed to update status: ${error.message}` },
+      { error: err.message || "Internal error" },
       { status: 500 }
     );
   }

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { messages, users } from "@/lib/schema";
 import { auth } from "@/lib/auth";
-import { eq, or } from "drizzle-orm";
+import { eq, or, and, lte } from "drizzle-orm";
 
 export async function GET(req) {
   try {
@@ -92,5 +92,50 @@ export async function POST(req) {
   } catch (error) {
     console.error("Error sending message:", error);
     return NextResponse.json({ error: `Failed to send message: ${error.message}` }, { status: 500 });
+  }
+}
+
+/* ──────────────────────────  PUT  ──────────────────────────
+   Mark messages addressed TO the current user as 'read'.
+
+   Accepts EITHER:
+     { messageId, status: "read" }    → mark ONE message
+   or
+     { upToId,   status: "read" }     → mark ALL messages whose id ≤ upToId
+*/
+export async function PUT(req) {
+  try {
+    const session = await auth();
+    if (!session || !["admin", "team_manager", "member"].includes(session.user.role))
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const userId = parseInt(session.user.id);
+    const { messageId, upToId, status = "read" } = await req.json();
+
+    if (!messageId && !upToId)
+      return NextResponse.json(
+        { error: "messageId or upToId required" },
+        { status: 400 }
+      );
+
+    /* -------- build WHERE clause -------- */
+    const base = eq(messages.recipientId, userId);       // must be addressed to me
+    const filter = messageId
+      ? and(base, eq(messages.id, parseInt(messageId)))
+      : and(base, lte(messages.id, parseInt(upToId)));
+
+    const updated = await db
+      .update(messages)
+      .set({ status })
+      .where(filter)
+      .returning({ id: messages.id });
+
+    return NextResponse.json({ updated });
+  } catch (err) {
+    console.error("PUT /api/others/chat:", err);
+    return NextResponse.json(
+      { error: `Failed to update messages: ${err.message}` },
+      { status: 500 }
+    );
   }
 }

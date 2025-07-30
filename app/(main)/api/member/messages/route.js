@@ -1,90 +1,86 @@
-import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { NextResponse }  from "next/server";
+import { db }            from "@/lib/db";
 import { messages, users } from "@/lib/schema";
-import { auth } from "@/lib/auth";
-import { eq, or } from "drizzle-orm";
+import { auth }          from "@/lib/auth";
+import { eq, or }        from "drizzle-orm";
 
-export async function GET(req) {
+/* roles allowed here */
+const allow = (role) => ["admin", "member"].includes(role);
+
+/* --------------------- GET (my own inbox) --------------------- */
+export async function GET() {
   try {
     const session = await auth();
-    if (!session || !session.user || !["admin", "member"].includes(session.user.role)) {
-      console.error("Unauthorized access attempt:", { session });
-      return NextResponse.json({ error: "Unauthorized: Admin or Member access required" }, { status: 401 });
-    }
+    if (!session || !allow(session.user.role))
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const userId = parseInt(session.user.id);
+    const me = parseInt(session.user.id);
 
-    const userMessages = await db
+    const rows = await db
       .select({
-        id: messages.id,
-        senderId: messages.senderId,
-        senderName: users.name,
+        id:          messages.id,
+        senderId:    messages.senderId,
+        senderName:  users.name,
         recipientId: messages.recipientId,
-        content: messages.content,
-        createdAt: messages.createdAt,
+        content:     messages.content,
+        createdAt:   messages.createdAt,
+        status:      messages.status,
       })
       .from(messages)
-      .leftJoin(users, eq(messages.senderId, users.id))
-      .where(
-        or(
-          eq(messages.senderId, userId),
-          eq(messages.recipientId, userId)
-        )
-      )
+      .leftJoin(users, eq(users.id, messages.senderId))
+      .where(or(eq(messages.senderId, me), eq(messages.recipientId, me)))
       .orderBy(messages.createdAt);
 
-    console.log("Messages fetched:", userMessages.length, { userId });
-
-    return NextResponse.json({ messages: userMessages });
-  } catch (error) {
-    console.error("Error fetching messages:", error);
-    return NextResponse.json({ error: `Failed to fetch messages: ${error.message}` }, { status: 500 });
+    return NextResponse.json({ messages: rows });
+  } catch (err) {
+    console.error("GET /member/messages:", err);
+    return NextResponse.json(
+      { error: `Failed to fetch messages: ${err.message}` },
+      { status: 500 }
+    );
   }
 }
 
+/* --------------------- POST (send) ----------------------------- */
 export async function POST(req) {
   try {
     const session = await auth();
-    if (!session || !session.user || !["admin", "member"].includes(session.user.role)) {
-      console.error("Unauthorized access attempt:", { session });
-      return NextResponse.json({ error: "Unauthorized: Admin or Member access required" }, { status: 401 });
-    }
+    if (!session || !allow(session.user.role))
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const userId = parseInt(session.user.id);
+    const senderId = parseInt(session.user.id);
     const { recipientId, content } = await req.json();
 
-    if (!recipientId || !content || content.trim() === "") {
-      return NextResponse.json({ error: "Recipient ID and content are required" }, { status: 400 });
-    }
+    if (!recipientId || !content?.trim())
+      return NextResponse.json(
+        { error: "recipientId and content required" },
+        { status: 400 }
+      );
 
-    const [recipient] = await db
-      .select()
+    const [exists] = await db
+      .select({ id: users.id })
       .from(users)
       .where(eq(users.id, parseInt(recipientId)));
-    if (!recipient) {
+    if (!exists)
       return NextResponse.json({ error: "Recipient not found" }, { status: 404 });
-    }
 
-    const [newMessage] = await db
+    const [saved] = await db
       .insert(messages)
       .values({
-        senderId: userId,
+        senderId,
         recipientId: parseInt(recipientId),
         content,
         createdAt: new Date(),
+        status: "sent",
       })
       .returning();
 
-    // Emit Socket.IO event
-    if (req.socket.server.io) {
-      req.socket.server.io.to(recipientId.toString()).emit("message", newMessage);
-    }
-
-    console.log("Message sent:", { messageId: newMessage.id, senderId: userId, recipientId });
-
-    return NextResponse.json({ message: newMessage });
-  } catch (error) {
-    console.error("Error sending message:", error);
-    return NextResponse.json({ error: `Failed to send message: ${error.message}` }, { status: 500 });
+    return NextResponse.json({ message: saved });
+  } catch (err) {
+    console.error("POST /member/messages:", err);
+    return NextResponse.json(
+      { error: `Failed to send message: ${err.message}` },
+      { status: 500 }
+    );
   }
 }

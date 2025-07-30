@@ -1,117 +1,135 @@
+// FILE: pages/MemberDashboard.jsx
 "use client";
+
 import { useState, useEffect, useReducer } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
-import DashboardContent from "@/components/member/DashboardContent";
-import AssignedTasksView from "@/components/member/AssignedTasksView";
-import RoutineTasksView from "@/components/member/RoutineTasksView";
 
-// In-memory cache
+import DashboardContent   from "@/components/member/DashboardContent";
+import AssignedTasksView  from "@/components/member/AssignedTasksView";
+import RoutineTasksView   from "@/components/member/RoutineTasksView";
+
+/* ------------------------------------------------------------------ */
+/*  In‑memory cache, helpers                                           */
+/* ------------------------------------------------------------------ */
 const taskCache = new Map();
 
-// Fetcher for SWR
 const fetcher = (url) =>
-  fetch(url, { headers: { "Content-Type": "application/json" } }).then((res) => {
-    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-    return res.json();
+  fetch(url, { headers: { "Content-Type": "application/json" } }).then((r) => {
+    if (!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+    return r.json();
   });
 
-// Format time left
-const formatTimeLeft = (seconds) => {
-  const minutes = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  return `${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-};
+const formatTimeLeft = (s) =>
+  `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(
+    2,
+    "0"
+  )}`;
 
-// Reducer for task state management
+/* ------------------------------------------------------------------ */
+/*  Reducer                                                            */
+/* ------------------------------------------------------------------ */
+const summarise = (arr) =>
+  arr.reduce(
+    (a, t) => ({
+      total: a.total + 1,
+      notStarted: a.notStarted + (t.status === "not_started"),
+      inProgress: a.inProgress + (t.status === "in_progress"),
+      pendingVerification:
+        a.pendingVerification + (t.status === "pending_verification"),
+      completed:
+        a.completed + (t.status === "verified" || t.status === "done"),
+    }),
+    {
+      total: 0,
+      notStarted: 0,
+      inProgress: 0,
+      pendingVerification: 0,
+      completed: 0,
+    }
+  );
+
 const taskReducer = (state, action) => {
   switch (action.type) {
     case "SET_ASSIGNED_TASKS":
       return {
         ...state,
         assignedTasks: action.payload,
-        assignedTaskSummary: action.payload.reduce(
-          (acc, task) => ({
-            total: acc.total + 1,
-            notStarted: acc.notStarted + (task.status === "not_started" ? 1 : 0),
-            inProgress: acc.inProgress + (task.status === "in_progress" ? 1 : 0),
-            pendingVerification: acc.pendingVerification + (task.status === "pending_verification" ? 1 : 0),
-            completed: acc.completed + (task.status === "verified" || task.status === "done" ? 1 : 0),
-          }),
-          { total: 0, notStarted: 0, inProgress: 0, pendingVerification: 0, completed: 0 }
-        ),
+        assignedTaskSummary: summarise(action.payload),
       };
+
     case "SET_ROUTINE_TASKS":
       return {
         ...state,
         routineTasks: action.payload,
-        routineTaskSummary: action.payload.reduce(
-          (acc, task) => ({
-            total: acc.total + 1,
-            notStarted: acc.notStarted + (task.status === "not_started" ? 1 : 0),
-            inProgress: acc.inProgress + (task.status === "in_progress" ? 1 : 0),
-            pendingVerification: acc.pendingVerification + (task.status === "pending_verification" ? 1 : 0),
-            completed: acc.completed + (task.status === "verified" || task.status === "done" || task.status === "completed" ? 1 : 0),
-          }),
-          { total: 0, notStarted: 0, inProgress: 0, pendingVerification: 0, completed: 0 }
-        ),
-        closeDayTasks: action.payload.map((task) => ({
-          id: task.id,
-          description: task.description || "Untitled Task",
+        routineTaskSummary: summarise(action.payload),
+        closeDayTasks: action.payload.map((t) => ({
+          id: t.id,
+          description: t.description || "Untitled Task",
           markAsCompleted: false,
         })),
       };
-    case "UPDATE_TASK_STATUS":
-      const updatedTasks = state.assignedTasks.map((task) => {
-        if (task.id === action.taskId) {
-          if (action.sprintId && task.sprints) {
-            const updatedSprints = task.sprints.map((sprint) =>
-              sprint.id === action.sprintId ? { ...sprint, status: action.status } : sprint
-            );
-            const hasInProgress = updatedSprints.some((sprint) => sprint.status === "in_progress");
-            const allDone = updatedSprints.every((sprint) => sprint.status === "done" || sprint.status === "verified");
-            return {
-              ...task,
-              sprints: updatedSprints,
-              status: hasInProgress ? "in_progress" : allDone ? "done" : task.status,
-            };
-          }
-          return { ...task, status: action.status };
+
+    case "UPDATE_TASK_STATUS": {
+      const updated = state.assignedTasks.map((t) => {
+        if (t.id !== action.taskId) return t;
+        if (action.sprintId && t.sprints) {
+          const sprints = t.sprints.map((s) =>
+            s.id === action.sprintId ? { ...s, status: action.status } : s
+          );
+          const hasIP = sprints.some((s) => s.status === "in_progress");
+          const allDone = sprints.every(
+            (s) => s.status === "done" || s.status === "verified"
+          );
+          return {
+            ...t,
+            sprints,
+            status: hasIP ? "in_progress" : allDone ? "done" : t.status,
+          };
         }
-        return task;
+        return { ...t, status: action.status };
       });
       return {
         ...state,
-        assignedTasks: updatedTasks,
-        assignedTaskSummary: updatedTasks.reduce(
-          (acc, task) => ({
-            total: acc.total + 1,
-            notStarted: acc.notStarted + (task.status === "not_started" ? 1 : 0),
-            inProgress: acc.inProgress + (task.status === "in_progress" ? 1 : 0),
-            pendingVerification: acc.pendingVerification + (task.status === "pending_verification" ? 1 : 0),
-            completed: acc.completed + (task.status === "verified" || task.status === "done" ? 1 : 0),
-          }),
-          { total: 0, notStarted: 0, inProgress: 0, pendingVerification: 0, completed: 0 }
-        ),
+        assignedTasks: updated,
+        assignedTaskSummary: summarise(updated),
       };
+    }
+
     case "SET_CLOSE_DAY_TASKS":
       return { ...state, closeDayTasks: action.payload };
+
     default:
       return state;
   }
 };
 
-// Custom hook for data fetching
+/* ------------------------------------------------------------------ */
+/*  Data‑fetch hook                                                    */
+/* ------------------------------------------------------------------ */
 const useDashboardData = (session, selectedDate) => {
   const [state, dispatch] = useReducer(taskReducer, {
     assignedTasks: [],
     routineTasks: [],
-    assignedTaskSummary: { total: 0, notStarted: 0, inProgress: 0, pendingVerification: 0, completed: 0 },
-    routineTaskSummary: { total: 0, notStarted: 0, inProgress: 0, pendingVerification: 0, completed: 0 },
+    assignedTaskSummary: {
+      total: 0,
+      notStarted: 0,
+      inProgress: 0,
+      pendingVerification: 0,
+      completed: 0,
+    },
+    routineTaskSummary: {
+      total: 0,
+      notStarted: 0,
+      inProgress: 0,
+      pendingVerification: 0,
+      completed: 0,
+    },
     closeDayTasks: [],
   });
+
   const [user, setUser] = useState(null);
   const [users, setUsers] = useState([]);
   const [openCloseTimes, setOpenCloseTimes] = useState(null);
@@ -120,94 +138,126 @@ const useDashboardData = (session, selectedDate) => {
   const [isLoadingRoutineTasks, setIsLoadingRoutineTasks] = useState(false);
 
   const { data: mriData, error: mriError } = useSWR(
-    user ? `/api/member/myMRIs?section=today&userId=${user.id}&date=${selectedDate}` : null,
-    fetcher
+    user
+      ? `/api/member/myMRIs?section=today&userId=${user.id}&date=${selectedDate}`
+      : null,
+    fetcher,
+    { refreshInterval: 30000 } // Reduced polling frequency
   );
 
+  /* --- effect to fetch everything on date / session change ---------- */
   useEffect(() => {
-    const fetchUserData = async () => {
+    const fetchUser = async () => {
       try {
-        const res = await fetch("/api/member/profile");
-        const data = await res.json();
-        if (res.ok) {
-          setUser(data.user);
-          fetchOpenCloseTimes(data.user.type);
+        const r = await fetch("/api/member/profile");
+        const d = await r.json();
+        if (r.ok) {
+          setUser(d.user);
+          fetchOpenCloseTimes(d.user.type);
         }
-      } catch {}
+      } catch (err) {
+        console.error("fetchUser error:", err.message);
+      }
     };
 
-    const fetchUsers = async () => {
+    const fetchAllUsers = async () => {
+      const key = `users:${session?.user?.id}`;
+      if (taskCache.has(key)) {
+        setUsers(taskCache.get(key));
+        return;
+      }
       try {
-        const res = await fetch("/api/member/users");
-        const data = await res.json();
-        if (res.ok) setUsers(data.users || []);
-      } catch {}
+        const r = await fetch("/api/member/users");
+        const d = await r.json();
+        if (r.ok) {
+          taskCache.set(key, d.users || []);
+          setUsers(d.users || []);
+        }
+      } catch (err) {
+        console.error("fetchAllUsers error:", err.message);
+      }
     };
 
     const fetchOpenCloseTimes = async (userType) => {
       if (!userType) return;
       try {
-        const res = await fetch(`/api/member/openCloseTimes?userType=${userType}`);
-        const data = await res.json();
-        if (res.ok) {
-          setOpenCloseTimes(data.times);
+        const r = await fetch(
+          `/api/member/openCloseTimes?userType=${userType}`
+        );
+        const d = await r.json();
+        if (r.ok) {
+          setOpenCloseTimes(d.times);
           const now = new Date();
-          const closingStart = new Date(data.times.closingWindowStart);
-          const closingEnd = new Date(data.times.closingWindowEnd);
-          setCanCloseDay(now >= closingStart && now <= closingEnd);
+          const start = new Date(d.times.closingWindowStart);
+          const end = new Date(d.times.closingWindowEnd);
+          setCanCloseDay(now >= start && now <= end);
         }
-      } catch {}
+      } catch (err) {
+        console.error("fetchOpenCloseTimes error:", err.message);
+      }
     };
 
     const fetchAssignedTasks = async () => {
-      const cacheKey = `assignedTasks:${selectedDate}:${session?.user?.id}`;
-      if (taskCache.has(cacheKey)) {
-        dispatch({ type: "SET_ASSIGNED_TASKS", payload: taskCache.get(cacheKey) });
+      const key = `assignedTasks:${selectedDate}:${session?.user?.id}`;
+      if (taskCache.has(key)) {
+        dispatch({ type: "SET_ASSIGNED_TASKS", payload: taskCache.get(key) });
         return;
       }
       setIsLoadingAssignedTasks(true);
       try {
-        const res = await fetch(`/api/member/assignedTasks?date=${selectedDate}&action=tasks`);
-        const data = await res.json();
-        if (res.ok) {
-          const tasks = (data.tasks || []).map((task) => {
-            if (task.sprints?.length) {
-              const hasInProgress = task.sprints.some((sprint) => sprint.status === "in_progress");
-              const allDone = task.sprints.every((sprint) => sprint.status === "done" || sprint.status === "verified");
-              return { ...task, status: hasInProgress ? "in_progress" : allDone ? "done" : task.status };
+        const r = await fetch(
+          `/api/member/assignedTasks?date=${selectedDate}&action=tasks`
+        );
+        const d = await r.json();
+        if (r.ok) {
+          const tasks = (d.tasks || []).map((t) => {
+            if (t.sprints?.length) {
+              const hasIP = t.sprints.some((s) => s.status === "in_progress");
+              const allDone = t.sprints.every(
+                (s) => s.status === "done" || s.status === "verified"
+              );
+              return {
+                ...t,
+                status: hasIP ? "in_progress" : allDone ? "done" : t.status,
+              };
             }
-            return task;
+            return t;
           });
-          taskCache.set(cacheKey, tasks);
+          taskCache.set(key, tasks);
           dispatch({ type: "SET_ASSIGNED_TASKS", payload: tasks });
         }
+      } catch (err) {
+        console.error("fetchAssignedTasks error:", err.message);
       } finally {
         setIsLoadingAssignedTasks(false);
       }
     };
 
     const fetchRoutineTasks = async () => {
-      const cacheKey = `routineTasks:${selectedDate}:${session?.user?.id}`;
-      if (taskCache.has(cacheKey)) {
-        dispatch({ type: "SET_ROUTINE_TASKS", payload: taskCache.get(cacheKey) });
+      const key = `routineTasks:${selectedDate}:${session?.user?.id}`;
+      if (taskCache.has(key)) {
+        dispatch({ type: "SET_ROUTINE_TASKS", payload: taskCache.get(key) });
         return;
       }
       setIsLoadingRoutineTasks(true);
       try {
-        const res = await fetch(`/api/member/routine-tasks?action=routineTasks&date=${selectedDate}`);
-        const data = await res.json();
-        if (res.ok) {
-          const tasks = data.tasks || [];
-          taskCache.set(cacheKey, tasks);
-          dispatch({ type: "SET_ROUTINE_TASKS", payload: tasks });
+        const r = await fetch(
+          `/api/member/routine-tasks?action=routineTasks&date=${selectedDate}`
+        );
+        const d = await r.json();
+        if (r.ok) {
+          taskCache.set(key, d.tasks || []);
+          dispatch({ type: "SET_ROUTINE_TASKS", payload: d.tasks || [] });
         }
+      } catch (err) {
+        console.error("fetchRoutineTasks error:", err.message);
       } finally {
         setIsLoadingRoutineTasks(false);
       }
     };
 
-    fetchUserData();
-    fetchUsers();
+    fetchUser();
+    fetchAllUsers();
     fetchAssignedTasks();
     fetchRoutineTasks();
   }, [selectedDate, session]);
@@ -226,62 +276,65 @@ const useDashboardData = (session, selectedDate) => {
   };
 };
 
-// Custom hook for slot timing
+/* ------------------------------------------------------------------ */
+/*  Slot-timing helper                                                 */
+/* ------------------------------------------------------------------ */
 const useSlotTiming = (mriData) => {
   const [activeSlot, setActiveSlot] = useState(null);
   const [timeLeft, setTimeLeft] = useState(null);
 
   useEffect(() => {
-    if (!mriData || !mriData.nMRIs || mriData.nMRIs.length === 0) return;
+    if (!mriData?.nMRIs?.length) return;
 
     const now = new Date();
     let found = null;
 
     for (const slot of mriData.nMRIs) {
-      const [startTimeStr, endTimeStr] = slot.time.split(" - ");
-      if (!startTimeStr || !endTimeStr) continue;
-      const startHours = parseInt(startTimeStr.split(":")[0], 10);
-      const endHours = parseInt(endTimeStr.split(":")[0], 10);
-      const isMidnightSpanning = endHours < startHours;
-      let startDate = now.toDateString();
-      let endDate = now.toDateString();
-      if (isMidnightSpanning) {
-        const prevDay = new Date(now);
-        prevDay.setDate(now.getDate() - 1);
-        startDate = prevDay.toDateString();
-      }
-      const startTime = new Date(`${startDate} ${startTimeStr}`);
-      const endTime = new Date(`${endDate} ${endTimeStr}`);
-      if (now >= startTime && now <= endTime) {
-        found = { ...slot, startTime, endTime };
+      const [startStr, endStr] = slot.time.split(" - ");
+      const startH = +startStr.split(":")[0];
+      const endH = +endStr.split(":")[0];
+      const spansMidnight = endH < startH;
+
+      const startDateStr = spansMidnight
+        ? new Date(now).setDate(now.getDate() - 1) &&
+          new Date(now).toDateString()
+        : now.toDateString();
+
+      const start = new Date(`${startDateStr} ${startStr}`);
+      const end = new Date(`${now.toDateString()} ${endStr}`);
+
+      if (now >= start && now <= end) {
+        found = { ...slot, startTime: start, endTime: end };
         break;
       }
     }
 
-    if (found) {
-      setActiveSlot(found);
-      const secondsLeft = Math.max(0, Math.floor((found.endTime.getTime() - now.getTime()) / 1000));
-      setTimeLeft(secondsLeft);
+    if (!found) return;
 
-      const intervalId = setInterval(() => {
-        const now = new Date();
-        const remaining = Math.max(0, Math.floor((found.endTime.getTime() - now.getTime()) / 1000));
-        setTimeLeft(remaining);
-        if (remaining <= 0) {
-          clearInterval(intervalId);
-          setActiveSlot(null);
-          setTimeLeft(null);
-        }
-      }, 1000);
-
-      return () => clearInterval(intervalId);
-    }
+    setActiveSlot(found);
+    const tick = () => {
+      const remain = Math.max(
+        0,
+        Math.floor((found.endTime.getTime() - Date.now()) / 1000)
+      );
+      setTimeLeft(remain);
+      if (remain <= 0) {
+        clearInterval(id);
+        setActiveSlot(null);
+        setTimeLeft(null);
+      }
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
   }, [mriData]);
 
   return { activeSlot, timeLeft };
 };
 
-// Modal Component
+/* ------------------------------------------------------------------ */
+/*  Modal wrapper                                                      */
+/* ------------------------------------------------------------------ */
 const Modal = ({ isOpen, onClose, title, children }) => (
   <AnimatePresence>
     {isOpen && (
@@ -296,8 +349,14 @@ const Modal = ({ isOpen, onClose, title, children }) => (
           animate={{ scale: 1, opacity: 1 }}
           exit={{ scale: 0.9, opacity: 0 }}
           transition={{ duration: 0.3 }}
-          className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md border border-teal-300"
+          className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md border border-teal-300 relative"
         >
+          <button
+            onClick={onClose}
+            className="absolute top-2 right-2 text-gray-500 hover:text-gray-700 text-xl font-bold"
+          >
+            X
+          </button>
           <h2 className="text-lg font-semibold text-gray-900 mb-4">{title}</h2>
           {children}
         </motion.div>
@@ -306,7 +365,9 @@ const Modal = ({ isOpen, onClose, title, children }) => (
   </AnimatePresence>
 );
 
-// Status Update Modal Content
+/* ------------------------------------------------------------------ */
+/*  Status-update modal (now with WhatsApp checkbox)                   */
+/* ------------------------------------------------------------------ */
 const StatusUpdateModal = ({
   task,
   sprints,
@@ -320,12 +381,15 @@ const StatusUpdateModal = ({
   setNewLogComment,
   sendNotification,
   setSendNotification,
+  sendWhatsapp,
+  setSendWhatsapp,
   isUpdating,
   onUpdate,
   onClose,
 }) => (
   <div>
-    {sprints.length > 0 ? (
+    {/* --- Sprint + Status selects ----------------------------------- */}
+    {sprints.length ? (
       <>
         <select
           value={selectedSprint}
@@ -333,9 +397,9 @@ const StatusUpdateModal = ({
           className="w-full px-4 py-2 border rounded-lg mb-3 bg-gray-50 focus:ring-2 focus:ring-teal-500 text-sm font-medium text-gray-700"
         >
           <option value="">Select Sprint</option>
-          {sprints.map((sprint) => (
-            <option key={sprint.id} value={sprint.id}>
-              {sprint.title || "Untitled Sprint"}
+          {sprints.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.title || "Untitled Sprint"}
             </option>
           ))}
         </select>
@@ -365,39 +429,60 @@ const StatusUpdateModal = ({
         <option value="done">Done</option>
       </select>
     )}
-    <div className="flex items-center mb-4">
+
+    {/* --- Notification check‑boxes ---------------------------------- */}
+    <div className="flex items-center mb-2">
       <input
         type="checkbox"
         checked={sendNotification}
         onChange={(e) => setSendNotification(e.target.checked)}
         className="h-4 w-4 text-teal-600 focus:ring-teal-500"
       />
-      <label className="ml-2 text-sm font-medium text-gray-700">Notify assignees</label>
+      <label className="ml-2 text-sm font-medium text-gray-700">
+        Chat‑notify assignees
+      </label>
     </div>
-    <div className="mb-4">
-      <h3 className="text-sm font-semibold text-gray-700 mb-2">Task Discussion</h3>
-      <div className="max-h-40 overflow-y-auto space-y-2 mb-2">
-        {taskLogs.length === 0 ? (
-          <p className="text-sm text-gray-500">No discussion yet.</p>
-        ) : (
-          taskLogs.map((log) => (
-            <div key={log.id} className="p-3 bg-gray-50 rounded-lg shadow-sm border border-gray-200">
-              <p className="text-xs text-gray-600">
-                {users.find((u) => u.id === log.userId)?.name || "Unknown"} ({new Date(log.createdAt).toLocaleString()}):
-              </p>
-              <p className="text-sm text-gray-700">{log.details}</p>
-            </div>
-          ))
-        )}
-      </div>
-      <textarea
-        value={newLogComment}
-        onChange={(e) => setNewLogComment(e.target.value)}
-        placeholder="Add a comment to the task discussion..."
-        className="w-full px-4 py-2 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-teal-500 text-sm font-medium text-gray-700"
+    <div className="flex items-center mb-4">
+      <input
+        type="checkbox"
+        checked={sendWhatsapp}
+        onChange={(e) => setSendWhatsapp(e.target.checked)}
+        className="h-4 w-4 text-teal-600 focus:ring-teal-500"
       />
+      <label className="ml-2 text-sm font-medium text-gray-700">
+        WhatsApp ping
+      </label>
     </div>
-    <div className="flex justify-end space-x-2">
+
+    {/* --- Discussion / Comments ------------------------------------- */}
+    <h3 className="text-sm font-semibold text-gray-700 mb-2">Task Discussion</h3>
+    <div className="max-h-40 overflow-y-auto space-y-2 mb-2">
+      {taskLogs.length ? (
+        taskLogs.map((log) => (
+          <div
+            key={log.id}
+            className="p-3 bg-gray-50 rounded-lg shadow-sm border border-gray-200"
+          >
+            <p className="text-xs text-gray-600">
+              {users.find((u) => u.id === log.userId)?.name || "Unknown"} (
+              {new Date(log.createdAt).toLocaleString()}):
+            </p>
+            <p className="text-sm text-gray-700">{log.details}</p>
+          </div>
+        ))
+      ) : (
+        <p className="text-sm text-gray-500">No discussion yet.</p>
+      )}
+    </div>
+    <textarea
+      value={newLogComment}
+      onChange={(e) => setNewLogComment(e.target.value)}
+      placeholder="Add a comment to the task discussion..."
+      className="w-full px-4 py-2 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-teal-500 text-sm font-medium text-gray-700"
+    />
+
+    {/* --- Buttons ----------------------------------------------------- */}
+    <div className="flex justify-end space-x-2 mt-4">
       <motion.button
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
@@ -410,9 +495,13 @@ const StatusUpdateModal = ({
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
         onClick={onUpdate}
-        disabled={!newStatus || (sprints.length > 0 && !selectedSprint) || isUpdating}
+        disabled={
+          !newStatus || (sprints.length && !selectedSprint) || isUpdating
+        }
         className={`px-4 py-2 bg-teal-600 text-white rounded-md text-sm font-medium ${
-          !newStatus || (sprints.length > 0 && !selectedSprint) || isUpdating ? "opacity-50 cursor-not-allowed" : ""
+          !newStatus || (sprints.length && !selectedSprint) || isUpdating
+            ? "opacity-50 cursor-not-allowed"
+            : ""
         }`}
       >
         {isUpdating ? (
@@ -429,7 +518,9 @@ const StatusUpdateModal = ({
   </div>
 );
 
-// Task Details Modal Content
+/* ------------------------------------------------------------------ */
+/*  Task Details Modal (restored from earlier code with all details)  */
+/* ------------------------------------------------------------------ */
 const TaskDetailsModal = ({ task, taskLogs, users, onClose }) => (
   <div className="space-y-3">
     <p className="text-sm font-medium text-gray-700"><strong>Title:</strong> {task?.title || "Untitled Task"}</p>
@@ -439,6 +530,22 @@ const TaskDetailsModal = ({ task, taskLogs, users, onClose }) => (
     <p className="text-sm font-medium text-gray-700"><strong>Assigned Date:</strong> {task?.assignedDate ? new Date(task.assignedDate).toLocaleDateString() : "N/A"}</p>
     <p className="text-sm font-medium text-gray-700"><strong>Deadline:</strong> {task?.deadline ? new Date(task.deadline).toLocaleDateString() : "No deadline"}</p>
     <p className="text-sm font-medium text-gray-700"><strong>Resources:</strong> {task?.resources || "No resources"}</p>
+
+    {task.sprints?.length > 0 && (
+      <div>
+        <h3 className="text-sm font-semibold text-gray-700">Sprints</h3>
+        <ul className="space-y-2">
+          {task.sprints.map((s) => (
+            <li key={s.id} className="p-2 bg-gray-50 rounded border">
+              <p className="font-medium">{s.title || "Untitled Sprint"}</p>
+              <p className="text-sm text-gray-600">Status: {s.status.replace("_", " ")}</p>
+              <p className="text-sm text-gray-600">{s.description || "No description."}</p>
+            </li>
+          ))}
+        </ul>
+      </div>
+    )}
+
     <div>
       <h3 className="text-sm font-semibold text-gray-700 mb-2">Discussion</h3>
       <div className="max-h-40 overflow-y-auto space-y-2">
@@ -469,7 +576,9 @@ const TaskDetailsModal = ({ task, taskLogs, users, onClose }) => (
   </div>
 );
 
-// Close Day Modal Content
+/* ------------------------------------------------------------------ */
+/*  Close Day Modal Content (from earlier code)                       */
+/* ------------------------------------------------------------------ */
 const CloseDayModal = ({
   closeDayTasks,
   setCloseDayTasks,
@@ -523,11 +632,18 @@ const CloseDayModal = ({
   </div>
 );
 
+/* ------------------------------------------------------------------ */
+/*  Main component                                                     */
+/* ------------------------------------------------------------------ */
 export default function MemberDashboard() {
   const { data: session, status } = useSession();
   const router = useRouter();
+
+  /* ------------- local UI state ---------------- */
   const [activeTab, setActiveTab] = useState("dashboard");
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
+  const [selectedDate, setSelectedDate] = useState(
+    new Date().toISOString().split("T")[0]
+  );
   const [selectedTask, setSelectedTask] = useState(null);
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
@@ -540,144 +656,199 @@ export default function MemberDashboard() {
   const [closeDayComment, setCloseDayComment] = useState("");
   const [isUpdating, setIsUpdating] = useState(false);
   const [sendNotification, setSendNotification] = useState(true);
+  const [sendWhatsapp, setSendWhatsapp] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const { state, dispatch, user, users, mriData, mriError, canCloseDay, isLoadingAssignedTasks, isLoadingRoutineTasks } =
-    useDashboardData(session, selectedDate);
+  const {
+    state,
+    dispatch,
+    user,
+    users,
+    mriData,
+    mriError,
+    canCloseDay,
+    isLoadingAssignedTasks,
+    isLoadingRoutineTasks,
+  } = useDashboardData(session, selectedDate);
+
   const { activeSlot, timeLeft } = useSlotTiming(mriData);
 
+  /* redirect non‑members */
   useEffect(() => {
     if (status === "authenticated" && session?.user?.role !== "member") {
-      router.push(session?.user?.role === "admin" ? "/dashboard/admin" : "/dashboard/team_manager");
+      router.push(
+        session.user.role === "admin" ? "/dashboard/admin" : "/dashboard/team_manager"
+      );
     }
   }, [status, session, router]);
 
+  /* ------------------------------------------------------------------ */
+  /*  Helpers: fetch sprints / logs, notify assignees (chat only)       */
+  /* ------------------------------------------------------------------ */
   const fetchSprints = async (taskId, memberId) => {
-    const cacheKey = `sprints:${taskId}:${memberId}`;
-    if (taskCache.has(cacheKey)) {
-      setSprints(taskCache.get(cacheKey));
+    const key = `sprints:${taskId}:${memberId}`;
+    if (taskCache.has(key)) {
+      setSprints(taskCache.get(key));
       return;
     }
     try {
-      const res = await fetch(`/api/member/assignedTasks?taskId=${taskId}&memberId=${memberId}&action=sprints`);
-      const data = await res.json();
-      if (res.ok) {
-        const sprints = data.sprints || [];
-        taskCache.set(cacheKey, sprints);
-        setSprints(sprints);
+      const r = await fetch(
+        `/api/member/assignedTasks?taskId=${taskId}&memberId=${memberId}&action=sprints`
+      );
+      const d = await r.json();
+      if (r.ok) {
+        taskCache.set(key, d.sprints || []);
+        setSprints(d.sprints || []);
       }
-    } catch {}
+    } catch (err) {
+      console.error("fetchSprints error:", err.message);
+    }
   };
 
   const fetchTaskLogs = async (taskId) => {
     try {
-      const res = await fetch(`/api/member/assignedTasks?taskId=${taskId}&action=logs`);
-      const data = await res.json();
-      if (res.ok) setTaskLogs(data.logs || []);
-    } catch {}
+      const r = await fetch(
+        `/api/member/assignedTasks?taskId=${taskId}&action=logs`
+      );
+      const d = await r.json();
+      if (r.ok) setTaskLogs(d.logs || []);
+    } catch (err) {
+      console.error("fetchTaskLogs error:", err.message);
+    }
   };
 
-  const notifyAssignees = async (taskId, messageContent) => {
+  const notifyAssigneesChat = async (taskId, messageContent) => {
     if (!sendNotification) return;
     try {
-      const res = await fetch(`/api/member/assignedTasks?taskId=${taskId}&action=assignees`);
-      const data = await res.json();
-      if (!res.ok) return;
-      const assignees = data.assignees || [];
+      const r = await fetch(`/api/member/assignedTasks?taskId=${taskId}&action=assignees`);
+      const d = await r.json();
+      if (!r.ok) return;
+      const list = d.assignees || [];
       await Promise.all(
-        assignees
-          .filter((assignee) => assignee.memberId !== user?.id)
-          .map((assignee) =>
+        list
+          .filter((a) => a.memberId !== user?.id)
+          .map((a) =>
             fetch("/api/others/chat", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 userId: user?.id,
-                recipientId: assignee.memberId,
+                recipientId: a.memberId,
                 message: messageContent,
               }),
+            }).then((res) => {
+              if (!res.ok) {
+                console.error(`Chat request failed: ${res.status} ${res.statusText}`);
+              }
+              return res;
             })
           )
       );
-    } catch {}
+    } catch (err) {
+      console.error("notifyAssigneesChat error:", err.message);
+    }
   };
 
+  /* ------------------------------------------------------------------ */
+  /*  Handle status update (task or sprint)                             */
+  /* ------------------------------------------------------------------ */
   const handleStatusUpdate = async () => {
     if (!selectedTask || !newStatus) return;
     setIsUpdating(true);
+
+    const isSprint = sprints.length && selectedSprint;
+    const body = isSprint
+      ? {
+          sprintId: selectedSprint,
+          status: newStatus,
+          taskId: selectedTask.id,
+          memberId: user?.id,
+          action: "update_sprint",
+          notifyAssignees: sendNotification,
+          notifyWhatsapp: sendWhatsapp,
+        }
+      : {
+          taskId: selectedTask.id,
+          status: newStatus,
+          memberId: user?.id,
+          action: "update_task",
+          notifyAssignees: sendNotification,
+          notifyWhatsapp: sendWhatsapp,
+        };
+
     try {
-      let res;
-      let messageContent;
+      const r = await fetch("/api/member/assignedTasks/status", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Update failed");
 
-      if (sprints.length > 0 && selectedSprint) {
-        res = await fetch("/api/member/assignedTasks/status", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sprintId: selectedSprint,
-            status: newStatus,
-            taskId: selectedTask.id,
-            memberId: user?.id,
-            action: "update_sprint",
-          }),
-        });
-        messageContent = `Task "${selectedTask.title}" sprint "${sprints.find((s) => s.id === parseInt(selectedSprint))?.title}" updated to status: ${newStatus}`;
-      } else {
-        res = await fetch("/api/member/assignedTasks/status", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            taskId: selectedTask.id,
-            status: newStatus,
-            memberId: user?.id,
-            action: "update_task",
-          }),
-        });
-        messageContent = `Task "${selectedTask.title}" updated to status: ${newStatus}`;
-      }
+      dispatch({
+        type: "UPDATE_TASK_STATUS",
+        taskId: selectedTask.id,
+        status: newStatus,
+        sprintId: isSprint ? +selectedSprint : undefined,
+      });
 
-      const data = await res.json();
-      if (res.ok) {
-        dispatch({ type: "UPDATE_TASK_STATUS", taskId: selectedTask.id, status: newStatus, sprintId: selectedSprint ? parseInt(selectedSprint) : undefined });
-        taskCache.set(`assignedTasks:${selectedDate}:${session?.user?.id}`, state.assignedTasks);
-        await fetch("/api/member/assignedTasks", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            taskId: selectedTask.id,
-            userId: user?.id,
-            action: "status_update",
-            details:
-              newLogComment ||
-              (sprints.length > 0 && selectedSprint
-                ? `Updated sprint ${sprints.find((s) => s.id === parseInt(selectedSprint))?.title} to ${newStatus}`
-                : `Updated task status to ${newStatus}`),
-          }),
-        });
-        await notifyAssignees(selectedTask.id, messageContent);
-        setSuccess("Task status updated successfully!");
-        setShowStatusModal(false);
-        setSelectedTask(null);
-        setNewStatus("");
-        setSelectedSprint("");
-        setSprints([]);
-        setTaskLogs([]);
-        setNewLogComment("");
-        setSendNotification(true);
-        setTimeout(() => setSuccess(""), 3000);
-      }
-    } catch {
-      setError("Failed to update task status");
-      setTimeout(() => setError(""), 3000);
+      taskCache.set(
+        `assignedTasks:${selectedDate}:${session?.user?.id}`,
+        state.assignedTasks
+      );
+
+      /* create log entry */
+      await fetch("/api/member/assignedTasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          taskId: selectedTask.id,
+          action: "status_update",
+          details:
+            newLogComment ||
+            (isSprint
+              ? `Updated sprint ${
+                  sprints.find((s) => s.id === +selectedSprint)?.title
+                } to ${newStatus}`
+              : `Updated task status to ${newStatus}`),
+        }),
+      });
+
+      /* chat notifications (WhatsApp handled backend) */
+      const msg = isSprint
+        ? `Task "${selectedTask.title}" sprint "${
+            sprints.find((s) => s.id === +selectedSprint)?.title
+          }" → ${newStatus}`
+        : `Task "${selectedTask.title}" → ${newStatus}`;
+      await notifyAssigneesChat(selectedTask.id, msg);
+
+      setSuccess("Task status updated!");
+      setShowStatusModal(false);
+      /* reset modal state */
+      setSelectedTask(null);
+      setNewStatus("");
+      setSelectedSprint("");
+      setSprints([]);
+      setTaskLogs([]);
+      setNewLogComment("");
+      setSendNotification(true);
+      setSendWhatsapp(false);
+      setTimeout(() => setSuccess(""), 2500);
+    } catch (e) {
+      setError(e.message || "Update failed");
+      setTimeout(() => setError(""), 2500);
     } finally {
       setIsUpdating(false);
     }
   };
 
+  /* ------------------------------------------------------------------ */
+  /*  Handle “close day”                                                */
+  /* ------------------------------------------------------------------ */
   const handleCloseDay = async () => {
     try {
-      const res = await fetch("/api/member/routine-tasks?action=closeDay", {
+      const r = await fetch("/api/member/routine-tasks?action=closeDay", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -687,48 +858,61 @@ export default function MemberDashboard() {
           comment: closeDayComment,
         }),
       });
-      const data = await res.json();
-      if (res.ok) {
-        setSuccess("Day closed successfully!");
-        setCanCloseDay(false);
-        setShowCloseDayModal(false);
-        setActiveTab("dashboard");
-        setCloseDayComment("");
-        dispatch({
-          type: "SET_ROUTINE_TASKS",
-          payload: state.routineTasks.map((task) => {
-            const taskUpdate = state.closeDayTasks.find((t) => t.id === task.id);
-            return taskUpdate && taskUpdate.markAsCompleted ? { ...task, status: "completed", isLocked: true } : { ...task, isLocked: true };
-          }),
-        });
-        taskCache.delete(`routineTasks:${selectedDate}:${session?.user?.id}`);
-        setTimeout(() => setSuccess(""), 3000);
-      }
-    } catch {
-      setError("Failed to close day");
-      setTimeout(() => setError(""), 3000);
+      if (!r.ok) throw new Error("Close-day failed");
+      setSuccess("Day closed!");
+      setCanCloseDay(false);
+      setShowCloseDayModal(false);
+      setActiveTab("dashboard");
+      setCloseDayComment("");
+      dispatch({
+        type: "SET_ROUTINE_TASKS",
+        payload: state.routineTasks.map((t) => {
+          const upd = state.closeDayTasks.find((x) => x.id === t.id);
+          return upd?.markAsCompleted
+            ? { ...t, status: "completed", isLocked: true }
+            : { ...t, isLocked: true };
+        }),
+      });
+      taskCache.delete(`routineTasks:${selectedDate}:${session?.user?.id}`);
+      setTimeout(() => setSuccess(""), 2500);
+    } catch (e) {
+      setError(e.message);
+      setTimeout(() => setError(""), 2500);
     }
   };
 
+  /* ------------------------------------------------------------------ */
+  /*  Utility helpers for UI                                            */
+  /* ------------------------------------------------------------------ */
   const getAssignedBy = (createdBy) => {
-    const user = users.find((u) => u.id === createdBy);
-    if (!user) return "Unknown";
-    if (user.role === "admin") return "Superintendent";
-    if (user.role === "team_manager") {
-      return user.team_manager_type
-        ? user.team_manager_type.split("_").map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" ")
+    const u = users.find((x) => x.id === createdBy);
+    if (!u) return "Unknown";
+    if (u.role === "admin") return "Superintendent";
+    if (u.role === "team_manager")
+      return u.team_manager_type
+        ? u.team_manager_type
+            .split("_")
+            .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+            .join(" ")
         : "Team Manager";
-    }
-    return user.type ? user.type.split("_").map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" ") : "Member";
+    return u.type
+      ? u.type
+          .split("_")
+          .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+          .join(" ")
+      : "Member";
   };
 
-  const getTODName = (assignedMemberId) => {
-    if (!assignedMemberId) return "Unassigned";
-    if (String(assignedMemberId) === String(session?.user?.id)) return `${session?.user?.name} (You)`;
-    const member = users.find((m) => String(m.id) === String(assignedMemberId));
-    return member?.name || "Unassigned";
+  const getTODName = (memberId) => {
+    if (!memberId) return "Unassigned";
+    if (String(memberId) === String(session?.user?.id))
+      return `${session.user.name} (You)`;
+    return users.find((m) => String(m.id) === String(memberId))?.name || "Unassigned";
   };
 
+  /* ------------------------------------------------------------------ */
+  /*  Loading screen                                                    */
+  /* ------------------------------------------------------------------ */
   if (status === "loading") {
     return (
       <motion.div
@@ -748,6 +932,9 @@ export default function MemberDashboard() {
     );
   }
 
+  /* ------------------------------------------------------------------ */
+  /*  Render                                                            */
+  /* ------------------------------------------------------------------ */
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -756,6 +943,7 @@ export default function MemberDashboard() {
       className="fixed inset-0 bg-gray-100 p-6 flex items-center justify-center"
     >
       <div className="w-full h-full bg-white rounded-2xl shadow-2xl p-6 flex flex-col gap-4 overflow-y-auto">
+        {/* toast messages */}
         <AnimatePresence>
           {success && (
             <motion.p
@@ -781,8 +969,9 @@ export default function MemberDashboard() {
           )}
         </AnimatePresence>
 
+        {/* main tabs */}
         <AnimatePresence mode="wait">
-          {activeTab === "dashboard" ? (
+          {activeTab === "dashboard" && (
             <DashboardContent
               mriData={mriData}
               mriError={mriError}
@@ -795,36 +984,40 @@ export default function MemberDashboard() {
               assignedTaskSummary={state.assignedTaskSummary}
               routineTaskSummary={state.routineTaskSummary}
             />
-          ) : activeTab === "assigned" ? (
+          )}
+
+          {activeTab === "assigned" && (
             <AssignedTasksView
               handleBack={() => setActiveTab("dashboard")}
               assignedTasks={state.assignedTasks}
               isLoadingAssignedTasks={isLoadingAssignedTasks}
               selectedDate={selectedDate}
-              handleTaskSelect={async (task) => {
-                setSelectedTask(task);
-                setNewStatus(task.status || "not_started");
-                await fetchSprints(task.id, user?.id || 0);
-                await fetchTaskLogs(task.id);
+              handleTaskSelect={async (t) => {
+                setSelectedTask(t);
+                setNewStatus(t.status || "not_started");
+                await fetchSprints(t.id, user?.id);
+                await fetchTaskLogs(t.id);
                 setShowStatusModal(true);
               }}
-              handleSprintSelect={async (task, sprint) => {
-                setSelectedTask(task);
-                setNewStatus(sprint.status || "not_started");
-                setSprints(task.sprints || []);
-                setSelectedSprint(sprint.id.toString());
-                await fetchTaskLogs(task.id);
+              handleSprintSelect={async (t, s) => {
+                setSelectedTask(t);
+                setNewStatus(s.status || "not_started");
+                setSprints(t.sprints || []);
+                setSelectedSprint(String(s.id));
+                await fetchTaskLogs(t.id);
                 setShowStatusModal(true);
               }}
-              handleTaskDetails={async (task) => {
-                setSelectedTask(task);
-                await fetchTaskLogs(task.id);
+              handleTaskDetails={async (t) => {
+                setSelectedTask(t);
+                await fetchTaskLogs(t.id);
                 setShowDetailsModal(true);
               }}
               users={users}
               assignedTaskSummary={state.assignedTaskSummary}
             />
-          ) : activeTab === "routine" ? (
+          )}
+
+          {activeTab === "routine" && (
             <RoutineTasksView
               handleBack={() => setActiveTab("dashboard")}
               routineTasks={state.routineTasks}
@@ -833,16 +1026,23 @@ export default function MemberDashboard() {
               canCloseDay={canCloseDay}
               closeDayTasks={state.closeDayTasks}
               closeDayComment={closeDayComment}
-              setCloseDayTasks={(tasks) => dispatch({ type: "SET_CLOSE_DAY_TASKS", payload: tasks })}
+              setCloseDayTasks={(tasks) =>
+                dispatch({ type: "SET_CLOSE_DAY_TASKS", payload: tasks })
+              }
               setCloseDayComment={setCloseDayComment}
               handleCloseDay={handleCloseDay}
               setShowCloseDayModal={setShowCloseDayModal}
               routineTaskSummary={state.routineTaskSummary}
             />
-          ) : null}
+          )}
         </AnimatePresence>
 
-        <Modal isOpen={showStatusModal} onClose={() => setShowStatusModal(false)} title="Update Task Status">
+        {/* --- Modals --------------------------------------------------- */}
+        <Modal
+          isOpen={showStatusModal}
+          onClose={() => setShowStatusModal(false)}
+          title="Update Task Status"
+        >
           <StatusUpdateModal
             task={selectedTask}
             sprints={sprints}
@@ -856,6 +1056,8 @@ export default function MemberDashboard() {
             setNewLogComment={setNewLogComment}
             sendNotification={sendNotification}
             setSendNotification={setSendNotification}
+            sendWhatsapp={sendWhatsapp}
+            setSendWhatsapp={setSendWhatsapp}
             isUpdating={isUpdating}
             onUpdate={handleStatusUpdate}
             onClose={() => {
@@ -867,24 +1069,32 @@ export default function MemberDashboard() {
               setTaskLogs([]);
               setNewLogComment("");
               setSendNotification(true);
+              setSendWhatsapp(false);
             }}
           />
         </Modal>
 
-        <Modal isOpen={showDetailsModal} onClose={() => setShowDetailsModal(false)} title="Task Details">
-          <TaskDetailsModal
-            task={selectedTask}
-            taskLogs={taskLogs}
-            users={users}
-            onClose={() => {
-              setShowDetailsModal(false);
-              setSelectedTask(null);
-              setTaskLogs([]);
-            }}
-          />
+        <Modal
+          isOpen={showDetailsModal}
+          onClose={() => {
+            setShowDetailsModal(false);
+            setSelectedTask(null);
+            setTaskLogs([]);
+          }}
+          title="Task Details"
+        >
+          <TaskDetailsModal task={selectedTask} taskLogs={taskLogs} users={users} onClose={() => {
+            setShowDetailsModal(false);
+            setSelectedTask(null);
+            setTaskLogs([]);
+          }} />
         </Modal>
 
-        <Modal isOpen={showCloseDayModal} onClose={() => setShowCloseDayModal(false)} title="Close Day">
+        <Modal
+          isOpen={showCloseDayModal}
+          onClose={() => setShowCloseDayModal(false)}
+          title="Close Day"
+        >
           <CloseDayModal
             closeDayTasks={state.closeDayTasks}
             setCloseDayTasks={(tasks) => dispatch({ type: "SET_CLOSE_DAY_TASKS", payload: tasks })}
