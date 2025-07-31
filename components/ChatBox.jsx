@@ -75,6 +75,7 @@ export default function ChatBox({ userDetails }) {
 
   const [isRecording, setIsRecording] = useState(false);
   const [showComingSoonModal, setShowComingSoonModal] = useState(false);
+  const [recordLang, setRecordLang] = useState("hi-IN");
 
   const prevMessageCount = useRef(0);
 
@@ -340,7 +341,7 @@ export default function ChatBox({ userDetails }) {
 
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     const recognition = new SpeechRecognition();
-    recognition.lang = "hi-IN";
+    recognition.lang = recordLang;
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
 
@@ -508,6 +509,14 @@ export default function ChatBox({ userDetails }) {
             </div>
 
             <div className="flex items-center mt-2 gap-2">
+              <select
+                value={recordLang}
+                onChange={(e) => setRecordLang(e.target.value)}
+                className="p-1 border rounded-lg bg-gray-50 text-sm"
+              >
+                <option value="hi-IN">Hindi</option>
+                <option value="en-US">English</option>
+              </select>
               <motion.button
                 onClick={startVoiceRecording}
                 disabled={isRecording}
@@ -515,7 +524,7 @@ export default function ChatBox({ userDetails }) {
                 whileHover={{ scale: isRecording ? 1 : 1.05 }}
                 whileTap={{ scale: isRecording ? 1 : 0.95 }}
               >
-                {isRecording ? "Recording..." : "Record Message (Hindi)"}
+                {isRecording ? "Recording..." : `Record Message (${recordLang === "hi-IN" ? "Hindi" : "English"})`}
               </motion.button>
               <motion.button
                 onClick={handleTranslateMessage}
