@@ -60,6 +60,8 @@ export default function ChatBox({ userDetails }) {
 
   const messagesEndRef  = useRef(null);
   const audioRef        = useRef(null);
+  const sendAudioRef    = useRef(null);
+  const receiveAudioRef = useRef(null);
   const lastAlertedId   = useRef(null);
   const [jumpKey, setJumpKey] = useState(0);
 
@@ -70,6 +72,11 @@ export default function ChatBox({ userDetails }) {
   const [pos, setPos]     = useState({ x: 20, y: -20 });
   const [dragging, setDragging] = useState(false);
   const dragStart = useRef({ x: 0, y: 0 });
+
+  const [isRecording, setIsRecording] = useState(false);
+  const [showComingSoonModal, setShowComingSoonModal] = useState(false);
+
+  const prevMessageCount = useRef(0);
 
   /* ------------ utils ------------- */
   const playSound = () => {
@@ -83,6 +90,19 @@ export default function ChatBox({ userDetails }) {
     audioRef.current.pause();
     audioRef.current.currentTime = 0;
   };
+
+  const playSend = () => {
+    if (!sendAudioRef.current) return;
+    sendAudioRef.current.currentTime = 0;
+    sendAudioRef.current.play().catch(() => {});
+  };
+
+  const playReceive = () => {
+    if (!receiveAudioRef.current) return;
+    receiveAudioRef.current.currentTime = 0;
+    receiveAudioRef.current.play().catch(() => {});
+  };
+
   const scrollBottom = () =>
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   const closeAll = () => { setShowChatbox(false); setShowHistory(false); };
@@ -263,6 +283,12 @@ export default function ChatBox({ userDetails }) {
     audioRef.current = new Audio("/sms.mp3");
     audioRef.current.loop = true;
     audioRef.current.preload = "auto";
+
+    sendAudioRef.current = new Audio("/send.mp3");
+    sendAudioRef.current.preload = "auto";
+
+    receiveAudioRef.current = new Audio("/receive.mp3");
+    receiveAudioRef.current.preload = "auto";
   }, []);
 
   useEffect(() => {
@@ -284,7 +310,64 @@ export default function ChatBox({ userDetails }) {
     };
   }, [dragging]);
 
-  useEffect(scrollBottom, [messages]);
+  useEffect(() => {
+    scrollBottom();
+
+    if (prevMessageCount.current === 0) {
+      prevMessageCount.current = messages.length;
+      return;
+    }
+
+    if (messages.length > prevMessageCount.current) {
+      const newMessages = messages.slice(prevMessageCount.current);
+      newMessages.forEach((m) => {
+        if (m.senderId === Number(userDetails.id)) {
+          playSend();
+        } else if (showChatbox && selectedRecipient === String(m.senderId)) {
+          playReceive();
+        }
+      });
+    }
+
+    prevMessageCount.current = messages.length;
+  }, [messages, showChatbox, selectedRecipient]);
+
+  const startVoiceRecording = () => {
+    if (!window.SpeechRecognition && !window.webkitSpeechRecognition) {
+      setError("Speech recognition is not supported in this browser.");
+      return;
+    }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    recognition.lang = "hi-IN";
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    setIsRecording(true);
+
+    recognition.start();
+
+    recognition.onresult = (event) => {
+      const transcript = event.results[0][0].transcript;
+      setMessageContent(prev => prev ? prev + ' ' + transcript : transcript);
+      setIsRecording(false);
+    };
+
+    recognition.onerror = (event) => {
+      console.error("Voice recognition error:", event.error);
+      setError(`Voice recognition error: ${event.error}`);
+      setIsRecording(false);
+    };
+
+    recognition.onend = () => {
+      setIsRecording(false);
+    };
+  };
+
+  const handleTranslateMessage = () => {
+    setShowComingSoonModal(true);
+  };
 
   /* ------------ render (UI unchanged) -- */
   return (
@@ -422,6 +505,26 @@ export default function ChatBox({ userDetails }) {
               <button onClick={sendMessage} className="p-3 bg-gradient-to-r from-teal-500 to-cyan-600 text-white rounded-lg">
                 <PaperAirplaneIcon className="h-5 w-5" />
               </button>
+            </div>
+
+            <div className="flex items-center mt-2 gap-2">
+              <motion.button
+                onClick={startVoiceRecording}
+                disabled={isRecording}
+                className={`px-3 py-1 rounded-lg text-sm font-medium ${isRecording ? "bg-gray-400 cursor-not-allowed" : "bg-teal-600 text-white hover:bg-teal-700"}`}
+                whileHover={{ scale: isRecording ? 1 : 1.05 }}
+                whileTap={{ scale: isRecording ? 1 : 0.95 }}
+              >
+                {isRecording ? "Recording..." : "Record Message (Hindi)"}
+              </motion.button>
+              <motion.button
+                onClick={handleTranslateMessage}
+                className="px-3 py-1 rounded-lg text-sm font-medium bg-purple-600 text-white hover:bg-purple-700"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+              >
+                Translate to English
+              </motion.button>
             </div>
           </motion.div>
         )}
@@ -595,6 +698,44 @@ export default function ChatBox({ userDetails }) {
                     Close
                   </motion.button>
                 </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showComingSoonModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 z-50"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ duration: 0.3 }}
+              className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md border border-teal-300 relative"
+            >
+              <button
+                onClick={() => setShowComingSoonModal(false)}
+                className="absolute top-2 right-2 text-gray-500 hover:text-gray-700 text-xl font-bold"
+              >
+                X
+              </button>
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Coming Soon</h2>
+              <p>Translation is coming soon.</p>
+              <div className="flex justify-end mt-4">
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setShowComingSoonModal(false)}
+                  className="px-4 py-2 bg-gray-500 text-white rounded-md text-sm font-medium"
+                >
+                  Close
+                </motion.button>
               </div>
             </motion.div>
           </motion.div>
