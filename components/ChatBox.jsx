@@ -524,7 +524,7 @@ export default function ChatBox({ userDetails }) {
                 whileHover={{ scale: isRecording ? 1 : 1.05 }}
                 whileTap={{ scale: isRecording ? 1 : 0.95 }}
               >
-                {isRecording ? "Recording..." : "Record Message in English now"}
+                {isRecording ? "Recording..." : "Record Message"}
               </motion.button>
               {recordLang === "hi-IN" && (
                 <motion.button
