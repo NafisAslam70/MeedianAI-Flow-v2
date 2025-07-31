@@ -210,7 +210,7 @@ const useDashboardData = (session, selectedDate) => {
 
     const fetchAssignedTasks = async () => {
       const key = `assignedTasks:${selectedDate}:${session?.user?.id}`;
-      if (taskCache.has(key)) {
+      if (taskCache.has(key) ) {
         dispatch({ type: "SET_ASSIGNED_TASKS", payload: taskCache.get(key) });
         return;
       }
@@ -393,6 +393,9 @@ const StatusUpdateModal = ({
   isUpdating,
   onUpdate,
   onClose,
+  startVoiceRecording,
+  isRecording,
+  handleTranslateComment,
 }) => (
   <div>
     {/* --- Sprint + Status selects ----------------------------------- */}
@@ -487,6 +490,25 @@ const StatusUpdateModal = ({
       placeholder="Add a comment to the task discussion..."
       className="w-full px-4 py-2 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-teal-500 text-sm font-medium text-gray-700"
     />
+    <div className="flex items-center mt-2 gap-2">
+      <motion.button
+        onClick={startVoiceRecording}
+        disabled={isRecording}
+        className={`px-3 py-1 rounded-lg text-sm font-medium ${isRecording ? "bg-gray-400 cursor-not-allowed" : "bg-teal-600 text-white hover:bg-teal-700"}`}
+        whileHover={{ scale: isRecording ? 1 : 1.05 }}
+        whileTap={{ scale: isRecording ? 1 : 0.95 }}
+      >
+        {isRecording ? "Recording..." : "Record Comment (Hindi)"}
+      </motion.button>
+      <motion.button
+        onClick={handleTranslateComment}
+        className="px-3 py-1 rounded-lg text-sm font-medium bg-purple-600 text-white hover:bg-purple-700"
+        whileHover={{ scale: 1.05 }}
+        whileTap={{ scale: 0.95 }}
+      >
+        Translate to English
+      </motion.button>
+    </div>
 
     {/* --- Buttons ----------------------------------------------------- */}
     <div className="flex justify-end space-x-2 mt-4">
@@ -655,6 +677,7 @@ export default function MemberDashboard() {
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showCloseDayModal, setShowCloseDayModal] = useState(false);
+  const [showComingSoonModal, setShowComingSoonModal] = useState(false);
   const [newStatus, setNewStatus] = useState("");
   const [selectedSprint, setSelectedSprint] = useState("");
   const [sprints, setSprints] = useState([]);
@@ -666,6 +689,7 @@ export default function MemberDashboard() {
   const [sendWhatsapp, setSendWhatsapp] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [isRecording, setIsRecording] = useState(false);
 
   const {
     state,
@@ -674,6 +698,7 @@ export default function MemberDashboard() {
     users,
     mriData,
     mriError,
+    openCloseTimes,
     canCloseDay,
     isLoadingAssignedTasks,
     isLoadingRoutineTasks,
@@ -757,6 +782,77 @@ export default function MemberDashboard() {
     }
   };
 
+  /* listen for chat-originated task clicks */
+  useEffect(() => {
+    const handler = async (e) => {
+      const { taskId, sprintId } = e.detail || {};
+      if (!taskId) return;
+
+      /* ensure tasks are loaded */
+      const task = state.assignedTasks.find((t) => t.id === taskId);
+      if (!task) return;               // not for this member
+
+      /* switch tab & open details */
+      setActiveTab("assigned");
+
+      /* allow the AssignedTasksView to mount before we open modal */
+      setTimeout(async () => {
+        setSelectedTask(task);
+        await fetchTaskLogs(taskId);
+
+        if (sprintId) {
+          /* highlight sprint inside modal */
+          await fetchSprints(taskId, user?.id);
+          setSelectedSprint(String(sprintId));
+        }
+        setShowDetailsModal(true);
+      }, 0);
+    };
+
+    window.addEventListener("member-open-task", handler);
+    return () => window.removeEventListener("member-open-task", handler);
+  }, [state.assignedTasks, user?.id, setActiveTab, setSelectedTask, setSelectedSprint, setShowDetailsModal, fetchTaskLogs, fetchSprints]);
+
+  /* ------------------------------------------------------------------ */
+  /*  Voice recording for comments                                      */
+  /* ------------------------------------------------------------------ */
+  const startVoiceRecording = () => {
+    if (!window.SpeechRecognition && !window.webkitSpeechRecognition) {
+      setError("Speech recognition is not supported in this browser.");
+      return;
+    }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    recognition.lang = "hi-IN";
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    setIsRecording(true);
+
+    recognition.start();
+
+    recognition.onresult = (event) => {
+      const transcript = event.results[0][0].transcript;
+      setNewLogComment(prev => prev ? prev + ' ' + transcript : transcript);
+      setIsRecording(false);
+    };
+
+    recognition.onerror = (event) => {
+      console.error("Voice recognition error:", event.error);
+      setError(`Voice recognition error: ${event.error}`);
+      setIsRecording(false);
+    };
+
+    recognition.onend = () => {
+      setIsRecording(false);
+    };
+  };
+
+  const handleTranslateComment = () => {
+    setShowComingSoonModal(true);
+  };
+
   /* ------------------------------------------------------------------ */
   /*  Handle status update (task or sprint)                             */
   /* ------------------------------------------------------------------ */
@@ -825,12 +921,12 @@ export default function MemberDashboard() {
     });
 
     /* chat notifications (WhatsApp handled backend) */
-    const msg = isSprint
-      ? `Task "${selectedTask.title}" sprint "${
-          sprints.find((s) => s.id === parseInt(selectedSprint))?.title
-        }" → ${newStatus}`
-      : `Task "${selectedTask.title}" → ${newStatus}`;
-    await notifyAssigneesChat(selectedTask.id, msg);
+    // const msg = isSprint
+    //   ? `Task "${selectedTask.title}" sprint "${
+    //       sprints.find((s) => s.id === parseInt(selectedSprint))?.title
+    //     }" → ${newStatus}`
+    //   : `Task "${selectedTask.title}" → ${newStatus}`;
+    // await notifyAssigneesChat(selectedTask.id, msg);  // Changed: removed to avoid duplicate messages (backend already handles)
 
     setSuccess("Task status updated!");
     setShowStatusModal(false);
@@ -1080,6 +1176,9 @@ export default function MemberDashboard() {
               setSendNotification(true);
               setSendWhatsapp(false);
             }}
+            startVoiceRecording={startVoiceRecording}
+            isRecording={isRecording}
+            handleTranslateComment={handleTranslateComment}
           />
         </Modal>
 
@@ -1113,6 +1212,24 @@ export default function MemberDashboard() {
             onClose={() => setShowCloseDayModal(false)}
             onConfirm={handleCloseDay}
           />
+        </Modal>
+
+        <Modal
+          isOpen={showComingSoonModal}
+          onClose={() => setShowComingSoonModal(false)}
+          title="Coming Soon"
+        >
+          <p>Translation is coming soon.</p>
+          <div className="flex justify-end mt-4">
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setShowComingSoonModal(false)}
+              className="px-4 py-2 bg-teal-600 text-white rounded-md text-sm font-medium"
+            >
+              Close
+            </motion.button>
+          </div>
         </Modal>
       </div>
     </motion.div>

@@ -1,4 +1,4 @@
-// FILE: app/(main)/api/member/assignedTasks/status/route.js
+
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import {
@@ -86,9 +86,7 @@ export async function PATCH(req) {
     const taskStatusRows = await db
       .select({ id: assignedTaskStatus.id })
       .from(assignedTaskStatus)
-      .where(and(eq(assignedTaskStatus.taskId, taskId), eq(assignedTaskStatus.memberId, userId)))
-      .limit(1);
-
+      .where(and(eq(assignedTaskStatus.taskId, taskId), eq(assignedTaskStatus.memberId, userId)));
     const taskStatusRow = taskStatusRows[0];
     if (!taskStatusRow) {
       return NextResponse.json({ error: "Task not assigned" }, { status: 404 });
@@ -96,31 +94,28 @@ export async function PATCH(req) {
 
     /* 4 fetch common rows */
     console.log(`Fetching task, updater, assignees, and sender for taskId=${taskId}, userId=${userId}`);
-    const [taskResult, updaterResult, assigneesResult, senderResult] = await Promise.all([
-      db
-        .select({ title: assignedTasks.title, createdBy: assignedTasks.createdBy })
-        .from(assignedTasks)
-        .where(eq(assignedTasks.id, taskId))
-        .limit(1),
-      db
-        .select({ name: users.name })
-        .from(users)
-        .where(eq(users.id, userId))
-        .limit(1),
-      db
-        .select({ memberId: assignedTaskStatus.memberId })
-        .from(assignedTaskStatus)
-        .where(eq(assignedTaskStatus.taskId, taskId)),
-      db
-        .select({ whatsapp_number: users.whatsapp_number })
-        .from(users)
-        .where(eq(users.id, userId))
-        .limit(1),
-    ]);
-
+    const taskResult = await db
+      .select({ title: assignedTasks.title, createdBy: assignedTasks.createdBy })
+      .from(assignedTasks)
+      .where(eq(assignedTasks.id, taskId));
     const task = taskResult[0];
+
+    const updaterResult = await db
+      .select({ name: users.name })
+      .from(users)
+      .where(eq(users.id, userId));
     const updater = updaterResult[0];
+
+    const assigneesResult = await db
+      .select({ memberId: assignedTaskStatus.memberId })
+      .from(assignedTaskStatus)
+      .where(eq(assignedTaskStatus.taskId, taskId));
     const assignees = assigneesResult || [];
+
+    const senderResult = await db
+      .select({ whatsapp_number: users.whatsapp_number })
+      .from(users)
+      .where(eq(users.id, userId));
     const sender = senderResult[0];
 
     if (!task) {
@@ -147,7 +142,11 @@ export async function PATCH(req) {
         .set({ status, updatedAt: now })
         .where(eq(assignedTaskStatus.id, taskStatusRow.id));
 
-      notification = `Task "${task.title}" status updated to ${status.replace("_", " ")} by ${updaterName}.`;
+      notification = `Task "${task.title}" status updated to ${status.replace("_", " ")} by ${updaterName}`;
+      if (newLogComment !== "No log provided") {
+        notification += `. Comment: ${newLogComment}`;
+      }
+      notification += `. [task:${taskId}]`;
     }
 
     if (action === "update_sprint") {
@@ -165,7 +164,6 @@ export async function PATCH(req) {
         })
         .where(eq(sprints.id, sprintId))
         .returning({ id: sprints.id, title: sprints.title });
-
       const sprint = sprintResult[0];
       if (!sprint) {
         return NextResponse.json({ error: "Sprint not found" }, { status: 404 });
@@ -187,7 +185,11 @@ export async function PATCH(req) {
         .set({ status: derived, updatedAt: now })
         .where(eq(assignedTaskStatus.id, taskStatusRow.id));
 
-      notification = `Sprint "${sprint.title}" in task "${task.title}" updated to ${status.replace("_", " ")} by ${updaterName}.`;
+      notification = `Sprint "${sprint.title}" in task "${task.title}" updated to ${status.replace("_", " ")} by ${updaterName}`;
+      if (newLogComment !== "No log provided") {
+        notification += `. Comment: ${newLogComment}`;
+      }
+      notification += `. [task:${taskId} sprint:${sprintId}]`;
     }
 
     /* 6 prepare recipients */
@@ -247,7 +249,7 @@ export async function PATCH(req) {
           )
         );
       } catch (err) {
-        console.error("WhatsApp notification failed:", err.message);
+        console.error("WhatsApp notification failed:", err.message, err.stack);
         // Optionally log or notify user, but proceed with 200 OK for in-app success
       }
     }

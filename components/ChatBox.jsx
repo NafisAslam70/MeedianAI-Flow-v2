@@ -16,17 +16,32 @@ const toTitle = (s = "") =>
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
 
-const linkify = (txt) =>
-  txt.replace(
+const linkify = (raw = "") => {
+  // 0️⃣ normalise all whitespace (NBSP, tabs, etc.)
+  const txt = raw.replace(/\s+/g, " ").trim();
+
+  // 1️⃣ URLs → anchor
+  const withUrls = txt.replace(
     /(https?:\/\/[^\s]+)/g,
     (url) =>
       `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-blue-600 underline break-all">${url}</a>`
   );
 
+  // 2️⃣ [task:114]  or  [task:114 sprint:3] → button
+  return withUrls.replace(
+    /\[task\s*:\s*(\d+)(?:\s+?sprint\s*:\s*(\d+))?\]/gi,
+    (_m, taskId, sprintId) => {
+      const label = sprintId ? "View Sprint in Task" : "View Task";
+      return `<button class="task-link text-blue-600 underline font-medium hover:text-blue-800" data-task-id="${taskId}" data-sprint-id="${sprintId || ""}">${label}</button>`;
+    }
+  );
+};
+
+/* ───────── component ───────── */
 export default function ChatBox({ userDetails }) {
-  /*──────── state ────────*/
-  const [messages, setMessages] = useState([]);
-  const [users, setUsers]       = useState([]);
+  /* ------------ state ------------- */
+  const [messages, setMessages]       = useState([]);
+  const [users, setUsers]             = useState([]);
   const [selectedRecipient, setSelectedRecipient] = useState("");
   const [messageContent, setMessageContent]       = useState("");
 
@@ -38,18 +53,25 @@ export default function ChatBox({ userDetails }) {
 
   const [error, setError] = useState(null);
 
-  /*──────── refs ────────*/
-  const messagesEndRef = useRef(null);
-  const audioRef       = useRef(null);
-  const lastAlertedId  = useRef(null);
+  /* admin-fallback task modal (unchanged) */
+  const [showTaskDetailsModal, setShowTaskDetailsModal] = useState(false);
+  const [selectedTask, setSelectedTask] = useState(null);
+  const [taskLogs, setTaskLogs]         = useState([]);
+
+  const messagesEndRef  = useRef(null);
+  const audioRef        = useRef(null);
+  const lastAlertedId   = useRef(null);
   const [jumpKey, setJumpKey] = useState(0);
 
-  /* drag */
-  const [pos, setPos] = useState({ x: 20, y: -20 });
+  const chatContainerRef = useRef(null);
+  const historyContainerRef = useRef(null);
+
+  /* drag-n-drop */
+  const [pos, setPos]     = useState({ x: 20, y: -20 });
   const [dragging, setDragging] = useState(false);
   const dragStart = useRef({ x: 0, y: 0 });
 
-  /*──────── sound helpers ────────*/
+  /* ------------ utils ------------- */
   const playSound = () => {
     if (!audioRef.current) return;
     audioRef.current.loop = true;
@@ -61,16 +83,9 @@ export default function ChatBox({ userDetails }) {
     audioRef.current.pause();
     audioRef.current.currentTime = 0;
   };
-
-  /*──────── ui helpers ────────*/
   const scrollBottom = () =>
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-
-  const closeAll = () => {
-    setShowChatbox(false);
-    setShowHistory(false);
-  };
-
+  const closeAll = () => { setShowChatbox(false); setShowHistory(false); };
   const getRole = (u) => {
     if (u.role === "admin") return "Admin";
     if (u.role === "team_manager")
@@ -78,7 +93,7 @@ export default function ChatBox({ userDetails }) {
     return u.type ? toTitle(u.type) : "Member";
   };
 
-  /*──────── fetch users & messages every 5 s ────────*/
+  /* ------------ polling ------------ */
   const fetchData = async () => {
     if (!userDetails?.id) return;
     try {
@@ -91,7 +106,6 @@ export default function ChatBox({ userDetails }) {
       setUsers(fetchedUsers);
       setMessages(fetchedMsgs);
 
-      /* unread calc (per‑sender) */
       const unread = fetchedMsgs.filter(
         (m) =>
           m.recipientId === Number(userDetails.id) &&
@@ -108,15 +122,12 @@ export default function ChatBox({ userDetails }) {
 
       if (unread.length === 0) stopSound();
 
-      const newest = unread.sort(
-        (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
-      )[0];
-      if (
-        newest &&
-        newest.id !== lastAlertedId.current &&
-        !showChatbox &&
-        !showHistory
-      ) {
+      const newest = unread
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+
+      if (newest &&
+          newest.id !== lastAlertedId.current &&
+          !showChatbox && !showHistory) {
         playSound();
         setJumpKey(Date.now());
         lastAlertedId.current = newest.id;
@@ -127,7 +138,7 @@ export default function ChatBox({ userDetails }) {
     }
   };
 
-  /*──────── mark messages from ONE partner read ────────*/
+  /* ------------ mark-as-read ---------- */
   const markReadForPartner = async (partnerId) => {
     const toMark = messages.filter(
       (m) =>
@@ -147,7 +158,7 @@ export default function ChatBox({ userDetails }) {
       delete copy[partnerId];
       return copy;
     });
-    setHasUnread(Object.keys(unreadCounts).length > 1); // update after deletion
+    setHasUnread(Object.keys(unreadCounts).length > 1);
     if (Object.keys(unreadCounts).length <= 1) stopSound();
 
     await Promise.all(
@@ -161,7 +172,7 @@ export default function ChatBox({ userDetails }) {
     );
   };
 
-  /*──────── send new message ────────*/
+  /* ------------ send message ---------- */
   const sendMessage = async () => {
     if (!selectedRecipient || !messageContent.trim()) {
       setError("Pick a recipient and write something.");
@@ -195,7 +206,7 @@ export default function ChatBox({ userDetails }) {
     }
   };
 
-  /*──────── drag handlers ────────*/
+  /* ------------ drag helpers ---------- */
   const mouseDown = (e) => {
     if (e.target.closest(".chatbox-header")) {
       setDragging(true);
@@ -208,7 +219,46 @@ export default function ChatBox({ userDetails }) {
   };
   const mouseUp = () => setDragging(false);
 
-  /*──────── effects ────────*/
+  /* ------------ member dispatch ------- */
+  const dispatchOpenTask = (taskId, sprintId) => {
+    window.dispatchEvent(
+      new CustomEvent("member-open-task", {
+        detail: { taskId: Number(taskId), sprintId: sprintId ? Number(sprintId) : null },
+      })
+    );
+  };
+
+  /* ------------ single click-handler --- */
+  useEffect(() => {
+    const handleTaskClick = (e) => {
+      if (!e.target.classList.contains("task-link")) return;
+
+      const taskId   = e.target.dataset.taskId;
+      const sprintId = e.target.dataset.sprintId;
+
+      console.log("Task link clicked:", { taskId, sprintId });
+
+      if (userDetails?.role === "admin") {
+        window.open(`/dashboard/admin?focusTask=${taskId}`, "_blank");
+      } else {
+        dispatchOpenTask(taskId, sprintId);
+        closeAll();
+      }
+    };
+
+    const chatEl = chatContainerRef.current;
+    const historyEl = historyContainerRef.current;
+
+    chatEl?.addEventListener("click", handleTaskClick);
+    historyEl?.addEventListener("click", handleTaskClick);
+
+    return () => {
+      chatEl?.removeEventListener("click", handleTaskClick);
+      historyEl?.removeEventListener("click", handleTaskClick);
+    };
+  }, [showHistory, userDetails?.role]);
+
+  /* ------------ life-cycle ------------ */
   useEffect(() => {
     audioRef.current = new Audio("/sms.mp3");
     audioRef.current.loop = true;
@@ -221,11 +271,8 @@ export default function ChatBox({ userDetails }) {
     return () => clearInterval(id);
   }, [userDetails?.id, showChatbox, showHistory]);
 
-  /* Only mark read when chatbox + a partner is open */
   useEffect(() => {
-    if (showChatbox && selectedRecipient) {
-      markReadForPartner(Number(selectedRecipient));
-    }
+    if (showChatbox && selectedRecipient) markReadForPartner(Number(selectedRecipient));
   }, [showChatbox, selectedRecipient]);
 
   useEffect(() => {
@@ -239,7 +286,7 @@ export default function ChatBox({ userDetails }) {
 
   useEffect(scrollBottom, [messages]);
 
-  /*──────── UI ────────*/
+  /* ------------ render (UI unchanged) -- */
   return (
     <motion.div
       initial={{ opacity: 0, x: 20 }}
@@ -249,7 +296,6 @@ export default function ChatBox({ userDetails }) {
       style={{ right: `${pos.x}px`, bottom: `${-pos.y + 40}px` }}
       onMouseDown={mouseDown}
     >
-      {/* error banner */}
       {error && (
         <motion.p
           initial={{ opacity: 0, y: -20 }}
@@ -261,7 +307,6 @@ export default function ChatBox({ userDetails }) {
         </motion.p>
       )}
 
-      {/* FABs */}
       <div className="flex gap-2">
         <button
           onClick={() => {
@@ -302,7 +347,6 @@ export default function ChatBox({ userDetails }) {
         <QuickCallInvite userDetails={userDetails} position={pos} closeAllModals={closeAll} />
       </div>
 
-      {/* CHATBOX PANEL */}
       <AnimatePresence>
         {showChatbox && (
           <motion.div
@@ -334,7 +378,7 @@ export default function ChatBox({ userDetails }) {
                 ))}
             </select>
 
-            <div className="flex-1 overflow-y-auto pr-2 mb-2">
+            <div className="flex-1 overflow-y-auto pr-2 mb-2" ref={chatContainerRef}>
               {selectedRecipient ? (
                 <ul className="space-y-3">
                   {messages
@@ -383,7 +427,6 @@ export default function ChatBox({ userDetails }) {
         )}
       </AnimatePresence>
 
-      {/* HISTORY PANEL */}
       <AnimatePresence>
         {showHistory && (
           <motion.div
@@ -393,6 +436,7 @@ export default function ChatBox({ userDetails }) {
             transition={{ duration: 0.3 }}
             className="fixed bg-white rounded-2xl shadow-2xl p-6 w-[400px] max-h-[60vh] overflow-y-auto border mt-4 z-50"
             style={{ right: `${pos.x}px`, bottom: `${-pos.y + 100}px` }}
+            ref={historyContainerRef}
           >
             <div className="flex justify-between items-center mb-4 bg-gradient-to-r from-blue-500 to-indigo-600 text-white p-4 -mx-6 -mt-6 rounded-t-2xl">
               <h3 className="text-xl font-semibold">Chat History</h3>
@@ -466,6 +510,93 @@ export default function ChatBox({ userDetails }) {
                 );
               });
             })()}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showTaskDetailsModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 z-50"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ duration: 0.3 }}
+              className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md border border-teal-300 relative"
+            >
+              <button
+                onClick={() => {
+                  setShowTaskDetailsModal(false);
+                  setSelectedTask(null);
+                  setTaskLogs([]);
+                }}
+                className="absolute top-2 right-2 text-gray-500 hover:text-gray-700 text-xl font-bold"
+              >
+                X
+              </button>
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Task Details</h2>
+              <div className="space-y-3">
+                <p className="text-sm font-medium text-gray-700"><strong>Title:</strong> {selectedTask?.title || "Untitled Task"}</p>
+                <p className="text-sm font-medium text-gray-700"><strong>Description:</strong> {selectedTask?.description || "No description"}</p>
+                <p className="text-sm font-medium text-gray-700"><strong>Assigned By:</strong> {selectedTask?.createdBy ? users.find((u) => u.id === selectedTask.createdBy)?.name || "Unknown" : "Unknown"}</p>
+                <p className="text-sm font-medium text-gray-700"><strong>Status:</strong> {(selectedTask?.status || "not_started").replace("_", " ")}</p>
+                <p className="text-sm font-medium text-gray-700"><strong>Assigned Date:</strong> {selectedTask?.assignedDate ? new Date(selectedTask.assignedDate).toLocaleDateString() : "N/A"}</p>
+                <p className="text-sm font-medium text-gray-700"><strong>Deadline:</strong> {selectedTask?.deadline ? new Date(selectedTask.deadline).toLocaleDateString() : "No deadline"}</p>
+                <p className="text-sm font-medium text-gray-700"><strong>Resources:</strong> {selectedTask?.resources || "No resources"}</p>
+
+                {selectedTask.sprints?.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-700">Sprints</h3>
+                    <ul className="space-y-2">
+                      {selectedTask.sprints.map((s) => (
+                        <li key={s.id} className="p-2 bg-gray-50 rounded border">
+                          <p className="font-medium">{s.title || "Untitled Sprint"}</p>
+                          <p className="text-sm text-gray-600">Status: {s.status.replace("_", " ")}</p>
+                          <p className="text-sm text-gray-600">{s.description || "No description."}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-700 mb-2">Discussion</h3>
+                  <div className="max-h-40 overflow-y-auto space-y-2">
+                    {taskLogs.length === 0 ? (
+                      <p className="text-sm text-gray-500">No discussion yet.</p>
+                    ) : (
+                      taskLogs.map((log) => (
+                        <div key={log.id} className="p-3 bg-gray-50 rounded-lg shadow-sm border border-gray-200">
+                          <p className="text-xs text-gray-600">
+                            {users.find((u) => u.id === log.userId)?.name || "Unknown"} ({new Date(log.createdAt).toLocaleString()}):
+                          </p>
+                          <p className="text-sm text-gray-700">{log.details}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+                <div className="flex justify-end mt-4">
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => {
+                      setShowTaskDetailsModal(false);
+                      setSelectedTask(null);
+                      setTaskLogs([]);
+                    }}
+                    className="px-4 py-2 bg-gray-500 text-white rounded-md text-sm font-medium"
+                  >
+                    Close
+                  </motion.button>
+                </div>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>

@@ -1,32 +1,52 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { assignedTasks, assignedTaskStatus, sprints, assignedTaskLogs } from "@/lib/schema";
+import {
+  assignedTasks,
+  assignedTaskStatus,
+  sprints,
+  assignedTaskLogs,
+} from "@/lib/schema";
 import { auth } from "@/lib/auth";
-import { eq, and, lte } from "drizzle-orm";
+import { eq, and, lte, inArray } from "drizzle-orm";
 
+/* ------------------------------------------------------------------ */
+/*  Helper – JSON with no-cache                                        */
+/* ------------------------------------------------------------------ */
+const json = (data, init = {}) =>
+  NextResponse.json(data, {
+    headers: { "Cache-Control": "no-store" },
+    ...init,
+  });
+
+/* ------------------------------------------------------------------ */
+/*  GET – tasks | sprints | assignees | logs | task                    */
+/* ------------------------------------------------------------------ */
 export async function GET(req) {
   try {
     const session = await auth();
-    if (!session || !session.user || !["admin", "member"].includes(session.user.role)) {
-      return NextResponse.json({ error: "Unauthorized: Admin or Member access required" }, { status: 401 });
+    if (
+      !session ||
+      !session.user ||
+      !["admin", "member"].includes(session.user.role)
+    ) {
+      return json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const userId = parseInt(session.user.id);
+    const userId = Number(session.user.id);
     const { searchParams } = new URL(req.url);
     const action = searchParams.get("action");
 
-    if (!action) {
-      return NextResponse.json({ error: "Action is required" }, { status: 400 });
-    }
+    if (!action) return json({ error: "action param required" }, { status: 400 });
 
+    /* 1️⃣  Daily task list ------------------------------------------ */
     if (action === "tasks") {
       const date = searchParams.get("date");
-      if (!date) return NextResponse.json({ error: "Date is required for tasks" }, { status: 400 });
+      if (!date) return json({ error: "date param required" }, { status: 400 });
 
-      const endOfDay = new Date(date);
-      endOfDay.setHours(23, 59, 59, 999);
+      // keep end-of-day in local time to avoid TZ truncation
+      const endOfDay = new Date(`${date}T23:59:59.999`);
 
-      const tasks = await db
+      const rows = await db
         .select({
           id: assignedTaskStatus.taskId,
           title: assignedTasks.title,
@@ -47,261 +67,146 @@ export async function GET(req) {
           )
         );
 
-      const tasksWithSprints = await Promise.all(
-        tasks.map(async (task) => {
-          const taskSprints = await db
-            .select({
-              id: sprints.id,
-              title: sprints.title,
-              description: sprints.description,
-              status: sprints.status,
-            })
-            .from(sprints)
-            .where(eq(sprints.taskStatusId, task.taskStatusId));
+      /* single sprint query instead of Promise.all */
+      const statusIds = rows.map((r) => r.taskStatusId);
+      const allSprints = await db
+        .select()
+        .from(sprints)
+        .where(inArray(sprints.taskStatusId, statusIds));
 
-          return { ...task, sprints: taskSprints };
-        })
-      );
+      const tasks = rows.map((t) => ({
+        ...t,
+        sprints: allSprints.filter((s) => s.taskStatusId === t.taskStatusId),
+      }));
 
-      console.log("Assigned tasks fetched:", tasksWithSprints.length, { userId, date });
-
-      return NextResponse.json({ tasks: tasksWithSprints }, {
-        headers: { "Cache-Control": "no-store, max-age=0" }
-      });
+      return json({ tasks });
     }
 
+    /* 2️⃣  Sprints for a task --------------------------------------- */
     if (action === "sprints") {
-      const taskId = parseInt(searchParams.get("taskId"));
-      const memberId = parseInt(searchParams.get("memberId"));
-
+      const taskId   = Number(searchParams.get("taskId"));
+      const memberId = Number(searchParams.get("memberId"));
       if (!taskId || !memberId || memberId !== userId) {
-        return NextResponse.json({ error: "Invalid task ID or member ID" }, { status: 400 });
+        return json({ error: "invalid ids" }, { status: 400 });
       }
 
-      const taskStatus = await db
+      const [statusRow] = await db
         .select({ id: assignedTaskStatus.id })
         .from(assignedTaskStatus)
-        .where(and(eq(assignedTaskStatus.taskId, taskId), eq(assignedTaskStatus.memberId, userId)))
+        .where(
+          and(eq(assignedTaskStatus.taskId, taskId),
+              eq(assignedTaskStatus.memberId, userId))
+        )
         .limit(1);
 
-      if (!taskStatus.length) {
-        return NextResponse.json({ error: "Task not assigned to user" }, { status: 404 });
-      }
+      if (!statusRow) return json({ error: "task not assigned" }, { status: 404 });
 
       const sprintsData = await db
-        .select({
-          id: sprints.id,
-          title: sprints.title,
-          description: sprints.description,
-          status: sprints.status,
-        })
+        .select()
         .from(sprints)
-        .where(eq(sprints.taskStatusId, taskStatus[0].id));
+        .where(eq(sprints.taskStatusId, statusRow.id));
 
-      console.log("Sprints fetched:", sprintsData.length, { taskId, userId });
-
-      return NextResponse.json({ sprints: sprintsData }, {
-        headers: { "Cache-Control": "no-store, max-age=0" }
-      });
+      return json({ sprints: sprintsData });
     }
 
+    /* 3️⃣  Assignee list -------------------------------------------- */
     if (action === "assignees") {
-      const taskId = parseInt(searchParams.get("taskId"));
-      if (!taskId) return NextResponse.json({ error: "Task ID is required" }, { status: 400 });
+      const taskId = Number(searchParams.get("taskId"));
+      if (!taskId) return json({ error: "taskId required" }, { status: 400 });
 
-      const userTask = await db
-        .select()
-        .from(assignedTaskStatus)
-        .where(and(eq(assignedTaskStatus.taskId, taskId), eq(assignedTaskStatus.memberId, userId)))
-        .limit(1);
-
-      if (!userTask.length) {
-        return NextResponse.json({ error: "User not assigned to task" }, { status: 403 });
-      }
-
-      const assignees = await db
+      const list = await db
         .select({ memberId: assignedTaskStatus.memberId })
         .from(assignedTaskStatus)
         .where(eq(assignedTaskStatus.taskId, taskId));
 
-      console.log("Assignees fetched:", assignees.length, { taskId, userId });
-
-      return NextResponse.json({ assignees }, {
-        headers: { "Cache-Control": "no-store, max-age=0" }
-      });
+      return json({ assignees: list });
     }
 
+    /* 4️⃣  Logs ------------------------------------------------------ */
     if (action === "logs") {
-      const taskId = parseInt(searchParams.get("taskId"));
-      if (!taskId) return NextResponse.json({ error: "Task ID is required" }, { status: 400 });
-
-      const userTask = await db
-        .select()
-        .from(assignedTaskStatus)
-        .where(and(eq(assignedTaskStatus.taskId, taskId), eq(assignedTaskStatus.memberId, userId)))
-        .limit(1);
-
-      if (!userTask.length) {
-        return NextResponse.json({ error: "User not assigned to task" }, { status: 403 });
-      }
+      const taskId = Number(searchParams.get("taskId"));
+      if (!taskId) return json({ error: "taskId required" }, { status: 400 });
 
       const logs = await db
-        .select({
-          id: assignedTaskLogs.id,
-          taskId: assignedTaskLogs.taskId,
-          userId: assignedTaskLogs.userId,
-          action: assignedTaskLogs.action,
-          details: assignedTaskLogs.details,
-          createdAt: assignedTaskLogs.createdAt,
-        })
+        .select()
         .from(assignedTaskLogs)
         .where(eq(assignedTaskLogs.taskId, taskId))
         .orderBy(assignedTaskLogs.createdAt);
 
-      console.log("Task logs fetched:", logs.length, { taskId, userId });
-
-      return NextResponse.json({ logs }, {
-        headers: { "Cache-Control": "no-store, max-age=0" }
-      });
+      return json({ logs });
     }
 
-    return NextResponse.json({ error: "Invalid action" }, { status: 400 });
-  } catch (error) {
-    console.error("Error processing GET request:", error, { url: req.url });
-    return NextResponse.json({ error: `Failed to process request: ${error.message}` }, { status: 500 });
+    /* 5️⃣  Single task (for chat link) ------------------------------ */
+    if (action === "task") {
+      const taskId = Number(searchParams.get("taskId"));
+      if (!taskId) return json({ error: "taskId required" }, { status: 400 });
+
+      /* verify assignment & pull taskStatusId in one hit */
+      const [row] = await db
+        .select({
+          tsid: assignedTaskStatus.id,
+          ...assignedTasks,
+        })
+        .from(assignedTaskStatus)
+        .innerJoin(assignedTasks, eq(assignedTasks.id, assignedTaskStatus.taskId))
+        .where(
+          and(eq(assignedTaskStatus.taskId, taskId),
+              eq(assignedTaskStatus.memberId, userId))
+        )
+        .limit(1);
+
+      if (!row) return json({ error: "task not assigned" }, { status: 404 });
+
+      const spr = await db
+        .select()
+        .from(sprints)
+        .where(eq(sprints.taskStatusId, row.tsid));
+
+      return json({ task: { ...row, sprints: spr } });
+    }
+
+    return json({ error: "unknown action" }, { status: 400 });
+  } catch (err) {
+    console.error("assignedTasks GET error", err);
+    return json({ error: err.message }, { status: 500 });
   }
 }
 
+/* ------------------------------------------------------------------ */
+/*  POST – create task log                                            */
+/* ------------------------------------------------------------------ */
 export async function POST(req) {
   try {
     const session = await auth();
     if (!session || !session.user || session.user.role !== "member") {
-      return NextResponse.json({ error: "Unauthorized: Member access required" }, { status: 401 });
+      return json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const userId = parseInt(session.user.id);
-    const { taskId, action, details, notifyAssignees = false, notifyWhatsapp = false } = await req.json();
-
+    const userId = Number(session.user.id);
+    const { taskId, action, details } = await req.json();
     if (!taskId || !action || !details) {
-      return NextResponse.json({ error: "Task ID, action, and details are required" }, { status: 400 });
+      return json({ error: "taskId, action, details required" }, { status: 400 });
     }
 
-    const taskStatus = await db
-      .select()
+    const [statusRow] = await db
+      .select({ id: assignedTaskStatus.id })
       .from(assignedTaskStatus)
-      .where(and(eq(assignedTaskStatus.taskId, taskId), eq(assignedTaskStatus.memberId, userId)))
+      .where(
+        and(eq(assignedTaskStatus.taskId, taskId),
+            eq(assignedTaskStatus.memberId, userId))
+      )
       .limit(1);
 
-    if (!taskStatus.length) {
-      return NextResponse.json({ error: "Task not assigned to user" }, { status: 404 });
-    }
+    if (!statusRow) return json({ error: "task not assigned" }, { status: 404 });
 
     const [log] = await db
       .insert(assignedTaskLogs)
-      .values({
-        taskId,
-        userId,
-        action,
-        details,
-        createdAt: new Date(),
-      })
+      .values({ taskId, userId, action, details, createdAt: new Date() })
       .returning();
 
-    console.log("Task log created:", { taskId, action, userId, details });
-
-    if (notifyAssignees || notifyWhatsapp) {
-      const [taskData] = await db
-        .select({ 
-          title: assignedTasks.title,
-          createdBy: assignedTasks.createdBy 
-        })
-        .from(assignedTasks)
-        .where(eq(assignedTasks.id, taskId))
-        .limit(1);
-
-      if (!taskData) {
-        console.error("Task not found for notification");
-      } else {
-        const [updaterData] = await db
-          .select({ name: users.name })
-          .from(users)
-          .where(eq(users.id, userId))
-          .limit(1);
-        const updaterName = updaterData?.name || "Unknown";
-
-        const assignees = await db
-          .select({ memberId: assignedTaskStatus.memberId })
-          .from(assignedTaskStatus)
-          .where(eq(assignedTaskStatus.taskId, taskId));
-
-        const notificationContent = `New log added to task "${taskData.title}" by ${updaterName}: ${details}`;
-
-        const [sender] = await db
-          .select({ whatsappNumber: users.whatsappNumber })
-          .from(users)
-          .where(eq(users.id, userId))
-          .limit(1);
-
-        const senderWhatsapp = sender?.whatsappNumber;
-
-        let assigneeIds = assignees.map(a => a.memberId);
-        if (taskData.createdBy !== userId && !assigneeIds.includes(taskData.createdBy)) {
-          assigneeIds.push(taskData.createdBy);
-        }
-
-        let recipientUsers = [];
-        if (assigneeIds.length > 0) {
-          recipientUsers = await db
-            .select({ id: users.id, whatsappNumber: users.whatsappNumber })
-            .from(users)
-            .where(inArray(users.id, assigneeIds));
-        }
-
-        const now = new Date();
-        for (const assignee of assignees) {
-          if (assignee.memberId !== userId && notifyAssignees) {
-            await db.insert(messages).values({
-              senderId: userId,
-              recipientId: assignee.memberId,
-              content: notificationContent,
-              createdAt: now,
-              status: "sent",
-            });
-          }
-          if (notifyWhatsapp) {
-            const recipient = recipientUsers.find(u => u.id === assignee.memberId);
-            if (recipient && recipient.whatsappNumber && senderWhatsapp) {
-              await sendWhatsappMessage(senderWhatsapp, recipient.whatsappNumber, notificationContent);
-            }
-          }
-        }
-
-        // Send to creator if not the updater and not already sent as assignee
-        if (taskData.createdBy !== userId && !assignees.some(a => a.memberId === taskData.createdBy)) {
-          if (notifyAssignees) {
-            await db.insert(messages).values({
-              senderId: userId,
-              recipientId: taskData.createdBy,
-              content: notificationContent,
-              createdAt: now,
-              status: "sent",
-            });
-          }
-          if (notifyWhatsapp) {
-            const recipient = recipientUsers.find(u => u.id === taskData.createdBy);
-            if (recipient && recipient.whatsappNumber && senderWhatsapp) {
-              await sendWhatsappMessage(senderWhatsapp, recipient.whatsappNumber, notificationContent);
-            }
-          }
-        }
-      }
-    }
-
-    return NextResponse.json({ log }, { status: 201 });
-  } catch (error) {
-    console.error("Error creating task log:", error, {
-      body: await req.json().catch(() => ({}))
-    });
-    return NextResponse.json({ error: `Failed to create task log: ${error.message}` }, { status: 500 });
+    return json({ log }, { status: 201 });
+  } catch (err) {
+    console.error("assignedTasks POST error", err);
+    return json({ error: err.message }, { status: 500 });
   }
 }

@@ -1,4 +1,3 @@
-
 "use client";
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -12,7 +11,7 @@ export default function AdminDashboard() {
   const router = useRouter();
   const { data: session, status } = useSession();
   const [error, setError] = useState("");
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
+  const [selectedDate, setSelectedDate] = useState("");
   const [totalTasks, setTotalTasks] = useState(0);
   const [completedTasks, setCompletedTasks] = useState(0);
   const [inProgressTasks, setInProgressTasks] = useState(0);
@@ -24,13 +23,18 @@ export default function AdminDashboard() {
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
   const [users, setUsers] = useState([]);
   const [tasks, setTasks] = useState([]);
-  const [latestAssigned, setLatestAssigned] = useState([]);
   const [latestUpdated, setLatestUpdated] = useState([]);
   const [recentLogs, setRecentLogs] = useState([]);
+  const [selectedSummaryCategory, setSelectedSummaryCategory] = useState(null);
+  const [categoryTasks, setCategoryTasks] = useState([]);
+  const [selectedTask, setSelectedTask] = useState(null);
+  const [taskLogs, setTaskLogs] = useState([]);
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [showSummaryModal, setShowSummaryModal] = useState(false);
+  const [unreadLogs, setUnreadLogs] = useState(new Set()); // Track tasks with unread logs
 
   const { data: usersData } = useSWR("/api/member/users", fetcher);
-  const { data: tasksData } = useSWR(`/api/managersCommon/assign-tasks?date=${selectedDate}&user=${userFilter}&status=${statusFilter}`, fetcher);
-  const { data: logsData } = useSWR("/api/managersCommon/assigned-task-logs", fetcher);
+  const { data: dashboardData } = useSWR(`/api/managersCommon/dashboard?user=${userFilter}&status=${statusFilter}${selectedDate ? `&date=${selectedDate}` : ''}`, fetcher);
 
   useEffect(() => {
     if (status === "authenticated" && session?.user?.role !== "admin") {
@@ -47,42 +51,41 @@ export default function AdminDashboard() {
   }, [usersData]);
 
   useEffect(() => {
-    if (tasksData?.assignedTasks) {
-      const filteredTasks = tasksData.assignedTasks;
+    if (dashboardData) {
+      const filteredTasks = dashboardData.assignedTasks || [];
       setTasks(filteredTasks);
 
-      // Compute summaries
-      setTotalTasks(filteredTasks.length);
-      setCompletedTasks(filteredTasks.filter(t => t.status === "done" || t.status === "verified").length);
-      setInProgressTasks(filteredTasks.filter(t => t.status === "in_progress").length);
-      setNotStartedTasks(filteredTasks.filter(t => t.status === "not_started").length);
-      setPendingVerificationTasks(filteredTasks.filter(t => t.status === "pending_verification").length);
+      // Set summaries from backend
+      setTotalTasks(dashboardData.summaries?.totalTasks || 0);
+      setCompletedTasks(dashboardData.summaries?.completedTasks || 0);
+      setInProgressTasks(dashboardData.summaries?.inProgressTasks || 0);
+      setNotStartedTasks(dashboardData.summaries?.notStartedTasks || 0);
+      setPendingVerificationTasks(dashboardData.summaries?.pendingVerificationTasks || 0);
 
-      // Latest assigned (sort by createdAt desc, top 5)
-      const sortedAssigned = [...filteredTasks].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 5);
-      setLatestAssigned(sortedAssigned);
+      // Latest updated from backend
+      setLatestUpdated(dashboardData.latestUpdated || []);
 
-      // Latest updated (sort by updatedAt desc, top 5)
-      const sortedUpdated = [...filteredTasks].sort((a, b) => new Date(b.updatedAt) - new Date(a.createdAt)).slice(0, 5);
-      setLatestUpdated(sortedUpdated);
+      // Recent logs from backend
+      setRecentLogs(dashboardData.recentLogs || []);
+
+      // Unread logs using localStorage
+      const unread = new Set();
+      (dashboardData.recentLogs || []).forEach(log => {
+        if (!localStorage.getItem(`viewed_${log.id}`)) {
+          unread.add(log.taskId);
+        }
+      });
+      setUnreadLogs(unread);
     }
-  }, [tasksData]);
-
-  useEffect(() => {
-    if (logsData?.logs) {
-      // Recent logs (top 5)
-      const sortedLogs = [...logsData.logs].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 5);
-      setRecentLogs(sortedLogs);
-    }
-  }, [logsData]);
+  }, [dashboardData]);
 
   const getStatusColor = (status) => {
     switch (status) {
-      case "not_started": return "bg-red-100 text-red-800";
-      case "in_progress": return "bg-yellow-100 text-yellow-800";
-      case "pending_verification": return "bg-blue-100 text-blue-800";
-      case "done": case "verified": return "bg-green-100 text-green-800";
-      default: return "bg-gray-100 text-gray-800";
+      case "not_started": return "bg-red-50 text-red-700";
+      case "in_progress": return "bg-yellow-50 text-yellow-700";
+      case "pending_verification": return "bg-blue-50 text-blue-700";
+      case "done": case "verified": return "bg-green-50 text-green-700";
+      default: return "bg-gray-50 text-gray-700";
     }
   };
 
@@ -106,25 +109,101 @@ export default function AdminDashboard() {
     return groups;
   };
 
-  const handleRemindUser = (taskId, userId, taskTitle) => {
-    // Placeholder for reminding logic (e.g., send notification)
-    console.log(`Reminding user ${userId} for task ${taskId}: ${taskTitle}`);
-    // You can integrate with the chat or WhatsApp API here
+  const handleRemindUser = async (taskId, userId, taskTitle) => {
+    try {
+      const response = await fetch(`/api/member/assignedTasks/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          taskId,
+          notifyAssignees: true,
+          notifyWhatsapp: true,
+          newLogComment: `Reminder for task "${taskTitle}"`,
+        }),
+      });
+      if (response.ok) {
+        console.log(`Reminder sent for task ${taskId} to user ${userId}`);
+      } else {
+        setError("Failed to send reminder");
+      }
+    } catch (err) {
+      setError("Error sending reminder");
+    }
   };
 
-  const handleViewTaskDetails = (taskId) => {
-    // Navigate to task details or open modal
-    console.log(`Viewing details for task ${taskId}`);
-    // router.push(`/dashboard/admin/task/${taskId}`);
+  const fetchTask = async (taskId) => {
+    try {
+      const res = await fetch(`/api/managersCommon/assign-tasks?taskId=${taskId}`);
+      const data = await res.json();
+      return data.assignedTasks?.[0] || null;
+    } catch (err) {
+      setError("Failed to fetch task");
+      return null;
+    }
+  };
+
+  const handleViewTaskDetails = async (task) => {
+    setSelectedTask(task);
+    try {
+      const logsRes = await fetch(`/api/member/assignedTasks?taskId=${task.id}&action=logs`);
+      const logsData = await logsRes.json();
+      setTaskLogs(logsData.logs || []);
+      // Mark as viewed
+      logsData.logs.forEach(log => localStorage.setItem(`viewed_${log.id}`, true));
+      setUnreadLogs(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(task.id);
+        return newSet;
+      });
+    } catch (err) {
+      setError("Failed to fetch task logs");
+    }
+    setShowDetailsModal(true);
+  };
+
+  const handleViewLog = async (log) => {
+    let task = tasks.find(t => t.id === log.taskId);
+    if (!task) {
+      task = await fetchTask(log.taskId);
+    }
+    if (task) {
+      handleViewTaskDetails(task);
+    } else {
+      setError("Task not found");
+    }
+  };
+
+  const handleSummaryClick = (category) => {
+    let filtered = [];
+    switch (category) {
+      case "total":
+        filtered = tasks;
+        break;
+      case "completed":
+        filtered = tasks.filter(t => t.status === "done" || t.status === "verified");
+        break;
+      case "in_progress":
+        filtered = tasks.filter(t => t.status === "in_progress");
+        break;
+      case "pending_verification":
+        filtered = tasks.filter(t => t.status === "pending_verification");
+        break;
+      case "not_started":
+        filtered = tasks.filter(t => t.status === "not_started");
+        break;
+    }
+    setCategoryTasks(filtered);
+    setSelectedSummaryCategory(category);
+    setShowSummaryModal(true);
   };
 
   if (status === "loading") {
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-gray-100">
+      <div className="fixed inset-0 flex items-center justify-center bg-gray-50">
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="text-2xl font-semibold text-gray-700"
+          className="text-2xl font-semibold text-gray-600"
         >
           Loading...
         </motion.div>
@@ -132,14 +211,19 @@ export default function AdminDashboard() {
     );
   }
 
+  const approachingDeadlines = tasks
+    .filter(t => t.deadline && new Date(t.deadline) > new Date() && new Date(t.deadline) < new Date(new Date().getTime() + 3 * 24 * 60 * 60 * 1000) && t.status !== "done" && t.status !== "verified")
+    .sort((a, b) => new Date(a.deadline) - new Date(b.deadline))
+    .slice(0, 10);
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.5 }}
-      className="fixed inset-0 bg-gray-100 p-8 flex items-center justify-center"
+      className="fixed inset-0 bg-gray-50 p-8 flex items-center justify-center"
     >
-      <div className="w-full h-full bg-white rounded-2xl shadow-2xl p-8 flex flex-col gap-8 overflow-y-auto">
+      <div className="w-full h-full bg-white rounded-xl shadow-lg p-8 flex flex-col gap-8 overflow-y-auto">
         {/* Error Message */}
         <AnimatePresence>
           {error && (
@@ -147,7 +231,7 @@ export default function AdminDashboard() {
               initial={{ opacity: 0, y: -20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="absolute top-4 left-4 right-4 text-red-600 text-sm font-medium bg-red-50 p-4 rounded-lg"
+              className="absolute top-4 left-4 right-4 text-red-600 text-sm font-medium bg-red-50 p-4 rounded-lg shadow-sm"
             >
               {error}
             </motion.p>
@@ -162,13 +246,13 @@ export default function AdminDashboard() {
               type="date"
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
-              className="px-3 py-1 border rounded-lg focus:ring-2 focus:ring-teal-500 text-sm"
+              className="px-3 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm bg-white"
             />
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               onClick={() => setGroupByUser(!groupByUser)}
-              className="px-3 py-1 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm"
+              className="px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm shadow-sm"
             >
               {groupByUser ? "Ungroup by User" : "Group by User"}
             </motion.button>
@@ -177,7 +261,7 @@ export default function AdminDashboard() {
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => setShowFilterDropdown(!showFilterDropdown)}
-                className="px-3 py-1 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm"
+                className="px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm shadow-sm"
               >
                 Filters
               </motion.button>
@@ -193,7 +277,7 @@ export default function AdminDashboard() {
                     <select
                       value={userFilter}
                       onChange={(e) => setUserFilter(e.target.value)}
-                      className="w-full px-2 py-1 border rounded text-sm mb-2"
+                      className="w-full px-2 py-1 border border-gray-300 rounded text-sm mb-2 bg-white"
                     >
                       <option value="all">All Users</option>
                       {users.map(user => (
@@ -204,7 +288,7 @@ export default function AdminDashboard() {
                     <select
                       value={statusFilter}
                       onChange={(e) => setStatusFilter(e.target.value)}
-                      className="w-full px-2 py-1 border rounded text-sm"
+                      className="w-full px-2 py-1 border border-gray-300 rounded text-sm bg-white"
                     >
                       <option value="all">All Statuses</option>
                       <option value="not_started">Not Started</option>
@@ -219,116 +303,44 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* Task Overview */}
-        <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
-          <div className="text-center p-4 bg-gradient-to-r from-teal-50 to-teal-100 rounded-lg">
-            <p className="text-sm font-medium text-gray-700">Total Tasks</p>
-            <p className="text-4xl font-bold text-teal-800">{totalTasks}</p>
-          </div>
-          <div className="text-center p-4 bg-gradient-to-r from-green-50 to-green-100 rounded-lg">
-            <p className="text-sm font-medium text-gray-700">Completed</p>
-            <p className="text-4xl font-bold text-green-700">{completedTasks}</p>
-          </div>
-          <div className="text-center p-4 bg-gradient-to-r from-yellow-50 to-yellow-100 rounded-lg">
-            <p className="text-sm font-medium text-gray-700">In Progress</p>
-            <p className="text-4xl font-bold text-yellow-700">{inProgressTasks}</p>
-          </div>
-          <div className="text-center p-4 bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg">
-            <p className="text-sm font-medium text-gray-700">Pending Verification</p>
-            <p className="text-4xl font-bold text-blue-700">{pendingVerificationTasks}</p>
-          </div>
-          <div className="text-center p-4 bg-gradient-to-r from-red-50 to-red-100 rounded-lg">
-            <p className="text-sm font-medium text-gray-700">Not Started</p>
-            <p className="text-4xl font-bold text-red-700">{notStartedTasks}</p>
-          </div>
+        {/* Task Overview - Clickable Summary Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-5 gap-4">
+          <motion.div whileHover={{ scale: 1.05 }} onClick={() => handleSummaryClick("total")} className="cursor-pointer text-center p-4 bg-white rounded-lg shadow-sm border border-gray-200">
+            <p className="text-sm font-medium text-gray-600">Total Tasks</p>
+            <p className="text-4xl font-bold text-gray-800">{totalTasks}</p>
+          </motion.div>
+          <motion.div whileHover={{ scale: 1.05 }} onClick={() => handleSummaryClick("completed")} className="cursor-pointer text-center p-4 bg-white rounded-lg shadow-sm border border-gray-200">
+            <p className="text-sm font-medium text-gray-600">Completed</p>
+            <p className="text-4xl font-bold text-green-600">{completedTasks}</p>
+          </motion.div>
+          <motion.div whileHover={{ scale: 1.05 }} onClick={() => handleSummaryClick("in_progress")} className="cursor-pointer text-center p-4 bg-white rounded-lg shadow-sm border border-gray-200">
+            <p className="text-sm font-medium text-gray-600">In Progress</p>
+            <p className="text-4xl font-bold text-yellow-600">{inProgressTasks}</p>
+          </motion.div>
+          <motion.div whileHover={{ scale: 1.05 }} onClick={() => handleSummaryClick("pending_verification")} className="cursor-pointer text-center p-4 bg-white rounded-lg shadow-sm border border-gray-200">
+            <p className="text-sm font-medium text-gray-600">Pending Verification</p>
+            <p className="text-4xl font-bold text-blue-600">{pendingVerificationTasks}</p>
+          </motion.div>
+          <motion.div whileHover={{ scale: 1.05 }} onClick={() => handleSummaryClick("not_started")} className="cursor-pointer text-center p-4 bg-white rounded-lg shadow-sm border border-gray-200">
+            <p className="text-sm font-medium text-gray-600">Not Started</p>
+            <p className="text-4xl font-bold text-red-600">{notStartedTasks}</p>
+          </motion.div>
         </div>
 
-        {/* Latest Assigned Tasks */}
+        {/* Recent Activity Logs Carousel */}
         <div>
-          <h2 className="text-xl font-bold text-gray-800 mb-2">Latest Assigned Tasks</h2>
+          <h2 className="text-xl font-bold text-gray-800 mb-2">Latest Activity Logs</h2>
           <div className="overflow-x-auto whitespace-nowrap pb-2">
-            {latestAssigned.map((task) => (
-              <motion.div
-                key={task.id}
-                className="inline-block w-64 bg-white/90 rounded-lg shadow-md p-3 mr-3"
-                whileHover={{ scale: 1.05 }}
-              >
-                <p className="text-sm font-medium text-gray-700 truncate">{task.title}</p>
-                <p className="text-xs text-gray-600">Assignees: {task.assignees.map(a => a.name).join(", ")}</p>
-                <span className={`text-xs px-2 py-1 rounded-full ${getStatusColor(task.status)}`}>
-                  {task.status.replace("_", " ")}
-                </span>
-                <div className="flex gap-2 mt-2">
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => handleViewTaskDetails(task.id)}
-                    className="px-2 py-1 bg-gray-600 text-white rounded-lg text-xs"
-                  >
-                    Details
-                  </motion.button>
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => handleRemindUser(task.id, task.assignees[0]?.id, task.title)}
-                    className="px-2 py-1 bg-teal-600 text-white rounded-lg text-xs"
-                  >
-                    Remind
-                  </motion.button>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-
-        {/* Latest Updated Tasks */}
-        <div>
-          <h2 className="text-xl font-bold text-gray-800 mb-2">Latest Updated Tasks</h2>
-          <div className="overflow-x-auto whitespace-nowrap pb-2">
-            {latestUpdated.map((task) => (
-              <motion.div
-                key={task.id}
-                className="inline-block w-64 bg-white/90 rounded-lg shadow-md p-3 mr-3"
-                whileHover={{ scale: 1.05 }}
-              >
-                <p className="text-sm font-medium text-gray-700 truncate">{task.title}</p>
-                <p className="text-xs text-gray-600">Assignees: {task.assignees.map(a => a.name).join(", ")}</p>
-                <span className={`text-xs px-2 py-1 rounded-full ${getStatusColor(task.status)}`}>
-                  {task.status.replace("_", " ")}
-                </span>
-                <div className="flex gap-2 mt-2">
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => handleViewTaskDetails(task.id)}
-                    className="px-2 py-1 bg-gray-600 text-white rounded-lg text-xs"
-                  >
-                    Details
-                  </motion.button>
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => handleRemindUser(task.id, task.assignees[0]?.id, task.title)}
-                    className="px-2 py-1 bg-teal-600 text-white rounded-lg text-xs"
-                  >
-                    Remind
-                  </motion.button>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-
-        {/* Recent Activity Logs */}
-        <div>
-          <h2 className="text-xl font-bold text-gray-800 mb-2">Recent Activity Logs</h2>
-          <div className="space-y-2">
             {recentLogs.map((log) => (
               <motion.div
                 key={log.id}
-                className="bg-white/90 rounded-lg shadow-md p-3"
-                whileHover={{ scale: 1.02 }}
+                className="inline-block w-64 bg-white rounded-lg shadow-sm p-4 mr-3 cursor-pointer relative border border-gray-200"
+                whileHover={{ scale: 1.05 }}
+                onClick={() => handleViewLog(log)}
               >
+                {!localStorage.getItem(`viewed_${log.id}`) && (
+                  <span className="absolute top-2 right-2 w-3 h-3 bg-red-500 rounded-full"></span>
+                )}
                 <p className="text-sm text-gray-700">
                   {getUserName(log.userId)} {log.action} task {log.taskId}: {log.details}
                 </p>
@@ -338,21 +350,97 @@ export default function AdminDashboard() {
           </div>
         </div>
 
+        {/* Two Columns: Latest Updated and Deadline Approaching */}
+        <div className="grid grid-cols-2 gap-8">
+          <div>
+            <h2 className="text-xl font-bold text-gray-800 mb-2">Latest Updated Tasks</h2>
+            <div className="grid grid-cols-2 gap-4">
+              {latestUpdated.map((task) => (
+                <motion.div
+                  key={task.id}
+                  className="bg-white rounded-lg shadow-sm p-4 border border-gray-200"
+                  whileHover={{ scale: 1.05 }}
+                >
+                  <p className="text-sm text-gray-800 truncate">{task.title}</p>
+                  <p className="text-xs text-gray-600">Assignees: {task.assignees.map(a => a.name).join(", ")}</p>
+                  <span className={`text-xs px-2 py-1 rounded-full ${getStatusColor(task.status)}`}>
+                    {task.status.replace("_", " ")}
+                  </span>
+                  <div className="flex gap-2 mt-2">
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => handleViewTaskDetails(task)}
+                      className="px-3 py-1 bg-gray-100 rounded-lg text-sm hover:bg-gray-200"
+                    >
+                      Details
+                    </motion.button>
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => handleRemindUser(task.id, task.assignees[0]?.id, task.title)}
+                      className="px-3 py-1 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
+                    >
+                      Remind
+                    </motion.button>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-gray-800 mb-2">Deadline Approaching Tasks</h2>
+            <div className="grid grid-cols-2 gap-4">
+              {approachingDeadlines.map((task) => (
+                <motion.div
+                  key={task.id}
+                  className="bg-white rounded-lg shadow-sm p-4 border border-gray-200"
+                  whileHover={{ scale: 1.05 }}
+                >
+                  <p className="text-sm text-gray-800 truncate">{task.title}</p>
+                  <p className="text-xs text-gray-600">Assignees: {task.assignees.map(a => a.name).join(", ")}</p>
+                  <span className={`text-xs px-2 py-1 rounded-full ${getStatusColor(task.status)}`}>
+                    {task.status.replace("_", " ")}
+                  </span>
+                  <div className="flex gap-2 mt-2">
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => handleViewTaskDetails(task)}
+                      className="px-3 py-1 bg-gray-100 rounded-lg text-sm hover:bg-gray-200"
+                    >
+                      Details
+                    </motion.button>
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => handleRemindUser(task.id, task.assignees[0]?.id, task.title)}
+                      className="px-3 py-1 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
+                    >
+                      Remind
+                    </motion.button>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+        </div>
+
         {/* Grouped by User */}
         {groupByUser && (
           <div>
             <h2 className="text-xl font-bold text-gray-800 mb-2">Tasks Grouped by User</h2>
-            {Object.entries(groupedTasks()).map(([userId, userTasks]) => (
+            {Object.entries(groupedTasks() || {}).map(([userId, userTasks]) => (
               <div key={userId} className="mb-4">
                 <h3 className="text-lg font-semibold text-gray-700">{getUserName(parseInt(userId))}</h3>
                 <div className="space-y-2">
                   {userTasks.map((task, index) => (
                     <motion.div
-                      key={`${task.id}-${index}`} // Ensure unique key even if potential duplicates
-                      className="bg-white/90 rounded-lg shadow-md p-3"
+                      key={`${task.id}-${index}`} // Ensure unique key
+                      className="bg-white rounded-lg shadow-sm p-4 border border-gray-200"
                       whileHover={{ scale: 1.02 }}
                     >
-                      <p className="text-sm font-medium text-gray-700 truncate">{task.title}</p>
+                      <p className="text-sm text-gray-800 truncate">{task.title}</p>
                       <span className={`text-xs px-2 py-1 rounded-full ${getStatusColor(task.status)}`}>
                         {task.status.replace("_", " ")}
                       </span>
@@ -363,6 +451,129 @@ export default function AdminDashboard() {
             ))}
           </div>
         )}
+
+        {/* Task Details Modal */}
+        <AnimatePresence>
+          {showDetailsModal && selectedTask && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
+            >
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="bg-white rounded-xl p-6 w-full max-w-lg overflow-y-auto max-h-[80vh] shadow-lg"
+              >
+                <h2 className="text-xl font-bold text-gray-800 mb-4">{selectedTask.title}</h2>
+                <p><strong>Description:</strong> {selectedTask.description || "N/A"}</p>
+                <p><strong>Assignees:</strong> {selectedTask.assignees.map(a => a.name).join(", ")}</p>
+                <p><strong>Status:</strong> {selectedTask.status.replace("_", " ")}</p>
+                <p><strong>Deadline:</strong> {selectedTask.deadline ? new Date(selectedTask.deadline).toLocaleString() : "N/A"}</p>
+                <p><strong>Resources:</strong> {selectedTask.resources || "N/A"}</p>
+                {selectedTask.sprints && selectedTask.sprints.length > 0 && (
+                  <div className="mt-4">
+                    <h3 className="text-lg font-semibold">Sprints</h3>
+                    {selectedTask.sprints.map(sprint => (
+                      <div key={sprint.id} className="mt-2">
+                        <p><strong>{sprint.title}:</strong> {sprint.description}</p>
+                        <p>Status: {sprint.status.replace("_", " ")}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="mt-4">
+                  <h3 className="text-lg font-semibold">Logs</h3>
+                  {taskLogs.length > 0 ? (
+                    taskLogs.map(log => (
+                      <div key={log.id} className="mt-2">
+                        <p>{getUserName(log.userId)}: {log.details}</p>
+                        <p className="text-xs text-gray-500">{new Date(log.createdAt).toLocaleString()}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <p>No logs available.</p>
+                  )}
+                </div>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setShowDetailsModal(false)}
+                  className="mt-4 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
+                >
+                  Close
+                </motion.button>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Summary Modal */}
+        <AnimatePresence>
+          {showSummaryModal && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
+            >
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="bg-white rounded-xl p-6 w-full max-w-4xl overflow-y-auto max-h-[80vh] shadow-lg"
+              >
+                <h2 className="text-xl font-bold text-gray-800 mb-4">Tasks in {selectedSummaryCategory.toUpperCase()}</h2>
+                <div className="space-y-4">
+                  {categoryTasks.map((task) => (
+                    <motion.div
+                      key={task.id}
+                      className="bg-white rounded-lg shadow-sm p-4 border border-gray-200"
+                      whileHover={{ scale: 1.05 }}
+                    >
+                      <p className="text-sm text-gray-800 truncate">{task.title}</p>
+                      <p className="text-xs text-gray-600">Assignees: {task.assignees.map(a => a.name).join(", ")}</p>
+                      <span className={`text-xs px-2 py-1 rounded-full ${getStatusColor(task.status)}`}>
+                        {task.status.replace("_", " ")}
+                      </span>
+                      <div className="flex gap-2 mt-2">
+                        <motion.button
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => {
+                            setShowSummaryModal(false);
+                            handleViewTaskDetails(task);
+                          }}
+                          className="px-3 py-1 bg-gray-100 rounded-lg text-sm hover:bg-gray-200"
+                        >
+                          Details
+                        </motion.button>
+                        <motion.button
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => handleRemindUser(task.id, task.assignees[0]?.id, task.title)}
+                          className="px-3 py-1 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
+                        >
+                          Remind
+                        </motion.button>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setShowSummaryModal(false)}
+                  className="mt-4 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
+                >
+                  Close
+                </motion.button>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </motion.div>
   );
