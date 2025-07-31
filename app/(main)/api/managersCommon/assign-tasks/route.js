@@ -1,3 +1,4 @@
+// Full updated code for /api/managersCommon/assign-tasks.js
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { assignedTasks, assignedTaskStatus, users, sprints, messages } from "@/lib/schema";
@@ -192,7 +193,7 @@ export async function POST(req) {
       await db.insert(messages).values({
         senderId: createdBy,
         recipientId: memberId,
-        content: `New task "${title}" assigned to you by ${creatorName}.`,
+        content: `New task "${title}" assigned to you by ${creatorName}. [task:${newTask.id}]`,
         createdAt: now,
         status: "sent",
       });

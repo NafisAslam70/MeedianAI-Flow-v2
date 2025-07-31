@@ -7,7 +7,7 @@ import {
   assignedTaskLogs,
 } from "@/lib/schema";
 import { auth } from "@/lib/auth";
-import { eq, and, lte, inArray } from "drizzle-orm";
+import { eq, and, lte, inArray, desc } from "drizzle-orm";
 
 /* ------------------------------------------------------------------ */
 /*  Helper – JSON with no-cache                                        */
@@ -125,13 +125,20 @@ export async function GET(req) {
     /* 4️⃣  Logs ------------------------------------------------------ */
     if (action === "logs") {
       const taskId = Number(searchParams.get("taskId"));
+      const sprintId = Number(searchParams.get("sprintId"));
       if (!taskId) return json({ error: "taskId required" }, { status: 400 });
 
-      const logs = await db
+      let query = db
         .select()
         .from(assignedTaskLogs)
         .where(eq(assignedTaskLogs.taskId, taskId))
-        .orderBy(assignedTaskLogs.createdAt);
+        .orderBy(desc(assignedTaskLogs.createdAt));
+
+      if (sprintId) {
+        query = query.where(and(eq(assignedTaskLogs.taskId, taskId), eq(assignedTaskLogs.sprintId, sprintId)));
+      }
+
+      const logs = await query;
 
       return json({ logs });
     }
@@ -183,7 +190,7 @@ export async function POST(req) {
     }
 
     const userId = Number(session.user.id);
-    const { taskId, action, details } = await req.json();
+    const { taskId, action, details, sprintId } = await req.json();
     if (!taskId || !action || !details) {
       return json({ error: "taskId, action, details required" }, { status: 400 });
     }
@@ -201,7 +208,7 @@ export async function POST(req) {
 
     const [log] = await db
       .insert(assignedTaskLogs)
-      .values({ taskId, userId, action, details, createdAt: new Date() })
+      .values({ taskId, userId, action, details, createdAt: new Date(), sprintId })
       .returning();
 
     return json({ log }, { status: 201 });

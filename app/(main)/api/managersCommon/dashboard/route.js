@@ -46,8 +46,8 @@ export async function GET(req) {
         updatedAt: assignedTasks.updatedAt,
         deadline: assignedTasks.deadline,
         resources: assignedTasks.resources,
-        assignees: sql`ARRAY_AGG(CASE WHEN ${users.id} IS NOT NULL THEN JSONB_BUILD_OBJECT('id', ${users.id}, 'name', ${users.name}) END)`.as("assignees"),
-        sprints: sql`ARRAY_AGG(CASE WHEN ${sprints.id} IS NOT NULL THEN JSONB_BUILD_OBJECT('id', ${sprints.id}, 'title', ${sprints.title}, 'description', ${sprints.description}, 'status', ${sprints.status}) END)`.as("sprints"),
+        assignees: sql`ARRAY_AGG(JSONB_BUILD_OBJECT('id', ${users.id}, 'name', ${users.name})) FILTER (WHERE ${users.id} IS NOT NULL)`.as("assignees"),
+        sprints: sql`ARRAY_AGG(JSONB_BUILD_OBJECT('id', ${sprints.id}, 'title', ${sprints.title}, 'description', ${sprints.description}, 'status', ${sprints.status})) FILTER (WHERE ${sprints.id} IS NOT NULL)`.as("sprints"),
         status: statusSql,
       })
       .from(assignedTasks)

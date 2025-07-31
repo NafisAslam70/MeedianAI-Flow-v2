@@ -356,7 +356,7 @@ const Modal = ({ isOpen, onClose, title, children }) => (
           animate={{ scale: 1, opacity: 1 }}
           exit={{ scale: 0.9, opacity: 0 }}
           transition={{ duration: 0.3 }}
-          className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md border border-teal-300 relative"
+          className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-2xl border border-teal-300 relative"
         >
           <button
             onClick={onClose}
@@ -398,99 +398,109 @@ const StatusUpdateModal = ({
   handleTranslateComment,
 }) => (
   <div>
-    {/* --- Sprint + Status selects ----------------------------------- */}
-    {sprints.length ? (
-      <>
-        <select
-          value={selectedSprint}
-          onChange={(e) => setSelectedSprint(e.target.value)}
-          className="w-full px-4 py-2 border rounded-lg mb-3 bg-gray-50 focus:ring-2 focus:ring-teal-500 text-sm font-medium text-gray-700"
-        >
-          <option value="">Select Sprint</option>
-          {sprints.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.title || "Untitled Sprint"}
-            </option>
-          ))}
-        </select>
-        <select
-          value={newStatus}
-          onChange={(e) => setNewStatus(e.target.value)}
-          className="w-full px-4 py-2 border rounded-lg mb-3 bg-gray-50 focus:ring-2 focus:ring-teal-500 text-sm font-medium text-gray-700"
-          disabled={!selectedSprint}
-        >
-          <option value="">Select Status</option>
-          <option value="not_started">Not Started</option>
-          <option value="in_progress">In Progress</option>
-          <option value="pending_verification">Pending Verification</option>
-          <option value="done">Done</option>
-        </select>
-      </>
-    ) : (
-      <select
-        value={newStatus}
-        onChange={(e) => setNewStatus(e.target.value)}
-        className="w-full px-4 py-2 border rounded-lg mb-3 bg-gray-50 focus:ring-2 focus:ring-teal-500 text-sm font-medium text-gray-700"
-      >
-        <option value="">Select Status</option>
-        <option value="not_started">Not Started</option>
-        <option value="in_progress">In Progress</option>
-        <option value="pending_verification">Pending Verification</option>
-        <option value="done">Done</option>
-      </select>
-    )}
-
-    {/* --- Notification check‑boxes ---------------------------------- */}
-    <div className="flex items-center mb-2">
-      <input
-        type="checkbox"
-        checked={sendNotification}
-        onChange={(e) => setSendNotification(e.target.checked)}
-        className="h-4 w-4 text-teal-600 focus:ring-teal-500"
-      />
-      <label className="ml-2 text-sm font-medium text-gray-700">
-        Chat‑notify assignees
-      </label>
-    </div>
-    <div className="flex items-center mb-4">
-      <input
-        type="checkbox"
-        checked={sendWhatsapp}
-        onChange={(e) => setSendWhatsapp(e.target.checked)}
-        className="h-4 w-4 text-teal-600 focus:ring-teal-500"
-      />
-      <label className="ml-2 text-sm font-medium text-gray-700">
-        WhatsApp ping
-      </label>
-    </div>
-
-    {/* --- Discussion / Comments ------------------------------------- */}
-    <h3 className="text-sm font-semibold text-gray-700 mb-2">Task Discussion</h3>
-    <div className="max-h-40 overflow-y-auto space-y-2 mb-2">
-      {taskLogs.length ? (
-        taskLogs.map((log) => (
-          <div
-            key={log.id}
-            className="p-3 bg-gray-50 rounded-lg shadow-sm border border-gray-200"
+    <div className="flex flex-row gap-4 mb-4">
+      <div className="flex-1">
+        {/* --- Sprint + Status selects ----------------------------------- */}
+        {sprints.length ? (
+          <>
+            <select
+              value={selectedSprint}
+              onChange={(e) => setSelectedSprint(e.target.value)}
+              className="w-full px-4 py-2 border rounded-lg mb-3 bg-gray-50 focus:ring-2 focus:ring-teal-500 text-sm font-medium text-gray-700"
+            >
+              <option value="">Select Sprint</option>
+              {sprints.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.title || "Untitled Sprint"}
+                </option>
+              ))}
+            </select>
+            <select
+              value={newStatus}
+              onChange={(e) => setNewStatus(e.target.value)}
+              className="w-full px-4 py-2 border rounded-lg mb-3 bg-gray-50 focus:ring-2 focus:ring-teal-500 text-sm font-medium text-gray-700"
+              disabled={!selectedSprint}
+            >
+              <option value="">Select Status</option>
+              <option value="not_started">Not Started</option>
+              <option value="in_progress">In Progress</option>
+              <option value="pending_verification">Pending Verification</option>
+              <option value="done">Done</option>
+            </select>
+          </>
+        ) : (
+          <select
+            value={newStatus}
+            onChange={(e) => setNewStatus(e.target.value)}
+            className="w-full px-4 py-2 border rounded-lg mb-3 bg-gray-50 focus:ring-2 focus:ring-teal-500 text-sm font-medium text-gray-700"
           >
-            <p className="text-xs text-gray-600">
-              {users.find((u) => u.id === log.userId)?.name || "Unknown"} (
-              {new Date(log.createdAt).toLocaleString()}):
-            </p>
-            <p className="text-sm text-gray-700">{log.details}</p>
-          </div>
-        ))
-      ) : (
-        <p className="text-sm text-gray-500">No discussion yet.</p>
-      )}
+            <option value="">Select Status</option>
+            <option value="not_started">Not Started</option>
+            <option value="in_progress">In Progress</option>
+            <option value="pending_verification">Pending Verification</option>
+            <option value="done">Done</option>
+          </select>
+        )}
+
+        {/* --- Notification check‑boxes ---------------------------------- */}
+        <div className="flex items-center mb-2">
+          <input
+            type="checkbox"
+            checked={sendNotification}
+            onChange={(e) => setSendNotification(e.target.checked)}
+            className="h-4 w-4 text-teal-600 focus:ring-teal-500"
+          />
+          <label className="ml-2 text-sm font-medium text-gray-700">
+            Chat‑notify assignees
+          </label>
+        </div>
+        <div className="flex items-center mb-4">
+          <input
+            type="checkbox"
+            checked={sendWhatsapp}
+            onChange={(e) => setSendWhatsapp(e.target.checked)}
+            className="h-4 w-4 text-teal-600 focus:ring-teal-500"
+          />
+          <label className="ml-2 text-sm font-medium text-gray-700">
+            WhatsApp ping
+          </label>
+        </div>
+      </div>
+
+      {/* --- Discussion / Comments ------------------------------------- */}
+      <div className="flex-1">
+        <h3 className="text-sm font-semibold text-gray-700 mb-2">Task Discussion</h3>
+        <div className="max-h-40 overflow-y-auto space-y-2 mb-2">
+          {taskLogs.length ? (
+            taskLogs.map((log) => {
+              const sprint = log.sprintId ? sprints.find((s) => s.id === log.sprintId) : null;
+              const prefix = sprint ? `[${sprint.title || "Untitled Sprint"}] ` : "[Main] ";
+              return (
+                <div
+                  key={log.id}
+                  className="p-3 bg-gray-50 rounded-lg shadow-sm border border-gray-200"
+                >
+                  <p className="text-xs text-gray-600">
+                    {prefix}{users.find((u) => u.id === log.userId)?.name || "Unknown"} (
+                    {new Date(log.createdAt).toLocaleString()}):
+                  </p>
+                  <p className="text-sm text-gray-700">{log.details}</p>
+                </div>
+              );
+            })
+          ) : (
+            <p className="text-sm text-gray-500">No discussion yet.</p>
+          )}
+        </div>
+      </div>
     </div>
     <textarea
       value={newLogComment}
       onChange={(e) => setNewLogComment(e.target.value)}
       placeholder="Add a comment to the task discussion..."
-      className="w-full px-4 py-2 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-teal-500 text-sm font-medium text-gray-700"
+      className="w-full px-4 py-2 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-teal-500 text-sm font-medium text-gray-700 mb-4"
     />
-    <div className="flex items-center mt-2 gap-2">
+    <div className="flex items-center gap-2 mb-4">
       <motion.button
         onClick={startVoiceRecording}
         disabled={isRecording}
@@ -511,7 +521,7 @@ const StatusUpdateModal = ({
     </div>
 
     {/* --- Buttons ----------------------------------------------------- */}
-    <div className="flex justify-end space-x-2 mt-4">
+    <div className="flex justify-end space-x-2">
       <motion.button
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
@@ -551,45 +561,53 @@ const StatusUpdateModal = ({
 /*  Task Details Modal (restored from earlier code with all details)  */
 /* ------------------------------------------------------------------ */
 const TaskDetailsModal = ({ task, taskLogs, users, onClose }) => (
-  <div className="space-y-3">
-    <p className="text-sm font-medium text-gray-700"><strong>Title:</strong> {task?.title || "Untitled Task"}</p>
-    <p className="text-sm font-medium text-gray-700"><strong>Description:</strong> {task?.description || "No description"}</p>
-    <p className="text-sm font-medium text-gray-700"><strong>Assigned By:</strong> {task?.createdBy ? users.find((u) => u.id === task.createdBy)?.name || "Unknown" : "Unknown"}</p>
-    <p className="text-sm font-medium text-gray-700"><strong>Status:</strong> {(task?.status || "not_started").replace("_", " ")}</p>
-    <p className="text-sm font-medium text-gray-700"><strong>Assigned Date:</strong> {task?.assignedDate ? new Date(task.assignedDate).toLocaleDateString() : "N/A"}</p>
-    <p className="text-sm font-medium text-gray-700"><strong>Deadline:</strong> {task?.deadline ? new Date(task.deadline).toLocaleDateString() : "No deadline"}</p>
-    <p className="text-sm font-medium text-gray-700"><strong>Resources:</strong> {task?.resources || "No resources"}</p>
+  <div>
+    <div className="flex flex-row gap-4 mb-4">
+      <div className="flex-1 space-y-3">
+        <p className="text-sm font-medium text-gray-700"><strong>Title:</strong> {task?.title || "Untitled Task"}</p>
+        <p className="text-sm font-medium text-gray-700"><strong>Description:</strong> {task?.description || "No description"}</p>
+        <p className="text-sm font-medium text-gray-700"><strong>Assigned By:</strong> {task?.createdBy ? users.find((u) => u.id === task.createdBy)?.name || "Unknown" : "Unknown"}</p>
+        <p className="text-sm font-medium text-gray-700"><strong>Status:</strong> {(task?.status || "not_started").replace("_", " ")}</p>
+        <p className="text-sm font-medium text-gray-700"><strong>Assigned Date:</strong> {task?.assignedDate ? new Date(task.assignedDate).toLocaleDateString() : "N/A"}</p>
+        <p className="text-sm font-medium text-gray-700"><strong>Deadline:</strong> {task?.deadline ? new Date(task.deadline).toLocaleDateString() : "No deadline"}</p>
+        <p className="text-sm font-medium text-gray-700"><strong>Resources:</strong> {task?.resources || "No resources"}</p>
 
-    {task.sprints?.length > 0 && (
-      <div>
-        <h3 className="text-sm font-semibold text-gray-700">Sprints</h3>
-        <ul className="space-y-2">
-          {task.sprints.map((s) => (
-            <li key={s.id} className="p-2 bg-gray-50 rounded border">
-              <p className="font-medium">{s.title || "Untitled Sprint"}</p>
-              <p className="text-sm text-gray-600">Status: {s.status.replace("_", " ")}</p>
-              <p className="text-sm text-gray-600">{s.description || "No description."}</p>
-            </li>
-          ))}
-        </ul>
-      </div>
-    )}
-
-    <div>
-      <h3 className="text-sm font-semibold text-gray-700 mb-2">Discussion</h3>
-      <div className="max-h-40 overflow-y-auto space-y-2">
-        {taskLogs.length === 0 ? (
-          <p className="text-sm text-gray-500">No discussion yet.</p>
-        ) : (
-          taskLogs.map((log) => (
-            <div key={log.id} className="p-3 bg-gray-50 rounded-lg shadow-sm border border-gray-200">
-              <p className="text-xs text-gray-600">
-                {users.find((u) => u.id === log.userId)?.name || "Unknown"} ({new Date(log.createdAt).toLocaleString()}):
-              </p>
-              <p className="text-sm text-gray-700">{log.details}</p>
-            </div>
-          ))
+        {task.sprints?.length > 0 && (
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700">Sprints</h3>
+            <ul className="space-y-2">
+              {task.sprints.map((s) => (
+                <li key={s.id} className="p-2 bg-gray-50 rounded border">
+                  <p className="font-medium">{s.title || "Untitled Sprint"}</p>
+                  <p className="text-sm text-gray-600">Status: {s.status.replace("_", " ")}</p>
+                  <p className="text-sm text-gray-600">{s.description || "No description."}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
+      </div>
+
+      <div className="flex-1">
+        <h3 className="text-sm font-semibold text-gray-700 mb-2">Discussion</h3>
+        <div className="max-h-96 overflow-y-auto space-y-2">
+          {taskLogs.length === 0 ? (
+            <p className="text-sm text-gray-500">No discussion yet.</p>
+          ) : (
+            taskLogs.map((log) => {
+              const sprint = log.sprintId ? task.sprints.find((s) => s.id === log.sprintId) : null;
+              const prefix = sprint ? `[${sprint.title || "Untitled Sprint"}] ` : "[Main] ";
+              return (
+                <div key={log.id} className="p-3 bg-gray-50 rounded-lg shadow-sm border border-gray-200">
+                  <p className="text-xs text-gray-600">
+                    {prefix}{users.find((u) => u.id === log.userId)?.name || "Unknown"} ({new Date(log.createdAt).toLocaleString()}):
+                  </p>
+                  <p className="text-sm text-gray-700">{log.details}</p>
+                </div>
+              );
+            })
+          )}
+        </div>
       </div>
     </div>
     <div className="flex justify-end mt-4">
@@ -799,10 +817,10 @@ export default function MemberDashboard() {
       setTimeout(async () => {
         setSelectedTask(task);
         await fetchTaskLogs(taskId);
+        await fetchSprints(taskId, user?.id);
 
         if (sprintId) {
           /* highlight sprint inside modal */
-          await fetchSprints(taskId, user?.id);
           setSelectedSprint(String(sprintId));
         }
         setShowDetailsModal(true);
@@ -811,7 +829,7 @@ export default function MemberDashboard() {
 
     window.addEventListener("member-open-task", handler);
     return () => window.removeEventListener("member-open-task", handler);
-  }, [state.assignedTasks, user?.id, setActiveTab, setSelectedTask, setSelectedSprint, setShowDetailsModal, fetchTaskLogs, fetchSprints]);
+  }, [state.assignedTasks, user?.id]);
 
   /* ------------------------------------------------------------------ */
   /*  Voice recording for comments                                      */
@@ -1115,6 +1133,7 @@ export default function MemberDashboard() {
               handleTaskDetails={async (t) => {
                 setSelectedTask(t);
                 await fetchTaskLogs(t.id);
+                await fetchSprints(t.id, user?.id);
                 setShowDetailsModal(true);
               }}
               users={users}

@@ -1,3 +1,4 @@
+// Full updated code for /api/managersCommon/assign-tasks/[taskId].js
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { assignedTasks, assignedTaskStatus, users, sprints as sprintTable, messages } from "@/lib/schema";
@@ -107,7 +108,7 @@ export async function DELETE(req, { params }) {
         await db.insert(messages).values({
           senderId: session.user.id,
           recipientId: assignee.memberId,
-          content: `Task "${task[0].title}" has been deleted by ${creatorName}.`,
+          content: `Task "${task[0].title}" has been deleted by ${creatorName}. [task:${taskId}]`,
           createdAt: now,
           status: "sent",
         });
@@ -294,6 +295,7 @@ export async function PATCH(req, { params }) {
         : currentAssigneeIds;
 
     if (sendNotification) {
+      notification += ` [task:${taskId}]`;
       const now = new Date();
       for (const memberId of recipients) {
         if (memberId !== session.user.id) {
