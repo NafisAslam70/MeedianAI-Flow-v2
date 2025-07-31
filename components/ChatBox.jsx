@@ -524,16 +524,18 @@ export default function ChatBox({ userDetails }) {
                 whileHover={{ scale: isRecording ? 1 : 1.05 }}
                 whileTap={{ scale: isRecording ? 1 : 0.95 }}
               >
-                {isRecording ? "Recording..." : `Record Message (${recordLang === "hi-IN" ? "Hindi" : "English"})`}
+                {isRecording ? "Recording..." : "Record Message in English now"}
               </motion.button>
-              <motion.button
-                onClick={handleTranslateMessage}
-                className="px-3 py-1 rounded-lg text-sm font-medium bg-purple-600 text-white hover:bg-purple-700"
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-              >
-                Translate to English
-              </motion.button>
+              {recordLang === "hi-IN" && (
+                <motion.button
+                  onClick={handleTranslateMessage}
+                  className="px-3 py-1 rounded-lg text-sm font-medium bg-purple-600 text-white hover:bg-purple-700"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  Translate to English
+                </motion.button>
+              )}
             </div>
           </motion.div>
         )}
