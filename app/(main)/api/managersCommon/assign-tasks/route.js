@@ -143,10 +143,6 @@ export async function POST(req) {
       .from(users)
       .where(inArray(users.id, parsedAssignees));
 
-    if (session.user.role === "team_manager" && session.user.team_manager_type) {
-      query = query.where(eq(users.team_manager_type, session.user.team_manager_type));
-    }
-
     const validAssignees = await query;
 
     if (validAssignees.length !== parsedAssignees.length) {

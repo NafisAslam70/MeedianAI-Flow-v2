@@ -1,17 +1,12 @@
-// Full updated code for /api/managersCommon/assign-tasks/[taskId].js
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { assignedTasks, assignedTaskStatus, users, sprints as sprintTable, messages } from "@/lib/schema";
-import { eq, inArray } from "drizzle-orm";
+import { assignedTasks, assignedTaskStatus, users, sprints, assignedTaskLogs, messages } from "@/lib/schema";
 import { auth } from "@/lib/auth";
+import { eq } from "drizzle-orm";
 import twilio from "twilio";
 
-const twilioClient = twilio(
-  process.env.TWILIO_ACCOUNT_SID,
-  process.env.TWILIO_AUTH_TOKEN
-);
+const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
-/* ---------- WhatsApp helper --------------------------------------- */
 async function sendWhatsappMessage(toNumber, content) {
   if (!toNumber) {
     console.log(`Skipping WhatsApp message: no toNumber`);
@@ -21,14 +16,14 @@ async function sendWhatsappMessage(toNumber, content) {
     const messageData = {
       from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`,
       to: `whatsapp:${toNumber}`,
-      contentSid: "HX60cc1428638f310ed813993c89059169",
+      contentSid: "HX60cc1428638f310ed813993c89059169", // Use appropriate template SID
       contentVariables: JSON.stringify({
-        1: content.recipientName || "User", // {{1}}
-        2: content.updaterName || "System", // {{2}}
-        3: content.taskTitle || "Untitled Task", // {{3}}
-        4: content.newStatus || "Unknown", // {{4}}
-        5: content.logComment || "No log provided", // {{5}}
-        6: content.dateTime || new Date().toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }), // {{6}}
+        1: content.recipientName || "User",
+        2: content.updaterName || "System",
+        3: content.taskTitle || "Untitled Task",
+        4: content.newStatus || "Unknown",
+        5: content.logComment || "No log provided",
+        6: content.dateTime || new Date().toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }),
       }),
     };
     console.log("Sending WhatsApp message:", messageData);
@@ -39,313 +34,256 @@ async function sendWhatsappMessage(toNumber, content) {
   }
 }
 
-/* -------------------------------------------------------------------------- */
-/* DELETE /api/managersCommon/assign-tasks/[taskId]                           */
-/* -------------------------------------------------------------------------- */
-export async function DELETE(req, { params }) {
+export async function GET(req) {
   const session = await auth();
-  if (!session || !["admin", "team_manager"].includes(session.user?.role)) {
+  if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const taskId = Number(params.taskId);
-  if (Number.isNaN(taskId)) {
-    return NextResponse.json({ error: "Invalid task ID" }, { status: 400 });
-  }
+  const url = new URL(req.url);
+  const action = url.searchParams.get("action");
+  const taskId = parseInt(url.searchParams.get("taskId"));
 
-  try {
-    const task = await db
-      .select({
-        id: assignedTasks.id,
-        title: assignedTasks.title,
-        createdBy: assignedTasks.createdBy,
-      })
-      .from(assignedTasks)
-      .where(eq(assignedTasks.id, taskId));
-
-    if (!task.length) {
-      return NextResponse.json({ error: "Task not found" }, { status: 404 });
+  if (action === "task") {
+    if (isNaN(taskId)) {
+      return NextResponse.json({ error: "taskId required" }, { status: 400 });
     }
 
-    /* -------- gather assignees for notification -------------------------------- */
-    const assignees = await db
-      .select({ memberId: assignedTaskStatus.memberId, name: users.name, whatsapp_number: users.whatsapp_number, whatsapp_enabled: users.whatsapp_enabled })
-      .from(assignedTaskStatus)
-      .leftJoin(users, eq(assignedTaskStatus.memberId, users.id))
-      .where(eq(assignedTaskStatus.taskId, taskId));
-    const assigneeIds = assignees.map((a) => a.memberId);
+    try {
+      const [taskData] = await db
+        .select({
+          id: assignedTasks.id,
+          title: assignedTasks.title,
+          description: assignedTasks.description,
+          createdBy: assignedTasks.createdBy,
+          createdAt: assignedTasks.createdAt,
+          updatedAt: assignedTasks.updatedAt,
+          deadline: assignedTasks.deadline,
+          resources: assignedTasks.resources,
+        })
+        .from(assignedTasks)
+        .where(eq(assignedTasks.id, taskId));
 
-    const [creator] = await db
-      .select({ name: users.name })
-      .from(users)
-      .where(eq(users.id, session.user.id))
-      .limit(1);
-    const creatorName = creator?.name ?? "Unknown";
+      if (!taskData) {
+        return NextResponse.json({ error: "Task not found" }, { status: 404 });
+      }
 
-    /*---------------- delete cascades ------------------------------------------ */
-    const taskStatusIds = await db
-      .select({ id: assignedTaskStatus.id })
-      .from(assignedTaskStatus)
-      .where(eq(assignedTaskStatus.taskId, taskId));
-    const statusIdArray = taskStatusIds.map((ts) => ts.id);
+      const statuses = await db
+        .select({
+          statusId: assignedTaskStatus.id,
+          memberId: assignedTaskStatus.memberId,
+          status: assignedTaskStatus.status,
+          name: users.name,
+        })
+        .from(assignedTaskStatus)
+        .leftJoin(users, eq(assignedTaskStatus.memberId, users.id))
+        .where(eq(assignedTaskStatus.taskId, taskId));
 
-    if (statusIdArray.length) {
-      await db.delete(sprintTable).where(
-        inArray(sprintTable.taskStatusId, statusIdArray),
-      );
-    }
-    await db.delete(assignedTaskStatus).where(
-      eq(assignedTaskStatus.taskId, taskId),
-    );
-    await db.delete(assignedTasks).where(eq(assignedTasks.id, taskId));
+      const assignees = [];
+      for (const stat of statuses) {
+        const sprintList = await db
+          .select({
+            id: sprints.id,
+            title: sprints.title,
+            description: sprints.description,
+            status: sprints.status,
+          })
+          .from(sprints)
+          .where(eq(sprints.taskStatusId, stat.statusId));
 
-    /* ---------------- send notifications --------------------------------------- */
-    const now = new Date();
-    const dateTime = new Date().toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+        let effectiveStatus = stat.status;
+        if (sprintList.length > 0) {
+          const sprintStatuses = sprintList.map((s) => s.status);
+          if (sprintStatuses.every((s) => s === "done" || s === "verified")) {
+            effectiveStatus = "done";
+          } else if (sprintStatuses.some((s) => s === "pending_verification")) {
+            effectiveStatus = "pending_verification";
+          } else if (sprintStatuses.some((s) => s !== "not_started")) {
+            effectiveStatus = "in_progress";
+          } else {
+            effectiveStatus = "not_started";
+          }
+        }
 
-    for (const assignee of assignees) {
-      if (assignee.memberId !== session.user.id) {
-        await db.insert(messages).values({
-          senderId: session.user.id,
-          recipientId: assignee.memberId,
-          content: `Task "${task[0].title}" has been deleted by ${creatorName}. [task:${taskId}]`,
-          createdAt: now,
-          status: "sent",
+        assignees.push({
+          id: stat.memberId,
+          name: stat.name,
+          status: effectiveStatus,
+          sprints: sprintList,
         });
+      }
 
-        if (assignee.whatsapp_enabled && assignee.whatsapp_number) {
-          await sendWhatsappMessage(assignee.whatsapp_number, {
-            recipientName: assignee.name || "User",
-            updaterName: creatorName,
-            taskTitle: task[0].title,
-            newStatus: "Deleted",
-            logComment: "Task deleted",
-            dateTime: dateTime,
-          });
+      const allEffective = assignees.map((a) => a.status);
+      let overallStatus = "not_started";
+      if (allEffective.length > 0) {
+        if (allEffective.every((s) => s === "done" || s === "verified")) {
+          overallStatus = "done";
+        } else if (allEffective.some((s) => s === "pending_verification")) {
+          overallStatus = "pending_verification";
+        } else if (allEffective.some((s) => s !== "not_started")) {
+          overallStatus = "in_progress";
         }
       }
+
+      const task = {
+        ...taskData,
+        assignees,
+        status: overallStatus,
+      };
+
+      return NextResponse.json({ task });
+    } catch (error) {
+      console.error("Error fetching task:", error);
+      return NextResponse.json({ error: "Failed to fetch task" }, { status: 500 });
+    }
+  } else if (action === "logs") {
+    if (isNaN(taskId)) {
+      return NextResponse.json({ error: "taskId required" }, { status: 400 });
     }
 
-    console.log("Task deleted", { taskId, deletedBy: session.user.id });
-    return NextResponse.json({ message: "Task deleted successfully" });
-  } catch (error) {
-    console.error("Error deleting task:", error);
-    return NextResponse.json(
-      { error: `Failed to delete task: ${error.message}` },
-      { status: 500 },
-    );
+    try {
+      const logs = await db
+        .select({
+          id: assignedTaskLogs.id,
+          taskId: assignedTaskLogs.taskId,
+          userId: assignedTaskLogs.userId,
+          action: assignedTaskLogs.action,
+          details: assignedTaskLogs.details,
+          createdAt: assignedTaskLogs.createdAt,
+          sprintId: assignedTaskLogs.sprintId,
+          userName: users.name,
+        })
+        .from(assignedTaskLogs)
+        .leftJoin(users, eq(assignedTaskLogs.userId, users.id))
+        .where(eq(assignedTaskLogs.taskId, taskId))
+        .orderBy(desc(assignedTaskLogs.createdAt));
+
+      return NextResponse.json({ logs });
+    } catch (error) {
+      console.error("Error fetching logs:", error);
+      return NextResponse.json({ error: "Failed to fetch logs" }, { status: 500 });
+    }
+  } else {
+    return NextResponse.json({ error: "Invalid action" }, { status: 400 });
   }
 }
 
-/* -------------------------------------------------------------------------- */
-/* PATCH /api/managersCommon/assign-tasks/[taskId]                            */
-/* -------------------------------------------------------------------------- */
-export async function PATCH(req, { params }) {
+export async function POST(req) {
   const session = await auth();
-  if (!session || !["admin", "team_manager"].includes(session.user?.role)) {
+  if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const taskId = Number(params.taskId);
-  if (Number.isNaN(taskId)) {
-    return NextResponse.json({ error: "Invalid task ID" }, { status: 400 });
+  const body = await req.json();
+  const { taskId, action, details } = body;
+
+  if (action === "log_added") {
+    if (!taskId || !details) {
+      return NextResponse.json({ error: "taskId and details required" }, { status: 400 });
+    }
+
+    try {
+      const [log] = await db
+        .insert(assignedTaskLogs)
+        .values({
+          taskId,
+          userId: session.user.id,
+          action,
+          details,
+          createdAt: new Date(),
+        })
+        .returning();
+
+      return NextResponse.json({ log });
+    } catch (error) {
+      console.error("Error adding log:", error);
+      return NextResponse.json({ error: "Failed to add log" }, { status: 500 });
+    }
+  } else {
+    return NextResponse.json({ error: "Invalid action" }, { status: 400 });
+  }
+}
+
+export async function PATCH(req) {
+  const session = await auth();
+  if (!session || !["admin", "team_manager"].includes(session.user.role)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const body = await req.json();
+  const { taskId, status, action, notifyAssignees, notifyWhatsapp, newLogComment, memberId } = body;
+
+  if (action !== "update_task" || !status || !taskId) {
+    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
 
   try {
-    const {
-      title,
-      description,
-      assignees,
-      sprints,      // may be [], meaning “clear all”
-      deadline,
-      resources,
-    } = await req.json();
+    const now = new Date();
 
-    /* -------- current data ----------------------------------------------------- */
-    const [currentTask] = await db
-      .select({
-        title: assignedTasks.title,
-        description: assignedTasks.description,
-        deadline: assignedTasks.deadline,
-        resources: assignedTasks.resources,
-      })
-      .from(assignedTasks)
-      .where(eq(assignedTasks.id, taskId))
-      .limit(1);
-    if (!currentTask) {
-      return NextResponse.json({ error: "Task not found" }, { status: 404 });
+    if (newLogComment) {
+      await db.insert(assignedTaskLogs).values({
+        taskId,
+        userId: session.user.id,
+        action: "status_update",
+        details: newLogComment,
+        createdAt: now,
+      });
     }
 
-    const currentAssignees = await db
-      .select({ memberId: assignedTaskStatus.memberId })
-      .from(assignedTaskStatus)
-      .where(eq(assignedTaskStatus.taskId, taskId));
-    const currentAssigneeIds = currentAssignees.map((a) => a.memberId);
+    const taskStatuses = await db.select().from(assignedTaskStatus).where(eq(assignedTaskStatus.taskId, taskId));
 
-    const [creator] = await db
-      .select({ name: users.name })
-      .from(users)
-      .where(eq(users.id, session.user.id))
-      .limit(1);
-    const creatorName = creator?.name ?? "Unknown";
+    for (const ts of taskStatuses) {
+      const sprintList = await db.select().from(sprints).where(eq(sprints.taskStatusId, ts.id));
 
-    let notification = `Task "${title || currentTask.title}" updated by ${creatorName}: `;
-    let sendNotification = false;
-
-    /* -------- update core fields ---------------------------------------------- */
-    if (title !== undefined || description !== undefined || deadline !== undefined || resources !== undefined) {
-      await db.update(assignedTasks)
-        .set({
-          ...(title !== undefined && { title }),
-          ...(description !== undefined && { description }),
-          ...(deadline !== undefined && { deadline: deadline ? new Date(deadline) : null }),
-          ...(resources !== undefined && { resources }),
-          updatedAt: new Date(),
-        })
-        .where(eq(assignedTasks.id, taskId));
-
-      if (title !== undefined && title !== currentTask.title) { notification += `Title → "${title}". `; sendNotification = true; }
-      if (description !== undefined && description !== currentTask.description) { notification += "Description changed. "; sendNotification = true; }
-      if (deadline !== undefined && (deadline ? new Date(deadline).toISOString() : null) !== (currentTask.deadline?.toISOString() ?? null)) {
-        notification += `Deadline → ${deadline ? new Date(deadline).toLocaleString() : "cleared"}. `;
-        sendNotification = true;
-      }
-      if (resources !== undefined && resources !== currentTask.resources) { notification += "Resources updated. "; sendNotification = true; }
-    }
-
-    /* -------- update assignees ------------------------------------------------- */
-    if (Array.isArray(assignees) && assignees.length) {
-      const parsed = assignees.map(Number).filter((id) => !Number.isNaN(id));
-      if (!parsed.length) {
-        return NextResponse.json({ error: "No valid assignees" }, { status: 400 });
-      }
-
-      let q = db.select({ id: users.id }).from(users).where(inArray(users.id, parsed));
-      if (session.user.role === "team_manager" && session.user.team_manager_type) {
-        q = q.where(eq(users.team_manager_type, session.user.team_manager_type));
-      }
-      const valid = await q;
-      if (valid.length !== parsed.length) {
-        return NextResponse.json({ error: "Some assignees invalid / inaccessible" }, { status: 400 });
-      }
-
-      await db.delete(assignedTaskStatus).where(eq(assignedTaskStatus.taskId, taskId));
-      await db.insert(assignedTaskStatus).values(
-        parsed.map((memberId) => ({
-          taskId,
-          memberId,
-          status: "not_started",
-          assignedDate: new Date(),
-          updatedAt: new Date(),
-        })),
-      );
-
-      if (JSON.stringify(parsed.sort()) !== JSON.stringify([...currentAssigneeIds].sort())) {
-        notification += "Assignees updated. ";
-        sendNotification = true;
-      }
-    }
-
-    /* -------- update sprints (CLEAR‑SAFE) ------------------------------------- */
-    if (Array.isArray(sprints)) {
-      const currentAssignments = await db
-        .select({ id: assignedTaskStatus.id })
-        .from(assignedTaskStatus)
-        .where(eq(assignedTaskStatus.taskId, taskId));
-
-      if (!currentAssignments.length) {
-        return NextResponse.json(
-          { error: "Cannot update sprints: task has no assignees" },
-          { status: 400 },
-        );
-      }
-
-      /* always wipe old sprints first */
-      await db.delete(sprintTable).where(
-        inArray(sprintTable.taskStatusId, currentAssignments.map((a) => a.id)),
-      );
-
-      const sprintRows = (sprints || [])
-        .filter((s) => s.title)   // ignore untitled rows
-        .flatMap((s) =>
-          currentAssignments.map((a) => ({
-            taskStatusId: a.id,
-            title: s.title,
-            description: s.description || null,
-            status: s.status || "not_started",
-            verifiedBy: null,
-            verifiedAt: null,
-            createdAt: new Date(),
-          })),
-        );
-
-      if (sprintRows.length) {
-        await db.insert(sprintTable).values(sprintRows);
-        notification += `${sprintRows.length} sprint row(s) added. `;
+      if (sprintList.length > 0) {
+        await db.update(sprints).set({
+          status,
+          verifiedBy: memberId,
+          verifiedAt: now,
+        }).where(eq(sprints.taskStatusId, ts.id));
       } else {
-        notification += "All sprints cleared. ";
+        await db.update(assignedTaskStatus).set({
+          status,
+          updatedAt: now,
+        }).where(eq(assignedTaskStatus.id, ts.id));
       }
-      sendNotification = true;
-    }
 
-    /* -------- notifications ---------------------------------------------------- */
-    const recipients =
-      Array.isArray(assignees) && assignees.length
-        ? assignees.map(Number).filter((id) => !Number.isNaN(id))
-        : currentAssigneeIds;
-
-    if (sendNotification) {
-      notification += ` [task:${taskId}]`;
-      const now = new Date();
-      for (const memberId of recipients) {
-        if (memberId !== session.user.id) {
-          await db.insert(messages).values({
-            senderId: session.user.id,
-            recipientId: memberId,
-            content: notification.trim(),
-            createdAt: now,
-            status: "sent",
-          });
-        }
+      if (notifyAssignees && ts.memberId !== session.user.id) {
+        const content = `Task updated to ${status} by ${session.user.name}: ${newLogComment || ""} [task:${taskId}]`;
+        await db.insert(messages).values({
+          senderId: session.user.id,
+          recipientId: ts.memberId,
+          content,
+          createdAt: now,
+          status: "sent",
+        });
       }
-    }
 
-    /* -------- WhatsApp notifications for update -------------------------------- */
-    const dateTime = new Date().toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
-    const logComment = "Task updated";
-
-    if (recipients && recipients.length) {
-      const assigneeDetails = await db
-        .select({
-          memberId: users.id,
+      if (notifyWhatsapp) {
+        const [user] = await db.select({
           name: users.name,
           whatsapp_number: users.whatsapp_number,
           whatsapp_enabled: users.whatsapp_enabled,
-        })
-        .from(users)
-        .where(inArray(users.id, recipients));
+        }).from(users).where(eq(users.id, ts.memberId));
 
-      for (const assignee of assigneeDetails) {
-        if (assignee.whatsapp_enabled && assignee.whatsapp_number) {
-          await sendWhatsappMessage(assignee.whatsapp_number, {
-            recipientName: assignee.name || "User",
-            updaterName: creatorName,
-            taskTitle: title || currentTask.title,
-            newStatus: "Updated",
-            logComment: logComment,
-            dateTime: dateTime,
+        if (user.whatsapp_enabled && user.whatsapp_number) {
+          await sendWhatsappMessage(user.whatsapp_number, {
+            recipientName: user.name,
+            updaterName: session.user.name,
+            taskTitle: "Task", // Fetch title if needed
+            newStatus: status,
+            logComment: newLogComment || "No comment",
+            dateTime: now.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }),
           });
         }
       }
     }
 
-    console.log("Task updated", { taskId, updatedBy: session.user.id });
-    return NextResponse.json({ message: "Task updated successfully" });
+    await db.update(assignedTasks).set({ updatedAt: now }).where(eq(assignedTasks.id, taskId));
+
+    return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Error updating task:", error);
-    return NextResponse.json(
-      { error: `Failed to update task: ${error.message}` },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "Failed to update task" }, { status: 500 });
   }
 }

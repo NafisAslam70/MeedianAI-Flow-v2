@@ -921,32 +921,6 @@ export default function MemberDashboard() {
       state.assignedTasks
     );
 
-    /* create log entry */
-    await fetch("/api/member/assignedTasks", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        taskId: selectedTask.id,
-        action: "status_update",
-        details:
-          newLogComment ||
-          (isSprint
-            ? `Updated sprint ${
-                sprints.find((s) => s.id === parseInt(selectedSprint))?.title
-              } to ${newStatus}`
-            : `Updated task status to ${newStatus}`),
-        sprintId: isSprint ? parseInt(selectedSprint) : null,
-      }),
-    });
-
-    /* chat notifications (WhatsApp handled backend) */
-    // const msg = isSprint
-    //   ? `Task "${selectedTask.title}" sprint "${
-    //       sprints.find((s) => s.id === parseInt(selectedSprint))?.title
-    //     }" → ${newStatus}`
-    //   : `Task "${selectedTask.title}" → ${newStatus}`;
-    // await notifyAssigneesChat(selectedTask.id, msg);  // Changed: removed to avoid duplicate messages (backend already handles)
-
     setSuccess("Task status updated!");
     setShowStatusModal(false);
     /* reset modal state */

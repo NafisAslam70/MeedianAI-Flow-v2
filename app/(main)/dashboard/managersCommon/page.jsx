@@ -971,10 +971,10 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
                       <p className="text-base"><strong className="text-indigo-700">Description:</strong> {selectedTask.description || "N/A"}</p>
                       <div className="mt-6">
                         <h3 className="text-lg font-semibold text-indigo-700">Assignees</h3>
-                        {selectedTask.assignees.map(assignee => (
-                          <div key={assignee.id} className="mt-4 bg-indigo-50 p-5 rounded-lg shadow-sm border border-indigo-200">
+                        {selectedTask.assignees.map((assignee, index) => (
+                          <div key={`${assignee.id}-${index}`} className="mt-4 bg-indigo-50 p-5 rounded-lg shadow-sm border border-indigo-200">
                             <p className="text-base"><strong className="text-indigo-700">Name:</strong> {assignee.name}</p>
-                            <p className="text-base"><strong className="text-indigo-700">Status:</strong> {assignee.status?.replace("_", " ") || "Unknown"}</p>
+                            <p className="text-base"><strong className="text-indigo-700">Status:</strong> {selectedTask.status?.replace("_", " ") || "Unknown"}</p>
                             {assignee.sprints && assignee.sprints.length > 0 && (
                               <div className="mt-2">
                                 <h4 className="text-base font-semibold text-indigo-700">Sprints</h4>

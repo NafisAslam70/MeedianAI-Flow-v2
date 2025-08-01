@@ -58,14 +58,23 @@ export default function RoutineTaskStatus() {
   // Update users state with deduplication
   const [users, setUsers] = useState([]);
   useEffect(() => {
-    if (usersData?.users) {
+    if (usersData?.users && session?.user) {
       const uniqueUsers = Array.from(new Map(usersData.users.map((u) => [u.id, u])).values());
+      const currentUser = {
+        id: session.user.id,
+        name: session.user.name,
+        role: session.user.role,
+      };
+      const isCurrentUserIncluded = uniqueUsers.some((u) => u.id === currentUser.id);
+      if (!isCurrentUserIncluded) {
+        uniqueUsers.push(currentUser);
+      }
       setUsers(uniqueUsers);
     }
     if (usersError) {
       setError(`Failed to fetch users: ${usersError.message}`);
     }
-  }, [usersData, usersError]);
+  }, [usersData, usersError, session]);
 
   // Update tasks and statuses
   useEffect(() => {
