@@ -13,7 +13,14 @@ const fetcher = (url) =>
   });
 
 export default function MyMRIs() {
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
+  const role = session?.user?.role;
+
+  if (status === "loading") return <div>Loading...</div>;
+  if (!["member", "team_manager"].includes(role)) {
+    return <div>Access Denied</div>;
+  }
+
   const [isAssignedTasksModalOpen, setIsAssignedTasksModalOpen] = useState(false);
   const [isRoutineTasksModalOpen, setIsRoutineTasksModalOpen] = useState(false);
   const [isAMRIsModalOpen, setIsAMRIsModalOpen] = useState(false);

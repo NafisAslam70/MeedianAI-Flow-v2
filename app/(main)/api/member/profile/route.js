@@ -17,7 +17,7 @@ export async function GET(req) {
     if (
       !session ||
       !session.user ||
-      !["admin", "member"].includes(session.user.role)
+      !["admin", "member", "team_manager"].includes(session.user.role)
     ) {
       console.error("Unauthorized access attempt:", { session });
       return NextResponse.json(
@@ -25,6 +25,8 @@ export async function GET(req) {
         { status: 401 }
       );
     }
+
+
 
     /* ---------- current user ---------- */
     const userId = parseInt(session.user.id);

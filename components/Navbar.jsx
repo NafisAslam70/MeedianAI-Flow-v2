@@ -3,7 +3,7 @@ import { useSession, signOut } from "next-auth/react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Menu, X, Heart } from "lucide-react";
+import { Menu, X, Heart, Users } from "lucide-react";
 import { createPortal } from "react-dom";
 
 export default function Navbar() {
@@ -173,6 +173,28 @@ export default function Navbar() {
         .nav-button:hover {
           transform: translateY(-2px);
         }
+        .nav-icon-button {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 0.4rem;
+          border-radius: 50%;
+          transition: all 0.3s ease;
+        }
+        .nav-icon-button:hover {
+          background: rgba(255, 255, 255, 0.1);
+          transform: translateY(-2px);
+        }
+        .nav-icon-button.active::after {
+          content: '';
+          position: absolute;
+          bottom: -4px;
+          left: 50%;
+          transform: translateX(-50%);
+          width: 24px;
+          height: 2px;
+          background: #22d3ee;
+        }
         .mylife-button {
           display: flex;
           align-items: center;
@@ -267,6 +289,22 @@ export default function Navbar() {
           color: #9ca3af;
           text-transform: capitalize;
         }
+        .managerial-group {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          border: 1px solid #22d3ee;
+          padding: 0.2rem;
+          border-radius: 6px;
+          background: rgba(255, 255, 255, 0.05);
+        }
+        .mobile-managerial-group {
+          border: 1px solid #22d3ee;
+          padding: 0.5rem;
+          border-radius: 6px;
+          margin: 0.5rem 0;
+          background: #2d3748;
+        }
       `}</style>
 
       <nav className="bg-gradient-to-r from-gray-900 to-gray-800 text-white px-4 py-3 w-full sticky top-0 z-40 shadow-lg">
@@ -295,18 +333,27 @@ export default function Navbar() {
                 >
                   Dashboard
                 </Link>
-                <Link
-                  href="/dashboard/managersCommon/routineTasks"
-                  className={`nav-item hover:text-cyan-300 ${isActive("/dashboard/managersCommon/routineTasks") ? "text-cyan-300 active" : ""}`}
-                >
-                  Routine Tasks
-                </Link>
-                <Link
-                  href="/dashboard/managersCommon/assignTask"
-                  className={`nav-item hover:text-cyan-300 ${isActive("/dashboard/managersCommon/assignTask") ? "text-cyan-300 active" : ""}`}
-                >
-                  Assign Task
-                </Link>
+                <div className="managerial-group">
+                  <Link
+                    href="/dashboard/managersCommon/routineTasks"
+                    className={`nav-item hover:text-cyan-300 ${isActive("/dashboard/managersCommon/routineTasks") ? "text-cyan-300 active" : ""}`}
+                  >
+                    Routine Tasks
+                  </Link>
+                  <Link
+                    href="/dashboard/managersCommon/assignTask"
+                    className={`nav-item hover:text-cyan-300 ${isActive("/dashboard/managersCommon/assignTask") ? "text-cyan-300 active" : ""}`}
+                  >
+                    Assign Task
+                  </Link>
+                  <Link
+                    href="/dashboard/managersCommon/workTogether"
+                    title="Together"
+                    className={`nav-icon-button relative hover:text-cyan-300 ${isActive("/dashboard/managersCommon/workTogether") ? "text-cyan-300 active" : ""}`}
+                  >
+                    <Users size={16} />
+                  </Link>
+                </div>
                 <button
                   onClick={handleAddMember}
                   className="nav-button bg-teal-600 hover:bg-teal-700 text-white"
@@ -337,35 +384,44 @@ export default function Navbar() {
                   My Dashboard
                 </Link>
                 <Link
-                  href="/dashboard/managersCommon/routineTasks"
-                  className={`nav-item hover:text-cyan-300 ${isActive("/dashboard/managersCommon/routineTasks") ? "text-cyan-300 active" : ""}`}
-                >
-                  Routine Tasks
-                </Link>
-                <Link
-                  href="/dashboard/managersCommon/assignTask"
-                  className={`nav-item hover:text-cyan-300 ${isActive("/dashboard/managersCommon/assignTask") ? "text-cyan-300 active" : ""}`}
-                >
-                  Assign Task
-                </Link>
-                <Link
-                  href="/dashboard/team_manager/myMeedRituals"
-                  className={`nav-item hover:text-cyan-300 ${isActive("/dashboard/team_manager/myMeedRituals") ? "text-cyan-300 active" : ""}`}
+                  href="/dashboard/member/myMeedRituals"
+                  className={`nav-item hover:text-cyan-300 ${isActive("/dashboard/member/myMeedRituals") ? "text-cyan-300 active" : ""}`}
                 >
                   MyMRIs
                 </Link>
                 <Link
-                  href="/dashboard/team_manager/closeMyDay"
-                  className={`nav-item hover:text-cyan-300 ${isActive("/dashboard/team_manager/closeMyDay") ? "text-cyan-300 active" : ""}`}
+                  href="/dashboard/member/closeMyDay"
+                  className={`nav-item hover:text-cyan-300 ${isActive("/dashboard/member/closeMyDay") ? "text-cyan-300 active" : ""}`}
                 >
                   CloseMyDay
                 </Link>
                 <Link
-                  href="/dashboard/team_manager/myPerformance"
-                  className={`nav-item hover:text-cyan-300 ${isActive("/dashboard/team_manager/myPerformance") ? "text-cyan-300 active" : ""}`}
+                  href="/dashboard/member/myPerformance"
+                  className={`nav-item hover:text-cyan-300 ${isActive("/dashboard/member/myPerformance") ? "text-cyan-300 active" : ""}`}
                 >
                   MyPerformance
                 </Link>
+                <div className="managerial-group">
+                  <Link
+                    href="/dashboard/managersCommon/routineTasks"
+                    className={`nav-item hover:text-cyan-300 ${isActive("/dashboard/managersCommon/routineTasks") ? "text-cyan-300 active" : ""}`}
+                  >
+                    Routine Tasks
+                  </Link>
+                  <Link
+                    href="/dashboard/managersCommon/assignTask"
+                    className={`nav-item hover:text-cyan-300 ${isActive("/dashboard/managersCommon/assignTask") ? "text-cyan-300 active" : ""}`}
+                  >
+                    Assign Task
+                  </Link>
+                  <Link
+                    href="/dashboard/managersCommon/workTogether"
+                    title="Together"
+                    className={`nav-icon-button relative hover:text-cyan-300 ${isActive("/dashboard/managersCommon/workTogether") ? "text-cyan-300 active" : ""}`}
+                  >
+                    <Users size={16} />
+                  </Link>
+                </div>
               </>
             )}
 
@@ -505,24 +561,35 @@ export default function Navbar() {
                     >
                       Dashboard
                     </Link>
-                    <Link
-                      href="/dashboard/managersCommon/routineTasks"
-                      onClick={toggleMobileMenu}
-                      className={`mobile-menu-item hover:text-cyan-400 ${
-                        isActive("/dashboard/managersCommon/routineTasks") ? "text-cyan-400 font-semibold bg-gray-700" : ""
-                      }`}
-                    >
-                      Routine Tasks
-                    </Link>
-                    <Link
-                      href="/dashboard/managersCommon/assignTask"
-                      onClick={toggleMobileMenu}
-                      className={`mobile-menu-item hover:text-cyan-400 ${
-                        isActive("/dashboard/managersCommon/assignTask") ? "text-cyan-400 font-semibold bg-gray-700" : ""
-                      }`}
-                    >
-                      Assign Task
-                    </Link>
+                    <div className="mobile-managerial-group">
+                      <Link
+                        href="/dashboard/managersCommon/routineTasks"
+                        onClick={toggleMobileMenu}
+                        className={`mobile-menu-item hover:text-cyan-400 ${
+                          isActive("/dashboard/managersCommon/routineTasks") ? "text-cyan-400 font-semibold bg-gray-700" : ""
+                        }`}
+                      >
+                        Routine Tasks
+                      </Link>
+                      <Link
+                        href="/dashboard/managersCommon/assignTask"
+                        onClick={toggleMobileMenu}
+                        className={`mobile-menu-item hover:text-cyan-400 ${
+                          isActive("/dashboard/managersCommon/assignTask") ? "text-cyan-400 font-semibold bg-gray-700" : ""
+                        }`}
+                      >
+                        Assign Task
+                      </Link>
+                      <Link
+                        href="/dashboard/managersCommon/workTogether"
+                        onClick={toggleMobileMenu}
+                        className={`mobile-menu-item hover:text-cyan-400 ${
+                          isActive("/dashboard/managersCommon/workTogether") ? "text-cyan-400 font-semibold bg-gray-700" : ""
+                        }`}
+                      >
+                        Together
+                      </Link>
+                    </div>
                     <button
                       onClick={() => {
                         handleAddMember();
@@ -564,50 +631,61 @@ export default function Navbar() {
                       My Dashboard
                     </Link>
                     <Link
-                      href="/dashboard/managersCommon/routineTasks"
+                      href="/dashboard/member/myMeedRituals"
                       onClick={toggleMobileMenu}
                       className={`mobile-menu-item hover:text-cyan-400 ${
-                        isActive("/dashboard/managersCommon/routineTasks") ? "text-cyan-400 font-semibold bg-gray-700" : ""
-                      }`}
-                    >
-                      Routine Tasks
-                    </Link>
-                    <Link
-                      href="/dashboard/managersCommon/assignTask"
-                      onClick={toggleMobileMenu}
-                      className={`mobile-menu-item hover:text-cyan-400 ${
-                        isActive("/dashboard/managersCommon/assignTask") ? "text-cyan-400 font-semibold bg-gray-700" : ""
-                      }`}
-                    >
-                      Assign Task
-                    </Link>
-                    <Link
-                      href="/dashboard/team_manager/myMeedRituals"
-                      onClick={toggleMobileMenu}
-                      className={`mobile-menu-item hover:text-cyan-400 ${
-                        isActive("/dashboard/team_manager/myMeedRituals") ? "text-cyan-400 font-semibold bg-gray-700" : ""
+                        isActive("/dashboard/member/myMeedRituals") ? "text-cyan-400 font-semibold bg-gray-700" : ""
                       }`}
                     >
                       MyMRIs
                     </Link>
                     <Link
-                      href="/dashboard/team_manager/closeMyDay"
+                      href="/dashboard/member/closeMyDay"
                       onClick={toggleMobileMenu}
                       className={`mobile-menu-item hover:text-cyan-400 ${
-                        isActive("/dashboard/team_manager/closeMyDay") ? "text-cyan-400 font-semibold bg-gray-700" : ""
+                        isActive("/dashboard/member/closeMyDay") ? "text-cyan-400 font-semibold bg-gray-700" : ""
                       }`}
                     >
                       CloseMyDay
                     </Link>
                     <Link
-                      href="/dashboard/team_manager/myPerformance"
+                      href="/dashboard/member/myPerformance"
                       onClick={toggleMobileMenu}
                       className={`mobile-menu-item hover:text-cyan-400 ${
-                        isActive("/dashboard/team_manager/myPerformance") ? "text-cyan-400 font-semibold bg-gray-700" : ""
+                        isActive("/dashboard/member/myPerformance") ? "text-cyan-400 font-semibold bg-gray-700" : ""
                       }`}
                     >
                       MyPerformance
                     </Link>
+                    <div className="mobile-managerial-group">
+                      <Link
+                        href="/dashboard/managersCommon/routineTasks"
+                        onClick={toggleMobileMenu}
+                        className={`mobile-menu-item hover:text-cyan-400 ${
+                          isActive("/dashboard/managersCommon/routineTasks") ? "text-cyan-400 font-semibold bg-gray-700" : ""
+                        }`}
+                      >
+                        Routine Tasks
+                      </Link>
+                      <Link
+                        href="/dashboard/managersCommon/assignTask"
+                        onClick={toggleMobileMenu}
+                        className={`mobile-menu-item hover:text-cyan-400 ${
+                          isActive("/dashboard/managersCommon/assignTask") ? "text-cyan-400 font-semibold bg-gray-700" : ""
+                        }`}
+                      >
+                        Assign Task
+                      </Link>
+                      <Link
+                        href="/dashboard/managersCommon/workTogether"
+                        onClick={toggleMobileMenu}
+                        className={`mobile-menu-item hover:text-cyan-400 ${
+                          isActive("/dashboard/managersCommon/workTogether") ? "text-cyan-400 font-semibold bg-gray-700" : ""
+                        }`}
+                      >
+                        Together
+                      </Link>
+                    </div>
                     <Link
                       href="/dashboard/team_manager/myLife"
                       onClick={toggleMobileMenu}

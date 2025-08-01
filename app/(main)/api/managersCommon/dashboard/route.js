@@ -17,10 +17,10 @@ export async function GET(req) {
     const user = url.searchParams.get("user") || "all";
     const status = url.searchParams.get("status") || "all";
 
-    let statusSql;
-    if (user === "all") {
-      statusSql = sql`SUBSTRING(
-        MIN(
+    const statusSubquery = db
+      .select({
+        taskId: assignedTaskStatus.taskId,
+        min_status: sql`MIN(
           CASE ${assignedTaskStatus.status}
             WHEN 'not_started' THEN '0 not_started'
             WHEN 'in_progress' THEN '1 in_progress'
@@ -28,13 +28,11 @@ export async function GET(req) {
             WHEN 'done' THEN '3 done'
             WHEN 'verified' THEN '4 verified'
           END
-        ) FROM 3
-      )`.as("status");
-    } else {
-      statusSql = sql`MAX(
-        CASE WHEN ${assignedTaskStatus.memberId} = ${parseInt(user)} THEN ${assignedTaskStatus.status} END
-      )`.as("status");
-    }
+        )`.as("min_status"),
+      })
+      .from(assignedTaskStatus)
+      .groupBy(assignedTaskStatus.taskId)
+      .as("status_subquery");
 
     let taskQuery = db
       .select({
@@ -46,15 +44,26 @@ export async function GET(req) {
         updatedAt: assignedTasks.updatedAt,
         deadline: assignedTasks.deadline,
         resources: assignedTasks.resources,
-        assignees: sql`ARRAY_AGG(JSONB_BUILD_OBJECT('id', ${users.id}, 'name', ${users.name})) FILTER (WHERE ${users.id} IS NOT NULL)`.as("assignees"),
-        sprints: sql`ARRAY_AGG(JSONB_BUILD_OBJECT('id', ${sprints.id}, 'title', ${sprints.title}, 'description', ${sprints.description}, 'status', ${sprints.status})) FILTER (WHERE ${sprints.id} IS NOT NULL)`.as("sprints"),
-        status: statusSql,
+        assignees: sql`COALESCE(
+          ARRAY_AGG(
+            JSONB_BUILD_OBJECT('id', ${users.id}, 'name', ${users.name})
+          ) FILTER (WHERE ${users.id} IS NOT NULL),
+          ARRAY[]::jsonb[]
+        )`.as("assignees"),
+        sprints: sql`COALESCE(
+          ARRAY_AGG(
+            JSONB_BUILD_OBJECT('id', ${sprints.id}, 'title', ${sprints.title}, 'description', ${sprints.description}, 'status', ${sprints.status})
+          ) FILTER (WHERE ${sprints.id} IS NOT NULL),
+          ARRAY[]::jsonb[]
+        )`.as("sprints"),
+        status: sql`SUBSTRING(${statusSubquery.min_status} FROM 3)`.as("effective_status"),
       })
       .from(assignedTasks)
       .leftJoin(assignedTaskStatus, eq(assignedTasks.id, assignedTaskStatus.taskId))
       .leftJoin(users, eq(assignedTaskStatus.memberId, users.id))
       .leftJoin(sprints, eq(assignedTaskStatus.id, sprints.taskStatusId))
-      .groupBy(assignedTasks.id)
+      .leftJoin(statusSubquery, eq(assignedTasks.id, statusSubquery.taskId))
+      .groupBy(assignedTasks.id, statusSubquery.min_status)
       .having(sql`COUNT(${assignedTaskStatus.id}) > 0`);
 
     if (date) {
@@ -62,12 +71,12 @@ export async function GET(req) {
     }
 
     if (user !== "all") {
-      taskQuery = taskQuery.having(sql`COUNT(CASE WHEN ${assignedTaskStatus.memberId} = ${parseInt(user)} THEN 1 END) > 0`);
+      taskQuery = taskQuery.where(eq(assignedTaskStatus.memberId, parseInt(user)));
     }
 
     if (status !== "all") {
       const statusCond = status === "done" ? ["done", "verified"] : [status];
-      taskQuery = taskQuery.having(inArray(statusSql, statusCond));
+      taskQuery = taskQuery.having(inArray(sql`SUBSTRING(${statusSubquery.min_status} FROM 3)`, statusCond));
     }
 
     const tasks = await taskQuery;

@@ -1,23 +1,12 @@
-
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import {
-  assignedTaskStatus,
-  sprints,
-  users,
-  assignedTasks,
-  messages,
-} from "@/lib/schema";
+import { assignedTaskStatus, sprints, users, assignedTasks, messages, assignedTaskLogs } from "@/lib/schema";
 import { auth } from "@/lib/auth";
 import { eq, and, inArray } from "drizzle-orm";
 import twilio from "twilio";
 
-const twilioClient = twilio(
-  process.env.TWILIO_ACCOUNT_SID,
-  process.env.TWILIO_AUTH_TOKEN
-);
+const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
-/* ---------- WhatsApp helper --------------------------------------- */
 async function sendWhatsappMessage(toNumber, content, recipientRow) {
   if (!toNumber || !recipientRow?.whatsapp_enabled) {
     console.log(`Skipping WhatsApp message: toNumber=${toNumber}, whatsapp_enabled=${recipientRow?.whatsapp_enabled}`);
@@ -25,16 +14,16 @@ async function sendWhatsappMessage(toNumber, content, recipientRow) {
   }
   try {
     const messageData = {
-      from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`, // e.g., +15558125765
+      from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`,
       to: `whatsapp:${toNumber}`,
-      contentSid: "HX60cc1428638f310ed813993c89059169", // Approved SID for task_status_update
+      contentSid: "HX60cc1428638f310ed813993c89059169",
       contentVariables: JSON.stringify({
-        1: content.recipientName || "User", // {{1}}: Recipient name
-        2: content.updaterName || "System", // {{2}}: Updater name
-        3: content.taskTitle || "Untitled Task", // {{3}}: Task name
-        4: content.newStatus || "Unknown", // {{4}}: New status
-        5: content.logComment || "No log provided", // {{5}}: Log comment
-        6: content.dateTime || new Date().toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }), // {{6}}: Date-time
+        1: content.recipientName || "User",
+        2: content.updaterName || "System",
+        3: content.taskTitle || "Untitled Task",
+        4: content.newStatus || "Unknown",
+        5: content.logComment || "No log provided",
+        6: content.dateTime || new Date().toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }),
       }),
     };
     console.log("Sending WhatsApp message:", messageData);
@@ -42,24 +31,22 @@ async function sendWhatsappMessage(toNumber, content, recipientRow) {
     console.log("WhatsApp message sent, SID:", message.sid);
   } catch (err) {
     console.error("Twilio send error:", err.message, err.stack);
-    throw err; // Propagate error
+    throw err;
   }
 }
 
-/* ------------------------------------------------------------------ */
 export async function PATCH(req) {
   try {
-    /* 1 auth */
     const session = await auth();
-    if (!session || session.user?.role !== "member") {
+    if (!session || !["member", "team_manager", "admin"].includes(session.user?.role)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
     const userId = Number(session.user.id);
     if (!Number.isInteger(userId)) {
       return NextResponse.json({ error: "Invalid userId" }, { status: 400 });
     }
 
-    /* 2 body */
     const {
       taskId,
       status,
@@ -68,32 +55,28 @@ export async function PATCH(req) {
       action,
       notifyAssignees = false,
       notifyWhatsapp = false,
-      newLogComment = "No log provided", // Added from frontend for log
+      newLogComment = "No log provided",
     } = await req.json();
 
     if (
       !Number.isInteger(taskId) ||
       !status ||
-      memberId !== userId ||
+      (action === "update_task" && memberId !== userId && session.user.role === "member") ||
       !["update_task", "update_sprint"].includes(action) ||
-      !["not_started", "in_progress", "pending_verification", "done"].includes(status)
+      !["not_started", "in_progress", "pending_verification", "done", "verified"].includes(status)
     ) {
       return NextResponse.json({ error: "Invalid input" }, { status: 400 });
     }
 
-    /* 3 confirm assignment */
-    console.log(`Fetching task status for taskId=${taskId}, userId=${userId}`);
     const taskStatusRows = await db
       .select({ id: assignedTaskStatus.id })
       .from(assignedTaskStatus)
       .where(and(eq(assignedTaskStatus.taskId, taskId), eq(assignedTaskStatus.memberId, userId)));
     const taskStatusRow = taskStatusRows[0];
-    if (!taskStatusRow) {
+    if (!taskStatusRow && session.user.role === "member") {
       return NextResponse.json({ error: "Task not assigned" }, { status: 404 });
     }
 
-    /* 4 fetch common rows */
-    console.log(`Fetching task, updater, assignees, and sender for taskId=${taskId}, userId=${userId}`);
     const taskResult = await db
       .select({ title: assignedTasks.title, createdBy: assignedTasks.createdBy })
       .from(assignedTasks)
@@ -129,10 +112,9 @@ export async function PATCH(req) {
     }
 
     const now = new Date();
-    const updaterName = updater?.name || "Unknown";
+    const updaterName = updater?.name || session?.user?.name || "Unknown";
     const senderWhatsapp = sender?.whatsapp_number;
 
-    /* 5 run update */
     let notification = "";
 
     if (action === "update_task") {
@@ -141,6 +123,16 @@ export async function PATCH(req) {
         .update(assignedTaskStatus)
         .set({ status, updatedAt: now })
         .where(eq(assignedTaskStatus.id, taskStatusRow.id));
+
+      await db
+        .insert(assignedTaskLogs)
+        .values({
+          taskId,
+          userId,
+          action: "status_update",
+          details: newLogComment,
+          createdAt: now,
+        });
 
       notification = `Task "${task.title}" status updated to ${status.replace("_", " ")} by ${updaterName}`;
       if (newLogComment !== "No log provided") {
@@ -169,6 +161,16 @@ export async function PATCH(req) {
         return NextResponse.json({ error: "Sprint not found" }, { status: 404 });
       }
 
+      await db
+        .insert(assignedTaskLogs)
+        .values({
+          taskId,
+          userId,
+          action: "sprint_status_update",
+          details: newLogComment,
+          createdAt: now,
+        });
+
       const statuses = await db
         .select({ status: sprints.status })
         .from(sprints)
@@ -192,7 +194,6 @@ export async function PATCH(req) {
       notification += `. [task:${taskId} sprint:${sprintId}]`;
     }
 
-    /* 6 prepare recipients */
     const toIds = [
       ...new Set(
         assignees
@@ -203,7 +204,6 @@ export async function PATCH(req) {
     ];
     console.log(`Prepared recipient IDs: ${toIds}`);
 
-    /* 7 CHAT notifications */
     if (notifyAssignees && toIds.length) {
       console.log(`Inserting chat notifications for recipients: ${toIds}`);
       await db.insert(messages).values(
@@ -217,7 +217,6 @@ export async function PATCH(req) {
       );
     }
 
-    /* 8 WhatsApp */
     if (notifyWhatsapp && senderWhatsapp && toIds.length) {
       console.log(`Fetching WhatsApp recipients for IDs: ${toIds}`);
       const recipients = await db
@@ -225,7 +224,7 @@ export async function PATCH(req) {
           id: users.id,
           whatsapp_number: users.whatsapp_number,
           whatsapp_enabled: users.whatsapp_enabled,
-          name: users.name, // Fetch recipient name
+          name: users.name,
         })
         .from(users)
         .where(inArray(users.id, toIds));
@@ -239,28 +238,23 @@ export async function PATCH(req) {
         await Promise.all(
           validRecipients.map((r) =>
             sendWhatsappMessage(r.whatsapp_number, {
-              recipientName: r.name || "User", // {{1}}
-              updaterName: updaterName, // {{2}}
-              taskTitle: task.title || "Untitled Task", // {{3}}
-              newStatus: status.replace("_", " "), // {{4}}
-              logComment: newLogComment, // {{5}} from frontend
-              dateTime: new Date().toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }), // {{6}}
+              recipientName: r.name || "User",
+              updaterName: updaterName,
+              taskTitle: task.title || "Untitled Task",
+              newStatus: status.replace("_", " "),
+              logComment: newLogComment,
+              dateTime: new Date().toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }),
             }, r)
           )
         );
       } catch (err) {
         console.error("WhatsApp notification failed:", err.message, err.stack);
-        // Optionally log or notify user, but proceed with 200 OK for in-app success
       }
     }
 
-    /* 9 done */
     return NextResponse.json({ ok: true }, { status: 200 });
   } catch (err) {
     console.error("PATCH /assignedTasks/status error:", err.message, err.stack);
-    return NextResponse.json(
-      { error: err.message || "Internal error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: err.message || "Internal error" }, { status: 500 });
   }
 }

@@ -8,6 +8,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import ScheduleMeet    from "@/components/ScheduleMeet";
 import QuickCallInvite from "@/components/QuickCallInvite";
+import { useRouter, usePathname } from "next/navigation";
 
 /* ───────── helpers ───────── */
 const toTitle = (s = "") =>
@@ -78,6 +79,9 @@ export default function ChatBox({ userDetails }) {
   const [recordLang, setRecordLang] = useState("hi-IN");
 
   const prevMessageCount = useRef(0);
+
+  const pathname = usePathname();
+  const router = useRouter();
 
   /* ------------ utils ------------- */
   const playSound = () => {
@@ -259,12 +263,20 @@ export default function ChatBox({ userDetails }) {
 
       console.log("Task link clicked:", { taskId, sprintId });
 
-      if (userDetails?.role === "admin") {
-        window.open(`/dashboard/admin?focusTask=${taskId}`, "_blank");
+      const isManagerRole = ["admin", "team_manager"].includes(userDetails?.role);
+      const isManagerPage = pathname === "/dashboard/managersCommon";
+
+      if (isManagerRole) {
+        if (isManagerPage) {
+          dispatchOpenTask(taskId, sprintId);
+        } else {
+          const query = sprintId ? `?focusTask=${taskId}&focusSprint=${sprintId}` : `?focusTask=${taskId}`;
+          router.push(`/dashboard/managersCommon${query}`);
+        }
       } else {
         dispatchOpenTask(taskId, sprintId);
-        closeAll();
       }
+      closeAll();
     };
 
     const chatEl = chatContainerRef.current;
@@ -277,7 +289,7 @@ export default function ChatBox({ userDetails }) {
       chatEl?.removeEventListener("click", handleTaskClick);
       historyEl?.removeEventListener("click", handleTaskClick);
     };
-  }, [showHistory, userDetails?.role]);
+  }, [showHistory, userDetails?.role, pathname, router]);
 
   /* ------------ life-cycle ------------ */
   useEffect(() => {
@@ -670,7 +682,7 @@ export default function ChatBox({ userDetails }) {
                       {selectedTask.sprints.map((s) => (
                         <li key={s.id} className="p-2 bg-gray-50 rounded border">
                           <p className="font-medium">{s.title || "Untitled Sprint"}</p>
-                          <p className="text-sm text-gray-600">Status: {s.status.replace("_", " ")}</p>
+                          <p className="text-sm text-gray-600">Status: {s.status?.replace("_", " ") || "Unknown"}</p>
                           <p className="text-sm text-gray-600">{s.description || "No description."}</p>
                         </li>
                       ))}
