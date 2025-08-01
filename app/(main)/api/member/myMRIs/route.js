@@ -5,18 +5,11 @@ import { dailySlotAssignments, dailySlots, assignedTasks, assignedTaskStatus } f
 import { eq, and, sql } from "drizzle-orm";
 
 export async function GET(req) {
-  // const session = await auth();
-  // if (!session || !["member"].includes(session.user?.role)) {
-  //   console.error("Unauthorized access attempt:", { user: session?.user });
-  //   return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  // }
-
-    const session = await auth();
-  if (!session || !["member", "team_manager"].includes(session.user?.role)) {
+  const session = await auth();
+  if (!session || !["member", "team_manager", "admin"].includes(session.user?.role)) {
     console.error("Unauthorized access attempt:", { user: session?.user });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-
 
   const { searchParams } = new URL(req.url);
   const section = searchParams.get("section");

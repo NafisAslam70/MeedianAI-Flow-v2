@@ -49,9 +49,12 @@ export async function middleware(request) {
       }
     }
 
-    // Team Managers can access /dashboard/team_manager and /dashboard/managersCommon
+    // Team Managers can access /dashboard/team_manager, /dashboard/managersCommon, and /dashboard/member (shared pages)
     if (role === "team_manager") {
-      if (isMemberRoute || isAdminOnlyRoute) {
+      if (!isTeamManagerRoute && !isManagersCommonRoute && !isMemberRoute && !isGeneralDashboard) {
+        return NextResponse.redirect(new URL("/dashboard/team_manager", request.url));
+      }
+      if (isAdminOnlyRoute) {
         return NextResponse.redirect(new URL("/dashboard/team_manager", request.url));
       }
     }

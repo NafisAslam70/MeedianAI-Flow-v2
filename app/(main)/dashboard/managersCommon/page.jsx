@@ -391,6 +391,14 @@ export default function ManagersCommonDashboard() {
     setShowSummaryModal(true);
   };
 
+  const handleBack = () => {
+    if (session?.user?.role === "admin") {
+      router.push("/dashboard/admin");
+    } else {
+      router.push("/dashboard/team_manager");
+    }
+  };
+
   if (status === "loading") {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-gray-50">
@@ -434,7 +442,17 @@ export default function ManagersCommonDashboard() {
 
         {/* Dashboard Header */}
         <div className="flex justify-between items-center">
-          <h1 className="text-3xl font-bold text-indigo-800">Task Tracking Dashboard</h1>
+          <div className="flex items-center">
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={handleBack}
+              className="mr-4 px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 text-sm shadow-md transition-all duration-200"
+            >
+              Back
+            </motion.button>
+            <h1 className="text-3xl font-bold text-indigo-800">Task Tracking Dashboard</h1>
+          </div>
           <div className="flex items-center space-x-6">
             <input
               type="date"

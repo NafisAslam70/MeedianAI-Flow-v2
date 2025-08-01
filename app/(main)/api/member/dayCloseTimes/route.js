@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 
 export async function GET(req) {
   const session = await auth();
-  if (!session || !["member"].includes(session.user?.role)) {
+  if (!session || !["member", "team_manager", "admin"].includes(session.user?.role)) {
     console.error("Unauthorized access attempt:", { user: session?.user });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
