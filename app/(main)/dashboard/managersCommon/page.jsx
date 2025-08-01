@@ -7,7 +7,7 @@ import useSWR from "swr";
 
 const fetcher = (url) => fetch(url).then((res) => res.json());
 
-export default function ManagersCommonDashboard() {
+export default function ManagersCommonDashboard({ disableUserSelect = false }) {
   const router = useRouter();
   const pathname = usePathname();
   const { data: session, status } = useSession();
@@ -39,6 +39,7 @@ export default function ManagersCommonDashboard() {
   const [showAddLogModal, setShowAddLogModal] = useState(false);
   const [isAddingLog, setIsAddingLog] = useState(false);
   const [isReminding, setIsReminding] = useState({});
+  const [selectedUserId, setSelectedUserId] = useState(null);
 
   const { data: usersData } = useSWR("/api/member/users", fetcher);
   const { data: dashboardData } = useSWR(`/api/managersCommon/dashboard?user=${userFilter}&status=${statusFilter}${selectedDate ? `&date=${selectedDate}` : ''}`, fetcher);
@@ -50,6 +51,12 @@ export default function ManagersCommonDashboard() {
       router.push("/dashboard/member");
     }
   }, [status, session, router]);
+
+  useEffect(() => {
+    if (disableUserSelect) {
+      setSelectedUserId(null);
+    }
+  }, [disableUserSelect]);
 
   useEffect(() => {
     if (usersData?.users) {
@@ -418,582 +425,368 @@ export default function ManagersCommonDashboard() {
     .sort((a, b) => new Date(a.deadline) - new Date(b.deadline))
     .slice(0, 10);
 
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.5 }}
-      className="fixed inset-0 bg-gradient-to-br from-blue-50 to-indigo-50 p-8 flex items-center justify-center"
-    >
-      <div className="w-full h-full bg-white rounded-2xl shadow-2xl p-8 flex flex-col gap-8 overflow-y-auto">
-        {/* Error Message */}
-        <AnimatePresence>
-          {error && (
-            <motion.p
-              initial={{ opacity: 0, y: -20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="absolute top-4 left-4 right-4 text-red-600 text-sm font-medium bg-red-50 p-4 rounded-lg shadow-md"
-            >
-              {error}
-            </motion.p>
-          )}
-        </AnimatePresence>
+  const viewedUser = users.find(u => u.id === selectedUserId);
 
-        {/* Dashboard Header */}
-        <div className="flex justify-between items-center">
-          <div className="flex items-center">
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={handleBack}
-              className="mr-4 px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 text-sm shadow-md transition-all duration-200"
-            >
-              Back
-            </motion.button>
-            <h1 className="text-3xl font-bold text-indigo-800">Task Tracking Dashboard</h1>
-          </div>
-          <div className="flex items-center space-x-6">
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="px-4 py-2 border border-indigo-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm bg-white shadow-sm"
-            />
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => setGroupByUser(!groupByUser)}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm shadow-md transition-all duration-200"
-            >
-              {groupByUser ? "Ungroup by User" : "Group by User"}
-            </motion.button>
-            <div className="relative">
+  if (selectedUserId) {
+    return (
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.5 }}
+        className="fixed inset-0 bg-gradient-to-br from-blue-50 to-indigo-50 p-8 flex items-center justify-center"
+      >
+        <div className="w-full h-full bg-white rounded-2xl shadow-2xl p-8 flex flex-col gap-8 overflow-y-auto">
+          {/* Error Message */}
+          <AnimatePresence>
+            {error && (
+              <motion.p
+                initial={{ opacity: 0, y: -20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="absolute top-4 left-4 right-4 text-red-600 text-sm font-medium bg-red-50 p-4 rounded-lg shadow-md"
+              >
+                {error}
+              </motion.p>
+            )}
+          </AnimatePresence>
+
+          {/* Dashboard Header for User View */}
+          <div className="flex justify-between items-center">
+            <div className="flex items-center">
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                onClick={() => setShowFilterDropdown(!showFilterDropdown)}
+                onClick={() => setSelectedUserId(null)}
+                className="mr-4 px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 text-sm shadow-md transition-all duration-200"
+              >
+                Back to Managers Dashboard
+              </motion.button>
+              <h1 className="text-3xl font-bold text-indigo-800">{viewedUser?.name}'s Dashboard</h1>
+            </div>
+            <div className="flex items-center space-x-6">
+              <select
+                value={selectedUserId}
+                onChange={(e) => setSelectedUserId(e.target.value ? Number(e.target.value) : null)}
+                className="px-4 py-2 border border-indigo-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm bg-white shadow-sm"
+              >
+                <option value="">Select User</option>
+                {users.map(user => (
+                  <option key={user.id} value={user.id}>{user.name}</option>
+                ))}
+              </select>
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="px-4 py-2 border border-indigo-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm bg-white shadow-sm"
+              />
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setGroupByUser(!groupByUser)}
                 className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm shadow-md transition-all duration-200"
               >
-                Filters
+                {groupByUser ? "Ungroup by User" : "Group by User"}
               </motion.button>
-              <AnimatePresence>
-                {showFilterDropdown && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
-                    className="absolute right-0 mt-2 w-72 bg-white rounded-lg shadow-2xl p-6 z-20 border border-indigo-200"
-                  >
-                    <div className="space-y-6">
-                      <div>
-                        <p className="text-sm font-semibold text-indigo-700 mb-2">User</p>
-                        <select
-                          value={userFilter}
-                          onChange={(e) => setUserFilter(e.target.value)}
-                          className="w-full px-3 py-2 border border-indigo-300 rounded-lg text-sm bg-indigo-50 focus:ring-2 focus:ring-indigo-500 transition-all duration-200"
-                        >
-                          <option value="all">All Users</option>
-                          {users.map(user => (
-                            <option key={user.id} value={user.id}>{user.name}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <p className="text-sm font-semibold text-indigo-700 mb-2">Status</p>
-                        <select
-                          value={statusFilter}
-                          onChange={(e) => setStatusFilter(e.target.value)}
-                          className="w-full px-3 py-2 border border-indigo-300 rounded-lg text-sm bg-indigo-50 focus:ring-2 focus:ring-indigo-500 transition-all duration-200"
-                        >
-                          <option value="all">All Statuses</option>
-                          <option value="not_started">Not Started</option>
-                          <option value="in_progress">In Progress</option>
-                          <option value="pending_verification">Pending Verification</option>
-                          <option value="done">Done/Verified</option>
-                        </select>
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          </div>
-        </div>
-
-        {/* Task Overview - Clickable Summary Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-5 gap-6">
-          <motion.div whileHover={{ scale: 1.05 }} onClick={() => handleSummaryClick("total")} className="cursor-pointer text-center p-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg shadow-md border border-indigo-200 transition-all duration-200">
-            <p className="text-base font-medium text-indigo-700">Total Tasks</p>
-            <p className="text-3xl font-bold text-indigo-800">{totalTasks}</p>
-          </motion.div>
-          <motion.div whileHover={{ scale: 1.05 }} onClick={() => handleSummaryClick("completed")} className="cursor-pointer text-center p-6 bg-gradient-to-r from-green-50 to-green-100 rounded-lg shadow-md border border-green-200 transition-all duration-200">
-            <p className="text-base font-medium text-green-700">Completed</p>
-            <p className="text-3xl font-bold text-green-800">{completedTasks}</p>
-          </motion.div>
-          <motion.div whileHover={{ scale: 1.05 }} onClick={() => handleSummaryClick("in_progress")} className="cursor-pointer text-center p-6 bg-gradient-to-r from-yellow-50 to-yellow-100 rounded-lg shadow-md border border-yellow-200 transition-all duration-200">
-            <p className="text-base font-medium text-yellow-700">In Progress</p>
-            <p className="text-3xl font-bold text-yellow-800">{inProgressTasks}</p>
-          </motion.div>
-          <motion.div whileHover={{ scale: 1.05 }} onClick={() => handleSummaryClick("pending_verification")} className="cursor-pointer text-center p-6 bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg shadow-md border border-blue-200 transition-all duration-200">
-            <p className="text-base font-medium text-blue-700">Pending Verification</p>
-            <p className="text-3xl font-bold text-blue-800">{pendingVerificationTasks}</p>
-          </motion.div>
-          <motion.div whileHover={{ scale: 1.05 }} onClick={() => handleSummaryClick("not_started")} className="cursor-pointer text-center p-6 bg-gradient-to-r from-red-50 to-red-100 rounded-lg shadow-md border border-red-200 transition-all duration-200">
-            <p className="text-base font-medium text-red-700">Not Started</p>
-            <p className="text-3xl font-bold text-red-800">{notStartedTasks}</p>
-          </motion.div>
-        </div>
-
-        {/* Recent Activity Logs Carousel */}
-        <div>
-          <h2 className="text-xl font-bold text-indigo-800 mb-4">Latest Activity Logs</h2>
-          <div className="overflow-x-auto whitespace-nowrap pb-4">
-            {recentLogs.map((log) => (
-              <motion.div
-                key={log.id}
-                className="inline-block w-96 bg-white rounded-lg shadow-md p-6 mr-6 cursor-pointer relative border border-indigo-100 transition-all duration-200 hover:shadow-lg"
-                whileHover={{ scale: 1.05 }}
-              >
-                {!localStorage.getItem(`viewed_${log.id}`) && (
-                  <span className="absolute top-4 right-4 w-3 h-3 bg-red-500 rounded-full"></span>
-                )}
-                <div className="flex flex-col h-full">
-                  <p className="text-base text-indigo-700 font-medium mb-3">
-                    {log.userName || getUserName(log.userId)} {log.action} task {log.taskId}:
-                  </p>
-                  <p className="text-sm text-gray-700 mb-3">{log.details}</p>
-                  <p className="text-sm text-indigo-600 mb-3">Assignees: {tasks.find(t => t.id === log.taskId)?.assignees.map(a => a.name).join(", ") || "N/A"}</p>
-                  <p className="text-xs text-gray-500">{new Date(log.createdAt).toLocaleString()}</p>
-                  <div className="flex justify-end mt-auto">
-                    <motion.button
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => handleViewLog(log)}
-                      className="px-4 py-2 bg-indigo-100 text-indigo-700 rounded-lg text-sm hover:bg-indigo-200 transition-all duration-200"
-                    >
-                      Details
-                    </motion.button>
-                  </div>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-
-        {/* Two Columns: Latest Updated and Deadline Approaching */}
-        <div className="grid grid-cols-2 gap-10">
-          <div className="border border-indigo-200 rounded-lg p-6 shadow-md bg-white">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold text-indigo-800">Latest Updated Tasks</h2>
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => setGroupByUpdated(!groupByUpdated)}
-                className="px-4 py-2 bg-indigo-100 text-indigo-700 rounded-lg text-sm hover:bg-indigo-200 transition-all duration-200 shadow-sm"
-              >
-                {groupByUpdated ? "Ungroup by User" : "Group by User"}
-              </motion.button>
-            </div>
-            {groupByUpdated ? (
-              Object.entries(groupedLatestUpdated() || {}).map(([userId, userTasks]) => (
-                <div key={userId} className="mb-6">
-                  <h3 className="text-lg font-semibold text-indigo-700 mb-3">{getUserName(parseInt(userId))}</h3>
-                  <div className="space-y-4">
-                    {userTasks.map((task, index) => (
-                      <motion.div
-                        key={`${task.id}-${index}`}
-                        className="bg-indigo-50 rounded-lg shadow-sm p-5 border border-indigo-200 transition-all duration-200"
-                        whileHover={{ scale: 1.02 }}
-                      >
-                        <p className="text-base text-indigo-800 truncate">{task.title}</p>
-                        <p className="text-sm text-indigo-600">Assignees: {task.assignees.map(a => a.name).join(", ")}</p>
-                        <span className={`text-sm px-3 py-1 rounded-full ${getStatusColor(task.status)}`}>
-                          {task.status?.replace("_", " ") || "Unknown"}
-                        </span>
-                        <div className="flex gap-3 mt-3">
-                          <motion.button
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                            onClick={() => handleViewTaskDetails(task)}
-                            className="px-4 py-2 bg-gray-100 rounded-lg text-sm hover:bg-gray-200 transition-all duration-200"
-                          >
-                            Details
-                          </motion.button>
-                          <motion.button
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                            onClick={() => handleRemindUser(task.id, task.assignees.map(a => a.id), task.title)}
-                            className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-all duration-200 relative"
-                          >
-                            {isReminding[task.id] ? (
-                              <motion.span
-                                animate={{ rotate: 360 }}
-                                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                                className="inline-block w-4 h-4 border-2 border-t-indigo-200 border-indigo-600 rounded-full"
-                              />
-                            ) : "Remind"}
-                          </motion.button>
-                        </div>
-                      </motion.div>
-                    ))}
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="grid grid-cols-2 gap-6">
-                {latestUpdated.map((task) => (
-                  <motion.div
-                    key={task.id}
-                    className="bg-indigo-50 rounded-lg shadow-sm p-5 border border-indigo-200 transition-all duration-200"
-                    whileHover={{ scale: 1.02 }}
-                  >
-                    <p className="text-base text-indigo-800 truncate">{task.title}</p>
-                    <p className="text-sm text-indigo-600">Assignees: {task.assignees.map(a => a.name).join(", ")}</p>
-                    <span className={`text-sm px-3 py-1 rounded-full ${getStatusColor(task.status)}`}>
-                      {task.status?.replace("_", " ") || "Unknown"}
-                    </span>
-                    <div className="flex gap-3 mt-3">
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => handleViewTaskDetails(task)}
-                        className="px-4 py-2 bg-gray-100 rounded-lg text-sm hover:bg-gray-200 transition-all duration-200"
-                      >
-                        Details
-                      </motion.button>
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => handleRemindUser(task.id, task.assignees.map(a => a.id), task.title)}
-                        className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-all duration-200 relative"
-                      >
-                        {isReminding[task.id] ? (
-                          <motion.span
-                            animate={{ rotate: 360 }}
-                            transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                            className="inline-block w-4 h-4 border-2 border-t-indigo-200 border-indigo-600 rounded-full"
-                          />
-                        ) : "Remind"}
-                      </motion.button>
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-            )}
-          </div>
-          <div className="border border-indigo-200 rounded-lg p-6 shadow-md bg-white">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold text-indigo-800">Deadline Approaching Tasks</h2>
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => setGroupByDeadline(!groupByDeadline)}
-                className="px-4 py-2 bg-indigo-100 text-indigo-700 rounded-lg text-sm hover:bg-indigo-200 transition-all duration-200 shadow-sm"
-              >
-                {groupByDeadline ? "Ungroup by User" : "Group by User"}
-              </motion.button>
-            </div>
-            {groupByDeadline ? (
-              Object.entries(groupedDeadlineApproaching() || {}).map(([userId, userTasks]) => (
-                <div key={userId} className="mb-6">
-                  <h3 className="text-lg font-semibold text-indigo-700 mb-3">{getUserName(parseInt(userId))}</h3>
-                  <div className="space-y-4">
-                    {userTasks.map((task, index) => (
-                      <motion.div
-                        key={`${task.id}-${index}`}
-                        className="bg-indigo-50 rounded-lg shadow-sm p-5 border border-indigo-200 transition-all duration-200"
-                        whileHover={{ scale: 1.02 }}
-                      >
-                        <p className="text-base text-indigo-800 truncate">{task.title}</p>
-                        <p className="text-sm text-indigo-600">Assignees: {task.assignees.map(a => a.name).join(", ")}</p>
-                        <span className={`text-sm px-3 py-1 rounded-full ${getStatusColor(task.status)}`}>
-                          {task.status?.replace("_", " ") || "Unknown"}
-                        </span>
-                        <div className="flex gap-3 mt-3">
-                          <motion.button
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                            onClick={() => handleViewTaskDetails(task)}
-                            className="px-4 py-2 bg-gray-100 rounded-lg text-sm hover:bg-gray-200 transition-all duration-200"
-                          >
-                            Details
-                          </motion.button>
-                          <motion.button
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                            onClick={() => handleRemindUser(task.id, task.assignees.map(a => a.id), task.title)}
-                            className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-all duration-200 relative"
-                          >
-                            {isReminding[task.id] ? (
-                              <motion.span
-                                animate={{ rotate: 360 }}
-                                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                                className="inline-block w-4 h-4 border-2 border-t-indigo-200 border-indigo-600 rounded-full"
-                              />
-                            ) : "Remind"}
-                          </motion.button>
-                        </div>
-                      </motion.div>
-                    ))}
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="grid grid-cols-2 gap-6">
-                {approachingDeadlines.map((task) => (
-                  <motion.div
-                    key={task.id}
-                    className="bg-indigo-50 rounded-lg shadow-sm p-5 border border-indigo-200 transition-all duration-200"
-                    whileHover={{ scale: 1.02 }}
-                  >
-                    <p className="text-base text-indigo-800 truncate">{task.title}</p>
-                    <p className="text-sm text-indigo-600">Assignees: {task.assignees.map(a => a.name).join(", ")}</p>
-                    <span className={`text-sm px-3 py-1 rounded-full ${getStatusColor(task.status)}`}>
-                      {task.status?.replace("_", " ") || "Unknown"}
-                    </span>
-                    <div className="flex gap-3 mt-3">
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => handleViewTaskDetails(task)}
-                        className="px-4 py-2 bg-gray-100 rounded-lg text-sm hover:bg-gray-200 transition-all duration-200"
-                      >
-                        Details
-                      </motion.button>
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => handleRemindUser(task.id, task.assignees.map(a => a.id), task.title)}
-                        className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-all duration-200 relative"
-                      >
-                        {isReminding[task.id] ? (
-                          <motion.span
-                            animate={{ rotate: 360 }}
-                            transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                            className="inline-block w-4 h-4 border-2 border-t-indigo-200 border-indigo-600 rounded-full"
-                          />
-                        ) : "Remind"}
-                      </motion.button>
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Grouped by User */}
-        {groupByUser && (
-          <div>
-            <h2 className="text-xl font-bold text-indigo-800 mb-4">Tasks Grouped by User</h2>
-            {Object.entries(groupedTasks() || {}).map(([userId, userTasks]) => (
-              <div key={userId} className="mb-6">
-                <h3 className="text-lg font-semibold text-indigo-700 mb-3">{getUserName(parseInt(userId))}</h3>
-                <div className="space-y-4">
-                  {userTasks.map((task, index) => (
-                    <motion.div
-                      key={`${task.id}-${index}`}
-                      className="bg-indigo-50 rounded-lg shadow-sm p-5 border border-indigo-200 transition-all duration-200"
-                      whileHover={{ scale: 1.02 }}
-                    >
-                      <p className="text-base text-indigo-800 truncate">{task.title}</p>
-                      <span className={`text-sm px-3 py-1 rounded-full ${getStatusColor(task.status)}`}>
-                        {task.status?.replace("_", " ") || "Unknown"}
-                      </span>
-                    </motion.div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Task Details Modal */}
-        <AnimatePresence>
-          {showDetailsModal && selectedTask && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/50 flex items-center justify-center p-6 z-50"
-            >
-              <motion.div
-                initial={{ scale: 0.95, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.95, opacity: 0 }}
-                className="bg-white rounded-2xl p-8 w-full max-w-5xl overflow-y-auto max-h-[85vh] shadow-2xl border border-indigo-200"
-              >
-                <h2 className="text-xl font-bold text-indigo-800 mb-6">{selectedTask.title}</h2>
-                <div className="flex flex-row gap-8 mb-6">
-                  <div className="flex-1 space-y-5">
-                    <p className="text-base"><strong className="text-indigo-700">Description:</strong> {selectedTask.description || "N/A"}</p>
-                    <div className="mt-6">
-                      <h3 className="text-lg font-semibold text-indigo-700">Assignees</h3>
-                      {selectedTask.assignees.map(assignee => (
-                        <div key={assignee.id} className="mt-4 bg-indigo-50 p-5 rounded-lg shadow-sm border border-indigo-200">
-                          <p className="text-base"><strong className="text-indigo-700">Name:</strong> {assignee.name}</p>
-                          <p className="text-base"><strong className="text-indigo-700">Status:</strong> {assignee.status?.replace("_", " ") || "Unknown"}</p>
-                          {assignee.sprints && assignee.sprints.length > 0 && (
-                            <div className="mt-2">
-                              <h4 className="text-base font-semibold text-indigo-700">Sprints</h4>
-                              {assignee.sprints.map(sprint => (
-                                <div key={sprint.id} className="mt-2 bg-white p-3 rounded shadow-sm border border-indigo-100">
-                                  <p className="text-sm"><strong>{sprint.title || "Untitled Sprint"}:</strong> {sprint.description || "N/A"}</p>
-                                  <p className="text-sm">Status: {sprint.status?.replace("_", " ") || "Unknown"}</p>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                    <p className="text-base"><strong className="text-indigo-700">Deadline:</strong> {selectedTask.deadline ? new Date(selectedTask.deadline).toLocaleString() : "N/A"}</p>
-                    <p className="text-base"><strong className="text-indigo-700">Resources:</strong> {selectedTask.resources || "N/A"}</p>
-                  </div>
-                  <div className="flex-1">
-                    <h3 className="text-lg font-semibold text-indigo-700 mb-4">Logs</h3>
-                    <div className="max-h-80 overflow-y-auto space-y-4 mb-6">
-                      {taskLogs.length > 0 ? (
-                        taskLogs.map(log => (
-                          <div key={log.id} className="p-5 bg-indigo-50 rounded-lg shadow-sm border border-indigo-200 transition-all duration-200">
-                            <p className="text-base text-indigo-800">{log.userName || getUserName(log.userId)}: {log.details}</p>
-                            <p className="text-sm text-gray-500 mt-2">{new Date(log.createdAt).toLocaleString()}</p>
-                          </div>
-                        ))
-                      ) : (
-                        <p className="text-base text-gray-500">No logs available.</p>
-                      )}
-                    </div>
-                    <div className="mt-6">
-                      <h4 className="text-base font-semibold text-indigo-700 mb-3">Add New Log</h4>
-                      <textarea
-                        value={newLogComment}
-                        onChange={(e) => setNewLogComment(e.target.value)}
-                        placeholder="Add a comment to the task discussion..."
-                        className="w-full px-4 py-3 border border-indigo-300 rounded-lg bg-indigo-50 focus:ring-2 focus:ring-indigo-500 text-sm font-medium text-gray-700 mb-4 transition-all duration-200"
-                      />
-                      {selectedTask.assignees.some(a => a.status === "pending_verification") && (
-                        <motion.button
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
-                          onClick={() => handleVerifyTask(selectedTask.id)}
-                          className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 transition-all duration-200 mr-3 relative"
-                          disabled={!newLogComment || isAddingLog}
-                        >
-                          {isAddingLog ? (
-                            <motion.span
-                              animate={{ rotate: 360 }}
-                              transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                              className="inline-block w-4 h-4 border-2 border-t-green-200 border-green-600 rounded-full"
-                            />
-                          ) : "Verify Task"}
-                        </motion.button>
-                      )}
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => handleAddLog(selectedTask.id, true)}
-                        className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-all duration-200 relative"
-                        disabled={!newLogComment || isAddingLog}
-                      >
-                        {isAddingLog ? (
-                          <motion.span
-                            animate={{ rotate: 360 }}
-                            transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                            className="inline-block w-4 h-4 border-2 border-t-indigo-200 border-indigo-600 rounded-full"
-                          />
-                        ) : "Add Log & Notify Assignees"}
-                      </motion.button>
-                    </div>
-                  </div>
-                </div>
+              <div className="relative">
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
-                  onClick={() => setShowDetailsModal(false)}
-                  className="px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-all duration-200 shadow-md"
+                  onClick={() => setShowFilterDropdown(!showFilterDropdown)}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm shadow-md transition-all duration-200"
                 >
-                  Close
+                  Filters
                 </motion.button>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Add Log Modal (for Latest Activity Logs) */}
-        <AnimatePresence>
-          {showAddLogModal && selectedTask && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/50 flex items-center justify-center p-6 z-50"
-            >
-              <motion.div
-                initial={{ scale: 0.95, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.95, opacity: 0 }}
-                className="bg-white rounded-2xl p-8 w-full max-w-lg shadow-2xl border border-indigo-200"
+                <AnimatePresence>
+                  {showFilterDropdown && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      className="absolute right-0 mt-2 w-72 bg-white rounded-lg shadow-2xl p-6 z-20 border border-indigo-200"
+                    >
+                      <div className="space-y-6">
+                        <div>
+                          <p className="text-sm font-semibold text-indigo-700 mb-2">User</p>
+                          <select
+                            value={userFilter}
+                            onChange={(e) => setUserFilter(e.target.value)}
+                            className="w-full px-3 py-2 border border-indigo-300 rounded-lg text-sm bg-indigo-50 focus:ring-2 focus:ring-indigo-500 transition-all duration-200"
+                          >
+                            <option value="all">All Users</option>
+                            {users.map(user => (
+                              <option key={user.id} value={user.id}>{user.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-indigo-700 mb-2">Status</p>
+                          <select
+                            value={statusFilter}
+                            onChange={(e) => setStatusFilter(e.target.value)}
+                            className="w-full px-3 py-2 border border-indigo-300 rounded-lg text-sm bg-indigo-50 focus:ring-2 focus:ring-indigo-500 transition-all duration-200"
+                          >
+                            <option value="all">All Statuses</option>
+                            <option value="not_started">Not Started</option>
+                            <option value="in_progress">In Progress</option>
+                            <option value="pending_verification">Pending Verification</option>
+                            <option value="done">Done/Verified</option>
+                          </select>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </div>
+          </div>
+          <PersonalView userId={selectedUserId} />
+        </div>
+      </motion.div>
+    );
+  } else {
+    return (
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.5 }}
+        className="fixed inset-0 bg-gradient-to-br from-blue-50 to-indigo-50 p-8 flex items-center justify-center"
+      >
+        <div className="w-full h-full bg-white rounded-2xl shadow-2xl p-8 flex flex-col gap-8 overflow-y-auto">
+          {/* Error Message */}
+          <AnimatePresence>
+            {error && (
+              <motion.p
+                initial={{ opacity: 0, y: -20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="absolute top-4 left-4 right-4 text-red-600 text-sm font-medium bg-red-50 p-4 rounded-lg shadow-md"
               >
-                <h2 className="text-xl font-bold text-indigo-800 mb-6">Add Log for {selectedTask.title}</h2>
-                <textarea
-                  value={newLogComment}
-                  onChange={(e) => setNewLogComment(e.target.value)}
-                  placeholder="Add a comment to the task discussion..."
-                  className="w-full px-4 py-3 border border-indigo-300 rounded-lg bg-indigo-50 focus:ring-2 focus:ring-indigo-500 text-sm font-medium text-gray-700 mb-4 transition-all duration-200"
-                />
-                <div className="flex justify-end space-x-3">
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => setShowAddLogModal(false)}
-                    className="px-4 py-2 bg-gray-500 text-white rounded-lg text-sm hover:bg-gray-600 transition-all duration-200"
-                  >
-                    Cancel
-                  </motion.button>
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => handleAddLog(selectedTask.id, true)}
-                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-all duration-200 relative"
-                    disabled={!newLogComment || isAddingLog}
-                  >
-                    {isAddingLog ? (
-                      <motion.span
-                        animate={{ rotate: 360 }}
-                        transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                        className="inline-block w-4 h-4 border-2 border-t-indigo-200 border-indigo-600 rounded-full"
-                      />
-                    ) : "Add Log & Notify Assignees"}
-                  </motion.button>
-                </div>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+                {error}
+              </motion.p>
+            )}
+          </AnimatePresence>
 
-        {/* Summary Modal */}
-        <AnimatePresence>
-          {showSummaryModal && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/50 flex items-center justify-center p-6 z-50"
-            >
-              <motion.div
-                initial={{ scale: 0.95, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.95, opacity: 0 }}
-                className="bg-white rounded-2xl p-8 w-full max-w-5xl overflow-y-auto max-h-[85vh] shadow-2xl border border-indigo-200"
+          {/* Dashboard Header */}
+          <div className="flex justify-between items-center">
+            <div className="flex items-center">
+              {session?.user?.role !== "admin" && (
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={handleBack}
+                  className="mr-4 px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 text-sm shadow-md transition-all duration-200"
+                >
+                  Back
+                </motion.button>
+              )}
+              <h1 className="text-3xl font-bold text-indigo-800">Task Tracking Dashboard</h1>
+            </div>
+            <div className="flex items-center space-x-6">
+              {session?.user?.role === "admin" && !disableUserSelect && (
+                <select
+                  value={selectedUserId || ""}
+                  onChange={(e) => setSelectedUserId(e.target.value ? Number(e.target.value) : null)}
+                  className="px-4 py-2 border border-indigo-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm bg-white shadow-sm"
+                >
+                  <option value="">Select User to View Dashboard</option>
+                  {users.map(user => (
+                    <option key={user.id} value={user.id}>{user.name}</option>
+                  ))}
+                </select>
+              )}
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="px-4 py-2 border border-indigo-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm bg-white shadow-sm"
+              />
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setGroupByUser(!groupByUser)}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm shadow-md transition-all duration-200"
               >
-                <h2 className="text-xl font-bold text-indigo-800 mb-6">Tasks in {selectedSummaryCategory.toUpperCase()}</h2>
-                <div className="space-y-6">
-                  {categoryTasks.map((task) => (
+                {groupByUser ? "Ungroup by User" : "Group by User"}
+              </motion.button>
+              <div className="relative">
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setShowFilterDropdown(!showFilterDropdown)}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm shadow-md transition-all duration-200"
+                >
+                  Filters
+                </motion.button>
+                <AnimatePresence>
+                  {showFilterDropdown && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      className="absolute right-0 mt-2 w-72 bg-white rounded-lg shadow-2xl p-6 z-20 border border-indigo-200"
+                    >
+                      <div className="space-y-6">
+                        <div>
+                          <p className="text-sm font-semibold text-indigo-700 mb-2">User</p>
+                          <select
+                            value={userFilter}
+                            onChange={(e) => setUserFilter(e.target.value)}
+                            className="w-full px-3 py-2 border border-indigo-300 rounded-lg text-sm bg-indigo-50 focus:ring-2 focus:ring-indigo-500 transition-all duration-200"
+                          >
+                            <option value="all">All Users</option>
+                            {users.map(user => (
+                              <option key={user.id} value={user.id}>{user.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-indigo-700 mb-2">Status</p>
+                          <select
+                            value={statusFilter}
+                            onChange={(e) => setStatusFilter(e.target.value)}
+                            className="w-full px-3 py-2 border border-indigo-300 rounded-lg text-sm bg-indigo-50 focus:ring-2 focus:ring-indigo-500 transition-all duration-200"
+                          >
+                            <option value="all">All Statuses</option>
+                            <option value="not_started">Not Started</option>
+                            <option value="in_progress">In Progress</option>
+                            <option value="pending_verification">Pending Verification</option>
+                            <option value="done">Done/Verified</option>
+                          </select>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </div>
+          </div>
+
+          {/* Task Overview - Clickable Summary Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-5 gap-6">
+            <motion.div whileHover={{ scale: 1.05 }} onClick={() => handleSummaryClick("total")} className="cursor-pointer text-center p-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg shadow-md border border-indigo-200 transition-all duration-200">
+              <p className="text-base font-medium text-indigo-700">Total Tasks</p>
+              <p className="text-3xl font-bold text-indigo-800">{totalTasks}</p>
+            </motion.div>
+            <motion.div whileHover={{ scale: 1.05 }} onClick={() => handleSummaryClick("completed")} className="cursor-pointer text-center p-6 bg-gradient-to-r from-green-50 to-green-100 rounded-lg shadow-md border border-green-200 transition-all duration-200">
+              <p className="text-base font-medium text-green-700">Completed</p>
+              <p className="text-3xl font-bold text-green-800">{completedTasks}</p>
+            </motion.div>
+            <motion.div whileHover={{ scale: 1.05 }} onClick={() => handleSummaryClick("in_progress")} className="cursor-pointer text-center p-6 bg-gradient-to-r from-yellow-50 to-yellow-100 rounded-lg shadow-md border border-yellow-200 transition-all duration-200">
+              <p className="text-base font-medium text-yellow-700">In Progress</p>
+              <p className="text-3xl font-bold text-yellow-800">{inProgressTasks}</p>
+            </motion.div>
+            <motion.div whileHover={{ scale: 1.05 }} onClick={() => handleSummaryClick("pending_verification")} className="cursor-pointer text-center p-6 bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg shadow-md border border-blue-200 transition-all duration-200">
+              <p className="text-base font-medium text-blue-700">Pending Verification</p>
+              <p className="text-3xl font-bold text-blue-800">{pendingVerificationTasks}</p>
+            </motion.div>
+            <motion.div whileHover={{ scale: 1.05 }} onClick={() => handleSummaryClick("not_started")} className="cursor-pointer text-center p-6 bg-gradient-to-r from-red-50 to-red-100 rounded-lg shadow-md border border-red-200 transition-all duration-200">
+              <p className="text-base font-medium text-red-700">Not Started</p>
+              <p className="text-3xl font-bold text-red-800">{notStartedTasks}</p>
+            </motion.div>
+          </div>
+
+          {/* Recent Activity Logs Carousel */}
+          <div>
+            <h2 className="text-xl font-bold text-indigo-800 mb-4">Latest Activity Logs</h2>
+            <div className="overflow-x-auto whitespace-nowrap pb-4">
+              {recentLogs.map((log) => (
+                <motion.div
+                  key={log.id}
+                  className="inline-block w-96 bg-white rounded-lg shadow-md p-6 mr-6 cursor-pointer relative border border-indigo-100 transition-all duration-200 hover:shadow-lg"
+                  whileHover={{ scale: 1.05 }}
+                >
+                  {!localStorage.getItem(`viewed_${log.id}`) && (
+                    <span className="absolute top-4 right-4 w-3 h-3 bg-red-500 rounded-full"></span>
+                  )}
+                  <div className="flex flex-col h-full">
+                    <p className="text-base text-indigo-700 font-medium mb-3">
+                      {log.userName || getUserName(log.userId)} {log.action} task {log.taskId}:
+                    </p>
+                    <p className="text-sm text-gray-700 mb-3">{log.details}</p>
+                    <p className="text-sm text-indigo-600 mb-3">Assignees: {tasks.find(t => t.id === log.taskId)?.assignees.map(a => a.name).join(", ") || "N/A"}</p>
+                    <p className="text-xs text-gray-500">{new Date(log.createdAt).toLocaleString()}</p>
+                    <div className="flex justify-end mt-auto">
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => handleViewLog(log)}
+                        className="px-4 py-2 bg-indigo-100 text-indigo-700 rounded-lg text-sm hover:bg-indigo-200 transition-all duration-200"
+                      >
+                        Details
+                      </motion.button>
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+
+          {/* Two Columns: Latest Updated and Deadline Approaching */}
+          <div className="grid grid-cols-2 gap-10">
+            <div className="border border-indigo-200 rounded-lg p-6 shadow-md bg-white">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold text-indigo-800">Latest Updated Tasks</h2>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setGroupByUpdated(!groupByUpdated)}
+                  className="px-4 py-2 bg-indigo-100 text-indigo-700 rounded-lg text-sm hover:bg-indigo-200 transition-all duration-200 shadow-sm"
+                >
+                  {groupByUpdated ? "Ungroup by User" : "Group by User"}
+                </motion.button>
+              </div>
+              {groupByUpdated ? (
+                Object.entries(groupedLatestUpdated() || {}).map(([userId, userTasks]) => (
+                  <div key={userId} className="mb-6">
+                    <h3 className="text-lg font-semibold text-indigo-700 mb-3">{getUserName(parseInt(userId))}</h3>
+                    <div className="space-y-4">
+                      {userTasks.map((task, index) => (
+                        <motion.div
+                          key={`${task.id}-${index}`}
+                          className="bg-indigo-50 rounded-lg shadow-sm p-5 border border-indigo-200 transition-all duration-200"
+                          whileHover={{ scale: 1.02 }}
+                        >
+                          <p className="text-base text-indigo-800 truncate">{task.title}</p>
+                          <p className="text-sm text-indigo-600">Assignees: {task.assignees.map(a => a.name).join(", ")}</p>
+                          <span className={`text-sm px-3 py-1 rounded-full ${getStatusColor(task.status)}`}>
+                            {task.status?.replace("_", " ") || "Unknown"}
+                          </span>
+                          <div className="flex gap-3 mt-3">
+                            <motion.button
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                              onClick={() => handleViewTaskDetails(task)}
+                              className="px-4 py-2 bg-gray-100 rounded-lg text-sm hover:bg-gray-200 transition-all duration-200"
+                            >
+                              Details
+                            </motion.button>
+                            <motion.button
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                              onClick={() => handleRemindUser(task.id, task.assignees.map(a => a.id), task.title)}
+                              className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-all duration-200 relative"
+                            >
+                              {isReminding[task.id] ? (
+                                <motion.span
+                                  animate={{ rotate: 360 }}
+                                  transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                                  className="inline-block w-4 h-4 border-2 border-t-indigo-200 border-indigo-600 rounded-full"
+                                />
+                              ) : "Remind"}
+                            </motion.button>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="grid grid-cols-2 gap-6">
+                  {latestUpdated.map((task) => (
                     <motion.div
                       key={task.id}
-                      className="bg-indigo-50 rounded-lg shadow-md p-6 border border-indigo-200 transition-all duration-200"
+                      className="bg-indigo-50 rounded-lg shadow-sm p-5 border border-indigo-200 transition-all duration-200"
                       whileHover={{ scale: 1.02 }}
                     >
                       <p className="text-base text-indigo-800 truncate">{task.title}</p>
@@ -1001,14 +794,11 @@ export default function ManagersCommonDashboard() {
                       <span className={`text-sm px-3 py-1 rounded-full ${getStatusColor(task.status)}`}>
                         {task.status?.replace("_", " ") || "Unknown"}
                       </span>
-                      <div className="flex gap-3 mt-4">
+                      <div className="flex gap-3 mt-3">
                         <motion.button
                           whileHover={{ scale: 1.05 }}
                           whileTap={{ scale: 0.95 }}
-                          onClick={() => {
-                            setShowSummaryModal(false);
-                            handleViewTaskDetails(task);
-                          }}
+                          onClick={() => handleViewTaskDetails(task)}
                           className="px-4 py-2 bg-gray-100 rounded-lg text-sm hover:bg-gray-200 transition-all duration-200"
                         >
                           Details
@@ -1031,19 +821,371 @@ export default function ManagersCommonDashboard() {
                     </motion.div>
                   ))}
                 </div>
+              )}
+            </div>
+            <div className="border border-indigo-200 rounded-lg p-6 shadow-md bg-white">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold text-indigo-800">Deadline Approaching Tasks</h2>
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
-                  onClick={() => setShowSummaryModal(false)}
-                  className="mt-6 px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-all duration-200 shadow-md"
+                  onClick={() => setGroupByDeadline(!groupByDeadline)}
+                  className="px-4 py-2 bg-indigo-100 text-indigo-700 rounded-lg text-sm hover:bg-indigo-200 transition-all duration-200 shadow-sm"
                 >
-                  Close
+                  {groupByDeadline ? "Ungroup by User" : "Group by User"}
                 </motion.button>
-              </motion.div>
-            </motion.div>
+              </div>
+              {groupByDeadline ? (
+                Object.entries(groupedDeadlineApproaching() || {}).map(([userId, userTasks]) => (
+                  <div key={userId} className="mb-6">
+                    <h3 className="text-lg font-semibold text-indigo-700 mb-3">{getUserName(parseInt(userId))}</h3>
+                    <div className="space-y-4">
+                      {userTasks.map((task, index) => (
+                        <motion.div
+                          key={`${task.id}-${index}`}
+                          className="bg-indigo-50 rounded-lg shadow-sm p-5 border border-indigo-200 transition-all duration-200"
+                          whileHover={{ scale: 1.02 }}
+                        >
+                          <p className="text-base text-indigo-800 truncate">{task.title}</p>
+                          <p className="text-sm text-indigo-600">Assignees: {task.assignees.map(a => a.name).join(", ")}</p>
+                          <span className={`text-sm px-3 py-1 rounded-full ${getStatusColor(task.status)}`}>
+                            {task.status?.replace("_", " ") || "Unknown"}
+                          </span>
+                          <div className="flex gap-3 mt-3">
+                            <motion.button
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                              onClick={() => handleViewTaskDetails(task)}
+                              className="px-4 py-2 bg-gray-100 rounded-lg text-sm hover:bg-gray-200 transition-all duration-200"
+                            >
+                              Details
+                            </motion.button>
+                            <motion.button
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                              onClick={() => handleRemindUser(task.id, task.assignees.map(a => a.id), task.title)}
+                              className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-all duration-200 relative"
+                            >
+                              {isReminding[task.id] ? (
+                                <motion.span
+                                  animate={{ rotate: 360 }}
+                                  transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                                  className="inline-block w-4 h-4 border-2 border-t-indigo-200 border-indigo-600 rounded-full"
+                                />
+                              ) : "Remind"}
+                            </motion.button>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="grid grid-cols-2 gap-6">
+                  {approachingDeadlines.map((task) => (
+                    <motion.div
+                      key={task.id}
+                      className="bg-indigo-50 rounded-lg shadow-sm p-5 border border-indigo-200 transition-all duration-200"
+                      whileHover={{ scale: 1.02 }}
+                    >
+                      <p className="text-base text-indigo-800 truncate">{task.title}</p>
+                      <p className="text-sm text-indigo-600">Assignees: {task.assignees.map(a => a.name).join(", ")}</p>
+                      <span className={`text-sm px-3 py-1 rounded-full ${getStatusColor(task.status)}`}>
+                        {task.status?.replace("_", " ") || "Unknown"}
+                      </span>
+                      <div className="flex gap-3 mt-3">
+                        <motion.button
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => handleViewTaskDetails(task)}
+                          className="px-4 py-2 bg-gray-100 rounded-lg text-sm hover:bg-gray-200 transition-all duration-200"
+                        >
+                          Details
+                        </motion.button>
+                        <motion.button
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => handleRemindUser(task.id, task.assignees.map(a => a.id), task.title)}
+                          className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-all duration-200 relative"
+                        >
+                          {isReminding[task.id] ? (
+                            <motion.span
+                              animate={{ rotate: 360 }}
+                              transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                              className="inline-block w-4 h-4 border-2 border-t-indigo-200 border-indigo-600 rounded-full"
+                            />
+                          ) : "Remind"}
+                        </motion.button>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Grouped by User */}
+          {groupByUser && (
+            <div>
+              <h2 className="text-xl font-bold text-indigo-800 mb-4">Tasks Grouped by User</h2>
+              {Object.entries(groupedTasks() || {}).map(([userId, userTasks]) => (
+                <div key={userId} className="mb-6">
+                  <h3 className="text-lg font-semibold text-indigo-700 mb-3">{getUserName(parseInt(userId))}</h3>
+                  <div className="space-y-4">
+                    {userTasks.map((task, index) => (
+                      <motion.div
+                        key={`${task.id}-${index}`}
+                        className="bg-indigo-50 rounded-lg shadow-sm p-5 border border-indigo-200 transition-all duration-200"
+                        whileHover={{ scale: 1.02 }}
+                      >
+                        <p className="text-base text-indigo-800 truncate">{task.title}</p>
+                        <span className={`text-sm px-3 py-1 rounded-full ${getStatusColor(task.status)}`}>
+                          {task.status?.replace("_", " ") || "Unknown"}
+                        </span>
+                      </motion.div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
-        </AnimatePresence>
-      </div>
-    </motion.div>
-  );
+
+          {/* Task Details Modal */}
+          <AnimatePresence>
+            {showDetailsModal && selectedTask && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 bg-black/50 flex items-center justify-center p-6 z-50"
+              >
+                <motion.div
+                  initial={{ scale: 0.95, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.95, opacity: 0 }}
+                  className="bg-white rounded-2xl p-8 w-full max-w-5xl overflow-y-auto max-h-[85vh] shadow-2xl border border-indigo-200"
+                >
+                  <h2 className="text-xl font-bold text-indigo-800 mb-6">{selectedTask.title}</h2>
+                  <div className="flex flex-row gap-8 mb-6">
+                    <div className="flex-1 space-y-5">
+                      <p className="text-base"><strong className="text-indigo-700">Description:</strong> {selectedTask.description || "N/A"}</p>
+                      <div className="mt-6">
+                        <h3 className="text-lg font-semibold text-indigo-700">Assignees</h3>
+                        {selectedTask.assignees.map(assignee => (
+                          <div key={assignee.id} className="mt-4 bg-indigo-50 p-5 rounded-lg shadow-sm border border-indigo-200">
+                            <p className="text-base"><strong className="text-indigo-700">Name:</strong> {assignee.name}</p>
+                            <p className="text-base"><strong className="text-indigo-700">Status:</strong> {assignee.status?.replace("_", " ") || "Unknown"}</p>
+                            {assignee.sprints && assignee.sprints.length > 0 && (
+                              <div className="mt-2">
+                                <h4 className="text-base font-semibold text-indigo-700">Sprints</h4>
+                                {assignee.sprints.map(sprint => (
+                                  <div key={sprint.id} className="mt-2 bg-white p-3 rounded shadow-sm border border-indigo-100">
+                                    <p className="text-sm"><strong>{sprint.title || "Untitled Sprint"}:</strong> {sprint.description || "N/A"}</p>
+                                    <p className="text-sm">Status: {sprint.status?.replace("_", " ") || "Unknown"}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-base"><strong className="text-indigo-700">Deadline:</strong> {selectedTask.deadline ? new Date(selectedTask.deadline).toLocaleString() : "N/A"}</p>
+                      <p className="text-base"><strong className="text-indigo-700">Resources:</strong> {selectedTask.resources || "N/A"}</p>
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-lg font-semibold text-indigo-700 mb-4">Logs</h3>
+                      <div className="max-h-80 overflow-y-auto space-y-4 mb-6">
+                        {taskLogs.length > 0 ? (
+                          taskLogs.map(log => (
+                            <div key={log.id} className="p-5 bg-indigo-50 rounded-lg shadow-sm border border-indigo-200 transition-all duration-200">
+                              <p className="text-base text-indigo-800">{log.userName || getUserName(log.userId)}: {log.details}</p>
+                              <p className="text-sm text-gray-500 mt-2">{new Date(log.createdAt).toLocaleString()}</p>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-base text-gray-500">No logs available.</p>
+                        )}
+                      </div>
+                      <div className="mt-6">
+                        <h4 className="text-base font-semibold text-indigo-700 mb-3">Add New Log</h4>
+                        <textarea
+                          value={newLogComment}
+                          onChange={(e) => setNewLogComment(e.target.value)}
+                          placeholder="Add a comment to the task discussion..."
+                          className="w-full px-4 py-3 border border-indigo-300 rounded-lg bg-indigo-50 focus:ring-2 focus:ring-indigo-500 text-sm font-medium text-gray-700 mb-4 transition-all duration-200"
+                        />
+                        {selectedTask.assignees.some(a => a.status === "pending_verification") && (
+                          <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => handleVerifyTask(selectedTask.id)}
+                            className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 transition-all duration-200 mr-3 relative"
+                            disabled={!newLogComment || isAddingLog}
+                          >
+                            {isAddingLog ? (
+                              <motion.span
+                                animate={{ rotate: 360 }}
+                                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                                className="inline-block w-4 h-4 border-2 border-t-green-200 border-green-600 rounded-full"
+                              />
+                            ) : "Verify Task"}
+                          </motion.button>
+                        )}
+                        <motion.button
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => handleAddLog(selectedTask.id, true)}
+                          className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-all duration-200 relative"
+                          disabled={!newLogComment || isAddingLog}
+                        >
+                          {isAddingLog ? (
+                            <motion.span
+                              animate={{ rotate: 360 }}
+                              transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                              className="inline-block w-4 h-4 border-2 border-t-indigo-200 border-indigo-600 rounded-full"
+                            />
+                          ) : "Add Log & Notify Assignees"}
+                        </motion.button>
+                      </div>
+                    </div>
+                  </div>
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => setShowDetailsModal(false)}
+                    className="px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-all duration-200 shadow-md"
+                  >
+                    Close
+                  </motion.button>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Add Log Modal (for Latest Activity Logs) */}
+          <AnimatePresence>
+            {showAddLogModal && selectedTask && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 bg-black/50 flex items-center justify-center p-6 z-50"
+              >
+                <motion.div
+                  initial={{ scale: 0.95, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.95, opacity: 0 }}
+                  className="bg-white rounded-2xl p-8 w-full max-w-lg shadow-2xl border border-indigo-200"
+                >
+                  <h2 className="text-xl font-bold text-indigo-800 mb-6">Add Log for {selectedTask.title}</h2>
+                  <textarea
+                    value={newLogComment}
+                    onChange={(e) => setNewLogComment(e.target.value)}
+                    placeholder="Add a comment to the task discussion..."
+                    className="w-full px-4 py-3 border border-indigo-300 rounded-lg bg-indigo-50 focus:ring-2 focus:ring-indigo-500 text-sm font-medium text-gray-700 mb-4 transition-all duration-200"
+                  />
+                  <div className="flex justify-end space-x-3">
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => setShowAddLogModal(false)}
+                      className="px-4 py-2 bg-gray-500 text-white rounded-lg text-sm hover:bg-gray-600 transition-all duration-200"
+                    >
+                      Cancel
+                    </motion.button>
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => handleAddLog(selectedTask.id, true)}
+                      className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-all duration-200 relative"
+                      disabled={!newLogComment || isAddingLog}
+                    >
+                      {isAddingLog ? (
+                        <motion.span
+                          animate={{ rotate: 360 }}
+                          transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                          className="inline-block w-4 h-4 border-2 border-t-indigo-200 border-indigo-600 rounded-full"
+                        />
+                      ) : "Add Log & Notify Assignees"}
+                    </motion.button>
+                  </div>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Summary Modal */}
+          <AnimatePresence>
+            {showSummaryModal && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 bg-black/50 flex items-center justify-center p-6 z-50"
+              >
+                <motion.div
+                  initial={{ scale: 0.95, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.95, opacity: 0 }}
+                  className="bg-white rounded-2xl p-8 w-full max-w-5xl overflow-y-auto max-h-[85vh] shadow-2xl border border-indigo-200"
+                >
+                  <h2 className="text-xl font-bold text-indigo-800 mb-6">Tasks in {selectedSummaryCategory.toUpperCase()}</h2>
+                  <div className="space-y-6">
+                    {categoryTasks.map((task) => (
+                      <motion.div
+                        key={task.id}
+                        className="bg-indigo-50 rounded-lg shadow-md p-6 border border-indigo-200 transition-all duration-200"
+                        whileHover={{ scale: 1.02 }}
+                      >
+                        <p className="text-base text-indigo-800 truncate">{task.title}</p>
+                        <p className="text-sm text-indigo-600">Assignees: {task.assignees.map(a => a.name).join(", ")}</p>
+                        <span className={`text-sm px-3 py-1 rounded-full ${getStatusColor(task.status)}`}>
+                          {task.status?.replace("_", " ") || "Unknown"}
+                        </span>
+                        <div className="flex gap-3 mt-4">
+                          <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => {
+                              setShowSummaryModal(false);
+                              handleViewTaskDetails(task);
+                            }}
+                            className="px-4 py-2 bg-gray-100 rounded-lg text-sm hover:bg-gray-200 transition-all duration-200"
+                          >
+                            Details
+                          </motion.button>
+                          <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => handleRemindUser(task.id, task.assignees.map(a => a.id), task.title)}
+                            className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-all duration-200 relative"
+                          >
+                            {isReminding[task.id] ? (
+                              <motion.span
+                                animate={{ rotate: 360 }}
+                                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                                className="inline-block w-4 h-4 border-2 border-t-indigo-200 border-indigo-600 rounded-full"
+                              />
+                            ) : "Remind"}
+                          </motion.button>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => setShowSummaryModal(false)}
+                    className="mt-6 px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-all duration-200 shadow-md"
+                  >
+                    Close
+                  </motion.button>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      </motion.div>
+    );
+  }
 }

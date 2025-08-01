@@ -37,6 +37,10 @@ export default function Navbar() {
 
   const isActive = (href) => pathname.replace(/\/$/, "") === href.replace(/\/$/, "");
 
+  const openTogetherWorkspace = () => {
+    window.open("/dashboard/managersCommon/workTogether", "_blank", "width=1200,height=800");
+  };
+
   const LogoutModal = () => (
     <div className="modal-overlay">
       <div className="modal-content">
@@ -346,13 +350,13 @@ export default function Navbar() {
                   >
                     Assign Task
                   </Link>
-                  <Link
-                    href="/dashboard/managersCommon/workTogether"
+                  <button
+                    onClick={openTogetherWorkspace}
                     title="Together"
                     className={`nav-icon-button relative hover:text-cyan-300 ${isActive("/dashboard/managersCommon/workTogether") ? "text-cyan-300 active" : ""}`}
                   >
                     <Users size={16} />
-                  </Link>
+                  </button>
                 </div>
                 <button
                   onClick={handleAddMember}
@@ -414,13 +418,13 @@ export default function Navbar() {
                   >
                     Assign Task
                   </Link>
-                  <Link
-                    href="/dashboard/managersCommon/workTogether"
+                  <button
+                    onClick={openTogetherWorkspace}
                     title="Together"
                     className={`nav-icon-button relative hover:text-cyan-300 ${isActive("/dashboard/managersCommon/workTogether") ? "text-cyan-300 active" : ""}`}
                   >
                     <Users size={16} />
-                  </Link>
+                  </button>
                 </div>
               </>
             )}
@@ -580,15 +584,17 @@ export default function Navbar() {
                       >
                         Assign Task
                       </Link>
-                      <Link
-                        href="/dashboard/managersCommon/workTogether"
-                        onClick={toggleMobileMenu}
+                      <button
+                        onClick={() => {
+                          openTogetherWorkspace();
+                          toggleMobileMenu();
+                        }}
                         className={`mobile-menu-item hover:text-cyan-400 ${
                           isActive("/dashboard/managersCommon/workTogether") ? "text-cyan-400 font-semibold bg-gray-700" : ""
                         }`}
                       >
                         Together
-                      </Link>
+                      </button>
                     </div>
                     <button
                       onClick={() => {
@@ -676,15 +682,17 @@ export default function Navbar() {
                       >
                         Assign Task
                       </Link>
-                      <Link
-                        href="/dashboard/managersCommon/workTogether"
-                        onClick={toggleMobileMenu}
+                      <button
+                        onClick={() => {
+                          openTogetherWorkspace();
+                          toggleMobileMenu();
+                        }}
                         className={`mobile-menu-item hover:text-cyan-400 ${
                           isActive("/dashboard/managersCommon/workTogether") ? "text-cyan-400 font-semibold bg-gray-700" : ""
                         }`}
                       >
                         Together
-                      </Link>
+                      </button>
                     </div>
                     <Link
                       href="/dashboard/team_manager/myLife"

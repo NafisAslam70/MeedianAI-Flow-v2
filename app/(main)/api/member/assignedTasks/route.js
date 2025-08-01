@@ -213,7 +213,7 @@ export async function POST(req) {
 
     const [log] = await db
       .insert(assignedTaskLogs)
-      .values({ taskId, userId, action, details, createdAt: new Date() })
+      .values({ taskId, userId, action, details, createdAt: new Date(), sprintId })
       .returning();
 
     return json({ log }, { status: 201 });

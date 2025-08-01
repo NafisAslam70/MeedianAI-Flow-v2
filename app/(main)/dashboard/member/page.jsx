@@ -935,6 +935,7 @@ export default function MemberDashboard() {
                 sprints.find((s) => s.id === parseInt(selectedSprint))?.title
               } to ${newStatus}`
             : `Updated task status to ${newStatus}`),
+        sprintId: isSprint ? parseInt(selectedSprint) : null,
       }),
     });
 

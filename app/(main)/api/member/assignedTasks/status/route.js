@@ -169,6 +169,7 @@ export async function PATCH(req) {
           action: "sprint_status_update",
           details: newLogComment,
           createdAt: now,
+          sprintId,  // Added sprintId for sprint-specific log
         });
 
       const statuses = await db
