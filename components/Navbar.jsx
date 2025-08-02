@@ -31,7 +31,7 @@ export default function Navbar() {
   const closeLogoutModal = () => setIsLogoutModalOpen(false);
   const isActive = (href) => pathname.replace(/\/$/, "") === href.replace(/\/$/, "");
   const openTogetherWorkspace = () => {
-    router.push("/dashboard/member/workTogether");
+    window.open("/dashboard/member/workTogether", '_blank');
   };
   const LogoutModal = () => (
     <div className="modal-overlay">
