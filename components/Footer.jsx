@@ -3,9 +3,9 @@ import { motion } from "framer-motion";
 
 export default function Footer() {
   return (
-    <footer className="h-12 bg-[var(--bg-primary)] text-[var(--text-primary)] flex items-center justify-center relative overflow-hidden">
+    <footer className="h-10 bg-gray-900 text-white flex items-center justify-center relative overflow-hidden">
       <motion.div
-        className="absolute inset-0 bg-gradient-to-r from-[var(--accent-cyan)]/10 to-[var(--accent-green)]/10"
+        className="absolute inset-0 bg-gradient-to-r from-blue-500/10 to-purple-500/10"
         initial={{ opacity: 0 }}
         animate={{ opacity: 0.5 }}
         transition={{ duration: 2, repeat: Infinity, repeatType: "reverse" }}
@@ -21,7 +21,7 @@ export default function Footer() {
           href="https://www.linkedin.com/in/nafis-aslam"
           target="_blank"
           rel="noopener noreferrer"
-          className="font-medium text-[var(--accent-cyan)] hover:text-[var(--accent-green)] transition-colors duration-300"
+          className="font-medium text-blue-300 hover:text-blue-400 transition-colors duration-300"
         >
           Nafees Aslam
         </a>
@@ -29,7 +29,7 @@ export default function Footer() {
           href="https://github.com/nafees-aslam"
           target="_blank"
           rel="noopener noreferrer"
-          className="text-gray-400 hover:text-[var(--text-primary)] transition-colors duration-300"
+          className="text-gray-400 hover:text-white transition-colors duration-300"
           aria-label="GitHub Profile"
         >
           <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
@@ -40,7 +40,7 @@ export default function Footer() {
           href="https://www.linkedin.com/in/nafis-aslam/"
           target="_blank"
           rel="noopener noreferrer"
-          className="text-gray-400 hover:text-[var(--text-primary)] transition-colors duration-300"
+          className="text-gray-400 hover:text-white transition-colors duration-300"
           aria-label="LinkedIn Profile"
         >
           <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
