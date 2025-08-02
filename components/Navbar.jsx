@@ -3,7 +3,7 @@ import { useSession, signOut } from "next-auth/react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Menu, X, Heart, Users } from "lucide-react";
+import { Menu, X, Users } from "lucide-react";
 import { createPortal } from "react-dom";
 export default function Navbar() {
   const { data: session, status } = useSession();
@@ -134,21 +134,6 @@ export default function Navbar() {
         .mobile-together-button:hover {
           background: #374151;
         }
-        .mylife-mobile {
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-          color: #d1fae5;
-          background: #15803d;
-          padding: 0.5rem 0.75rem;
-          font-size: 0.95rem;
-          font-weight: 500;
-          border-radius: 6px;
-          margin-bottom: 0.3rem;
-        }
-        .mylife-mobile:hover {
-          background: #16a34a;
-        }
         .nav-item {
           position: relative;
           padding: 0.4rem 0.8rem;
@@ -248,32 +233,6 @@ export default function Navbar() {
         }
         .mobile-together-icon:hover {
           animation: pulse-glow-hover 0.8s infinite ease-in-out;
-        }
-        .mylife-button {
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-          color: #d1fae5;
-          background: #15803d;
-          padding: 0.4rem 1rem;
-          font-weight: 500;
-          font-size: 0.85rem;
-          border-radius: 6px;
-          transition: all 0.3s ease;
-        }
-        .mylife-button:hover {
-          background: #16a34a;
-          transform: translateY(-2px);
-        }
-        .mylife-button.active::after {
-          content: '';
-          position: absolute;
-          bottom: -4px;
-          left: 50%;
-          transform: translateX(-50%);
-          width: 50%;
-          height: 2px;
-          background: #22d3ee;
         }
         .user-info {
           display: flex;
@@ -561,15 +520,6 @@ export default function Navbar() {
           <div className="flex items-center gap-2">
             {(role === "admin" || role === "team_manager" || role === "member") && (
               <>
-                {(role === "team_manager" || role === "member") && (
-                  <Link
-                    href={`/dashboard/${role === "team_manager" ? "team_manager" : "member"}/myLife`}
-                    className={`mylife-button ${isActive(`/dashboard/${role === "team_manager" ? "team_manager" : "member"}/myLife`) ? "active" : ""}`}
-                  >
-                    <Heart size={16} />
-                    MyLife
-                  </Link>
-                )}
                 <div className="user-info hidden md:flex">
                   <img src={userImage} alt="User Avatar" />
                   <div className="user-info-text">
@@ -782,16 +732,6 @@ export default function Navbar() {
                         Together
                       </button>
                     </div>
-                    <Link
-                      href="/dashboard/team_manager/myLife"
-                      onClick={toggleMobileMenu}
-                      className={`mylife-mobile ${
-                        isActive("/dashboard/team_manager/myLife") ? "text-cyan-400 font-semibold bg-gray-700" : ""
-                      }`}
-                    >
-                      <Heart size={16} />
-                      MyLife
-                    </Link>
                   </>
                 )}
                 {role === "member" && (
@@ -855,16 +795,6 @@ export default function Navbar() {
                         Together
                       </button>
                     </div>
-                    <Link
-                      href="/dashboard/member/myLife"
-                      onClick={toggleMobileMenu}
-                      className={`mylife-mobile ${
-                        isActive("/dashboard/member/myLife") ? "text-cyan-400 font-semibold bg-gray-700" : ""
-                      }`}
-                    >
-                      <Heart size={16} />
-                      MyLife
-                    </Link>
                   </>
                 )}
                 {status === "unauthenticated" && (
