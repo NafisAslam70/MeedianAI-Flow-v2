@@ -1,4 +1,3 @@
-/* WorkTogether – Together Workspace */
 "use client";
 
 import { useSession } from "next-auth/react";
@@ -8,37 +7,41 @@ import {
   Users, Monitor, LogOut, X, Camera, Mic, ScreenShare, AlertCircle
 } from "lucide-react";
 
-/* helpers */
 const makeRoom = (a, b) =>
   `mspace-${a}-${b}-${Math.random().toString(36).slice(2, 7)}-${Date.now()}`;
 
-/* tenant + shared room slug */
-const tenant =
-  process.env.NEXT_PUBLIC_JAAS_TENANT ??
-  "vpaas-magic-cookie-58a506731a10434e9eb9132ead8cfdaf";
-const roomSlug =
-  process.env.NEXT_PUBLIC_JAAS_ROOM || "MeedianTogetherMain";
-const roomName = `${tenant}/${roomSlug}`;        // everyone joins this
+/* tenant + shared room */
+const tenant   = process.env.NEXT_PUBLIC_JAAS_TENANT;
+const roomSlug = process.env.NEXT_PUBLIC_JAAS_ROOM;
+const roomName = `${tenant}/${roomSlug}`;
 
-export default function WorkTogether() {
+export default function WorkTogether () {
+  /* auth */
   const { data: session, status } = useSession();
-  const role   = session?.user?.role;
-  const uid    = session?.user?.id;
-  const name   = session?.user?.name ?? "User";
+  const role    = session?.user?.role;
+  const uid     = session?.user?.id;
+  const name    = session?.user?.name ?? "User";
   const isAdmin = role === "admin";
 
-  const [jwt, setJwt]     = useState(null);
-  const [ready, setReady] = useState(false);
-  const [api, setApi]     = useState(null);
-  const [ppl, setPpl]     = useState([]);
-  const [err, setErr]     = useState(null);
+  /* state */
+  const [jwt, setJwt]         = useState(null);
+  const [ready, setReady]     = useState(false);
+  const [api, setApi]         = useState(null);
+  const [ppl, setPpl]         = useState([]);
+  const [screens, setScreens] = useState([]);   // <── who’s sharing
+  const [err, setErr]         = useState(null);
 
   const [modal, setModal] = useState(true);
-  const [cam, setCam] = useState(true);
-  const [mic, setMic] = useState(false);
-  const [scr, setScr] = useState(false);
+  const [cam, setCam]  = useState(true);
+  const [mic, setMic]  = useState(false);
+  const [scr, setScr]  = useState(false);       // share‐my-screen pref
 
-  /* load external_api.js */
+  /* default scr = true for non-admins once we know role */
+  useEffect(() => {
+    if (role && !isAdmin) setScr(true);
+  }, [role, isAdmin]);
+
+  /* load Jitsi script once */
   const sRef = useRef(null);
   useEffect(() => {
     if (window.JitsiMeetExternalAPI || sRef.current) { setReady(true); return; }
@@ -52,7 +55,7 @@ export default function WorkTogether() {
     return () => s.remove();
   }, []);
 
-  /* fetch JWT */
+  /* fetch JWT once */
   useEffect(() => {
     if (status !== "authenticated") return;
     fetch("/api/others/jaas-jwt")
@@ -61,7 +64,7 @@ export default function WorkTogether() {
       .catch(() => setErr("JWT fetch failed"));
   }, [status]);
 
-  /* init Jitsi */
+  /* initialise Jitsi */
   const init = () => {
     if (!ready || !jwt || api) return;
     const j = new window.JitsiMeetExternalAPI("8x8.vc", {
@@ -78,35 +81,54 @@ export default function WorkTogether() {
     });
     setApi(j);
 
+    /* participants */
     j.addEventListener("participantJoined", e =>
       setPpl(p => p.some(x => x.id === e.id) ? p : [...p, e]));
-    j.addEventListener("participantLeft", e =>
-      setPpl(p => p.filter(x => x.id !== e.id)));
+    j.addEventListener("participantLeft", e => {
+      setPpl(p => p.filter(x => x.id !== e.id));
+      setScreens(s => s.filter(x => x.id !== e.id));
+    });
     j.addEventListener("videoConferenceJoined", () =>
       setPpl(j.getParticipantsInfo()
         .map(p => ({ id: p.participantId, displayName: p.displayName }))));
 
+    /* screen-share feed */
+    const updateScreen = (track, add) => {
+      if (track.getType() !== "video" || track.videoType !== "desktop") return;
+      const id = track.getParticipantId?.() ?? track.getParticipantId();
+      setScreens(s =>
+        add
+          ? s.some(x => x.id === id) ? s : [...s, { id }]
+          : s.filter(x => x.id !== id)
+      );
+    };
+    j.addEventListener("trackAdded",   t => updateScreen(t, true));
+    j.addEventListener("trackRemoved", t => updateScreen(t, false));
+
     j.addEventListener("readyToClose", () => leave());
 
+    /** auto-start share for non-admins */
     if (scr && !isAdmin) j.executeCommand("toggleShareScreen");
   };
 
   const join  = () => { setModal(false); init(); };
   const leave = () => {
     api?.removeAllListeners(); api?.dispose();
-    setApi(null); setPpl([]); setModal(true);
+    setApi(null); setPpl([]); setScreens([]); setModal(true);
   };
 
+  /* guards */
   if (status === "loading") return <div>Loading…</div>;
   if (status !== "authenticated" || !["admin", "team_manager"].includes(role))
     return <div className="p-8 text-red-600 font-semibold">Access denied</div>;
 
+  /* UI */
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
       className="fixed inset-0 bg-gray-100 p-8 flex items-center justify-center">
-
       {/* card */}
       <div className="w-full h-full bg-white rounded-2xl shadow-2xl p-8 flex flex-col gap-6">
+
         <header className="flex justify-between items-center">
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Users size={24} className="text-teal-600"/> Together Workspace
@@ -121,8 +143,10 @@ export default function WorkTogether() {
 
         <div className="flex flex-1 gap-4">
           <div id="jitsi" className="flex-1 bg-black rounded-lg shadow-lg" style={{ minHeight: 400 }}/>
-          <div className="w-64 bg-white/50 backdrop-blur-md rounded-3xl shadow-md p-6
-                          border border-teal-100/50 overflow-y-auto">
+
+          <div className="w-64 bg-white/50 backdrop-blur-md rounded-3xl shadow-md
+                          p-6 border border-teal-100/50 overflow-y-auto">
+            {/* participants */}
             <h2 className="font-semibold mb-2">Participants ({ppl.length})</h2>
             <ul className="space-y-2">
               {ppl.map(p => {
@@ -130,20 +154,35 @@ export default function WorkTogether() {
                 return (
                   <li key={p.id} className="flex items-center justify-between p-2 bg-gray-50 rounded">
                     <span>{dn}</span>
-                    {isAdmin && api && (
-                      <button onClick={() => {
-                        const [, rid] = p.displayName.split("|").map(s => s.trim());
-                        const priv = `${tenant}/${makeRoom(uid, rid)}#config.startScreenSharing=true`;
-                        window.open(`https://8x8.vc/${priv}`, "_blank", "width=800,height=600");
-                      }}
-                      className="p-1 bg-blue-500 text-white rounded hover:bg-blue-600">
-                        <Monitor size={16}/>
-                      </button>
-                    )}
+                    {/* nothing clickable here now */}
                   </li>
                 );
               })}
             </ul>
+
+            {/* screens panel for admin */}
+            {isAdmin && (
+              <>
+                <h2 className="font-semibold mt-6 mb-2">Screens ({screens.length})</h2>
+                <ul className="space-y-2">
+                  {screens.map(s => {
+                    const user = ppl.find(p => p.id === s.id);
+                    const dn = user ? user.displayName.split("|")[0]?.trim() : "User";
+                    return (
+                      <li key={s.id} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                        <span>{dn}</span>
+                        <button
+                          onClick={() => api.executeCommand("pinParticipant", s.id)}
+                          className="p-1 bg-teal-500 text-white rounded hover:bg-teal-600"
+                          title="Pin screen">
+                          <Monitor size={16}/>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </>
+            )}
           </div>
         </div>
 
@@ -153,13 +192,13 @@ export default function WorkTogether() {
       </div>
 
       {/* error banner */}
-      {err && (
+      {err &&
         <motion.div initial={{ y: -40, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
           className="fixed top-6 left-1/2 -translate-x-1/2 bg-red-600 text-white
                      px-4 py-2 rounded-xl shadow-lg flex items-center gap-2 z-50">
           <AlertCircle size={18}/> {err}
         </motion.div>
-      )}
+      }
 
       {/* join modal */}
       <AnimatePresence>
@@ -172,7 +211,7 @@ export default function WorkTogether() {
               <div className="flex justify-between items-center mb-5">
                 <h2 className="text-xl font-bold">Join Meedian Together Workspace?</h2>
                 <button onClick={() => setModal(false)}
-                        className="p-2 text-gray-500 hover:text-gray-700">
+                  className="p-2 text-gray-500 hover:text-gray-700">
                   <X size={22}/>
                 </button>
               </div>
@@ -186,30 +225,47 @@ export default function WorkTogether() {
                   <Mic size={20} className={mic ? "text-teal-600" : "text-gray-400"}/>
                   <input type="checkbox" checked={mic} onChange={e => setMic(e.target.checked)}/> Enable audio
                 </label>
-                {!isAdmin && (
-                  <label className="flex items-center gap-2">
-                    <ScreenShare size={20} className={scr ? "text-teal-600" : "text-gray-400"}/>
-                    <input type="checkbox" checked={scr} onChange={e => setScr(e.target.checked)}/> Share my screen
-                  </label>
-                )}
-              </div>
 
-              <p className="mt-2 text-xs text-gray-500">
-                scriptReady: {String(ready)} · jwt: {jwt ? "yes" : "no"}
-              </p>
+                {/* share checkbox only visible to non-admins, default ON */}
+              {/* share checkbox only visible to non-admins, default ON */}
+              {!isAdmin && (
+                <label className="flex items-center gap-2">
+                  <ScreenShare
+                    size={20}
+                    className={scr ? "text-teal-600" : "text-gray-400"}
+                  />
+                  <input
+                    type="checkbox"
+                    checked={scr}
+                    onChange={(e) => setScr(e.target.checked)}
+                  />
+                  Share my screen
+                </label>
+              )}
+            </div>
 
-              <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-                onClick={join} disabled={!jwt || !ready}
-                className={`w-full mt-5 py-3 rounded-xl font-semibold
-                            ${jwt && ready
-                              ? "bg-teal-600 text-white hover:bg-teal-700"
-                              : "bg-gray-300 text-gray-500 cursor-not-allowed"}`}>
-                {jwt && ready ? "Join" : "Loading…"}
-              </motion.button>
-            </motion.div>
+            {/* tiny status probe */}
+            <p className="mt-2 text-xs text-gray-500">
+              scriptReady: {String(ready)} · jwt: {jwt ? "yes" : "no"}
+            </p>
+
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={join}
+              disabled={!jwt || !ready}
+              className={`w-full mt-5 py-3 rounded-xl font-semibold ${
+                jwt && ready
+                  ? "bg-teal-600 text-white hover:bg-teal-700"
+                  : "bg-gray-300 text-gray-500 cursor-not-allowed"
+              }`}
+            >
+              {jwt && ready ? "Join" : "Loading…"}
+            </motion.button>
           </motion.div>
-        )}
-      </AnimatePresence>
-    </motion.div>
-  );
+        </motion.div>
+      )}
+    </AnimatePresence>
+  </motion.div>
+);
 }
