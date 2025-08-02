@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
 import { auth } from "@/lib/auth";
 
-/* decode the PEM from env */
+/* Decode PEM from env */
 function getPem() {
   const b64 = process.env.JAAS_PRIVATE_KEY_B64;
   if (!b64) throw new Error("JAAS_PRIVATE_KEY_B64 undefined");
@@ -14,24 +14,27 @@ function getPem() {
 }
 
 export async function GET() {
-  /* authorise */
+  /* 1) Authorise caller */
   const session = await auth();
   if (!session || !["admin", "team_manager"].includes(session.user?.role)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const tenant = process.env.JAAS_APP_ID;   // tenant only
-  const kid    = process.env.JAAS_KID;
+  /* 2) Env */
+  const tenant = process.env.JAAS_APP_ID;                 // tenant
+  const kid    = process.env.JAAS_KID;                    // key id
+  const room   = process.env.NEXT_PUBLIC_JAAS_ROOM || "MeedianTogetherMain";
   const pem    = getPem();
 
+  /* 3) Payload (room pinned) */
   const payload = {
     aud: "jitsi",
     iss: "chat",
-    sub: tenant,        // tenant here
-    room: "*",
+    sub: tenant,
+    room,                                // <── fixed room
     context: {
       user: {
-        id: session.user.id,
+        id:   session.user.id,
         name: session.user.name,
         moderator: session.user.role === "admin"
       },
@@ -44,6 +47,7 @@ export async function GET() {
     exp: Math.floor(Date.now() / 1000) + 60 * 60
   };
 
+  /* 4) Sign JWT */
   let token;
   try {
     token = jwt.sign(payload, pem, { algorithm: "RS256", keyid: kid });

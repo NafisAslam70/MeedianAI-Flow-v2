@@ -12,39 +12,38 @@ import {
 const makeRoom = (a, b) =>
   `mspace-${a}-${b}-${Math.random().toString(36).slice(2, 7)}-${Date.now()}`;
 
-/* tenant + default room */
+/* tenant + shared room slug */
 const tenant =
   process.env.NEXT_PUBLIC_JAAS_TENANT ??
   "vpaas-magic-cookie-58a506731a10434e9eb9132ead8cfdaf";
-const roomSlug = "MeedianTogetherMain";
-const roomName = `${tenant}/${roomSlug}`;                 // tenant/slug
+const roomSlug =
+  process.env.NEXT_PUBLIC_JAAS_ROOM || "MeedianTogetherMain";
+const roomName = `${tenant}/${roomSlug}`;        // everyone joins this
 
 export default function WorkTogether() {
-  /* auth */
   const { data: session, status } = useSession();
   const role   = session?.user?.role;
   const uid    = session?.user?.id;
   const name   = session?.user?.name ?? "User";
   const isAdmin = role === "admin";
 
-  /* state */
   const [jwt, setJwt]     = useState(null);
-  const [ready, setReady] = useState(false);      // script loaded?
+  const [ready, setReady] = useState(false);
   const [api, setApi]     = useState(null);
   const [ppl, setPpl]     = useState([]);
   const [err, setErr]     = useState(null);
 
   const [modal, setModal] = useState(true);
-  const [cam, setCam]     = useState(true);
-  const [mic, setMic]     = useState(false);
-  const [scr, setScr]     = useState(false);
+  const [cam, setCam] = useState(true);
+  const [mic, setMic] = useState(false);
+  const [scr, setScr] = useState(false);
 
   /* load external_api.js */
   const sRef = useRef(null);
   useEffect(() => {
     if (window.JitsiMeetExternalAPI || sRef.current) { setReady(true); return; }
     const s = document.createElement("script");
-    s.src = `https://8x8.vc/${tenant}/external_api.js`;   // tenant only
+    s.src = `https://8x8.vc/${tenant}/external_api.js`;
     s.async = true;
     s.onload = () => setReady(true);
     s.onerror = () => setErr("Failed to load Jitsi script");
@@ -62,10 +61,9 @@ export default function WorkTogether() {
       .catch(() => setErr("JWT fetch failed"));
   }, [status]);
 
-  /* init Jitsi once */
+  /* init Jitsi */
   const init = () => {
     if (!ready || !jwt || api) return;
-
     const j = new window.JitsiMeetExternalAPI("8x8.vc", {
       roomName,
       jwt,
@@ -106,9 +104,9 @@ export default function WorkTogether() {
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
       className="fixed inset-0 bg-gray-100 p-8 flex items-center justify-center">
+
       {/* card */}
       <div className="w-full h-full bg-white rounded-2xl shadow-2xl p-8 flex flex-col gap-6">
-
         <header className="flex justify-between items-center">
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Users size={24} className="text-teal-600"/> Together Workspace
