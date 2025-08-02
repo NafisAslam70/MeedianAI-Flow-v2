@@ -1,7 +1,7 @@
+// FILE: app/api/others/jaas-jwt/route.js
 import { NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
 import { auth } from "@/lib/auth";
-
 function getPem () {
   const b64 = process.env.JAAS_PRIVATE_KEY_B64;
   if (!b64) throw new Error("JAAS_PRIVATE_KEY_B64 undefined");
@@ -9,18 +9,15 @@ function getPem () {
   if (!/BEGIN (RSA )?PRIVATE KEY/.test(pem)) throw new Error("Bad PEM");
   return pem;
 }
-
 export async function GET () {
   const session = await auth();
-  if (!session || !["admin", "team_manager"].includes(session.user?.role)) {
+  if (!session || !["admin", "team_manager", "member"].includes(session.user?.role)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-
-  const tenant = process.env.JAAS_APP_ID;                    // tenant only
-  const room   = process.env.NEXT_PUBLIC_JAAS_ROOM;          // shared room
-  const kid    = process.env.JAAS_KID;
-  const pem    = getPem();
-
+  const tenant = process.env.JAAS_APP_ID; // tenant only
+  const room = process.env.NEXT_PUBLIC_JAAS_ROOM; // shared room
+  const kid = process.env.JAAS_KID;
+  const pem = getPem();
   const payload = {
     aud : "jitsi",
     iss : "chat",
@@ -36,7 +33,6 @@ export async function GET () {
     },
     exp : Math.floor(Date.now() / 1000) + 60 * 60
   };
-
   let token;
   try {
     token = jwt.sign(payload, pem, { algorithm:"RS256", keyid:kid });

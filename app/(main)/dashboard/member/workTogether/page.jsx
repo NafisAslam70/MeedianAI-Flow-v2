@@ -1,5 +1,4 @@
 "use client";
-
 import { useSession } from "next-auth/react";
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -13,42 +12,35 @@ import {
   ScreenShare,
   AlertCircle
 } from "lucide-react";
-
 /* helper to build random room IDs for private links (kept for future) */
 const makeRoom = (a, b) =>
   `mspace-${a}-${b}-${Math.random().toString(36).slice(2, 7)}-${Date.now()}`;
-
 /* tenant + shared room slug from env */
-const tenant   = process.env.NEXT_PUBLIC_JAAS_TENANT;
+const tenant = process.env.NEXT_PUBLIC_JAAS_TENANT;
 const roomSlug = process.env.NEXT_PUBLIC_JAAS_ROOM || "MeedianTogetherMain";
 const roomName = `${tenant}/${roomSlug}`;
-
 export default function WorkTogether() {
   /* ── Auth info ───────────────────── */
   const { data: session, status } = useSession();
-  const role    = session?.user?.role;
-  const uid     = session?.user?.id;
-  const name    = session?.user?.name ?? "User";
+  const role = session?.user?.role;
+  const uid = session?.user?.id;
+  const name = session?.user?.name ?? "User";
   const isAdmin = role === "admin";
-
   /* ── React state ─────────────────── */
-  const [jwt, setJwt]         = useState(null);
-  const [ready, setReady]     = useState(false);   // external_api.js loaded?
-  const [api, setApi]         = useState(null);    // Jitsi API instance
-  const [ppl, setPpl]         = useState([]);      // participant list
-  const [screens, setScreens] = useState([]);      // who is sharing
-  const [err, setErr]         = useState(null);
-
+  const [jwt, setJwt] = useState(null);
+  const [ready, setReady] = useState(false); // external_api.js loaded?
+  const [api, setApi] = useState(null); // Jitsi API instance
+  const [ppl, setPpl] = useState([]); // participant list
+  const [screens, setScreens] = useState([]); // who is sharing
+  const [err, setErr] = useState(null);
   const [modal, setModal] = useState(true);
   const [cam, setCam] = useState(true);
   const [mic, setMic] = useState(false);
-  const [scr, setScr] = useState(false);           // share-my-screen toggle
-
+  const [scr, setScr] = useState(false); // share-my-screen toggle
   /* default share-my-screen = ON for non-admins */
   useEffect(() => {
     if (role && !isAdmin) setScr(true);
   }, [role, isAdmin]);
-
   /* ── Load external_api.js once ───── */
   const scriptRef = useRef(null);
   useEffect(() => {
@@ -62,7 +54,6 @@ export default function WorkTogether() {
     scriptRef.current = s;
     return () => s.remove();
   }, []);
-
   /* ── Fetch JWT once logged in ─────── */
   useEffect(() => {
     if (status !== "authenticated") return;
@@ -71,11 +62,9 @@ export default function WorkTogether() {
       .then(j => j.jwt ? setJwt(j.jwt) : setErr("JWT fetch failed"))
       .catch(() => setErr("JWT fetch failed"));
   }, [status]);
-
   /* ── Initialise Jitsi conference ──── */
   const init = () => {
     if (!ready || !jwt || api) return;
-
     const j = new window.JitsiMeetExternalAPI("8x8.vc", {
       roomName,
       jwt,
@@ -89,7 +78,6 @@ export default function WorkTogether() {
       userInfo: { displayName: `${name} | ${uid}` }
     });
     setApi(j);
-
     /* participants list */
     j.addEventListener("participantJoined", e =>
       setPpl(p => p.some(x => x.id === e.id) ? p : [...p, e]));
@@ -100,7 +88,6 @@ export default function WorkTogether() {
     j.addEventListener("videoConferenceJoined", () =>
       setPpl(j.getParticipantsInfo()
         .map(p => ({ id: p.participantId, displayName: p.displayName }))));
-
     /* screen-sharing feed */
     const updateScreen = (track, add) => {
       if (track.getType() !== "video" || track.videoType !== "desktop") return;
@@ -111,36 +98,30 @@ export default function WorkTogether() {
           : s.filter(x => x.id !== id)
       );
     };
-    j.addEventListener("trackAdded",   e => updateScreen(e.track, true));
+    j.addEventListener("trackAdded", e => updateScreen(e.track, true));
     j.addEventListener("trackRemoved", e => updateScreen(e.track, false));
-
     j.addEventListener("readyToClose", () => leave());
-
     /* auto-start share for non-admins */
     if (scr && !isAdmin) j.executeCommand("toggleShareScreen");
   };
-
-  const join  = () => { setModal(false); init(); };
+  const join = () => { setModal(false); init(); };
   const leave = () => {
     api?.removeAllListeners(); api?.dispose();
     setApi(null); setPpl([]); setScreens([]); setModal(true);
   };
-
   /* ── Guards ──────────────────────── */
   if (status === "loading") return <div>Loading…</div>;
-  if (status !== "authenticated" || !["admin", "team_manager"].includes(role))
+  if (status !== "authenticated" || !["admin", "team_manager", "member"].includes(role))
     return <div className="p-8 text-red-600 font-semibold">Access denied</div>;
-
   /* ── JSX ─────────────────────────── */
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
       className="fixed inset-0 bg-gray-100 p-8 flex items-center justify-center">
-
       {/* main card */}
       <div className="w-full h-full bg-white rounded-2xl shadow-2xl p-8 flex flex-col gap-6">
         <header className="flex justify-between items-center">
           <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Users size={24} className="text-teal-600" /> Together Workspace
+            <Users size={24} className="text-teal-600" /> Meedian Together Workspace
           </h1>
           {api && (
             <button onClick={leave}
@@ -149,11 +130,9 @@ export default function WorkTogether() {
             </button>
           )}
         </header>
-
         <div className="flex flex-1 gap-4">
           {/* Jitsi stage */}
           <div id="jitsi" className="flex-1 bg-black rounded-lg shadow-lg" style={{ minHeight: 400 }} />
-
           {/* side panel */}
           <div className="w-64 bg-white/50 backdrop-blur-md rounded-3xl shadow-md p-6
                           border border-teal-100/50 overflow-y-auto">
@@ -169,7 +148,6 @@ export default function WorkTogether() {
                 );
               })}
             </ul>
-
             {/* screen list (admin only) */}
             {isAdmin && (
               <>
@@ -196,12 +174,10 @@ export default function WorkTogether() {
             )}
           </div>
         </div>
-
         <footer className="text-center text-sm text-gray-600 mt-auto">
           © {new Date().getFullYear()} MeedianAI-Flow
         </footer>
       </div>
-
       {/* error toast */}
       {err && (
         <motion.div initial={{ y: -40, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
@@ -210,7 +186,6 @@ export default function WorkTogether() {
           <AlertCircle size={18}/> {err}
         </motion.div>
       )}
-
       {/* join modal */}
       <AnimatePresence>
         {modal && (
@@ -226,7 +201,6 @@ export default function WorkTogether() {
                   <X size={22}/>
                 </button>
               </div>
-
               <div className="space-y-3">
                 <label className="flex items-center gap-2">
                   <Camera size={20} className={cam ? "text-teal-600" : "text-gray-400"} />
@@ -249,12 +223,10 @@ export default function WorkTogether() {
                   </label>
                 )}
               </div>
-
               {/* status probe */}
               <p className="mt-2 text-xs text-gray-500">
                 scriptReady: {String(ready)} · jwt: {jwt ? "yes" : "no"}
               </p>
-
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
