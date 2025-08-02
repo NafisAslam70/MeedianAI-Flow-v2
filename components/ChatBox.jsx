@@ -25,15 +25,15 @@ const linkify = (raw = "") => {
   const withUrls = txt.replace(
     /(https?:\/\/[^\s]+)/g,
     (url) =>
-      `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-blue-600 underline break-all">${url}</a>`
+      `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-blue-300 underline break-all">${url}</a>`
   );
 
   // 2️⃣ [task:114]  or  [task:114 sprint:3] → button
   return withUrls.replace(
-    /\[task\s*:\s*(\d+)(?:\s+?sprint\s*:\s*(\d+))?\]/gi,
+    /\[task\s*:\s*(\d+)(?:\s+sprint\s*:\s*(\d+))?\]/gi,
     (_m, taskId, sprintId) => {
       const label = sprintId ? "View Sprint in Task" : "View Task";
-      return `<button class="task-link text-blue-600 underline font-medium hover:text-blue-800" data-task-id="${taskId}" data-sprint-id="${sprintId || ""}">${label}</button>`;
+      return `<button class="task-link text-blue-300 underline font-medium hover:text-blue-500" data-task-id="${taskId}" data-sprint-id="${sprintId || ""}">${label}</button>`;
     }
   );
 };
@@ -397,7 +397,7 @@ export default function ChatBox({ userDetails }) {
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -20 }}
-          className="absolute top-4 left-4 right-4 bg-red-50 text-red-600 text-sm p-3 rounded-md shadow"
+          className="absolute top-4 left-4 right-4 bg-red-900 text-red-300 text-sm p-3 rounded-md shadow"
         >
           {error}
         </motion.p>
@@ -409,7 +409,7 @@ export default function ChatBox({ userDetails }) {
             closeAll();
             setShowChatbox(true);
           }}
-          className="p-4 bg-gradient-to-r from-teal-500 to-cyan-600 text-white rounded-full shadow-lg hover:scale-105 transition-transform"
+          className="p-4 bg-gradient-to-r from-teal-700 to-cyan-800 text-white rounded-full shadow-lg hover:scale-105 transition-transform"
           title="Open Chat"
         >
           <ChatBubbleLeftRightIcon className="h-6 w-6" />
@@ -428,7 +428,7 @@ export default function ChatBox({ userDetails }) {
             closeAll();
             setShowHistory(true);
           }}
-          className="relative p-4 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-full shadow-lg hover:scale-105 transition-transform"
+          className="relative p-4 bg-gradient-to-r from-blue-700 to-indigo-800 text-white rounded-full shadow-lg hover:scale-105 transition-transform"
           title="Chat History"
         >
           <ClockIcon className="h-6 w-6" />
@@ -450,9 +450,9 @@ export default function ChatBox({ userDetails }) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
             transition={{ duration: 0.3 }}
-            className="bg-white rounded-2xl shadow-2xl p-6 w-[400px] max-h-[70vh] overflow-hidden border mt-4 flex flex-col"
+            className="bg-gray-900 rounded-2xl shadow-2xl p-6 w-[400px] max-h-[70vh] overflow-hidden border mt-4 flex flex-col"
           >
-            <div className="chatbox-header flex justify-between items-center mb-4 bg-gradient-to-r from-teal-500 to-cyan-600 text-white p-4 -mx-6 -mt-6 rounded-t-2xl">
+            <div className="chatbox-header flex justify-between items-center mb-4 bg-gradient-to-r from-teal-700 to-cyan-800 text-white p-4 -mx-6 -mt-6 rounded-t-2xl">
               <h3 className="text-xl font-semibold">Messages</h3>
               <button onClick={() => setShowChatbox(false)} className="text-white hover:text-gray-200">
                 ✕
@@ -460,7 +460,7 @@ export default function ChatBox({ userDetails }) {
             </div>
 
             <select
-              className="p-3 border rounded-lg w-full mb-4 bg-gray-50"
+              className="p-3 border rounded-lg w-full mb-4 bg-gray-800 text-gray-200"
               value={selectedRecipient}
               onChange={(e) => setSelectedRecipient(e.target.value)}
             >
@@ -491,31 +491,31 @@ export default function ChatBox({ userDetails }) {
                         key={m.id}
                         className={`p-3 rounded-xl border ${
                           m.senderId === Number(userDetails.id)
-                            ? "bg-teal-100 text-right ml-8"
-                            : "bg-gray-100 text-left mr-8"
+                            ? "bg-teal-900 text-right ml-8"
+                            : "bg-gray-800 text-left mr-8"
                         }`}
                       >
-                        <p className="text-xs text-gray-500">{new Date(m.createdAt).toLocaleTimeString()}</p>
+                        <p className="text-xs text-gray-400">{new Date(m.createdAt).toLocaleTimeString()}</p>
                         <p className="break-words" dangerouslySetInnerHTML={{ __html: linkify(m.content) }} />
                       </li>
                     ))}
                   <div ref={messagesEndRef} />
                 </ul>
               ) : (
-                <p className="text-gray-500 text-center mt-5">Select a recipient to start chatting.</p>
+                <p className="text-gray-400 text-center mt-5">Select a recipient to start chatting.</p>
               )}
             </div>
 
             <div className="flex gap-2">
               <input
                 type="text"
-                className="flex-1 p-3 border rounded-lg bg-gray-50"
+                className="flex-1 p-3 border rounded-lg bg-gray-800 text-gray-200"
                 placeholder="Type message..."
                 value={messageContent}
                 onChange={(e) => setMessageContent(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && sendMessage()}
               />
-              <button onClick={sendMessage} className="p-3 bg-gradient-to-r from-teal-500 to-cyan-600 text-white rounded-lg">
+              <button onClick={sendMessage} className="p-3 bg-gradient-to-r from-teal-700 to-cyan-800 text-white rounded-lg">
                 <PaperAirplaneIcon className="h-5 w-5" />
               </button>
             </div>
@@ -524,7 +524,7 @@ export default function ChatBox({ userDetails }) {
               <select
                 value={recordLang}
                 onChange={(e) => setRecordLang(e.target.value)}
-                className="p-1 border rounded-lg bg-gray-50 text-sm"
+                className="p-1 border rounded-lg bg-gray-800 text-gray-200 text-sm"
               >
                 <option value="hi-IN">Hindi</option>
                 <option value="en-US">English</option>
@@ -532,7 +532,7 @@ export default function ChatBox({ userDetails }) {
               <motion.button
                 onClick={startVoiceRecording}
                 disabled={isRecording}
-                className={`px-3 py-1 rounded-lg text-sm font-medium ${isRecording ? "bg-gray-400 cursor-not-allowed" : "bg-teal-600 text-white hover:bg-teal-700"}`}
+                className={`px-3 py-1 rounded-lg text-sm font-medium ${isRecording ? "bg-gray-600 cursor-not-allowed" : "bg-teal-800 text-white hover:bg-teal-900"}`}
                 whileHover={{ scale: isRecording ? 1 : 1.05 }}
                 whileTap={{ scale: isRecording ? 1 : 0.95 }}
               >
@@ -541,7 +541,7 @@ export default function ChatBox({ userDetails }) {
               {recordLang === "hi-IN" && (
                 <motion.button
                   onClick={handleTranslateMessage}
-                  className="px-3 py-1 rounded-lg text-sm font-medium bg-purple-600 text-white hover:bg-purple-700"
+                  className="px-3 py-1 rounded-lg text-sm font-medium bg-purple-800 text-white hover:bg-purple-900"
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                 >
@@ -560,11 +560,11 @@ export default function ChatBox({ userDetails }) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
             transition={{ duration: 0.3 }}
-            className="fixed bg-white rounded-2xl shadow-2xl p-6 w-[400px] max-h-[60vh] overflow-y-auto border mt-4 z-50"
+            className="fixed bg-gray-900 rounded-2xl shadow-2xl p-6 w-[400px] max-h-[60vh] overflow-y-auto border mt-4 z-50"
             style={{ right: `${pos.x}px`, bottom: `${-pos.y + 100}px` }}
             ref={historyContainerRef}
           >
-            <div className="flex justify-between items-center mb-4 bg-gradient-to-r from-blue-500 to-indigo-600 text-white p-4 -mx-6 -mt-6 rounded-t-2xl">
+            <div className="flex justify-between items-center mb-4 bg-gradient-to-r from-blue-700 to-indigo-800 text-white p-4 -mx-6 -mt-6 rounded-t-2xl">
               <h3 className="text-xl font-semibold">Chat History</h3>
               <button onClick={() => setShowHistory(false)} className="text-white hover:text-gray-200">
                 ✕
@@ -597,7 +597,7 @@ export default function ChatBox({ userDetails }) {
                 });
 
               if (!partners.length)
-                return <p className="text-gray-500 text-center">No conversation history.</p>;
+                return <p className="text-gray-400 text-center">No conversation history.</p>;
 
               return partners.map((u) => {
                 const lastMsg = messages
@@ -616,13 +616,13 @@ export default function ChatBox({ userDetails }) {
                       closeAll();
                       setShowChatbox(true);
                     }}
-                    className="relative mb-3 p-3 bg-gray-50 border rounded-lg cursor-pointer hover:bg-blue-50"
+                    className="relative mb-3 p-3 bg-gray-800 border rounded-lg cursor-pointer hover:bg-blue-900"
                   >
                     <p className="font-semibold">
                       {u.name} ({getRole(u)})
                     </p>
                     <p
-                      className="text-xs text-gray-600 truncate break-words"
+                      className="text-xs text-gray-300 truncate break-words"
                       dangerouslySetInnerHTML={{
                         __html: linkify(lastMsg?.content || "No messages yet"),
                       }}
@@ -653,7 +653,7 @@ export default function ChatBox({ userDetails }) {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
               transition={{ duration: 0.3 }}
-              className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md border border-teal-300 relative"
+              className="bg-gray-900 rounded-2xl shadow-2xl p-6 w-full max-w-md border border-teal-500 relative"
             >
               <button
                 onClick={() => {
@@ -661,29 +661,29 @@ export default function ChatBox({ userDetails }) {
                   setSelectedTask(null);
                   setTaskLogs([]);
                 }}
-                className="absolute top-2 right-2 text-gray-500 hover:text-gray-700 text-xl font-bold"
+                className="absolute top-2 right-2 text-gray-400 hover:text-gray-200 text-xl font-bold"
               >
                 X
               </button>
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Task Details</h2>
+              <h2 className="text-lg font-semibold text-gray-100 mb-4">Task Details</h2>
               <div className="space-y-3">
-                <p className="text-sm font-medium text-gray-700"><strong>Title:</strong> {selectedTask?.title || "Untitled Task"}</p>
-                <p className="text-sm font-medium text-gray-700"><strong>Description:</strong> {selectedTask?.description || "No description"}</p>
-                <p className="text-sm font-medium text-gray-700"><strong>Assigned By:</strong> {selectedTask?.createdBy ? users.find((u) => u.id === selectedTask.createdBy)?.name || "Unknown" : "Unknown"}</p>
-                <p className="text-sm font-medium text-gray-700"><strong>Status:</strong> {(selectedTask?.status || "not_started").replace("_", " ")}</p>
-                <p className="text-sm font-medium text-gray-700"><strong>Assigned Date:</strong> {selectedTask?.assignedDate ? new Date(selectedTask.assignedDate).toLocaleDateString() : "N/A"}</p>
-                <p className="text-sm font-medium text-gray-700"><strong>Deadline:</strong> {selectedTask?.deadline ? new Date(selectedTask.deadline).toLocaleDateString() : "No deadline"}</p>
-                <p className="text-sm font-medium text-gray-700"><strong>Resources:</strong> {selectedTask?.resources || "No resources"}</p>
+                <p className="text-sm font-medium text-gray-300"><strong>Title:</strong> {selectedTask?.title || "Untitled Task"}</p>
+                <p className="text-sm font-medium text-gray-300"><strong>Description:</strong> {selectedTask?.description || "No description"}</p>
+                <p className="text-sm font-medium text-gray-300"><strong>Assigned By:</strong> {selectedTask?.createdBy ? users.find((u) => u.id === selectedTask.createdBy)?.name || "Unknown" : "Unknown"}</p>
+                <p className="text-sm font-medium text-gray-300"><strong>Status:</strong> {(selectedTask?.status || "not_started").replace("_", " ")}</p>
+                <p className="text-sm font-medium text-gray-300"><strong>Assigned Date:</strong> {selectedTask?.assignedDate ? new Date(selectedTask.assignedDate).toLocaleDateString() : "N/A"}</p>
+                <p className="text-sm font-medium text-gray-300"><strong>Deadline:</strong> {selectedTask?.deadline ? new Date(selectedTask.deadline).toLocaleDateString() : "No deadline"}</p>
+                <p className="text-sm font-medium text-gray-300"><strong>Resources:</strong> {selectedTask?.resources || "No resources"}</p>
 
                 {selectedTask.sprints?.length > 0 && (
                   <div>
-                    <h3 className="text-sm font-semibold text-gray-700">Sprints</h3>
+                    <h3 className="text-sm font-semibold text-gray-200">Sprints</h3>
                     <ul className="space-y-2">
                       {selectedTask.sprints.map((s) => (
-                        <li key={s.id} className="p-2 bg-gray-50 rounded border">
-                          <p className="font-medium">{s.title || "Untitled Sprint"}</p>
-                          <p className="text-sm text-gray-600">Status: {s.status?.replace("_", " ") || "Unknown"}</p>
-                          <p className="text-sm text-gray-600">{s.description || "No description."}</p>
+                        <li key={s.id} className="p-2 bg-gray-800 rounded border">
+                          <p className="font-medium text-gray-200">{s.title || "Untitled Sprint"}</p>
+                          <p className="text-sm text-gray-400">Status: {s.status?.replace("_", " ") || "Unknown"}</p>
+                          <p className="text-sm text-gray-400">{s.description || "No description."}</p>
                         </li>
                       ))}
                     </ul>
@@ -691,17 +691,17 @@ export default function ChatBox({ userDetails }) {
                 )}
 
                 <div>
-                  <h3 className="text-sm font-semibold text-gray-700 mb-2">Discussion</h3>
+                  <h3 className="text-sm font-semibold text-gray-200 mb-2">Discussion</h3>
                   <div className="max-h-40 overflow-y-auto space-y-2">
                     {taskLogs.length === 0 ? (
-                      <p className="text-sm text-gray-500">No discussion yet.</p>
+                      <p className="text-sm text-gray-400">No discussion yet.</p>
                     ) : (
                       taskLogs.map((log) => (
-                        <div key={log.id} className="p-3 bg-gray-50 rounded-lg shadow-sm border border-gray-200">
-                          <p className="text-xs text-gray-600">
+                        <div key={log.id} className="p-3 bg-gray-800 rounded-lg shadow-sm border border-gray-700">
+                          <p className="text-xs text-gray-400">
                             {users.find((u) => u.id === log.userId)?.name || "Unknown"} ({new Date(log.createdAt).toLocaleString()}):
                           </p>
-                          <p className="text-sm text-gray-700">{log.details}</p>
+                          <p className="text-sm text-gray-300">{log.details}</p>
                         </div>
                       ))
                     )}
@@ -716,7 +716,7 @@ export default function ChatBox({ userDetails }) {
                       setSelectedTask(null);
                       setTaskLogs([]);
                     }}
-                    className="px-4 py-2 bg-gray-500 text-white rounded-md text-sm font-medium"
+                    className="px-4 py-2 bg-gray-700 text-white rounded-md text-sm font-medium"
                   >
                     Close
                   </motion.button>
@@ -740,22 +740,22 @@ export default function ChatBox({ userDetails }) {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
               transition={{ duration: 0.3 }}
-              className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md border border-teal-300 relative"
+              className="bg-gray-900 rounded-2xl shadow-2xl p-6 w-full max-w-md border border-teal-500 relative"
             >
               <button
                 onClick={() => setShowComingSoonModal(false)}
-                className="absolute top-2 right-2 text-gray-500 hover:text-gray-700 text-xl font-bold"
+                className="absolute top-2 right-2 text-gray-400 hover:text-gray-200 text-xl font-bold"
               >
                 X
               </button>
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Coming Soon</h2>
-              <p>Translation is coming soon.</p>
+              <h2 className="text-lg font-semibold text-gray-100 mb-4">Coming Soon</h2>
+              <p className="text-gray-300">Translation is coming soon.</p>
               <div className="flex justify-end mt-4">
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                   onClick={() => setShowComingSoonModal(false)}
-                  className="px-4 py-2 bg-gray-500 text-white rounded-md text-sm font-medium"
+                  className="px-4 py-2 bg-gray-700 text-white rounded-md text-sm font-medium"
                 >
                   Close
                 </motion.button>
