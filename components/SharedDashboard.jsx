@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
+
 import DashboardContent from "@/components/member/DashboardContent";
 import AssignedTasksView from "@/components/member/AssignedTasksView";
 import RoutineTasksView from "@/components/member/RoutineTasksView";
@@ -32,13 +33,12 @@ const formatTimeLeft = (s) =>
 const deriveTaskStatus = (sprints) => {
   if (!sprints || sprints.length === 0) return "not_started";
   const statuses = sprints.map((s) => s.status);
-  const hasPending = statuses.some((s) => s === "pending_verification");
-  const hasInProgress = statuses.some((s) => s === "in_progress");
-  const hasDone = statuses.some((s) => ["done", "verified"].includes(s));
-  const allDone = statuses.every((s) => ["done", "verified"].includes(s));
-  if (hasPending) return "pending_verification";
-  if (allDone) return "done";
-  if (hasInProgress || hasDone) return "in_progress";
+  const allVerified = statuses.every((s) => s === "verified");
+  const allCompleted = statuses.every((s) => ["done", "verified"].includes(s));
+  const someInProgress = statuses.some((s) => s === "in_progress");
+  if (allVerified) return "verified";
+  if (allCompleted) return "pending_verification";
+  if (someInProgress) return "in_progress";
   return "not_started";
 };
 
@@ -64,6 +64,42 @@ const summarise = (arr) =>
       completed: 0,
     }
   );
+
+  /* ------------------------------------------------------------------ */
+/*  🆕  De-duplicate helpers                                           */
+/* ------------------------------------------------------------------ */
+const dedupeById = (arr) => {
+  const map = new Map();
+  arr.forEach((item) => {
+    // if the key already exists we merge the objects
+    if (map.has(item.id)) {
+      const existing = map.get(item.id);
+
+      // merge assignees without repeats
+      if (item.assignees?.length) {
+        const seen = new Set(existing.assignees.map((a) => a.id));
+        item.assignees.forEach((a) => {
+          if (!seen.has(a.id)) {
+            seen.add(a.id);
+            existing.assignees.push(a);
+          }
+        });
+      }
+      map.set(item.id, existing);
+    } else {
+      // make sure each task itself has UNIQUE assignees
+      map.set(item.id, {
+        ...item,
+        assignees: item.assignees
+          ? Array.from(
+              new Map(item.assignees.map((a) => [a.id, a])).values()
+            )
+          : [],
+      });
+    }
+  });
+  return [...map.values()];
+};
 
 const taskReducer = (state, action) => {
   switch (action.type) {
@@ -119,7 +155,7 @@ const taskReducer = (state, action) => {
 /* ------------------------------------------------------------------ */
 /*  Data‑fetch hook                                                    */
 /* ------------------------------------------------------------------ */
-const useDashboardData = (session, selectedDate, viewUserId) => {
+const useDashboardData = (session, selectedDate, role, router, viewUserId = null) => {
   const [state, dispatch] = useReducer(taskReducer, {
     assignedTasks: [],
     routineTasks: [],
@@ -153,18 +189,20 @@ const useDashboardData = (session, selectedDate, viewUserId) => {
       ? `/api/member/myMRIs?section=today&userId=${viewUserId || user.id}&date=${selectedDate}`
       : null,
     fetcher,
-    { refreshInterval: 30000 }
+    { refreshInterval: 30000 } // Reduced polling frequency
   );
 
+  /* --- effect to fetch everything on date / session change ---------- */
   useEffect(() => {
     const fetchUser = async () => {
       try {
         let url = "/api/member/profile";
         if (viewUserId) url += `?userId=${viewUserId}`;
         const r = await fetch(url);
-        if (r.status === 401) {
+        if (role === "team_manager" && r.status === 401) {
           setError("Unauthorized access. Please log in again.");
           setTimeout(() => setError(""), 3000);
+          router.push("/login");
           return;
         }
         const d = await r.json();
@@ -226,9 +264,10 @@ const useDashboardData = (session, selectedDate, viewUserId) => {
         let url = `/api/member/assignedTasks?date=${selectedDate}&action=tasks`;
         if (viewUserId) url += `&userId=${viewUserId}`;
         const r = await fetch(url);
-        if (r.status === 401) {
+        if (role === "team_manager" && r.status === 401) {
           setError("Unauthorized access. Please log in again.");
           setTimeout(() => setError(""), 3000);
+          router.push("/login");
           return;
         }
         const d = await r.json();
@@ -263,9 +302,10 @@ const useDashboardData = (session, selectedDate, viewUserId) => {
         let url = `/api/member/routine-tasks?action=routineTasks&date=${selectedDate}`;
         if (viewUserId) url += `&userId=${viewUserId}`;
         const r = await fetch(url);
-        if (r.status === 401) {
+        if (role === "team_manager" && r.status === 401) {
           setError("Unauthorized access. Please log in again.");
           setTimeout(() => setError(""), 3000);
+          router.push("/login");
           return;
         }
         const d = await r.json();
@@ -323,7 +363,7 @@ const useSlotTiming = (mriData) => {
 
       const startDateStr = spansMidnight
         ? new Date(now).setDate(now.getDate() - 1) &&
-          new Date(now).toDateString()
+        new Date(now).toDateString()
         : now.toDateString();
 
       const start = new Date(`${startDateStr} ${startStr}`);
@@ -411,6 +451,7 @@ const StatusUpdateModal = ({
   setSendWhatsapp,
   isUpdating,
   onUpdate,
+  onAddLog,
   onClose,
   startVoiceRecording,
   isRecording,
@@ -421,18 +462,20 @@ const StatusUpdateModal = ({
       <div className="flex-1">
         {sprints.length ? (
           <>
-            <select
-              value={selectedSprint}
-              onChange={(e) => setSelectedSprint(e.target.value)}
-              className="w-full px-4 py-2 border rounded-lg mb-3 bg-gray-50 focus:ring-2 focus:ring-teal-500 text-sm font-medium text-gray-700"
-            >
-              <option value="">Select Sprint</option>
-              {sprints.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.title || "Untitled Sprint"}
-                </option>
-              ))}
-            </select>
+{/* ─── choose sprint ─────────────────────────────────────────────── */}
+<select
+  value={selectedSprint}
+  onChange={(e) => setSelectedSprint(e.target.value)}
+  className="w-full px-4 py-2 border rounded-lg mb-3 bg-gray-50 focus:ring-2 focus:ring-teal-500 text-sm font-medium text-gray-700"
+>
+  <option value="">Select Sprint</option>
+  {sprints.map((s) => (
+    <option key={s.id} value={s.id}>
+      {s.title || "Untitled Sprint"}
+    </option>
+  ))}
+</select>
+
             <select
               value={newStatus}
               onChange={(e) => setNewStatus(e.target.value)}
@@ -545,6 +588,26 @@ const StatusUpdateModal = ({
       >
         Cancel
       </motion.button>
+      {/* <motion.button
+        whileHover={{ scale: 1.05 }}
+        whileTap={{ scale: 0.95 }}
+        onClick={onAddLog}
+        disabled={!newLogComment || isUpdating}
+        className={`px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium ${!newLogComment || isUpdating
+            ? "opacity-50 cursor-not-allowed"
+            : ""
+          }`}
+      >
+        {isUpdating ? (
+          <motion.span
+            animate={{ rotate: 360 }}
+            transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+            className="inline-block w-4 h-4 border-4 border-t-blue-200 border-blue-600 rounded-full"
+          />
+        ) : (
+          "Add Log"
+        )}
+      </motion.button> */}
       <motion.button
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
@@ -552,11 +615,10 @@ const StatusUpdateModal = ({
         disabled={
           !newStatus || (sprints.length && !selectedSprint) || isUpdating
         }
-        className={`px-4 py-2 bg-teal-600 text-white rounded-md text-sm font-medium ${
-          !newStatus || (sprints.length && !selectedSprint) || isUpdating
+        className={`px-4 py-2 bg-teal-600 text-white rounded-md text-sm font-medium ${!newStatus || (sprints.length && !selectedSprint) || isUpdating
             ? "opacity-50 cursor-not-allowed"
             : ""
-        }`}
+          }`}
       >
         {isUpdating ? (
           <motion.span
@@ -565,7 +627,7 @@ const StatusUpdateModal = ({
             className="inline-block w-4 h-4 border-4 border-t-teal-200 border-teal-600 rounded-full"
           />
         ) : (
-          "Update"
+          "Update Status"
         )}
       </motion.button>
     </div>
@@ -573,7 +635,7 @@ const StatusUpdateModal = ({
 );
 
 /* ------------------------------------------------------------------ */
-/*  Task Details Modal                                                */
+/*  Task Details Modal (restored from earlier code with all details)  */
 /* ------------------------------------------------------------------ */
 const TaskDetailsModal = ({ task, taskLogs, users, onClose }) => (
   <div>
@@ -639,7 +701,7 @@ const TaskDetailsModal = ({ task, taskLogs, users, onClose }) => (
 );
 
 /* ------------------------------------------------------------------ */
-/*  Close Day Modal Content                                           */
+/*  Close Day Modal Content (from earlier code)                       */
 /* ------------------------------------------------------------------ */
 const CloseDayModal = ({
   closeDayTasks,
@@ -694,9 +756,14 @@ const CloseDayModal = ({
   </div>
 );
 
-export default function UserDashboardView({ userId }) {
+/* ------------------------------------------------------------------ */
+/*  Main component                                                     */
+/* ------------------------------------------------------------------ */
+export default function SharedDashboard({ role, viewUserId = null, embed = false }) {
   const { data: session, status } = useSession();
   const router = useRouter();
+
+  /* ------------- local UI state ---------------- */
   const [activeTab, setActiveTab] = useState("dashboard");
   const [selectedDate, setSelectedDate] = useState(
     new Date().toISOString().split("T")[0]
@@ -731,11 +798,28 @@ export default function UserDashboardView({ userId }) {
     isLoadingRoutineTasks,
     error,
     setError,
-  } = useDashboardData(session, selectedDate, userId);
+  } = useDashboardData(session, selectedDate, role, router, viewUserId);
 
   const { activeSlot, timeLeft } = useSlotTiming(mriData);
 
+  /* redirect non‑members */
+  useEffect(() => {
+    if (
+      status === "authenticated" && session?.user?.role !== role &&
+      !viewUserId        // 👈 key line – skip the redirect in impersonation mode
+    ) {
+      router.push(
+        session.user.role === "admin" ? "/dashboard/admin" :
+          session.user.role === "team_manager" ? "/dashboard/team_manager" : "/dashboard/member"
+      );
+    }
+  }, [status, session, router, role]);
+
+  /* ------------------------------------------------------------------ */
+  /*  Helpers: fetch sprints / logs, notify assignees (chat only)       */
+  /* ------------------------------------------------------------------ */
   const fetchSprints = async (taskId, memberId) => {
+    memberId = viewUserId || user?.id;
     const key = `sprints:${taskId}:${memberId}`;
     if (taskCache.has(key)) {
       setSprints(taskCache.get(key));
@@ -745,7 +829,7 @@ export default function UserDashboardView({ userId }) {
       const r = await fetch(
         `/api/member/assignedTasks?taskId=${taskId}&memberId=${memberId}&action=sprints`
       );
-      if (r.status === 401) {
+      if (role === "team_manager" && r.status === 401) {
         setError("Unauthorized access. Please log in again.");
         setTimeout(() => setError(""), 3000);
         router.push("/login");
@@ -768,7 +852,7 @@ export default function UserDashboardView({ userId }) {
       const r = await fetch(
         `/api/member/assignedTasks?taskId=${taskId}&action=logs`
       );
-      if (r.status === 401) {
+      if (role === "team_manager" && r.status === 401) {
         setError("Unauthorized access. Please log in again.");
         setTimeout(() => setError(""), 3000);
         router.push("/login");
@@ -787,7 +871,7 @@ export default function UserDashboardView({ userId }) {
     if (!sendNotification) return;
     try {
       const r = await fetch(`/api/member/assignedTasks?taskId=${taskId}&action=assignees`);
-      if (r.status === 401) {
+      if (role === "team_manager" && r.status === 401) {
         setError("Unauthorized access. Please log in again.");
         setTimeout(() => setError(""), 3000);
         router.push("/login");
@@ -798,7 +882,7 @@ export default function UserDashboardView({ userId }) {
       const list = d.assignees || [];
       await Promise.all(
         list
-          .filter((a) => a.memberId !== user?.id)
+          .filter((a) => a.memberId !== (viewUserId || user?.id))
           .map((a) =>
             fetch("/api/others/chat", {
               method: "POST",
@@ -823,6 +907,7 @@ export default function UserDashboardView({ userId }) {
     }
   };
 
+  /* listen for chat-originated task clicks */
   useEffect(() => {
     const handler = async (e) => {
       const { taskId, sprintId } = e.detail || {};
@@ -836,7 +921,7 @@ export default function UserDashboardView({ userId }) {
       setTimeout(async () => {
         setSelectedTask(task);
         await fetchTaskLogs(taskId);
-        await fetchSprints(taskId, user?.id);
+        await fetchSprints(taskId, viewUserId || user?.id);
 
         if (sprintId) {
           setSelectedSprint(String(sprintId));
@@ -847,7 +932,7 @@ export default function UserDashboardView({ userId }) {
 
     window.addEventListener("member-open-task", handler);
     return () => window.removeEventListener("member-open-task", handler);
-  }, [state.assignedTasks, user?.id]);
+  }, [state.assignedTasks, user?.id, viewUserId]);
 
   const startVoiceRecording = () => {
     if (!window.SpeechRecognition && !window.webkitSpeechRecognition) {
@@ -888,6 +973,65 @@ export default function UserDashboardView({ userId }) {
     setShowComingSoonModal(true);
   };
 
+  const handleAddLog = async () => {
+    if (!newLogComment) {
+      setError("Comment required");
+      setTimeout(() => setError(""), 3000);
+      return;
+    }
+
+    setIsUpdating(true);
+
+    const body = {
+      taskId: selectedTask.id,
+      action: "log_added",
+      details: newLogComment,
+    };
+
+    if (selectedSprint) {
+      body.sprintId = parseInt(selectedSprint);
+    }
+
+    try {
+      const r = await fetch("/api/member/assignedTasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (role === "team_manager" && r.status === 401) {
+        setError("Unauthorized access. Please log in again.");
+        setTimeout(() => setError(""), 3000);
+        router.push("/login");
+        return;
+      }
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Add log failed");
+
+      const newLog = {
+        ...d.log,
+        userName: session?.user?.name,
+      };
+      setTaskLogs([newLog, ...taskLogs]);
+
+      if (sendNotification) {
+        let message = `Log added to task "${selectedTask.title}" by ${session?.user?.name}: ${newLogComment} [task:${selectedTask.id}]`;
+        if (body.sprintId) {
+          message += ` [sprint:${body.sprintId}]`;
+        }
+        await notifyAssigneesChat(selectedTask.id, message);
+      }
+
+      setNewLogComment("");
+      setSuccess("Log added!");
+      setTimeout(() => setSuccess(""), 2500);
+    } catch (e) {
+      setError(e.message || "Add log failed");
+      setTimeout(() => setError(""), 3000);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
   const handleStatusUpdate = async () => {
     if (!selectedTask || !newStatus) return;
     setIsUpdating(true);
@@ -895,24 +1039,24 @@ export default function UserDashboardView({ userId }) {
     const isSprint = sprints.length && selectedSprint;
     const body = isSprint
       ? {
-          sprintId: parseInt(selectedSprint),
-          status: newStatus,
-          taskId: selectedTask.id,
-          memberId: user?.id,
-          action: "update_sprint",
-          notifyAssignees: sendNotification,
-          notifyWhatsapp: sendWhatsapp,
-          newLogComment: newLogComment || "No log provided",
-        }
+        sprintId: parseInt(selectedSprint),
+        status: newStatus,
+        taskId: selectedTask.id,
+        memberId: viewUserId || user?.id,
+        action: "update_sprint",
+        notifyAssignees: sendNotification,
+        notifyWhatsapp: sendWhatsapp,
+        newLogComment: newLogComment || "No log provided",
+      }
       : {
-          taskId: selectedTask.id,
-          status: newStatus,
-          memberId: user?.id,
-          action: "update_task",
-          notifyAssignees: sendNotification,
-          notifyWhatsapp: sendWhatsapp,
-          newLogComment: newLogComment || "No log provided",
-        };
+        taskId: selectedTask.id,
+        status: newStatus,
+        memberId: viewUserId || user?.id,
+        action: "update_task",
+        notifyAssignees: sendNotification,
+        notifyWhatsapp: sendWhatsapp,
+        newLogComment: newLogComment || "No log provided",
+      };
 
     try {
       const r = await fetch("/api/member/assignedTasks/status", {
@@ -920,7 +1064,7 @@ export default function UserDashboardView({ userId }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (r.status === 401) {
+      if (role === "team_manager" && r.status === 401) {
         setError("Unauthorized access. Please log in again.");
         setTimeout(() => setError(""), 3000);
         router.push("/login");
@@ -937,25 +1081,9 @@ export default function UserDashboardView({ userId }) {
       });
 
       taskCache.set(
-        `assignedTasks:${selectedDate}:${userId || session?.user?.id}`,
+        `assignedTasks:${selectedDate}:${viewUserId || session?.user?.id}`,
         state.assignedTasks
       );
-
-      await fetch("/api/member/assignedTasks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          taskId: selectedTask.id,
-          action: "status_update",
-          details:
-            newLogComment ||
-            (isSprint
-              ? `Updated sprint ${
-                  sprints.find((s) => s.id === parseInt(selectedSprint))?.title
-                } to ${newStatus}`
-              : `Updated task status to ${newStatus}`),
-        }),
-      });
 
       setSuccess("Task status updated!");
       setShowStatusModal(false);
@@ -982,13 +1110,13 @@ export default function UserDashboardView({ userId }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId: user?.id,
+          userId: viewUserId || user?.id,
           date: selectedDate,
           tasks: state.closeDayTasks,
           comment: closeDayComment,
         }),
       });
-      if (r.status === 401) {
+      if (role === "team_manager" && r.status === 401) {
         setError("Unauthorized access. Please log in again.");
         setTimeout(() => setError(""), 3000);
         router.push("/login");
@@ -1009,7 +1137,7 @@ export default function UserDashboardView({ userId }) {
             : { ...t, isLocked: true };
         }),
       });
-      taskCache.delete(`routineTasks:${selectedDate}:${userId || session?.user?.id}`);
+      taskCache.delete(`routineTasks:${selectedDate}:${viewUserId || session?.user?.id}`);
       setTimeout(() => setSuccess(""), 2500);
     } catch (e) {
       setError(e.message);
@@ -1024,15 +1152,15 @@ export default function UserDashboardView({ userId }) {
     if (u.role === "team_manager")
       return u.team_manager_type
         ? u.team_manager_type
-            .split("_")
-            .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-            .join(" ")
-        : "Team Manager";
-    return u.type
-      ? u.type
           .split("_")
           .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
           .join(" ")
+        : "Team Manager";
+    return u.type
+      ? u.type
+        .split("_")
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(" ")
       : "Member";
   };
 
@@ -1043,17 +1171,6 @@ export default function UserDashboardView({ userId }) {
     return users.find((m) => String(m.id) === String(memberId))?.name || "Unassigned";
   };
 
-  const getUserName = (userid) => {
-    const u = users.find(u => u.id === userid);
-    if (u) {
-      return u.name + (userid === user?.id ? " (this user)" : "");
-    } else if (userid === user?.id) {
-      return user.name + " (this user)";
-    } else {
-      return "Unknown";
-    }
-  };
-
   if (status === "loading") {
     return (
       <motion.div
@@ -1061,9 +1178,7 @@ export default function UserDashboardView({ userId }) {
         animate={{ opacity: 1 }}
         className="fixed inset-0 flex items-center justify-center bg-gray-100"
       >
-        <motion.div
-          className="text-2xl font-semibold text-gray-700 flex items-center gap-2"
-        >
+        <motion.div className="text-2xl font-semibold text-gray-700 flex items-center gap-2">
           <motion.span
             animate={{ rotate: 360 }}
             transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
@@ -1176,6 +1291,7 @@ export default function UserDashboardView({ userId }) {
           )}
         </AnimatePresence>
 
+        {/* --- Modals --------------------------------------------------- */}
         <Modal
           isOpen={showStatusModal}
           onClose={() => setShowStatusModal(false)}
@@ -1198,6 +1314,7 @@ export default function UserDashboardView({ userId }) {
             setSendWhatsapp={setSendWhatsapp}
             isUpdating={isUpdating}
             onUpdate={handleStatusUpdate}
+            onAddLog={handleAddLog}
             onClose={() => {
               setShowStatusModal(false);
               setSelectedTask(null);
@@ -1267,4 +1384,4 @@ export default function UserDashboardView({ userId }) {
       </div>
     </motion.div>
   );
-}
+};

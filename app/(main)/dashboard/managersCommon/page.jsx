@@ -1,9 +1,11 @@
 "use client";
+
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import useSWR from "swr";
+import SharedDashboard from "@/components/SharedDashboard";
 
 const fetcher = (url) => fetch(url).then((res) => res.json());
 
@@ -40,6 +42,12 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
   const [isAddingLog, setIsAddingLog] = useState(false);
   const [isReminding, setIsReminding] = useState({});
   const [selectedUserId, setSelectedUserId] = useState(null);
+  const [selectedLogSprint, setSelectedLogSprint] = useState("");
+  const [newTaskStatuses, setNewTaskStatuses] = useState({});
+  const [newSprintStatuses, setNewSprintStatuses] = useState({});
+  const [isUpdating, setIsUpdating] = useState(false);
+
+
 
   const { data: usersData } = useSWR("/api/member/users", fetcher);
   const { data: dashboardData } = useSWR(`/api/managersCommon/dashboard?user=${userFilter}&status=${statusFilter}${selectedDate ? `&date=${selectedDate}` : ''}`, fetcher);
@@ -66,8 +74,9 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
 
   useEffect(() => {
     if (dashboardData) {
-      const filteredTasks = dashboardData.assignedTasks || [];
+      const filteredTasks = dedupeById(dashboardData.assignedTasks || []);
       setTasks(filteredTasks);
+
 
       setTotalTasks(dashboardData.summaries?.totalTasks || 0);
       setCompletedTasks(dashboardData.summaries?.completedTasks || 0);
@@ -121,6 +130,59 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
       openFocusedTask();
     }
   }, [searchParams]);
+
+  useEffect(() => {
+    if (selectedTask) {
+      const taskStatuses = {};
+      const sprintStatuses = {};
+      selectedTask.assignees.forEach((a) => {
+        taskStatuses[a.id] = a.status;
+        if (a.sprints) {
+          a.sprints.forEach((s) => {
+            sprintStatuses[`${a.id}-${s.id}`] = s.status;
+          });
+        }
+      });
+      setNewTaskStatuses(taskStatuses);
+      setNewSprintStatuses(sprintStatuses);
+    }
+  }, [selectedTask]);
+
+  /* ------------------------------------------------------------------ */
+  /*  🆕  De-duplicate helpers                                           */
+  /* ------------------------------------------------------------------ */
+  const dedupeById = (arr) => {
+    const map = new Map();
+    arr.forEach((item) => {
+      // if the key already exists we merge the objects
+      if (map.has(item.id)) {
+        const existing = map.get(item.id);
+
+        // merge assignees without repeats
+        if (item.assignees?.length) {
+          const seen = new Set(existing.assignees.map((a) => a.id));
+          item.assignees.forEach((a) => {
+            if (!seen.has(a.id)) {
+              seen.add(a.id);
+              existing.assignees.push(a);
+            }
+          });
+        }
+        map.set(item.id, existing);
+      } else {
+        // make sure each task itself has UNIQUE assignees
+        map.set(item.id, {
+          ...item,
+          assignees: item.assignees
+            ? Array.from(
+              new Map(item.assignees.map((a) => [a.id, a])).values()
+            )
+            : [],
+        });
+      }
+    });
+    return [...map.values()];
+  };
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -231,14 +293,18 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
     }
     setIsAddingLog(true);
     try {
+      const body = {
+        taskId,
+        action: "log_added",
+        details: newLogComment,
+      };
+      if (selectedLogSprint) {
+        body.sprintId = parseInt(selectedLogSprint);
+      }
       const response = await fetch(`/api/member/assignedTasks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          taskId,
-          action: "log_added",
-          details: newLogComment,
-        }),
+        body: JSON.stringify(body),
       });
       if (response.ok) {
         const { log } = await response.json();
@@ -252,11 +318,15 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
         ]);
         setNewLogComment("");
         setShowAddLogModal(false);
+        setSelectedLogSprint("");
 
         if (notifyAssignees) {
           const task = tasks.find(t => t.id === taskId);
           if (task) {
-            const message = `Log added to task "${task.title}" by ${getUserName(session?.user?.id)}: ${newLogComment} [task:${taskId}]`;
+            let message = `Log added to task "${task.title}" by ${getUserName(session?.user?.id)}: ${newLogComment} [task:${taskId}]`;
+            if (body.sprintId) {
+              message += ` [sprint:${body.sprintId}]`;
+            }
             await Promise.all(
               task.assignees.map(a => a.id).filter(id => id !== session?.user?.id).map(userId =>
                 fetch("/api/others/chat", {
@@ -283,48 +353,101 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
     }
   };
 
-  const handleVerifyTask = async (taskId) => {
+  const handleUpdateTaskStatus = async (memberId, status) => {
     if (!newLogComment) {
-      setError("Comment required for verification");
+      setError("Comment required");
       return;
     }
-    setIsAddingLog(true);
+    setIsUpdating(true);
     try {
+      const body = {
+        taskId: selectedTask.id,
+        status,
+        action: "update_task",
+        memberId,
+        notifyAssignees: true,
+        notifyWhatsapp: false,
+        newLogComment,
+      };
       const response = await fetch(`/api/member/assignedTasks`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          taskId,
-          status: "verified",
-          action: "update_task",
-          notifyAssignees: true,
-          notifyWhatsapp: false,
-          newLogComment,
-          memberId: session?.user?.id,
-        }),
+        body: JSON.stringify(body),
       });
       if (response.ok) {
-        setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: "verified" } : t));
-        setLatestUpdated(prev => prev.map(t => t.id === taskId ? { ...t, status: "verified" } : t));
+        setSelectedTask(prev => ({
+          ...prev,
+          assignees: prev.assignees.map(a => a.id === memberId ? { ...a, status } : a)
+        }));
         setTaskLogs(prev => [
           { id: Date.now(), userId: session?.user?.id, userName: session?.user?.name, action: "status_update", details: newLogComment, createdAt: new Date() },
           ...prev
         ]);
+        setNewTaskStatuses(prev => ({ ...prev, [memberId]: status }));
         setNewLogComment("");
       } else {
-        setError("Failed to verify task");
+        setError("Failed to update task status");
       }
     } catch (err) {
-      setError("Error verifying task");
+      setError("Error updating task status");
       console.error(err);
     } finally {
-      setIsAddingLog(false);
+      setIsUpdating(false);
+    }
+  };
+
+  const handleUpdateSprintStatus = async (memberId, sprintId, status) => {
+    if (!newLogComment) {
+      setError("Comment required");
+      return;
+    }
+    setIsUpdating(true);
+    try {
+      const body = {
+        taskId: selectedTask.id,
+        status,
+        sprintId,
+        action: "update_sprint",
+        memberId,
+        notifyAssignees: true,
+        notifyWhatsapp: false,
+        newLogComment,
+      };
+      const response = await fetch(`/api/member/assignedTasks`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (response.ok) {
+        setSelectedTask(prev => ({
+          ...prev,
+          assignees: prev.assignees.map(a => {
+            if (a.id !== memberId) return a;
+            const newSprints = a.sprints.map(s => s.id === sprintId ? { ...s, status } : s);
+            const newDerived = deriveTaskStatus(newSprints);
+            return { ...a, sprints: newSprints, status: newDerived };
+          })
+        }));
+        setTaskLogs(prev => [
+          { id: Date.now(), userId: session?.user?.id, userName: session?.user?.name, action: "sprint_status_update", details: newLogComment, createdAt: new Date(), sprintId },
+          ...prev
+        ]);
+        setNewSprintStatuses(prev => ({ ...prev, [`${memberId}-${sprintId}`]: status }));
+        setNewLogComment("");
+      } else {
+        setError("Failed to update sprint status");
+      }
+    } catch (err) {
+      setError("Error updating sprint status");
+      console.error(err);
+    } finally {
+      setIsUpdating(false);
     }
   };
 
   const fetchTask = async (taskId) => {
     try {
-      const res = await fetch(`/api/member/assignedTasks?action=task&taskId=${taskId}`);
+      const res = await fetch(`/api/member/assignedTasks?taskId=${taskId}&action=task`);
       if (!res.ok) {
         throw new Error(`Failed to fetch task: ${res.statusText}`);
       }
@@ -337,8 +460,26 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
     }
   };
 
+  const fetchSprints = async (taskId, assigneeId) => {
+    try {
+      const res = await fetch(`/api/member/assignedTasks?taskId=${taskId}&memberId=${assigneeId}&action=sprints`);
+      if (!res.ok) {
+        throw new Error(`Failed to fetch sprints: ${res.statusText}`);
+      }
+      const data = await res.json();
+      return data.sprints || [];
+    } catch (err) {
+      console.error(err);
+      return [];
+    }
+  };
+
   const handleViewTaskDetails = async (task) => {
-    setSelectedTask(task);
+    const updatedAssignees = await Promise.all(task.assignees.map(async (assignee) => ({
+      ...assignee,
+      sprints: await fetchSprints(task.id, assignee.id),
+    })));
+    setSelectedTask({ ...task, assignees: updatedAssignees });
     try {
       const logsRes = await fetch(`/api/member/assignedTasks?taskId=${task.id}&action=logs`);
       if (!logsRes.ok) {
@@ -540,7 +681,7 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
               </div>
             </div>
           </div>
-          <PersonalView userId={selectedUserId} />
+          <SharedDashboard role="team_manager" viewUserId={selectedUserId} />
         </div>
       </motion.div>
     );
@@ -974,14 +1115,60 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
                         {selectedTask.assignees.map((assignee, index) => (
                           <div key={`${assignee.id}-${index}`} className="mt-4 bg-indigo-50 p-5 rounded-lg shadow-sm border border-indigo-200">
                             <p className="text-base"><strong className="text-indigo-700">Name:</strong> {assignee.name}</p>
-                            <p className="text-base"><strong className="text-indigo-700">Status:</strong> {selectedTask.status?.replace("_", " ") || "Unknown"}</p>
-                            {assignee.sprints && assignee.sprints.length > 0 && (
+                            <p className="text-base"><strong className="text-indigo-700">Status:</strong> {assignee.status?.replace("_", " ") || "Unknown"}</p>
+                            <div className="mt-3">
+                              <select
+                                value={newTaskStatuses[assignee.id] || assignee.status}
+                                onChange={(e) => setNewTaskStatuses({ ...newTaskStatuses, [assignee.id]: e.target.value })}
+                                className="px-3 py-1 border border-indigo-300 rounded-lg text-sm bg-white"
+                                disabled={(assignee.sprints && assignee.sprints.length > 0)}
+                              >
+                                <option value="not_started">Not Started</option>
+                                <option value="in_progress">In Progress</option>
+                                <option value="pending_verification">Pending Verification</option>
+                                <option value="done">Done</option>
+                                <option value="verified">Verified</option>
+                              </select>
+                              {(!assignee.sprints || assignee.sprints.length === 0) && (
+                                <motion.button
+                                  whileHover={{ scale: 1.05 }}
+                                  whileTap={{ scale: 0.95 }}
+                                  onClick={() => handleUpdateTaskStatus(assignee.id, newTaskStatuses[assignee.id])}
+                                  disabled={newTaskStatuses[assignee.id] === assignee.status || !newLogComment || isUpdating}
+                                  className="ml-2 px-3 py-1 bg-indigo-600 text-white rounded-lg text-sm"
+                                >
+                                  Update Task Status
+                                </motion.button>
+                              )}
+                            </div>
+                            {(assignee.sprints && assignee.sprints.length > 0) && (
                               <div className="mt-2">
                                 <h4 className="text-base font-semibold text-indigo-700">Sprints</h4>
                                 {assignee.sprints.map(sprint => (
                                   <div key={sprint.id} className="mt-2 bg-white p-3 rounded shadow-sm border border-indigo-100">
                                     <p className="text-sm"><strong>{sprint.title || "Untitled Sprint"}:</strong> {sprint.description || "N/A"}</p>
                                     <p className="text-sm">Status: {sprint.status?.replace("_", " ") || "Unknown"}</p>
+                                    <div className="mt-1">
+                                      <select
+                                        value={newSprintStatuses[`${assignee.id}-${sprint.id}`] || sprint.status}
+                                        onChange={(e) => setNewSprintStatuses({ ...newSprintStatuses, [`${assignee.id}-${sprint.id}`]: e.target.value })}
+                                        className="px-3 py-1 border border-indigo-300 rounded-lg text-sm bg-white"
+                                      >
+                                        <option value="not_started">Not Started</option>
+                                        <option value="in_progress">In Progress</option>
+                                        <option value="done">Done</option>
+                                        <option value="verified">Verified</option>
+                                      </select>
+                                      <motion.button
+                                        whileHover={{ scale: 1.05 }}
+                                        whileTap={{ scale: 0.95 }}
+                                        onClick={() => handleUpdateSprintStatus(assignee.id, sprint.id, newSprintStatuses[`${assignee.id}-${sprint.id}`])}
+                                        disabled={newSprintStatuses[`${assignee.id}-${sprint.id}`] === sprint.status || !newLogComment || isUpdating}
+                                        className="ml-2 px-3 py-1 bg-indigo-600 text-white rounded-lg text-sm"
+                                      >
+                                        Update Sprint Status
+                                      </motion.button>
+                                    </div>
                                   </div>
                                 ))}
                               </div>
@@ -996,41 +1183,64 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
                       <h3 className="text-lg font-semibold text-indigo-700 mb-4">Logs</h3>
                       <div className="max-h-80 overflow-y-auto space-y-4 mb-6">
                         {taskLogs.length > 0 ? (
-                          taskLogs.map(log => (
-                            <div key={log.id} className="p-5 bg-indigo-50 rounded-lg shadow-sm border border-indigo-200 transition-all duration-200">
-                              <p className="text-base text-indigo-800">{log.userName || getUserName(log.userId)}: {log.details}</p>
-                              <p className="text-sm text-gray-500 mt-2">{new Date(log.createdAt).toLocaleString()}</p>
-                            </div>
-                          ))
+                          taskLogs.map((log) => {
+                            /* figure out which sprint (if any) this log belongs to */
+                            const sprint = log.sprintId
+                              ? selectedTask.assignees
+                                .flatMap((a) => a.sprints || [])
+                                .find((s) => s.id === log.sprintId)
+                              : null;
+
+                            const prefix = sprint ? `[${sprint.title || "Untitled Sprint"}] ` : "[Main] ";
+
+                            return (
+                              <div
+                                key={log.id}
+                                className="p-5 bg-indigo-50 rounded-lg shadow-sm border border-indigo-200 transition-all duration-200"
+                              >
+                                <p className="text-base text-indigo-800">
+                                  {prefix}
+                                  {log.userName || getUserName(log.userId)}: {log.details}
+                                </p>
+                                <p className="text-sm text-gray-500 mt-2">
+                                  {new Date(log.createdAt).toLocaleString()}
+                                </p>
+                              </div>
+                            );
+                          })
                         ) : (
                           <p className="text-base text-gray-500">No logs available.</p>
                         )}
                       </div>
+
                       <div className="mt-6">
                         <h4 className="text-base font-semibold text-indigo-700 mb-3">Add New Log</h4>
+                        {selectedTask.assignees.some(a => a.sprints && a.sprints.length > 0) && (
+                          <select
+                            value={selectedLogSprint}
+                            onChange={(e) => setSelectedLogSprint(e.target.value)}
+                            className="w-full px-4 py-2 border border-indigo-300 rounded-lg bg-indigo-50 focus:ring-2 focus:ring-indigo-500 text-sm font-medium text-gray-700 mb-3"
+                          >
+                            <option value="">Main Task</option>
+                            {selectedTask.assignees.flatMap(a =>
+                              a.sprints.map((s, idx) => (
+                                <option
+                                  key={`${a.id}-${s.id}-${idx}`}   // ← now guaranteed unique
+                                  value={s.id}
+                                >
+                                  {a.name} - {s.title || "Untitled Sprint"}
+                                </option>
+                              ))
+                            )}
+
+                          </select>
+                        )}
                         <textarea
                           value={newLogComment}
                           onChange={(e) => setNewLogComment(e.target.value)}
                           placeholder="Add a comment to the task discussion..."
                           className="w-full px-4 py-3 border border-indigo-300 rounded-lg bg-indigo-50 focus:ring-2 focus:ring-indigo-500 text-sm font-medium text-gray-700 mb-4 transition-all duration-200"
                         />
-                        {selectedTask.assignees.some(a => a.status === "pending_verification") && (
-                          <motion.button
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                            onClick={() => handleVerifyTask(selectedTask.id)}
-                            className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 transition-all duration-200 mr-3 relative"
-                            disabled={!newLogComment || isAddingLog}
-                          >
-                            {isAddingLog ? (
-                              <motion.span
-                                animate={{ rotate: 360 }}
-                                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                                className="inline-block w-4 h-4 border-2 border-t-green-200 border-green-600 rounded-full"
-                              />
-                            ) : "Verify Task"}
-                          </motion.button>
-                        )}
                         <motion.button
                           whileHover={{ scale: 1.05 }}
                           whileTap={{ scale: 0.95 }}
