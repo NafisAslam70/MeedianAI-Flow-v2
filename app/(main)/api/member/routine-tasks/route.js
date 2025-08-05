@@ -1,8 +1,9 @@
+// app/(main)/api/member/routine-tasks/route.js
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { routineTasks, routineTaskDailyStatuses, users } from "@/lib/schema";
-import { eq, and, sql } from "drizzle-orm";
 import { auth } from "@/lib/auth";
+import { routineTasks, routineTaskDailyStatuses, users, openCloseTimes } from "@/lib/schema";
+import { eq, and, sql } from "drizzle-orm";
 
 export async function GET(req) {
   const session = await auth();
@@ -14,7 +15,7 @@ export async function GET(req) {
   const action = searchParams.get("action");
   const date = searchParams.get("date") || new Date().toISOString().split("T")[0];
 
-  // GET /api/routine-status?action=routineTasks (for MemberDashboard, RoutineTasks)
+  // GET /api/member/routine-tasks?action=routineTasks (for MemberDashboard, RoutineTasks)
   if (action === "routineTasks") {
     try {
       const tasks = await db
@@ -23,38 +24,28 @@ export async function GET(req) {
           description: routineTasks.description,
           memberId: routineTasks.memberId,
           createdAt: routineTasks.createdAt,
-        })
-        .from(routineTasks)
-        .where(eq(routineTasks.memberId, parseInt(session.user.id)));
-
-      const statuses = await db
-        .select({
-          id: routineTaskDailyStatuses.id,
-          routineTaskId: routineTaskDailyStatuses.routineTaskId,
-          description: routineTasks.description,
           status: routineTaskDailyStatuses.status,
-          date: routineTaskDailyStatuses.date,
-          updatedAt: routineTaskDailyStatuses.updatedAt,
           comment: routineTaskDailyStatuses.comment,
           isLocked: routineTaskDailyStatuses.isLocked,
         })
-        .from(routineTaskDailyStatuses)
-        .innerJoin(routineTasks, eq(routineTaskDailyStatuses.routineTaskId, routineTasks.id))
-        .where(
+        .from(routineTasks)
+        .leftJoin(
+          routineTaskDailyStatuses,
           and(
-            eq(sql`DATE(${routineTaskDailyStatuses.date})`, date),
-            eq(routineTasks.memberId, parseInt(session.user.id))
+            eq(routineTasks.id, routineTaskDailyStatuses.routineTaskId),
+            eq(sql`DATE(${routineTaskDailyStatuses.date})`, date)
           )
-        );
+        )
+        .where(eq(routineTasks.memberId, parseInt(session.user.id)));
 
-      return NextResponse.json({ tasks, statuses });
+      return NextResponse.json({ tasks }, { status: 200 });
     } catch (error) {
-      console.error("Error fetching routine tasks:", error);
-      return NextResponse.json({ error: "Failed to fetch routine tasks" }, { status: 500 });
+      console.error("GET /api/member/routine-tasks error:", error);
+      return NextResponse.json({ error: `Failed to fetch routine tasks: ${error.message}` }, { status: 500 });
     }
   }
 
-  // GET /api/routine-status?action=routineTasksAdmin (for RoutineTaskStatus)
+  // GET /api/member/routine-tasks?action=routineTasksAdmin (for RoutineTaskStatus)
   if (action === "routineTasksAdmin") {
     if (session.user.role !== "admin") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -100,10 +91,10 @@ export async function GET(req) {
           )
         );
 
-      return NextResponse.json({ tasks, statuses });
+      return NextResponse.json({ tasks, statuses }, { status: 200 });
     } catch (error) {
-      console.error("Error fetching routine tasks and statuses:", error);
-      return NextResponse.json({ error: "Failed to fetch routine tasks and statuses" }, { status: 500 });
+      console.error("GET /api/member/routine-tasks error:", error);
+      return NextResponse.json({ error: `Failed to fetch routine tasks: ${error.message}` }, { status: 500 });
     }
   }
 
@@ -119,7 +110,7 @@ export async function POST(req) {
   const { searchParams } = new URL(req.url);
   const action = searchParams.get("action");
 
-  // POST /api/routine-status?action=routineTasksAdmin (for RoutineTaskStatus)
+  // POST /api/member/routine-tasks?action=routineTasksAdmin (for RoutineTaskStatus)
   if (action === "routineTasksAdmin") {
     if (session.user.role !== "admin") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -131,7 +122,7 @@ export async function POST(req) {
     }
 
     try {
-      const task = await db
+      const [task] = await db
         .insert(routineTasks)
         .values({
           memberId: parseInt(memberId),
@@ -141,26 +132,25 @@ export async function POST(req) {
         .returning({ id: routineTasks.id });
 
       await db.insert(routineTaskDailyStatuses).values({
-        routineTaskId: task[0].id,
-        memberId: parseInt(memberId),
-        status: status || "not_started",
+        routineTaskId: task.id,
         date: new Date(),
+        status: status || "not_started",
         updatedAt: new Date(),
         isLocked: false,
       });
 
-      return NextResponse.json({ taskId: task[0].id }, { status: 201 });
+      return NextResponse.json({ taskId: task.id }, { status: 201 });
     } catch (error) {
-      console.error("Error creating routine task:", error);
-      return NextResponse.json({ error: "Failed to create routine task" }, { status: 500 });
+      console.error("POST /api/member/routine-tasks error:", error);
+      return NextResponse.json({ error: `Failed to create routine task: ${error.message}` }, { status: 500 });
     }
   }
 
-  // POST /api/routine-status?action=closeDay (for MemberDashboard)
+  // POST /api/member/routine-tasks?action=closeDay (for MemberDashboard)
   if (action === "closeDay") {
     const { userId, date, tasks, comment } = await req.json();
-    if (!userId || !date) {
-      return NextResponse.json({ error: "User ID and date are required" }, { status: 400 });
+    if (!userId || !date || !tasks) {
+      return NextResponse.json({ error: "User ID, date, and tasks are required" }, { status: 400 });
     }
 
     try {
@@ -183,34 +173,28 @@ export async function POST(req) {
       }
 
       const now = new Date();
-      const closingStart = new Date(times.closingWindowStart);
-      const closingEnd = new Date(times.closingWindowEnd);
+      const closingStart = new Date();
+      const [startH, startM] = times.closingWindowStart.split(":").map(Number);
+      closingStart.setHours(startH, startM, 0, 0);
+      const closingEnd = new Date();
+      const [endH, endM] = times.closingWindowEnd.split(":").map(Number);
+      closingEnd.setHours(endH, endM, 0, 0);
       if (now < closingStart || now > closingEnd) {
-        return NextResponse.json({ error: "Outside closing window" }, { status: 400 });
+        return NextResponse.json({ error: "Not within closing window" }, { status: 400 });
       }
 
+      // Validate tasks
       for (const task of tasks) {
-        await db
-          .update(routineTaskDailyStatuses)
-          .set({
-            status: task.markAsCompleted ? "completed" : undefined,
-            comment: task.markAsCompleted && comment ? comment : undefined,
-            updatedAt: new Date(),
-            isLocked: true,
-          })
-          .where(
-            and(
-              eq(routineTaskDailyStatuses.routineTaskId, task.id),
-              eq(routineTaskDailyStatuses.memberId, parseInt(userId)),
-              eq(sql`DATE(${routineTaskDailyStatuses.date})`, date)
-            )
-          );
+        if (!Number.isInteger(task.id) || typeof task.markAsCompleted !== "boolean") {
+          return NextResponse.json({ error: "Invalid task data" }, { status: 400 });
+        }
       }
 
-      return NextResponse.json({ message: "Day closed successfully" }, { status: 200 });
+      // Defer updates to dayCloseRequests (handled in /api/member/dayCloseRequest)
+      return NextResponse.json({ success: true }, { status: 200 });
     } catch (error) {
-      console.error("Error closing day:", error);
-      return NextResponse.json({ error: "Failed to close day" }, { status: 500 });
+      console.error("POST /api/member/routine-tasks error:", error);
+      return NextResponse.json({ error: `Failed to close day: ${error.message}` }, { status: 500 });
     }
   }
 
@@ -226,25 +210,23 @@ export async function PATCH(req) {
   const { searchParams } = new URL(req.url);
   const action = searchParams.get("action");
 
-  // PATCH /api/routine-status?action=routineTasksStatus (for MemberDashboard, RoutineTasks)
+  // PATCH /api/member/routine-tasks?action=routineTasksStatus (for MemberDashboard, RoutineTasks)
   if (action === "routineTasksStatus") {
-    const { taskId, status, date } = await req.json();
+    const { taskId, status, date, comment } = await req.json();
     if (!taskId || !status) {
       return NextResponse.json({ error: "Task ID and status are required" }, { status: 400 });
     }
 
     try {
-      const taskStatus = await db
+      const [taskStatus] = await db
         .select()
         .from(routineTaskDailyStatuses)
         .where(
           and(
             eq(routineTaskDailyStatuses.routineTaskId, taskId),
-            eq(routineTaskDailyStatuses.memberId, parseInt(session.user.id)),
             eq(sql`DATE(${routineTaskDailyStatuses.date})`, date || new Date().toISOString().split("T")[0])
           )
-        )
-        .then((res) => res[0]);
+        );
       if (!taskStatus) {
         return NextResponse.json({ error: "Task status not found" }, { status: 404 });
       }
@@ -254,19 +236,18 @@ export async function PATCH(req) {
 
       await db
         .update(routineTaskDailyStatuses)
-        .set({ status, updatedAt: new Date() })
+        .set({ status, updatedAt: new Date(), comment })
         .where(
           and(
             eq(routineTaskDailyStatuses.routineTaskId, taskId),
-            eq(routineTaskDailyStatuses.memberId, parseInt(session.user.id)),
             eq(sql`DATE(${routineTaskDailyStatuses.date})`, date || new Date().toISOString().split("T")[0])
           )
         );
 
       return NextResponse.json({ message: "Task status updated" }, { status: 200 });
     } catch (error) {
-      console.error("Error updating routine task status:", error);
-      return NextResponse.json({ error: "Failed to update task status" }, { status: 500 });
+      console.error("PATCH /api/member/routine-tasks error:", error);
+      return NextResponse.json({ error: `Failed to update task status: ${error.message}` }, { status: 500 });
     }
   }
 

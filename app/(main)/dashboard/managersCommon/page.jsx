@@ -1,11 +1,11 @@
 "use client";
-
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import useSWR from "swr";
 import SharedDashboard from "@/components/SharedDashboard";
+import Link from "next/link";
 
 const fetcher = (url) => fetch(url).then((res) => res.json());
 
@@ -46,47 +46,35 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
   const [newTaskStatuses, setNewTaskStatuses] = useState({});
   const [newSprintStatuses, setNewSprintStatuses] = useState({});
   const [isUpdating, setIsUpdating] = useState(false);
-
-
-
   const { data: usersData } = useSWR("/api/member/users", fetcher);
   const { data: dashboardData } = useSWR(`/api/managersCommon/dashboard?user=${userFilter}&status=${statusFilter}${selectedDate ? `&date=${selectedDate}` : ''}`, fetcher);
-
   const searchParams = useSearchParams();
-
   useEffect(() => {
     if (status === "authenticated" && !["admin", "team_manager"].includes(session?.user?.role)) {
       router.push("/dashboard/member");
     }
   }, [status, session, router]);
-
   useEffect(() => {
     if (disableUserSelect) {
       setSelectedUserId(null);
     }
   }, [disableUserSelect]);
-
   useEffect(() => {
     if (usersData?.users) {
       setUsers(usersData.users);
     }
   }, [usersData]);
-
   useEffect(() => {
     if (dashboardData) {
       const filteredTasks = dedupeById(dashboardData.assignedTasks || []);
       setTasks(filteredTasks);
-
-
       setTotalTasks(dashboardData.summaries?.totalTasks || 0);
       setCompletedTasks(dashboardData.summaries?.completedTasks || 0);
       setInProgressTasks(dashboardData.summaries?.inProgressTasks || 0);
       setNotStartedTasks(dashboardData.summaries?.notStartedTasks || 0);
       setPendingVerificationTasks(dashboardData.summaries?.pendingVerificationTasks || 0);
-
       setLatestUpdated(dashboardData.latestUpdated || []);
       setRecentLogs(dashboardData.recentLogs || []);
-
       const unread = new Set();
       (dashboardData.recentLogs || []).forEach(log => {
         if (!localStorage.getItem(`viewed_${log.id}`)) {
@@ -96,7 +84,6 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
       setUnreadLogs(unread);
     }
   }, [dashboardData]);
-
   useEffect(() => {
     const handleOpenTask = async (e) => {
       const { taskId, sprintId } = e.detail;
@@ -108,15 +95,12 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
         setError("Task not found");
       }
     };
-
     window.addEventListener("member-open-task", handleOpenTask);
     return () => window.removeEventListener("member-open-task", handleOpenTask);
   }, []);
-
   useEffect(() => {
     const focusTask = searchParams.get("focusTask");
     const focusSprint = searchParams.get("focusSprint");
-
     if (focusTask) {
       const openFocusedTask = async () => {
         const task = await fetchTask(Number(focusTask));
@@ -130,7 +114,6 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
       openFocusedTask();
     }
   }, [searchParams]);
-
   useEffect(() => {
     if (selectedTask) {
       const taskStatuses = {};
@@ -147,9 +130,8 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
       setNewSprintStatuses(sprintStatuses);
     }
   }, [selectedTask]);
-
   /* ------------------------------------------------------------------ */
-  /*  🆕  De-duplicate helpers                                           */
+  /* 🆕 De-duplicate helpers */
   /* ------------------------------------------------------------------ */
   const dedupeById = (arr) => {
     const map = new Map();
@@ -157,7 +139,6 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
       // if the key already exists we merge the objects
       if (map.has(item.id)) {
         const existing = map.get(item.id);
-
         // merge assignees without repeats
         if (item.assignees?.length) {
           const seen = new Set(existing.assignees.map((a) => a.id));
@@ -183,7 +164,6 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
     });
     return [...map.values()];
   };
-
   const getStatusColor = (status) => {
     switch (status) {
       case "not_started": return "bg-red-100 text-red-800";
@@ -193,7 +173,6 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
       default: return "bg-gray-100 text-gray-800";
     }
   };
-
   const getUserName = (userId) => {
     const user = users.find(u => u.id === userId);
     if (user) {
@@ -204,7 +183,6 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
       return "Unknown";
     }
   };
-
   const groupedTasks = () => {
     if (!groupByUser) return null;
     const groups = {};
@@ -219,7 +197,6 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
     });
     return groups;
   };
-
   const groupedLatestUpdated = () => {
     if (!groupByUpdated) return null;
     const groups = {};
@@ -234,7 +211,6 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
     });
     return groups;
   };
-
   const groupedDeadlineApproaching = () => {
     if (!groupByDeadline) return null;
     const groups = {};
@@ -249,7 +225,6 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
     });
     return groups;
   };
-
   const handleRemindUser = async (taskId, userIds, taskTitle) => {
     setIsReminding(prev => ({ ...prev, [taskId]: true }));
     try {
@@ -285,7 +260,6 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
       setIsReminding(prev => ({ ...prev, [taskId]: false }));
     }
   };
-
   const handleAddLog = async (taskId, notifyAssignees = false) => {
     if (!newLogComment) {
       setError("Log comment cannot be empty");
@@ -319,7 +293,6 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
         setNewLogComment("");
         setShowAddLogModal(false);
         setSelectedLogSprint("");
-
         if (notifyAssignees) {
           const task = tasks.find(t => t.id === taskId);
           if (task) {
@@ -352,7 +325,6 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
       setIsAddingLog(false);
     }
   };
-
   const handleUpdateTaskStatus = async (memberId, status) => {
     if (!newLogComment) {
       setError("Comment required");
@@ -395,7 +367,6 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
       setIsUpdating(false);
     }
   };
-
   const handleUpdateSprintStatus = async (memberId, sprintId, status) => {
     if (!newLogComment) {
       setError("Comment required");
@@ -444,7 +415,6 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
       setIsUpdating(false);
     }
   };
-
   const fetchTask = async (taskId) => {
     try {
       const res = await fetch(`/api/member/assignedTasks?taskId=${taskId}&action=task`);
@@ -459,7 +429,6 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
       return null;
     }
   };
-
   const fetchSprints = async (taskId, assigneeId) => {
     try {
       const res = await fetch(`/api/member/assignedTasks?taskId=${taskId}&memberId=${assigneeId}&action=sprints`);
@@ -473,7 +442,6 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
       return [];
     }
   };
-
   const handleViewTaskDetails = async (task) => {
     const updatedAssignees = await Promise.all(task.assignees.map(async (assignee) => ({
       ...assignee,
@@ -502,7 +470,6 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
     }
     setShowDetailsModal(true);
   };
-
   const handleViewLog = async (log) => {
     let task = tasks.find(t => t.id === log.taskId);
     if (!task) {
@@ -514,7 +481,6 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
       setError("Task not found");
     }
   };
-
   const handleSummaryClick = (category) => {
     let filtered = [];
     switch (category) {
@@ -538,7 +504,6 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
     setSelectedSummaryCategory(category);
     setShowSummaryModal(true);
   };
-
   const handleBack = () => {
     if (session?.user?.role === "admin") {
       router.push("/dashboard/admin");
@@ -546,7 +511,6 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
       router.push("/dashboard/team_manager");
     }
   };
-
   if (status === "loading") {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-gray-50">
@@ -560,14 +524,11 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
       </div>
     );
   }
-
   const approachingDeadlines = tasks
     .filter(t => t.deadline && new Date(t.deadline) > new Date() && new Date(t.deadline) < new Date(new Date().getTime() + 3 * 24 * 60 * 60 * 1000) && t.status !== "done" && t.status !== "verified")
     .sort((a, b) => new Date(a.deadline) - new Date(b.deadline))
     .slice(0, 10);
-
   const viewedUser = users.find(u => u.id === selectedUserId);
-
   if (selectedUserId) {
     return (
       <motion.div
@@ -590,7 +551,6 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
               </motion.p>
             )}
           </AnimatePresence>
-
           {/* Dashboard Header for User View */}
           <div className="flex justify-between items-center">
             <div className="flex items-center">
@@ -707,7 +667,6 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
               </motion.p>
             )}
           </AnimatePresence>
-
           {/* Dashboard Header */}
           <div className="flex justify-between items-center">
             <div className="flex items-center">
@@ -800,9 +759,17 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
                   )}
                 </AnimatePresence>
               </div>
+              <Link href="/dashboard/managersCommon/approveCloseDay">
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm shadow-md transition-all duration-200"
+                >
+                  Approve Day Close
+                </motion.button>
+              </Link>
             </div>
           </div>
-
           {/* Task Overview - Clickable Summary Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-5 gap-6">
             <motion.div whileHover={{ scale: 1.05 }} onClick={() => handleSummaryClick("total")} className="cursor-pointer text-center p-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg shadow-md border border-indigo-200 transition-all duration-200">
@@ -826,7 +793,6 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
               <p className="text-3xl font-bold text-red-800">{notStartedTasks}</p>
             </motion.div>
           </div>
-
           {/* Recent Activity Logs Carousel */}
           <div>
             <h2 className="text-xl font-bold text-indigo-800 mb-4">Latest Activity Logs</h2>
@@ -862,7 +828,6 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
               ))}
             </div>
           </div>
-
           {/* Two Columns: Latest Updated and Deadline Approaching */}
           <div className="grid grid-cols-2 gap-10">
             <div className="border border-indigo-200 rounded-lg p-6 shadow-md bg-white">
@@ -1064,7 +1029,6 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
               )}
             </div>
           </div>
-
           {/* Grouped by User */}
           {groupByUser && (
             <div>
@@ -1090,7 +1054,6 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
               ))}
             </div>
           )}
-
           {/* Task Details Modal */}
           <AnimatePresence>
             {showDetailsModal && selectedTask && (
@@ -1190,9 +1153,7 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
                                 .flatMap((a) => a.sprints || [])
                                 .find((s) => s.id === log.sprintId)
                               : null;
-
                             const prefix = sprint ? `[${sprint.title || "Untitled Sprint"}] ` : "[Main] ";
-
                             return (
                               <div
                                 key={log.id}
@@ -1212,7 +1173,6 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
                           <p className="text-base text-gray-500">No logs available.</p>
                         )}
                       </div>
-
                       <div className="mt-6">
                         <h4 className="text-base font-semibold text-indigo-700 mb-3">Add New Log</h4>
                         {selectedTask.assignees.some(a => a.sprints && a.sprints.length > 0) && (
@@ -1225,14 +1185,13 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
                             {selectedTask.assignees.flatMap(a =>
                               a.sprints.map((s, idx) => (
                                 <option
-                                  key={`${a.id}-${s.id}-${idx}`}   // ← now guaranteed unique
+                                  key={`${a.id}-${s.id}-${idx}`} // ← now guaranteed unique
                                   value={s.id}
                                 >
                                   {a.name} - {s.title || "Untitled Sprint"}
                                 </option>
                               ))
                             )}
-
                           </select>
                         )}
                         <textarea
@@ -1271,7 +1230,6 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
               </motion.div>
             )}
           </AnimatePresence>
-
           {/* Add Log Modal (for Latest Activity Logs) */}
           <AnimatePresence>
             {showAddLogModal && selectedTask && (
@@ -1323,7 +1281,6 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
               </motion.div>
             )}
           </AnimatePresence>
-
           {/* Summary Modal */}
           <AnimatePresence>
             {showSummaryModal && (

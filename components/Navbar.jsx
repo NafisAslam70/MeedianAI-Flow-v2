@@ -15,6 +15,9 @@ export default function Navbar() {
   useEffect(() => {
     setMounted(true);
   }, []);
+  if (pathname.includes('/workTogether')) {
+    return null;
+  }
   const role = session?.user?.role;
   const userName = session?.user?.name || "User";
   const userImage = session?.user?.image || "/default-avatar.png";

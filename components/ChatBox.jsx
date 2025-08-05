@@ -40,6 +40,8 @@ const linkify = (raw = "") => {
 
 /* ───────── component ───────── */
 export default function ChatBox({ userDetails }) {
+  const pathname = usePathname();
+  if (pathname.includes('/workTogether')) return null;
   /* ------------ state ------------- */
   const [messages, setMessages]       = useState([]);
   const [users, setUsers]             = useState([]);
@@ -80,7 +82,7 @@ export default function ChatBox({ userDetails }) {
 
   const prevMessageCount = useRef(0);
 
-  const pathname = usePathname();
+  const pathname_ = usePathname();
   const router = useRouter();
 
   /* ------------ utils ------------- */
@@ -264,7 +266,7 @@ export default function ChatBox({ userDetails }) {
       console.log("Task link clicked:", { taskId, sprintId });
 
       const isManagerRole = ["admin", "team_manager"].includes(userDetails?.role);
-      const isManagerPage = pathname === "/dashboard/managersCommon";
+      const isManagerPage = pathname_ === "/dashboard/managersCommon";
 
       if (isManagerRole) {
         if (isManagerPage) {
@@ -289,7 +291,7 @@ export default function ChatBox({ userDetails }) {
       chatEl?.removeEventListener("click", handleTaskClick);
       historyEl?.removeEventListener("click", handleTaskClick);
     };
-  }, [showHistory, userDetails?.role, pathname, router]);
+  }, [showHistory, userDetails?.role, pathname_, router]);
 
   /* ------------ life-cycle ------------ */
   useEffect(() => {
