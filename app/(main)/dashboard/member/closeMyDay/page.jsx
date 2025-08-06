@@ -76,34 +76,48 @@ export default function CloseMyDay() {
     ? historyData?.requests?.filter(req => format(new Date(req.date), "yyyy-MM-dd") === selectedHistoryDate)
     : historyData?.requests;
 
-  useEffect(() => {
-    if (timesData?.times) {
-      const now = new Date();
-      const closeTime = new Date();
-      const [closeH, closeM] = timesData.times.dayCloseTime.split(":").map(Number);
-      closeTime.setHours(closeH, closeM, 0, 0);
+useEffect(() => {
+  if (!timesData?.times) return;
 
-      const closingStart = new Date();
-      const [startH, startM] = timesData.times.closingWindowStart.split(":").map(Number);
-      closingStart.setHours(startH, startM, 0, 0);
+  // IST offset in milliseconds
+  const IST_OFFSET = 5.5 * 60 * 60 * 1000;
 
-      const closingEnd = new Date();
-      const [endH, endM] = timesData.times.closingWindowEnd.split(":").map(Number);
-      closingEnd.setHours(endH, endM, 0, 0);
+  // Build “close time” and window boundaries in IST, then convert back to UTC epoch
+  const buildEpoch = (hh, mm) => {
+    // Get current date in IST
+    const nowUtcMs = Date.now();
+    const istNow = new Date(nowUtcMs + IST_OFFSET);
+    const year = istNow.getUTCFullYear();
+    const month = istNow.getUTCMonth();
+    const day = istNow.getUTCDate();
 
-      setIsClosingWindow(now >= closingStart && now <= closingEnd);
+    // UTC timestamp for that IST date/time
+    const utcTs = Date.UTC(year, month, day, hh, mm);
+    // Convert back to local epoch by subtracting the IST offset
+    return utcTs - IST_OFFSET;
+  };
 
-      const updateTimeLeft = () => {
-        const secondsLeft = Math.max(0, Math.floor((closeTime.getTime() - Date.now()) * 0.001));
-        setTimeLeft(secondsLeft);
-      };
+  const closeEpoch    = buildEpoch(...timesData.times.dayCloseTime.split(":").map(Number));
+  const startEpoch    = buildEpoch(...timesData.times.closingWindowStart.split(":").map(Number));
+  const endEpoch      = buildEpoch(...timesData.times.closingWindowEnd.split(":").map(Number));
+  const nowEpoch      = Date.now();
 
-      updateTimeLeft();
-      const interval = setInterval(updateTimeLeft, 1000);
-      setIsLoading(false);
-      return () => clearInterval(interval);
-    }
-  }, [timesData]);
+  setIsClosingWindow(nowEpoch >= startEpoch && nowEpoch <= endEpoch);
+
+  const updateTimeLeft = () => {
+    let diff = closeEpoch - Date.now();
+    // if we've already passed today’s IST close, roll forward 24h
+    if (diff < 0) diff += 24 * 3600 * 1000;
+    setTimeLeft(Math.floor(diff / 1000));
+  };
+
+  updateTimeLeft();
+  const interval = setInterval(updateTimeLeft, 1000);
+  setIsLoading(false);
+  return () => clearInterval(interval);
+}, [timesData]);
+
+
 
   useEffect(() => {
     const checkOrientation = () => {
