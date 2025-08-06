@@ -1,7 +1,7 @@
 // app/(main)/dashboard/managersCommon/approveCloseDay/AssignedTasksStepView.jsx
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect } from "react";
-import { CheckCircle, Calendar, X } from "lucide-react";
+import { CheckCircle, Calendar, X, Info } from "lucide-react";
 import { useSession } from "next-auth/react";
 import useSWR from "swr";
 
@@ -29,6 +29,19 @@ export default function AssignedTasksStepView({
   const [acceptedExtensions, setAcceptedExtensions] = useState({});
   const [undoneTasks, setUndoneTasks] = useState({});
   const [isPushingLog, setIsPushingLog] = useState({});
+  const [selectedTaskDetailsId, setSelectedTaskDetailsId] = useState(null);
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
+
+  const { data: detailedTask } = useSWR(
+    selectedTaskDetailsId ? `/api/managersCommon/assignedTasks?taskId=${selectedTaskDetailsId}&action=details` : null,
+    fetcher
+  );
+
+  useEffect(() => {
+    if (detailedTask) {
+      setShowDetailsModal(true);
+    }
+  }, [detailedTask]);
 
   useEffect(() => {
     if (taskDetails) {
@@ -92,6 +105,10 @@ export default function AssignedTasksStepView({
     }
   };
 
+  const handleViewTaskDetails = (taskId) => {
+    setSelectedTaskDetailsId(taskId);
+  };
+
   const handlePushLog = async (task) => {
     setIsPushingLog(prev => ({ ...prev, [task.id]: true }));
     try {
@@ -101,7 +118,7 @@ export default function AssignedTasksStepView({
         body: JSON.stringify({
           action: "pushLog",
           taskId: task.id,
-          details: "[Main] " + (task.comment || "Day shutdown log pushed"),
+          details: "[DayClose] " + (task.comment || "Day shutdown log pushed"),
         }),
       });
       if (response.ok) {
@@ -364,7 +381,7 @@ export default function AssignedTasksStepView({
                       {pushedLogs[task.id] ? "Pushed" : "Push Log"}
                     </motion.button>
                     <motion.button
-                      onClick={() => handleViewDetails(task.id)}
+                      onClick={() => handleViewTaskDetails(task.id)}
                       className="text-blue-600 text-xs font-medium hover:underline"
                     >
                       View Details
@@ -393,7 +410,7 @@ export default function AssignedTasksStepView({
                       className="aspect-square bg-emerald-50 rounded-2xl p-2 cursor-pointer hover:bg-emerald-100 transition-all duration-200 flex flex-col justify-between shadow-sm"
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
-                      onClick={() => handleViewDetails(task.id)}
+                      onClick={() => handleViewTaskDetails(task.id)}
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1, transition: { delay: idx * 0.02 } }}
                     >
@@ -483,6 +500,12 @@ export default function AssignedTasksStepView({
                         className="px-2 py-1 bg-blue-600 text-white rounded text-xs disabled:opacity-50"
                       >
                         Set Custom
+                      </motion.button>
+                      <motion.button
+                        onClick={() => handleViewTaskDetails(task.id)}
+                        className="text-blue-600 text-xs font-medium hover:underline"
+                      >
+                        View Details
                       </motion.button>
                     </div>
                   </motion.div>
@@ -665,6 +688,40 @@ export default function AssignedTasksStepView({
                   </div>
                 </div>
               </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Simple Details Modal */}
+      <AnimatePresence>
+        {showDetailsModal && detailedTask && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
+          >
+            <motion.div
+              initial={{ scale: 0.95 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.95 }}
+              className="bg-white p-6 rounded-xl max-w-lg w-full"
+            >
+              <h3 className="text-lg font-bold mb-4">Task Details</h3>
+              <p><strong>Title:</strong> {detailedTask.title}</p>
+              <p><strong>Description:</strong> {detailedTask.description}</p>
+              <p><strong>Status:</strong> {detailedTask.status}</p>
+              <p><strong>Deadline:</strong> {detailedTask.deadline ? format(new Date(detailedTask.deadline), "yyyy-MM-dd") : "None"}</p>
+              {detailedTask.sprints && <div><h4>Sprints:</h4><ul>{detailedTask.sprints.map(s => <li key={s.id}>{s.title} - {s.status}</li>)}</ul></div>}
+              {detailedTask.logs && <div><h4>Logs:</h4><ul>{detailedTask.logs.map(l => <li key={l.id}>{l.details} ({l.createdAt})</li>)}</ul></div>}
+              <motion.button
+                onClick={() => setShowDetailsModal(false)}
+                className="mt-4 bg-gray-600 text-white py-2 px-4 rounded"
+                whileHover={{ scale: 1.05 }}
+              >
+                Close
+              </motion.button>
             </motion.div>
           </motion.div>
         )}

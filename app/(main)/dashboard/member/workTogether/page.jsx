@@ -61,6 +61,7 @@ export default function WorkTogether() {
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const [justLeft, setJustLeft] = useState(false);
   const [isModerator, setIsModerator] = useState(false);
+  const [myId, setMyId] = useState(null);
   /* default share-my-screen = ON for non-admins */
   useEffect(() => {
     if (role && !isAdmin) setScr(true);
@@ -120,17 +121,19 @@ export default function WorkTogether() {
     j.addEventListener("participantLeft", e => {
       const leaveTime = new Date();
       const joinTime = joinTimes[e.id];
-      let duration = '';
-      if (joinTime) {
+      let duration = 'Unknown';
+      let joinTimeStr = 'Unknown';
+      if (joinTime instanceof Date) {
         const diff = leaveTime - joinTime;
         const seconds = Math.floor(diff / 1000);
         const minutes = Math.floor(seconds / 60);
         const hours = Math.floor(minutes / 60);
         duration = `${hours}h ${minutes % 60}m ${seconds % 60}s`;
+        joinTimeStr = joinTime.toLocaleString();
       }
       const dn = ppl.find(p => p.id === e.id)?.displayName.split("|")[0]?.trim() || "Unknown";
       setLogs(p => [...p, { time: leaveTime.toLocaleString(), user: dn, action: "left", duration }]);
-      setHistoricalLogs(p => [...p, { user: dn, joinTime: joinTime.toLocaleString(), leaveTime: leaveTime.toLocaleString(), duration }]);
+      setHistoricalLogs(p => [...p, { user: dn, joinTime: joinTimeStr, leaveTime: leaveTime.toLocaleString(), duration }]);
       setPpl(p => p.filter(x => x.id !== e.id));
       setScreens(s => s.filter(x => x.id !== e.id));
       setJoinTimes(p => { const newP = { ...p }; delete newP[e.id]; return newP; });
@@ -138,6 +141,7 @@ export default function WorkTogether() {
     j.addEventListener("videoConferenceJoined", e => {
       const joinTime = new Date();
       setLocalJoinTime(joinTime);
+      setMyId(e.id);
       setLogs(p => [...p, { time: joinTime.toLocaleString(), user: "You", action: "joined" }]);
       setPpl(j.getParticipantsInfo()
         .map(p => ({ id: p.participantId, displayName: p.displayName })));
@@ -147,11 +151,14 @@ export default function WorkTogether() {
         setLogs(prev => [...prev, { time: joinTime.toLocaleString(), user: dn, action: "present" }]);
         setJoinTimes(prev => ({ ...prev, [p.participantId]: joinTime }));
       });
+      /* auto-start share if toggled */
+      if (scr) j.executeCommand("toggleShareScreen");
     });
     /* screen-sharing feed */
     const updateScreen = (track, add) => {
       if (track.getType() !== "video" || track.videoType !== "desktop") return;
-      const id = track.getParticipantId?.() ?? track.getParticipantId();
+      const id = track.getParticipantId();
+      if (!id) return; // skip local
       setScreens(s =>
         add
           ? s.some(x => x.id === id) ? s : [...s, { id }]
@@ -161,11 +168,9 @@ export default function WorkTogether() {
     j.addEventListener("trackAdded", e => updateScreen(e.track, true));
     j.addEventListener("trackRemoved", e => updateScreen(e.track, false));
     j.addEventListener("readyToClose", () => leave());
-    /* auto-start share for non-admins */
-    if (scr && !isAdmin) j.executeCommand("toggleShareScreen");
     /* check moderator */
     j.addEventListener('participantRoleChanged', (event) => {
-      if (event.role === 'moderator') {
+      if (event.id === myId && event.role === 'moderator') {
         setIsModerator(true);
       }
     });
@@ -182,7 +187,7 @@ export default function WorkTogether() {
       duration = `${hours}h ${minutes % 60}m ${seconds % 60}s`;
     }
     setLogs(p => [...p, { time: leaveTime.toLocaleString(), user: "You", action: "left", duration }]);
-    setHistoricalLogs(p => [...p, { user: name, joinTime: localJoinTime.toLocaleString(), leaveTime: leaveTime.toLocaleString(), duration }]);
+    setHistoricalLogs(p => [...p, { user: name, joinTime: localJoinTime?.toLocaleString() ?? 'Unknown', leaveTime: leaveTime.toLocaleString(), duration }]);
     api?.removeAllListeners(); api?.dispose();
     setApi(null); setPpl([]); setScreens([]); setModal(true); setJustLeft(true); setShowLeaveConfirm(false);
   };
@@ -311,6 +316,11 @@ export default function WorkTogether() {
                   title="Toggle Whiteboard">
                   <Clipboard size={20} />
                 </button>
+                <button onClick={() => api.executeCommand('toggleShareScreen')}
+                  className="p-2 bg-purple-600/80 text-white rounded-md hover:bg-purple-700/80 backdrop-blur-sm"
+                  title="Toggle Screen Share">
+                  <ScreenShare size={20} />
+                </button>
               </>
             )}
             {api ? (
@@ -347,7 +357,7 @@ export default function WorkTogether() {
             </ul>
           </div>
           {/* Jitsi stage */}
-          <div id="jitsi" className="flex-1 bg-black/50 rounded-lg shadow-lg border border-cyan-500/20" style={{ minHeight: 400 }} />
+          <div id="jitsi" className="flex-1 bg-black/50 rounded-lg shadow-lg border border-cyan-500/20 relative overflow-hidden" style={{ minHeight: '400px' }} />
           {/* right panel */}
           <div className="w-64 bg-cyan-900/20 backdrop-blur-md rounded-3xl shadow-md p-6
                           border border-purple-300/20 overflow-y-auto text-cyan-100">
@@ -431,16 +441,14 @@ export default function WorkTogether() {
                   <input type="checkbox" checked={mic} onChange={e => setMic(e.target.checked)} />
                   Enable audio
                 </label>
-                {!isAdmin && (
-                  <label className="flex items-center gap-2">
-                    <ScreenShare
-                      size={20}
-                      className={scr ? "text-purple-400" : "text-cyan-400"}
-                    />
-                    <input type="checkbox" checked={scr} onChange={e => setScr(e.target.checked)} />
-                    Share my screen
-                  </label>
-                )}
+                <label className="flex items-center gap-2">
+                  <ScreenShare
+                    size={20}
+                    className={scr ? "text-purple-400" : "text-cyan-400"}
+                  />
+                  <input type="checkbox" checked={scr} onChange={e => setScr(e.target.checked)} />
+                  Share my screen
+                </label>
               </div>
               {/* status probe */}
               <p className="mt-2 text-xs text-cyan-300">

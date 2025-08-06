@@ -1,3 +1,4 @@
+// app/(main)/api/managersCommon/dayCloseRequests/[id]/route.js
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
@@ -13,7 +14,7 @@ export async function PATCH(req, { params }) {
 
   const awaitedParams = await params;
   const id = awaitedParams.id;
-  const { status } = await req.json();
+  const { status, adminRoutineLog } = await req.json();
   const userId = Number(session.user.id);
 
   try {
@@ -97,7 +98,6 @@ export async function PATCH(req, { params }) {
             .set({
               status: task.done ? "done" : "not_started",
               updatedAt: new Date(),
-              comment: task.comment,
               isLocked: true,
             })
             .where(eq(routineTaskDailyStatuses.id, statusRow.id));
@@ -107,7 +107,6 @@ export async function PATCH(req, { params }) {
             date: request.date,
             status: task.done ? "done" : "not_started",
             updatedAt: new Date(),
-            comment: task.comment,
             isLocked: true,
           });
         }
@@ -120,6 +119,17 @@ export async function PATCH(req, { params }) {
           userId: request.userId,
           action: "close_day_comment",
           details: request.routineLog,
+          createdAt: new Date(),
+        });
+      }
+
+      // Insert admin routine comment if provided
+      if (adminRoutineLog) {
+        await db.insert(routineTaskLogs).values({
+          routineTaskId: null,
+          userId,
+          action: "admin_routine_comment",
+          details: adminRoutineLog,
           createdAt: new Date(),
         });
       }

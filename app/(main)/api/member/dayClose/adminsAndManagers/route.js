@@ -1,4 +1,4 @@
-// app/(main)/api/member/adminsAndManagers/route.js
+// app/(main)/api/member/dayClose/adminsAndManagers/route.js
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
@@ -26,7 +26,7 @@ export async function GET() {
 
     return NextResponse.json({ users: adminsAndManagers }, { status: 200 });
   } catch (error) {
-    console.error("GET /api/member/adminsAndManagers error:", error);
+    console.error("GET /api/member/dayClose/adminsAndManagers error:", error);
     return NextResponse.json({ error: `Failed to fetch admins and managers: ${error.message}` }, { status: 500 });
   }
 }

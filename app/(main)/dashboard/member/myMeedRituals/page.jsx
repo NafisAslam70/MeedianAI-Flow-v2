@@ -39,12 +39,6 @@ export default function MyMRIs() {
   const [weeklyNMRIs, setWeeklyNMRIs] = useState([]);
   const [routineTasks, setRoutineTasks] = useState([]);
   const [isLoadingNMRIs, setIsLoadingNMRIs] = useState(true);
-  const [openCloseTimes, setOpenCloseTimes] = useState({
-    dayOpenTime: null,
-    dayCloseTime: null,
-    closingWindowStart: null,
-    closingWindowEnd: null,
-  });
 
   // Fetch today's A-MRIs and N-MRIs
   const { data: todayMRIsData, error: todayMRIsError } = useSWR(
@@ -55,12 +49,6 @@ export default function MyMRIs() {
   // Fetch weekly A-MRIs and N-MRIs
   const { data: weeklyMRIsData, error: weeklyMRIsError } = useSWR(
     session?.user?.id ? "/api/member/myMRIs?section=weekly" : null,
-    fetcher
-  );
-
-  // Fetch open/close times
-  const { data: openCloseTimesData, error: openCloseTimesError } = useSWR(
-    session?.user?.id ? "/api/member/dayCloseTimes" : null,
     fetcher
   );
 
@@ -115,21 +103,6 @@ export default function MyMRIs() {
       setTimeout(() => setError(null), 3000);
     }
 
-    // Handle open/close times
-    if (openCloseTimesData) {
-      const times = openCloseTimesData.times || {};
-      setOpenCloseTimes({
-        dayOpenTime: times.dayOpenTime || null,
-        dayCloseTime: times.dayCloseTime || null,
-        closingWindowStart: times.closingWindowStart || null,
-        closingWindowEnd: times.closingWindowEnd || null,
-      });
-    }
-    if (openCloseTimesError) {
-      setError("Failed to load open/close times.");
-      setTimeout(() => setError(null), 3000);
-    }
-
     // Handle assigned tasks
     if (assignedTasksData) {
       setTodayAMRIs(assignedTasksData.tasks || []);
@@ -149,7 +122,7 @@ export default function MyMRIs() {
       setRoutineTasks([{ id: 1, description: "Daily check-in", status: "not_started" }, { id: 2, description: "Team report", status: "not_started" }]);
       setTimeout(() => setError(null), 3000);
     }
-  }, [session, todayMRIsData, todayMRIsError, weeklyMRIsData, weeklyMRIsError, openCloseTimesData, openCloseTimesError, assignedTasksData, assignedTasksError, routineTasksData, routineTasksError]);
+  }, [session, todayMRIsData, todayMRIsError, weeklyMRIsData, weeklyMRIsError, assignedTasksData, assignedTasksError, routineTasksData, routineTasksError]);
 
   const today = format(new Date("2025-07-28T21:45:00+08:00"), "EEEE, MMMM d, yyyy");
 
@@ -245,7 +218,7 @@ export default function MyMRIs() {
   );
 
   return (
-        <motion.div
+    <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.5 }}
@@ -267,28 +240,6 @@ export default function MyMRIs() {
             </motion.div>
           )}
         </AnimatePresence>
-
-        {/* Open/Close and Closing Window Times Row */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[
-            { label: "Day Open Time", value: openCloseTimes.dayOpenTime || "Not set" },
-            { label: "Day Close Time", value: openCloseTimes.dayCloseTime || "Not set" },
-            { label: "Closing Window Start", value: openCloseTimes.closingWindowStart || "Not set" },
-            { label: "Closing Window End", value: openCloseTimes.closingWindowEnd || "Not set" },
-          ].map((item, index) => (
-            <motion.div
-              key={item.label}
-              className="bg-white/50 backdrop-blur-sm rounded-2xl shadow-md p-4 border border-teal-100/50 flex flex-col justify-between min-h-[80px]"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: index * 0.1 }}
-              whileHover={{ scale: 1.03, boxShadow: "0 8px 16px rgba(0, 128, 128, 0.1)" }}
-            >
-              <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wide">{item.label}</h3>
-              <p className="text-lg font-bold text-teal-700">{item.value}</p>
-            </motion.div>
-          ))}
-        </div>
 
         {/* Content */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">

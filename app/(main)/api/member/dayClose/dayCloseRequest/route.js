@@ -1,4 +1,4 @@
-// app/(main)/api/member/dayCloseRequest/route.js
+// app/(main)/api/member/dayClose/dayCloseRequest/route.js
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
@@ -11,7 +11,7 @@ export async function POST(req) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const userId = Number(session.user.id);
-  const { date, assignedTasksUpdates, routineTasksUpdates, routineLog, mriCleared, bypass = false } = await req.json(); // TO BE REMOVED FOR PRODUCTION: Remove bypass parameter
+  const { date, assignedTasksUpdates, routineTasksUpdates, routineLog, generalLog, mriCleared, bypass = false } = await req.json(); // TO BE REMOVED FOR PRODUCTION: Remove bypass parameter
 
   try {
     // Validate inputs
@@ -104,6 +104,7 @@ export async function POST(req) {
         assignedTasksUpdates: assignedTasksUpdates.length > 0 ? assignedTasksUpdates : null,
         routineTasksUpdates: routineTasksUpdates.length > 0 ? routineTasksUpdates : null,
         routineLog: routineLog || null,
+        generalLog: generalLog || null,
         mriCleared: mriCleared ?? true,
         createdAt: new Date(),
       })
@@ -111,7 +112,7 @@ export async function POST(req) {
 
     return NextResponse.json({ request }, { status: 200 });
   } catch (error) {
-    console.error("POST /api/member/dayCloseRequest error:", error);
+    console.error("POST /api/member/dayClose/dayCloseRequest error:", error);
     return NextResponse.json({ error: `Failed to submit day close request: ${error.message}` }, { status: 500 });
   }
 }
