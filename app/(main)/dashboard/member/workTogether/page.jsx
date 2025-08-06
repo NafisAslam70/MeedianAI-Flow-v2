@@ -336,10 +336,10 @@ export default function WorkTogether() {
             )}
           </div>
         </header>
-        <div className="flex flex-1 gap-4">
+        <div className="flex flex-1 gap-4 min-h-0">   {/* allow children to scroll instead of pushing */}
           {/* left panel - activity log by names */}
-          <div className="w-64 bg-cyan-900/20 backdrop-blur-md rounded-3xl shadow-md p-6
-                          border border-purple-300/20 overflow-y-auto text-cyan-100">
+<div className="w-64 h-full bg-cyan-900/20 backdrop-blur-md rounded-3xl shadow-md p-6
+   border border-purple-300/20 min-h-0 overflow-y-auto text-cyan-100">
             <h2 className="font-semibold mb-2">Meedian History</h2>
             <ul className="space-y-4 text-sm">
               {Object.entries(groupedHistory).map(([user, userLogs]) => (
@@ -359,7 +359,7 @@ export default function WorkTogether() {
           {/* Jitsi stage */}
           <div id="jitsi" className="flex-1 bg-black/50 rounded-lg shadow-lg border border-cyan-500/20 relative overflow-hidden" style={{ minHeight: '400px' }} />
           {/* right panel */}
-          <div className="w-64 bg-cyan-900/20 backdrop-blur-md rounded-3xl shadow-md p-6
+          <div className="w-64 h-full bg-cyan-900/20 backdrop-blur-md rounded-3xl shadow-md p-6
                           border border-purple-300/20 overflow-y-auto text-cyan-100">
             {/* participant list */}
             <h2 className="font-semibold mb-2">Cyber Colleagues ({ppl.length})</h2>
