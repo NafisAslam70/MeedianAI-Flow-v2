@@ -1,4 +1,3 @@
-// app/(main)/dashboard/member/closeMyDay/page.jsx
 "use client";
 import { useSession } from "next-auth/react";
 import { useState, useEffect } from "react";
@@ -28,6 +27,7 @@ export default function CloseMyDay() {
   const [activeView, setActiveView] = useState("main"); // main or process
   const [showWaitingModal, setShowWaitingModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [selectedHistoryDate, setSelectedHistoryDate] = useState(null);
   const [isWaitingForApproval, setIsWaitingForApproval] = useState(false);
   const [requestStatus, setRequestStatus] = useState("none"); // none, pending, approved, rejected
@@ -76,48 +76,34 @@ export default function CloseMyDay() {
     ? historyData?.requests?.filter(req => format(new Date(req.date), "yyyy-MM-dd") === selectedHistoryDate)
     : historyData?.requests;
 
-useEffect(() => {
-  if (!timesData?.times) return;
+  useEffect(() => {
+    if (timesData?.times) {
+      const now = new Date();
+      const closeTime = new Date();
+      const [closeH, closeM] = timesData.times.dayCloseTime.split(":").map(Number);
+      closeTime.setHours(closeH, closeM, 0, 0);
 
-  // IST offset in milliseconds
-  const IST_OFFSET = 5.5 * 60 * 60 * 1000;
+      const closingStart = new Date();
+      const [startH, startM] = timesData.times.closingWindowStart.split(":").map(Number);
+      closingStart.setHours(startH, startM, 0, 0);
 
-  // Build “close time” and window boundaries in IST, then convert back to UTC epoch
-  const buildEpoch = (hh, mm) => {
-    // Get current date in IST
-    const nowUtcMs = Date.now();
-    const istNow = new Date(nowUtcMs + IST_OFFSET);
-    const year = istNow.getUTCFullYear();
-    const month = istNow.getUTCMonth();
-    const day = istNow.getUTCDate();
+      const closingEnd = new Date();
+      const [endH, endM] = timesData.times.closingWindowEnd.split(":").map(Number);
+      closingEnd.setHours(endH, endM, 0, 0);
 
-    // UTC timestamp for that IST date/time
-    const utcTs = Date.UTC(year, month, day, hh, mm);
-    // Convert back to local epoch by subtracting the IST offset
-    return utcTs - IST_OFFSET;
-  };
+      setIsClosingWindow(now >= closingStart && now <= closingEnd);
 
-  const closeEpoch    = buildEpoch(...timesData.times.dayCloseTime.split(":").map(Number));
-  const startEpoch    = buildEpoch(...timesData.times.closingWindowStart.split(":").map(Number));
-  const endEpoch      = buildEpoch(...timesData.times.closingWindowEnd.split(":").map(Number));
-  const nowEpoch      = Date.now();
+      const updateTimeLeft = () => {
+        const secondsLeft = Math.max(0, Math.floor((closeTime.getTime() - Date.now()) * 0.001));
+        setTimeLeft(secondsLeft);
+      };
 
-  setIsClosingWindow(nowEpoch >= startEpoch && nowEpoch <= endEpoch);
-
-  const updateTimeLeft = () => {
-    let diff = closeEpoch - Date.now();
-    // if we've already passed today’s IST close, roll forward 24h
-    if (diff < 0) diff += 24 * 3600 * 1000;
-    setTimeLeft(Math.floor(diff / 1000));
-  };
-
-  updateTimeLeft();
-  const interval = setInterval(updateTimeLeft, 1000);
-  setIsLoading(false);
-  return () => clearInterval(interval);
-}, [timesData]);
-
-
+      updateTimeLeft();
+      const interval = setInterval(updateTimeLeft, 1000);
+      setIsLoading(false);
+      return () => clearInterval(interval);
+    }
+  }, [timesData]);
 
   useEffect(() => {
     const checkOrientation = () => {
@@ -602,7 +588,7 @@ useEffect(() => {
                           Previous
                         </motion.button>
                         <motion.button
-                          onClick={handleSubmitClose}
+                          onClick={() => setShowConfirmModal(true)}
                           disabled={isSubmitting}
                           className={`flex-1 bg-teal-600 text-white py-3 rounded-xl font-semibold transition-all duration-300 shadow-md ${isSubmitting ? "opacity-50 cursor-not-allowed" : "hover:bg-teal-700"}`}
                           whileHover={{ scale: 1.02 }}
@@ -701,6 +687,50 @@ useEffect(() => {
                 >
                   Close
                 </motion.button>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Confirmation Modal */}
+        <AnimatePresence>
+          {showConfirmModal && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50"
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                transition={{ duration: 0.3 }}
+                className="bg-white/90 backdrop-blur-md rounded-3xl shadow-xl p-6 w-full max-w-md border border-teal-100/50 text-center"
+              >
+                <h2 className="text-xl font-bold text-gray-800 mb-2">Confirm Submission</h2>
+                <p className="text-sm text-gray-600 mb-6">Are you sure you want to submit your day close request?</p>
+                <div className="flex gap-4">
+                  <motion.button
+                    onClick={() => setShowConfirmModal(false)}
+                    className="flex-1 bg-gray-600 text-white py-3 rounded-xl font-semibold hover:bg-gray-500 transition-all duration-300 shadow-sm"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    No
+                  </motion.button>
+                  <motion.button
+                    onClick={() => {
+                      setShowConfirmModal(false);
+                      handleSubmitClose();
+                    }}
+                    className="flex-1 bg-teal-600 text-white py-3 rounded-xl font-semibold hover:bg-teal-700 transition-all duration-300 shadow-sm"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    Yes
+                  </motion.button>
+                </div>
               </motion.div>
             </motion.div>
           )}
