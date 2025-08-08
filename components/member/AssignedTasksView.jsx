@@ -383,7 +383,7 @@ export default function AssignedTasksView({
                             return (
                               <motion.div
                                 key={task.id}
-                                className={`flex-shrink-0 w-64 bg-white rounded-3xl shadow-md p-4 border ${colors.border} hover:shadow-xl transition-all duration-300 max-h-75 overflow-y-auto custom-scrollbar`}
+                                className={`flex-shrink-0 w-64 bg-white rounded-3xl shadow-md p-4 border ${colors.border} hover:shadow-xl transition-all duration-300 max-h-80 overflow-y-auto custom-scrollbar`}
                                 whileHover={{ y: -4, scale: 1.01 }}
                                 initial={{ opacity: 0 }}
                                 animate={{ opacity: 1, transition: { delay: idx * 0.02 } }}
@@ -480,7 +480,7 @@ export default function AssignedTasksView({
                           variants={cardVariants}
                           initial="hidden"
                           animate="visible"
-                          className={`flex-shrink-0 w-64 bg-white rounded-3xl shadow-md p-4 border ${colors.border} hover:shadow-xl transition-all duration-300 max-h-75 overflow-y-auto custom-scrollbar`}
+                          className={`flex-shrink-0 w-64 bg-white rounded-3xl shadow-md p-4 border ${colors.border} hover:shadow-xl transition-all duration-300 max-h-80 overflow-y-auto custom-scrollbar`}
                           whileHover={{ y: -4, scale: 1.01 }}
                         >
                           <div className="flex justify-between items-center mb-4">
@@ -586,7 +586,7 @@ export default function AssignedTasksView({
                             return (
                               <motion.div
                                 key={task.id}
-                                className={`flex-shrink-0 w-64 bg-white rounded-3xl shadow-md p-4 border ${colors.border} hover:shadow-xl transition-all duration-300 max-h-75 overflow-y-auto custom-scrollbar`}
+                                className={`flex-shrink-0 w-64 bg-white rounded-3xl shadow-md p-4 border ${colors.border} hover:shadow-xl transition-all duration-300 max-h-80 overflow-y-auto custom-scrollbar`}
                                 whileHover={{ y: -4, scale: 1.01 }}
                                 initial={{ opacity: 0 }}
                                 animate={{ opacity: 1, transition: { delay: idx * 0.02 } }}
