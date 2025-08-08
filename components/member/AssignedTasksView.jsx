@@ -1,7 +1,7 @@
 "use client";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { useRef, useState, useEffect, useMemo } from "react";
-import { ArrowLeft, ArrowRight, RefreshCw } from "lucide-react";
+import { ArrowLeft, ArrowRight, RefreshCw, X } from "lucide-react";
 
 export default function AssignedTasksView({
   handleBack,
@@ -21,6 +21,7 @@ export default function AssignedTasksView({
   const [showLeftArrow, setShowLeftArrow] = useState(false);
   const [showRightArrow, setShowRightArrow] = useState(false);
   const [activeFilter, setActiveFilter] = useState(null);
+  const [showCompletedModal, setShowCompletedModal] = useState(false);
 
   useEffect(() => {
     setAssignedTasks(initialAssignedTasks || []);
@@ -324,8 +325,8 @@ export default function AssignedTasksView({
                             Done
                           </span>
                         </div>
-                        <div className="grid grid-rows-3 grid-flow-col gap-2">
-                          {completedTasks.map((task, idx) => (
+                        <div className="grid grid-cols-2 gap-2">
+                          {completedTasks.slice(0, 5).map((task, idx) => (
                             <motion.div
                               key={task.id}
                               className="w-24 h-24 bg-emerald-50 rounded-2xl p-2 cursor-pointer hover:bg-emerald-100 transition-all duration-200 flex flex-col justify-between shadow-sm"
@@ -343,6 +344,18 @@ export default function AssignedTasksView({
                               </p>
                             </motion.div>
                           ))}
+                          {completedTasks.length > 5 && (
+                            <motion.div
+                              className="w-24 h-24 bg-emerald-50 rounded-2xl p-2 cursor-pointer hover:bg-emerald-100 transition-all duration-200 flex items-center justify-center shadow-sm"
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                              onClick={() => setShowCompletedModal(true)}
+                              initial={{ opacity: 0 }}
+                              animate={{ opacity: 1, transition: { delay: 5 * 0.02 } }}
+                            >
+                              <p className="text-xs font-medium text-emerald-600">Show All</p>
+                            </motion.div>
+                          )}
                         </div>
                       </motion.div>
                     )}
@@ -719,6 +732,55 @@ export default function AssignedTasksView({
           </motion.div>
         ))}
       </motion.div>
+
+      <AnimatePresence>
+        {showCompletedModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
+            onClick={() => setShowCompletedModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.95 }}
+              className="bg-white rounded-3xl p-6 max-w-4xl w-full max-h-[80vh] overflow-y-auto relative"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <motion.button
+                className="absolute top-4 right-4 text-gray-500 hover:text-gray-700"
+                whileHover={{ scale: 1.1 }}
+                onClick={() => setShowCompletedModal(false)}
+              >
+                <X className="w-6 h-6" />
+              </motion.button>
+              <h3 className="text-lg font-bold mb-4">All Completed Tasks</h3>
+              <div className="grid grid-cols-3 gap-4">
+                {completedTasks.map((task, idx) => (
+                  <motion.div
+                    key={task.id}
+                    className="bg-emerald-50 rounded-2xl p-4 cursor-pointer hover:bg-emerald-100 transition-all duration-200 flex flex-col justify-between shadow-sm"
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => handleTaskDetails(task)}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1, transition: { delay: idx * 0.02 } }}
+                  >
+                    <p className="text-sm font-medium text-gray-900 truncate">
+                      {task.title || "Untitled"}
+                    </p>
+                    <p className="text-sm text-gray-600 truncate">
+                      {getAssignedBy(task.createdBy)}
+                    </p>
+                  </motion.div>
+                ))}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
