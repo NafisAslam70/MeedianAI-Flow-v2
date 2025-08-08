@@ -42,13 +42,16 @@ import { ne, eq } from "drizzle-orm";
 export async function GET(req) {
   try {
     const session = await auth();
-    if (!session || !session.user || !["admin", "team_manager", "member"].includes(session.user.role)) {
+    if (
+      !session ||
+      !session.user ||
+      !["admin", "team_manager", "member"].includes(session.user.role)
+    ) {
       console.error("Unauthorized access attempt:", { session });
       return NextResponse.json({ error: "Unauthorized: Admin, Team Manager, or Member access required" }, { status: 401 });
     }
 
-    const userId = parseInt(session.user.id);
-
+    // No exclusion! Return all users:
     const availableUsers = await db
       .select({
         id: users.id,
@@ -57,10 +60,9 @@ export async function GET(req) {
         type: users.type,
         team_manager_type: users.team_manager_type,
       })
-      .from(users)
-      .where(ne(users.id, userId));
+      .from(users);
 
-    console.log("Users fetched for messaging:", availableUsers.length, { userId });
+    console.log("Users fetched for messaging:", availableUsers.length);
 
     return NextResponse.json({ users: availableUsers });
   } catch (error) {

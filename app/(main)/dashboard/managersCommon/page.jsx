@@ -3,9 +3,10 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
-import useSWR from "swr";
+import useSWR, { mutate } from "swr";
 import SharedDashboard from "@/components/SharedDashboard";
 import Link from "next/link";
+import AssignedTaskDetails from "@/components/assignedTaskCardDetailForAll";
 
 const fetcher = (url) => fetch(url).then((res) => res.json());
 
@@ -46,8 +47,10 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
   const [newTaskStatuses, setNewTaskStatuses] = useState({});
   const [newSprintStatuses, setNewSprintStatuses] = useState({});
   const [isUpdating, setIsUpdating] = useState(false);
+  const [expandedLogs, setExpandedLogs] = useState({});
   const { data: usersData } = useSWR("/api/member/users", fetcher);
-  const { data: dashboardData } = useSWR(`/api/managersCommon/dashboard?user=${userFilter}&status=${statusFilter}${selectedDate ? `&date=${selectedDate}` : ''}`, fetcher);
+  const dashboardKey = `/api/managersCommon/dashboard?user=${userFilter}&status=${statusFilter}${selectedDate ? `&date=${selectedDate}` : ''}`;
+  const { data: dashboardData } = useSWR(dashboardKey, fetcher);
   const searchParams = useSearchParams();
   useEffect(() => {
     if (status === "authenticated" && !["admin", "team_manager"].includes(session?.user?.role)) {
@@ -326,10 +329,6 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
     }
   };
   const handleUpdateTaskStatus = async (memberId, status) => {
-    if (!newLogComment) {
-      setError("Comment required");
-      return;
-    }
     setIsUpdating(true);
     try {
       const body = {
@@ -339,7 +338,7 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
         memberId,
         notifyAssignees: true,
         notifyWhatsapp: false,
-        newLogComment,
+        newLogComment: newLogComment,
       };
       const response = await fetch(`/api/member/assignedTasks`, {
         method: "PATCH",
@@ -352,11 +351,12 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
           assignees: prev.assignees.map(a => a.id === memberId ? { ...a, status } : a)
         }));
         setTaskLogs(prev => [
-          { id: Date.now(), userId: session?.user?.id, userName: session?.user?.name, action: "status_update", details: newLogComment, createdAt: new Date() },
+          { id: Date.now(), userId: session?.user?.id, userName: session?.user?.name, action: "status_update", details: body.newLogComment, createdAt: new Date() },
           ...prev
         ]);
         setNewTaskStatuses(prev => ({ ...prev, [memberId]: status }));
         setNewLogComment("");
+        mutate(dashboardKey);
       } else {
         setError("Failed to update task status");
       }
@@ -368,10 +368,6 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
     }
   };
   const handleUpdateSprintStatus = async (memberId, sprintId, status) => {
-    if (!newLogComment) {
-      setError("Comment required");
-      return;
-    }
     setIsUpdating(true);
     try {
       const body = {
@@ -382,7 +378,7 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
         memberId,
         notifyAssignees: true,
         notifyWhatsapp: false,
-        newLogComment,
+        newLogComment: newLogComment,
       };
       const response = await fetch(`/api/member/assignedTasks`, {
         method: "PATCH",
@@ -400,11 +396,12 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
           })
         }));
         setTaskLogs(prev => [
-          { id: Date.now(), userId: session?.user?.id, userName: session?.user?.name, action: "sprint_status_update", details: newLogComment, createdAt: new Date(), sprintId },
+          { id: Date.now(), userId: session?.user?.id, userName: session?.user?.name, action: "sprint_status_update", details: body.newLogComment, createdAt: new Date(), sprintId },
           ...prev
         ]);
         setNewSprintStatuses(prev => ({ ...prev, [`${memberId}-${sprintId}`]: status }));
         setNewLogComment("");
+        mutate(dashboardKey);
       } else {
         setError("Failed to update sprint status");
       }
@@ -807,11 +804,23 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
                     <span className="absolute top-4 right-4 w-3 h-3 bg-red-500 rounded-full"></span>
                   )}
                   <div className="flex flex-col h-full">
-                    <p className="text-base text-indigo-700 font-medium mb-3">
+                    <p className="text-base text-indigo-700 font-medium mb-3 truncate">
                       {log.userName || getUserName(log.userId)} {log.action} task {log.taskId}:
                     </p>
-                    <p className="text-sm text-gray-700 mb-3">{log.details}</p>
-                    <p className="text-sm text-indigo-600 mb-3">Assignees: {tasks.find(t => t.id === log.taskId)?.assignees.map(a => a.name).join(", ") || "N/A"}</p>
+                    <div className="mb-3">
+                      <p className={`text-sm text-gray-700 ${expandedLogs[log.id] ? '' : 'line-clamp-3'}`}>
+                        {log.details}
+                      </p>
+                      {log.details.length > 100 && (
+                        <button
+                          onClick={() => setExpandedLogs(prev => ({ ...prev, [log.id]: !prev[log.id] }))}
+                          className="text-xs text-indigo-600 hover:text-indigo-800"
+                        >
+                          {expandedLogs[log.id] ? "Show less" : "Show more"}
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-sm text-indigo-600 mb-3 truncate">Assignees: {tasks.find(t => t.id === log.taskId)?.assignees.map(a => a.name).join(", ") || "N/A"}</p>
                     <p className="text-xs text-gray-500">{new Date(log.createdAt).toLocaleString()}</p>
                     <div className="flex justify-end mt-auto">
                       <motion.button
@@ -1070,162 +1079,26 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
                   className="bg-white rounded-2xl p-8 w-full max-w-5xl overflow-y-auto max-h-[85vh] shadow-2xl border border-indigo-200"
                 >
                   <h2 className="text-xl font-bold text-indigo-800 mb-6">{selectedTask.title}</h2>
-                  <div className="flex flex-row gap-8 mb-6">
-                    <div className="flex-1 space-y-5">
-                      <p className="text-base"><strong className="text-indigo-700">Description:</strong> {selectedTask.description || "N/A"}</p>
-                      <div className="mt-6">
-                        <h3 className="text-lg font-semibold text-indigo-700">Assignees</h3>
-                        {selectedTask.assignees.map((assignee, index) => (
-                          <div key={`${assignee.id}-${index}`} className="mt-4 bg-indigo-50 p-5 rounded-lg shadow-sm border border-indigo-200">
-                            <p className="text-base"><strong className="text-indigo-700">Name:</strong> {assignee.name}</p>
-                            <p className="text-base"><strong className="text-indigo-700">Status:</strong> {assignee.status?.replace("_", " ") || "Unknown"}</p>
-                            <div className="mt-3">
-                              <select
-                                value={newTaskStatuses[assignee.id] || assignee.status}
-                                onChange={(e) => setNewTaskStatuses({ ...newTaskStatuses, [assignee.id]: e.target.value })}
-                                className="px-3 py-1 border border-indigo-300 rounded-lg text-sm bg-white"
-                                disabled={(assignee.sprints && assignee.sprints.length > 0)}
-                              >
-                                <option value="not_started">Not Started</option>
-                                <option value="in_progress">In Progress</option>
-                                <option value="pending_verification">Pending Verification</option>
-                                <option value="done">Done</option>
-                                <option value="verified">Verified</option>
-                              </select>
-                              {(!assignee.sprints || assignee.sprints.length === 0) && (
-                                <motion.button
-                                  whileHover={{ scale: 1.05 }}
-                                  whileTap={{ scale: 0.95 }}
-                                  onClick={() => handleUpdateTaskStatus(assignee.id, newTaskStatuses[assignee.id])}
-                                  disabled={newTaskStatuses[assignee.id] === assignee.status || !newLogComment || isUpdating}
-                                  className="ml-2 px-3 py-1 bg-indigo-600 text-white rounded-lg text-sm"
-                                >
-                                  Update Task Status
-                                </motion.button>
-                              )}
-                            </div>
-                            {(assignee.sprints && assignee.sprints.length > 0) && (
-                              <div className="mt-2">
-                                <h4 className="text-base font-semibold text-indigo-700">Sprints</h4>
-                                {assignee.sprints.map(sprint => (
-                                  <div key={sprint.id} className="mt-2 bg-white p-3 rounded shadow-sm border border-indigo-100">
-                                    <p className="text-sm"><strong>{sprint.title || "Untitled Sprint"}:</strong> {sprint.description || "N/A"}</p>
-                                    <p className="text-sm">Status: {sprint.status?.replace("_", " ") || "Unknown"}</p>
-                                    <div className="mt-1">
-                                      <select
-                                        value={newSprintStatuses[`${assignee.id}-${sprint.id}`] || sprint.status}
-                                        onChange={(e) => setNewSprintStatuses({ ...newSprintStatuses, [`${assignee.id}-${sprint.id}`]: e.target.value })}
-                                        className="px-3 py-1 border border-indigo-300 rounded-lg text-sm bg-white"
-                                      >
-                                        <option value="not_started">Not Started</option>
-                                        <option value="in_progress">In Progress</option>
-                                        <option value="done">Done</option>
-                                        <option value="verified">Verified</option>
-                                      </select>
-                                      <motion.button
-                                        whileHover={{ scale: 1.05 }}
-                                        whileTap={{ scale: 0.95 }}
-                                        onClick={() => handleUpdateSprintStatus(assignee.id, sprint.id, newSprintStatuses[`${assignee.id}-${sprint.id}`])}
-                                        disabled={newSprintStatuses[`${assignee.id}-${sprint.id}`] === sprint.status || !newLogComment || isUpdating}
-                                        className="ml-2 px-3 py-1 bg-indigo-600 text-white rounded-lg text-sm"
-                                      >
-                                        Update Sprint Status
-                                      </motion.button>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                      <p className="text-base"><strong className="text-indigo-700">Deadline:</strong> {selectedTask.deadline ? new Date(selectedTask.deadline).toLocaleString() : "N/A"}</p>
-                      <p className="text-base"><strong className="text-indigo-700">Resources:</strong> {selectedTask.resources || "N/A"}</p>
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="text-lg font-semibold text-indigo-700 mb-4">Logs</h3>
-                      <div className="max-h-80 overflow-y-auto space-y-4 mb-6">
-                        {taskLogs.length > 0 ? (
-                          taskLogs.map((log) => {
-                            /* figure out which sprint (if any) this log belongs to */
-                            const sprint = log.sprintId
-                              ? selectedTask.assignees
-                                .flatMap((a) => a.sprints || [])
-                                .find((s) => s.id === log.sprintId)
-                              : null;
-                            const prefix = sprint ? `[${sprint.title || "Untitled Sprint"}] ` : "[Main] ";
-                            return (
-                              <div
-                                key={log.id}
-                                className="p-5 bg-indigo-50 rounded-lg shadow-sm border border-indigo-200 transition-all duration-200"
-                              >
-                                <p className="text-base text-indigo-800">
-                                  {prefix}
-                                  {log.userName || getUserName(log.userId)}: {log.details}
-                                </p>
-                                <p className="text-sm text-gray-500 mt-2">
-                                  {new Date(log.createdAt).toLocaleString()}
-                                </p>
-                              </div>
-                            );
-                          })
-                        ) : (
-                          <p className="text-base text-gray-500">No logs available.</p>
-                        )}
-                      </div>
-                      <div className="mt-6">
-                        <h4 className="text-base font-semibold text-indigo-700 mb-3">Add New Log</h4>
-                        {selectedTask.assignees.some(a => a.sprints && a.sprints.length > 0) && (
-                          <select
-                            value={selectedLogSprint}
-                            onChange={(e) => setSelectedLogSprint(e.target.value)}
-                            className="w-full px-4 py-2 border border-indigo-300 rounded-lg bg-indigo-50 focus:ring-2 focus:ring-indigo-500 text-sm font-medium text-gray-700 mb-3"
-                          >
-                            <option value="">Main Task</option>
-                            {selectedTask.assignees.flatMap(a =>
-                              a.sprints.map((s, idx) => (
-                                <option
-                                  key={`${a.id}-${s.id}-${idx}`} // ← now guaranteed unique
-                                  value={s.id}
-                                >
-                                  {a.name} - {s.title || "Untitled Sprint"}
-                                </option>
-                              ))
-                            )}
-                          </select>
-                        )}
-                        <textarea
-                          value={newLogComment}
-                          onChange={(e) => setNewLogComment(e.target.value)}
-                          placeholder="Add a comment to the task discussion..."
-                          className="w-full px-4 py-3 border border-indigo-300 rounded-lg bg-indigo-50 focus:ring-2 focus:ring-indigo-500 text-sm font-medium text-gray-700 mb-4 transition-all duration-200"
-                        />
-                        <motion.button
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
-                          onClick={() => handleAddLog(selectedTask.id, true)}
-                          className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-all duration-200 relative"
-                          disabled={!newLogComment || isAddingLog}
-                        >
-                          {isAddingLog ? (
-                            <motion.span
-                              animate={{ rotate: 360 }}
-                              transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                              className="inline-block w-4 h-4 border-2 border-t-indigo-200 border-indigo-600 rounded-full"
-                            />
-                          ) : "Add Log & Notify Assignees"}
-                        </motion.button>
-                      </div>
-                    </div>
-                  </div>
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => setShowDetailsModal(false)}
-                    className="px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-all duration-200 shadow-md"
-                  >
-                    Close
-                  </motion.button>
+                  <AssignedTaskDetails
+                    task={selectedTask}
+                    taskLogs={taskLogs}
+                    users={users}
+                    onClose={() => setShowDetailsModal(false)}
+                    isManager={true}
+                    newLogComment={newLogComment}
+                    setNewLogComment={setNewLogComment}
+                    isAddingLog={isAddingLog}
+                    onAddLog={() => handleAddLog(selectedTask.id, true)}
+                    newTaskStatuses={newTaskStatuses}
+                    setNewTaskStatuses={setNewTaskStatuses}
+                    newSprintStatuses={newSprintStatuses}
+                    setNewSprintStatuses={setNewSprintStatuses}
+                    handleUpdateTaskStatus={handleUpdateTaskStatus}
+                    handleUpdateSprintStatus={handleUpdateSprintStatus}
+                    isUpdating={isUpdating}
+                    currentUserId={session?.user?.id}
+                    currentUserName={session?.user?.name}
+                  />
                 </motion.div>
               </motion.div>
             )}

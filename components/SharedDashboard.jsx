@@ -5,6 +5,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
+import AssignedTaskDetails from "@/components/assignedTaskCardDetailForAll";
+
+
 
 import DashboardContent from "@/components/member/DashboardContent";
 import AssignedTasksView from "@/components/member/AssignedTasksView";
@@ -34,9 +37,11 @@ const deriveTaskStatus = (sprints) => {
   if (!sprints || sprints.length === 0) return "not_started";
   const statuses = sprints.map((s) => s.status);
   const allVerified = statuses.every((s) => s === "verified");
+  const allDone = statuses.every((s) => s === "done");
   const allCompleted = statuses.every((s) => ["done", "verified"].includes(s));
   const someInProgress = statuses.some((s) => s === "in_progress");
   if (allVerified) return "verified";
+  if (allDone) return "done";
   if (allCompleted) return "pending_verification";
   if (someInProgress) return "in_progress";
   return "not_started";
@@ -637,68 +642,6 @@ const StatusUpdateModal = ({
 /* ------------------------------------------------------------------ */
 /*  Task Details Modal (restored from earlier code with all details)  */
 /* ------------------------------------------------------------------ */
-const TaskDetailsModal = ({ task, taskLogs, users, onClose }) => (
-  <div>
-    <div className="flex flex-row gap-4 mb-4">
-      <div className="flex-1 space-y-3">
-        <p className="text-sm font-medium text-gray-700"><strong>Title:</strong> {task?.title || "Untitled Task"}</p>
-        <p className="text-sm font-medium text-gray-700"><strong>Description:</strong> {task?.description || "No description"}</p>
-        <p className="text-sm font-medium text-gray-700"><strong>Assigned By:</strong> {task?.createdBy ? users.find((u) => u.id === task.createdBy)?.name || "Unknown" : "Unknown"}</p>
-        <p className="text-sm font-medium text-gray-700"><strong>Status:</strong> {(task?.status || "not_started").replace("_", " ")}</p>
-        <p className="text-sm font-medium text-gray-700"><strong>Assigned Date:</strong> {task?.assignedDate ? new Date(task.assignedDate).toLocaleDateString() : "N/A"}</p>
-        <p className="text-sm font-medium text-gray-700"><strong>Deadline:</strong> {task?.deadline ? new Date(task.deadline).toLocaleDateString() : "No deadline"}</p>
-        <p className="text-sm font-medium text-gray-700"><strong>Resources:</strong> {task?.resources || "No resources"}</p>
-
-        {task.sprints?.length > 0 && (
-          <div>
-            <h3 className="text-sm font-semibold text-gray-700">Sprints</h3>
-            <ul className="space-y-2">
-              {task.sprints.map((s) => (
-                <li key={s.id} className="p-2 bg-gray-50 rounded border">
-                  <p className="font-medium">{s.title || "Untitled Sprint"}</p>
-                  <p className="text-sm text-gray-600">Status: {s.status.replace("_", " ")}</p>
-                  <p className="text-sm text-gray-600">{s.description || "No description."}</p>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </div>
-
-      <div className="flex-1">
-        <h3 className="text-sm font-semibold text-gray-700 mb-2">Discussion</h3>
-        <div className="max-h-96 overflow-y-auto space-y-2">
-          {taskLogs.length === 0 ? (
-            <p className="text-sm text-gray-500">No discussion yet.</p>
-          ) : (
-            taskLogs.map((log) => {
-              const sprint = log.sprintId ? task.sprints.find((s) => s.id === log.sprintId) : null;
-              const prefix = sprint ? `[${sprint.title || "Untitled Sprint"}] ` : "[Main] ";
-              return (
-                <div key={log.id} className="p-3 bg-gray-50 rounded-lg shadow-sm border border-gray-200">
-                  <p className="text-xs text-gray-600">
-                    {prefix}{users.find((u) => u.id === log.userId)?.name || "Unknown"} ({new Date(log.createdAt).toLocaleString()}):
-                  </p>
-                  <p className="text-sm text-gray-700">{log.details}</p>
-                </div>
-              );
-            })
-          )}
-        </div>
-      </div>
-    </div>
-    <div className="flex justify-end mt-4">
-      <motion.button
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
-        onClick={onClose}
-        className="px-4 py-2 bg-gray-500 text-white rounded-md text-sm font-medium"
-      >
-        Close
-      </motion.button>
-    </div>
-  </div>
-);
 
 /* ------------------------------------------------------------------ */
 /*  Close Day Modal Content (from earlier code)                       */
@@ -817,7 +760,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
 
   /* ------------------------------------------------------------------ */
   /*  Helpers: fetch sprints / logs, notify assignees (chat only)       */
-  /* ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ */
   const fetchSprints = async (taskId, memberId) => {
     memberId = viewUserId || user?.id;
     const key = `sprints:${taskId}:${memberId}`;
@@ -1046,7 +989,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
         action: "update_sprint",
         notifyAssignees: sendNotification,
         notifyWhatsapp: sendWhatsapp,
-        newLogComment: newLogComment || "No log provided",
+        newLogComment: newLogComment || "",
       }
       : {
         taskId: selectedTask.id,
@@ -1055,11 +998,11 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
         action: "update_task",
         notifyAssignees: sendNotification,
         notifyWhatsapp: sendWhatsapp,
-        newLogComment: newLogComment || "No log provided",
+        newLogComment: newLogComment || "",
       };
 
     try {
-      const r = await fetch("/api/member/assignedTasks/status", {
+      const r = await fetch("/api/member/assignedTasks", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -1341,11 +1284,18 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
           }}
           title="Task Details"
         >
-          <TaskDetailsModal task={selectedTask} taskLogs={taskLogs} users={users} onClose={() => {
-            setShowDetailsModal(false);
-            setSelectedTask(null);
-            setTaskLogs([]);
-          }} />
+<AssignedTaskDetails
+  task={selectedTask}
+  taskLogs={taskLogs}
+  users={users}
+  onClose={() => {
+    setShowDetailsModal(false);
+    setSelectedTask(null);
+    setTaskLogs([]);
+  }}
+  currentUserId={session?.user?.id}
+  currentUserName={session?.user?.name}
+/>
         </Modal>
 
         <Modal

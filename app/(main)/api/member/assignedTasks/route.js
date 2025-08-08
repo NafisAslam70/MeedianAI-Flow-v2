@@ -84,18 +84,20 @@ export async function GET(req) {
 
       const endOfDay = new Date(`${date}T23:59:59.999`);
 
-      const rows = await db
-        .select({
-          id: assignedTaskStatus.taskId,
-          title: assignedTasks.title,
-          description: assignedTasks.description,
-          status: assignedTaskStatus.status,
-          assignedDate: assignedTaskStatus.assignedDate,
-          taskStatusId: assignedTaskStatus.id,
-          createdBy: assignedTasks.createdBy,
-          deadline: assignedTasks.deadline,
-          resources: assignedTasks.resources,
-        })
+const rows = await db
+  .select({
+    id: assignedTaskStatus.taskId,
+    title: assignedTasks.title,
+    description: assignedTasks.description,
+    status: assignedTaskStatus.status,
+    assignedDate: assignedTaskStatus.assignedDate,
+    taskStatusId: assignedTaskStatus.id,
+    createdBy: assignedTasks.createdBy,
+    deadline: assignedTasks.deadline,
+    resources: assignedTasks.resources,
+    pinned: assignedTaskStatus.pinned,                // ✅
+    savedForLater: assignedTaskStatus.savedForLater,  // ✅
+  })
         .from(assignedTaskStatus)
         .innerJoin(assignedTasks, eq(assignedTaskStatus.taskId, assignedTasks.id))
         .where(
@@ -274,8 +276,7 @@ export async function POST(req) {
       }
     }
 
-    /* validate sprintId (if provided) */
-/* Sprint-ID validation (if provided) */
+    /* Sprint-ID validation (if provided) */
 if (sprintId) {
   // 1️⃣  make sure the sprint exists
   const [sp] = await db
@@ -328,7 +329,7 @@ export async function PATCH(req) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const userId = Number(session.user.id);
+    // Destructure ALL possible fields:
     const {
       taskId,
       status,
@@ -337,9 +338,28 @@ export async function PATCH(req) {
       action,
       notifyAssignees = false,
       notifyWhatsapp = false,
-      newLogComment = "No log provided",
+      newLogComment = "",
+      statusId, // For update_flags only
+      pinned,   // For update_flags only
+      savedForLater, // For update_flags only
     } = await req.json();
 
+    // 🟢 1. Branch: update_flags (pin/saveForLater)
+    if (action === "update_flags") {
+      if (!Number.isInteger(statusId)) {
+        return NextResponse.json({ error: "statusId required" }, { status: 400 });
+      }
+      // Only update pins and savedForLater fields
+      await db.update(assignedTaskStatus)
+        .set({
+          pinned: !!pinned,
+          savedForLater: !!savedForLater,
+        })
+        .where(eq(assignedTaskStatus.id, statusId));
+      return NextResponse.json({ ok: true }, { status: 200 });
+    }
+
+    // 🟡 2. Branch: Normal status updates (update_task/update_sprint)
     if (
       !Number.isInteger(taskId) ||
       !status ||
@@ -352,13 +372,14 @@ export async function PATCH(req) {
     if (!Number.isInteger(memberId)) {
       return NextResponse.json({ error: "memberId required" }, { status: 400 });
     }
+    const userId = Number(session.user.id);
     if (session.user.role === "member" && memberId !== userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
 
-    /* -------------------------------------------------------------- */
-    /*  Validate taskStatus row                                       */
-    /* -------------------------------------------------------------- */
+    let derived = null;
+
+    // Validate taskStatus row
     const [taskStatusRow] = await db
       .select({ id: assignedTaskStatus.id })
       .from(assignedTaskStatus)
@@ -368,13 +389,10 @@ export async function PATCH(req) {
           eq(assignedTaskStatus.memberId, memberId)
         )
       );
-
     if (!taskStatusRow)
       return NextResponse.json({ error: "Task not assigned" }, { status: 404 });
 
-    /* -------------------------------------------------------------- */
-    /*  Transition rules (for members)                                */
-    /* -------------------------------------------------------------- */
+    // Member transitions
     if (session.user.role === "member") {
       const allowedTaskTransitions = {
         not_started: ["in_progress"],
@@ -412,14 +430,11 @@ export async function PATCH(req) {
       }
     }
 
-    /* -------------------------------------------------------------- */
-    /*  Helper data                                                   */
-    /* -------------------------------------------------------------- */
+    // Get task meta
     const [task] = await db
       .select({ title: assignedTasks.title, createdBy: assignedTasks.createdBy })
       .from(assignedTasks)
       .where(eq(assignedTasks.id, taskId));
-
     if (!task)
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
 
@@ -427,7 +442,6 @@ export async function PATCH(req) {
       .select({ name: users.name })
       .from(users)
       .where(eq(users.id, userId));
-
     const updaterName = updaterRow?.name || session?.user?.name || "Unknown";
 
     const assignees = await db
@@ -439,14 +453,11 @@ export async function PATCH(req) {
       .select({ whatsapp_number: users.whatsapp_number })
       .from(users)
       .where(eq(users.id, userId));
-
     const senderWhatsapp = senderRow?.whatsapp_number;
     const now = new Date();
     let notification = "";
 
-    /* -------------------------------------------------------------- */
-    /*  1. TASK-LEVEL UPDATE                                          */
-    /* -------------------------------------------------------------- */
+    // ----- TASK-LEVEL UPDATE -----
     if (action === "update_task") {
       await db
         .update(assignedTaskStatus)
@@ -458,13 +469,15 @@ export async function PATCH(req) {
         })
         .where(eq(assignedTaskStatus.id, taskStatusRow.id));
 
-      await db.insert(assignedTaskLogs).values({
-        taskId,
-        userId,
-        action: "status_update",
-        details: newLogComment,
-        createdAt: now,
-      });
+      if (newLogComment) {
+        await db.insert(assignedTaskLogs).values({
+          taskId,
+          userId,
+          action: "status_update",
+          details: newLogComment,
+          createdAt: now,
+        });
+      }
 
       notification = `Task "${task.title}" status updated to ${status.replace(
         "_",
@@ -472,9 +485,7 @@ export async function PATCH(req) {
       )} by ${updaterName}`;
     }
 
-    /* -------------------------------------------------------------- */
-    /*  2. SPRINT-LEVEL UPDATE                                        */
-    /* -------------------------------------------------------------- */
+    // ----- SPRINT-LEVEL UPDATE -----
     if (action === "update_sprint") {
       if (!Number.isInteger(sprintId))
         return NextResponse.json({ error: "sprintId required" }, { status: 400 });
@@ -493,34 +504,25 @@ export async function PATCH(req) {
       if (!sprint)
         return NextResponse.json({ error: "Sprint not found" }, { status: 404 });
 
-      await db.insert(assignedTaskLogs).values({
-        taskId,
-        userId,
-        action: "sprint_status_update",
-        details: newLogComment,
-        createdAt: now,
-        sprintId,
-      });
+      if (newLogComment) {
+        await db.insert(assignedTaskLogs).values({
+          taskId,
+          userId,
+          action: "sprint_status_update",
+          details: newLogComment,
+          createdAt: now,
+          sprintId,
+        });
+      }
 
-      /* derive task status from all sprints */
-      const statuses = await db
+      // derive task status from all sprints
+      const sprintStatuses = await db
         .select({ status: sprints.status })
         .from(sprints)
         .where(eq(sprints.taskStatusId, taskStatusRow.id));
 
-      const allVerified = statuses.every((s) => s.status === "verified");
-      const allCompleted = statuses.every((s) =>
-        ["done", "verified"].includes(s.status)
-      );
-      const someInProgress = statuses.some((s) => s.status === "in_progress");
-
-      const derived = allVerified
-        ? "verified"
-        : allCompleted
-        ? "pending_verification"
-        : someInProgress
-        ? "in_progress"
-        : "not_started";
+      const statuses = sprintStatuses.map(s => s.status);
+      derived = deriveTaskStatus(statuses);
 
       await db
         .update(assignedTaskStatus)
@@ -533,24 +535,36 @@ export async function PATCH(req) {
       )} by ${updaterName}`;
     }
 
-    if (newLogComment !== "No log provided") notification += `. Comment: ${newLogComment}`;
+    if (newLogComment) notification += `. Comment: ${newLogComment}`;
     notification += `. [task:${taskId}${sprintId ? ` sprint:${sprintId}` : ""}]`;
 
-    /* -------------------------------------------------------------- */
-    /*  3. NOTIFICATIONS                                              */
-    /* -------------------------------------------------------------- */
-    const recipientIds = [
+    // Special notifications
+    let specialNotification = null;
+    let specialTargets = [];
+
+    const derivedOrStatus = action === "update_sprint" ? derived : status;
+
+    if (derivedOrStatus === "pending_verification" || derivedOrStatus === "done") {
+      specialNotification = `Task "${task.title}" is ready for verification. Last update by ${updaterName}${newLogComment ? `: ${newLogComment}` : ""} [task:${taskId}${sprintId ? ` sprint:${sprintId}` : ""}]`;
+      specialTargets = [task.createdBy].filter(id => id !== userId);
+    } else if (derivedOrStatus === "verified") {
+      specialNotification = `Task "${task.title}" has been verified by ${updaterName}${newLogComment ? `. Comment: ${newLogComment}` : ""} [task:${taskId}${sprintId ? ` sprint:${sprintId}` : ""}]`;
+      specialTargets = assignees.map(a => a.memberId).filter(id => id !== userId);
+    }
+
+    // General notifications
+    const generalTargets = [
       ...new Set(
         assignees
           .map((a) => a.memberId)
           .filter((id) => id && id !== userId)
-          .concat(task.createdBy)
+          .concat(task.createdBy !== userId ? task.createdBy : [])
       ),
     ];
 
-    if (notifyAssignees && recipientIds.length) {
+    if (notifyAssignees && generalTargets.length) {
       await db.insert(messages).values(
-        recipientIds.map((rid) => ({
+        generalTargets.map((rid) => ({
           senderId: userId,
           recipientId: rid,
           content: notification,
@@ -560,7 +574,19 @@ export async function PATCH(req) {
       );
     }
 
-    if (notifyWhatsapp && senderWhatsapp && recipientIds.length) {
+    if (specialNotification && specialTargets.length) {
+      await db.insert(messages).values(
+        specialTargets.map((rid) => ({
+          senderId: userId,
+          recipientId: rid,
+          content: specialNotification,
+          createdAt: now,
+          status: "sent",
+        }))
+      );
+    }
+
+    if (notifyWhatsapp && senderWhatsapp) {
       const recipients = await db
         .select({
           id: users.id,
@@ -569,7 +595,7 @@ export async function PATCH(req) {
           name: users.name,
         })
         .from(users)
-        .where(inArray(users.id, recipientIds));
+        .where(inArray(users.id, [...generalTargets, ...specialTargets]));
 
       const valid = recipients.filter((r) => r.whatsapp_number && r.whatsapp_enabled);
       await Promise.all(
@@ -590,24 +616,35 @@ export async function PATCH(req) {
     }
 
     return NextResponse.json({ ok: true }, { status: 200 });
-
-    /* -------------------------------------------------------------- */
-    /*  Helpers                                                       */
-    /* -------------------------------------------------------------- */
-    async function currentStatus(statusId) {
-      const [row] = await db
-        .select({ status: assignedTaskStatus.status })
-        .from(assignedTaskStatus)
-        .where(eq(assignedTaskStatus.id, statusId));
-      return row?.status || "not_started";
-    }
-
-    async function getSprintStatus(id) {
-      const [row] = await db.select({ status: sprints.status }).from(sprints).where(eq(sprints.id, id));
-      return row?.status || "not_started";
-    }
   } catch (err) {
     console.error("PATCH /member/assignedTasks error:", err);
     return NextResponse.json({ error: err.message || "Internal error" }, { status: 500 });
   }
+}
+
+
+
+function deriveTaskStatus(statuses) {
+  const allVerified = statuses.every((s) => s === "verified");
+  const allDone = statuses.every((s) => s === "done");
+  const allCompleted = statuses.every((s) => ["done", "verified"].includes(s));
+  const someInProgress = statuses.some((s) => s === "in_progress");
+  if (allVerified) return "verified";
+  if (allDone) return "done";
+  if (allCompleted) return "pending_verification";
+  if (someInProgress) return "in_progress";
+  return "not_started";
+}
+
+async function currentStatus(statusId) {
+  const [row] = await db
+    .select({ status: assignedTaskStatus.status })
+    .from(assignedTaskStatus)
+    .where(eq(assignedTaskStatus.id, statusId));
+  return row?.status || "not_started";
+}
+
+async function getSprintStatus(id) {
+  const [row] = await db.select({ status: sprints.status }).from(sprints).where(eq(sprints.id, id));
+  return row?.status || "not_started";
 }

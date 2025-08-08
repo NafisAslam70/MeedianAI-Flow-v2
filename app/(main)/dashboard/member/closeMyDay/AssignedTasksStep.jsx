@@ -1,8 +1,12 @@
+"use client";
+
 import { motion, AnimatePresence } from "framer-motion";
 import { useRef, useState, useEffect, useMemo } from "react";
-import { ArrowLeft, ArrowRight, CheckCircle, Info, Calendar} from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle, Info, Calendar } from "lucide-react";
 import { format } from "date-fns";
 import useSWR from "swr";
+import AssignedTaskDetails from "@/components/assignedTaskCardDetailForAll";
+import { useSession } from "next-auth/react";
 
 const fetcher = (url) =>
   fetch(url).then((res) => res.json());
@@ -20,17 +24,25 @@ export default function AssignedTasksStep({
   const [showRightArrow, setShowRightArrow] = useState(false);
   const [selectedTaskDetails, setSelectedTaskDetails] = useState(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const { data: session } = useSession();
+const { data } = useSWR("/api/member/users", fetcher);
+const users = data?.users || [];
+
 
   const { data: taskDetails } = useSWR(
-    selectedTaskDetails ? `/api/member/assignedTasks?taskId=${selectedTaskDetails.id}&action=details` : null,
+    selectedTaskDetails ? `/api/member/assignedTasks?taskId=${selectedTaskDetails.id}&action=task` : null,
+    fetcher
+  );
+  const { data: taskLogs } = useSWR(
+    selectedTaskDetails ? `/api/member/assignedTasks?taskId=${selectedTaskDetails.id}&action=logs` : null,
     fetcher
   );
 
   useEffect(() => {
-    if (taskDetails) {
+    if (taskDetails && selectedTaskDetails) {
       setShowDetailsModal(true);
     }
-  }, [taskDetails]);
+  }, [taskDetails, selectedTaskDetails]);
 
   useEffect(() => {
     const updateArrows = () => {
@@ -62,6 +74,26 @@ export default function AssignedTasksStep({
     }
   };
 
+  const getAssignedBy = (createdBy) => {
+    const user = users?.find((u) => u.id === createdBy);
+    if (!user) return `ID ${createdBy || "Unknown"}`;
+    if (user.role === "admin") return "Superintendent";
+    if (user.role === "team_manager") {
+      return user.team_manager_type
+        ? user.team_manager_type
+          .split("_")
+          .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+          .join(" ")
+        : "Team Manager";
+    }
+    return user.type
+      ? user.type
+        .split("_")
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(" ")
+      : "Member";
+  };
+
   const completedTasks = useMemo(() =>
     (assignedTasksData?.tasks || []).filter(task => task.status === "verified" || task.status === "done"),
     [assignedTasksData]
@@ -71,6 +103,10 @@ export default function AssignedTasksStep({
     (assignedTasksData?.tasks || []).filter(task => task.status !== "verified" && task.status !== "done"),
     [assignedTasksData]
   );
+
+  const pinnedTasks = useMemo(() => pendingTasks.filter(task => task.pinned), [pendingTasks]);
+  const savedTasks = useMemo(() => pendingTasks.filter(task => task.savedForLater), [pendingTasks]);
+  const normalTasks = useMemo(() => pendingTasks.filter(task => !task.pinned && !task.savedForLater), [pendingTasks]);
 
   const pastDeadlineTasks = useMemo(() => {
     const today = new Date();
@@ -104,6 +140,13 @@ export default function AssignedTasksStep({
     const diff = new Date(deadline) - today;
     const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
     return days > 0 ? days : "Overdue";
+  };
+
+  const getDaysLeftColor = (daysLeft) => {
+    if (daysLeft === null) return "text-gray-600";
+    if (daysLeft === "Overdue" || (typeof daysLeft === "number" && daysLeft < 3)) return "text-red-600";
+    if (typeof daysLeft === "number" && daysLeft <= 5) return "text-orange-600";
+    return "text-green-600";
   };
 
   if (!assignedTasksData || !assignedTasksData.tasks || assignedTasksData.tasks.length === 0) {
@@ -143,176 +186,413 @@ export default function AssignedTasksStep({
         Assigned Tasks
       </h3>
       <div className="overflow-x-auto flex gap-4 pb-4 relative snap-x snap-mandatory" ref={carouselRef}>
-        {/* Completed Tasks Card */}
-        {completedTasks.length > 0 && (
-          <motion.div
-            variants={cardVariants}
-            initial="hidden"
-            animate="visible"
-            custom={0}
-            className="flex-shrink-0 w-72 bg-white/80 backdrop-blur-md rounded-3xl shadow-md p-4 border border-emerald-50/50 hover:shadow-xl transition-all duration-300 snap-center"
-            whileHover={{ y: -4, scale: 1.01 }}
-          >
-            <div className="flex justify-between items-center mb-4">
-              <p className="text-sm font-semibold text-gray-900">
-                Completed Tasks ({completedTasks.length})
-              </p>
-              <span className="text-xs px-2 py-1 rounded-full bg-emerald-50 text-emerald-600 font-medium">
-                Done
-              </span>
-            </div>
-            <div className="grid grid-cols-3 gap-2">
-              {completedTasks.map((task, idx) => (
-                <motion.div
-                  key={task.id}
-                  className="aspect-square bg-emerald-50/80 rounded-2xl p-2 cursor-pointer hover:bg-emerald-100 transition-all duration-200 flex flex-col justify-between shadow-sm"
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1, transition: { delay: idx * 0.02 } }}
-                >
-                  <p className="text-xs font-medium text-gray-900 truncate">
-                    {task.title || "Untitled"}
-                  </p>
-                </motion.div>
-              ))}
-            </div>
-          </motion.div>
-        )}
-
-        {/* Past Deadline Tasks Card */}
-        {pastDeadlineTasks.length > 0 && (
-          <motion.div
-            variants={cardVariants}
-            initial="hidden"
-            animate="visible"
-            custom={0}
-            className="flex-shrink-0 w-72 bg-white/80 backdrop-blur-md rounded-3xl shadow-md p-4 border border-red-50/50 hover:shadow-xl transition-all duration-300 snap-center"
-            whileHover={{ y: -4, scale: 1.01 }}
-          >
-            <div className="flex justify-between items-center mb-4">
-              <p className="text-sm font-semibold text-gray-900">
-                Past Deadline Tasks ({pastDeadlineTasks.length})
-              </p>
-              <span className="text-xs px-2 py-1 rounded-full bg-red-50 text-red-600 font-medium">
-                Overdue
-              </span>
-            </div>
-            <div className="grid grid-cols-3 gap-2">
-              {pastDeadlineTasks.map((task, idx) => (
-                <motion.div
-                  key={task.id}
-                  className="aspect-square bg-red-50/80 rounded-2xl p-2 cursor-pointer hover:bg-red-100 transition-all duration-200 flex flex-col justify-between shadow-sm"
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1, transition: { delay: idx * 0.02 } }}
-                >
-                  <p className="text-xs font-medium text-gray-900 truncate">
-                    {task.title || "Untitled"}
-                  </p>
-                </motion.div>
-              ))}
-            </div>
-          </motion.div>
-        )}
-
-        {/* Pending Tasks Cards */}
-        {pendingTasks.map((task, index) => {
-          const today = new Date();
-          const deadline = task.deadline ? new Date(task.deadline) : null;
-          const daysLeft = calculateDaysLeft(task.deadline);
-          const isNearDeadline = daysLeft !== null && daysLeft !== "Overdue" && daysLeft <= 3;
-          const update = assignedTasksUpdates.find((u) => u.id === task.id);
-          const colors = getStatusColor(task.status);
-
+        {(() => {
+          let currentIndex = 0;
           return (
-            <motion.div
-              key={task.id}
-              variants={cardVariants}
-              initial="hidden"
-              animate="visible"
-              custom={index + 1}
-              className={`flex-shrink-0 w-64 bg-white/80 backdrop-blur-md rounded-3xl shadow-md p-4 border ${colors.border}/50 hover:shadow-xl transition-all duration-300 snap-center`}
-              whileHover={{ y: -4, scale: 1.01 }}
-            >
-              <div className="flex justify-between items-center mb-3">
-                <p className="text-sm font-semibold text-gray-900 truncate pr-4">
-                  {task.title || "Untitled"}
-                </p>
-                <span className={`text-xs px-2 py-1 rounded-full ${colors.bg} ${colors.text} font-medium capitalize`}>
-                  {(task.status || "not_started").replace("_", " ")}
-                </span>
-              </div>
-              <p className="text-xs text-gray-600 mb-2 flex items-center gap-1">
-                <Calendar size={12} /> Days Left: {daysLeft ?? "No Deadline"}
-              </p>
-              <p className="text-xs text-gray-600 mb-3 flex items-center gap-1">
-                <Info size={12} /> Assigned By: {task.createdBy ? `ID ${task.createdBy}` : "Unknown"}
-              </p>
-              {task.sprints && task.sprints.length > 0 && (
-                <div className="mb-3">
-                  <p className="text-xs font-semibold text-gray-700 mb-1">Sprints:</p>
-                  <div className="space-y-1">
-                    {task.sprints.map((sprint) => {
-                      const sprintColors = getStatusColor(sprint.status);
+            <>
+              {completedTasks.length > 0 && (
+                <motion.div
+                  key="completed"
+                  variants={cardVariants}
+                  initial="hidden"
+                  animate="visible"
+                  custom={currentIndex++}
+                  className="flex-shrink-0 bg-white/80 backdrop-blur-md rounded-3xl shadow-md p-4 border border-emerald-50/50 hover:shadow-xl transition-all duration-300 snap-center"
+                  whileHover={{ y: -4, scale: 1.01 }}
+                >
+                  <div className="flex justify-between items-center mb-4">
+                    <p className="text-sm font-semibold text-gray-900">
+                      Completed Tasks ({completedTasks.length})
+                    </p>
+                    <span className="text-xs px-2 py-1 rounded-full bg-emerald-50 text-emerald-600 font-medium">
+                      Done
+                    </span>
+                  </div>
+                  <div className="grid grid-rows-3 grid-flow-col gap-2">
+                    {completedTasks.map((task, idx) => (
+                      <motion.div
+                        key={task.id}
+                        className="w-24 h-24 bg-emerald-50/80 rounded-2xl p-2 cursor-pointer hover:bg-emerald-100 transition-all duration-200 flex flex-col justify-between shadow-sm"
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1, transition: { delay: idx * 0.02 } }}
+                        onClick={() => setSelectedTaskDetails(task)}
+                      >
+                        <p className="text-xs font-medium text-gray-900 truncate">
+                          {task.title || "Untitled"}
+                        </p>
+                      </motion.div>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+              {pastDeadlineTasks.length > 0 && (
+                <motion.div
+                  key="past_deadline"
+                  variants={cardVariants}
+                  initial="hidden"
+                  animate="visible"
+                  custom={currentIndex++}
+                  className="flex-shrink-0 bg-white/80 backdrop-blur-md rounded-3xl shadow-md p-4 border border-red-50/50 hover:shadow-xl transition-all duration-300 snap-center"
+                  whileHover={{ y: -4, scale: 1.01 }}
+                >
+                  <div className="flex justify-between items-center mb-4">
+                    <p className="text-sm font-semibold text-gray-900">
+                      Past Deadline Tasks ({pastDeadlineTasks.length})
+                    </p>
+                    <span className="text-xs px-2 py-1 rounded-full bg-red-50 text-red-600 font-medium">
+                      Overdue
+                    </span>
+                  </div>
+                  <div className="grid grid-rows-3 grid-flow-col gap-2">
+                    {pastDeadlineTasks.map((task, idx) => (
+                      <motion.div
+                        key={task.id}
+                        className="w-24 h-24 bg-red-50/80 rounded-2xl p-2 cursor-pointer hover:bg-red-100 transition-all duration-200 flex flex-col justify-between shadow-sm"
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1, transition: { delay: idx * 0.02 } }}
+                        onClick={() => setSelectedTaskDetails(task)}
+                      >
+                        <p className="text-xs font-medium text-gray-900 truncate">
+                          {task.title || "Untitled"}
+                        </p>
+                      </motion.div>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+              {pinnedTasks.length > 0 && (
+                <motion.div
+                  key="pinned"
+                  variants={cardVariants}
+                  initial="hidden"
+                  animate="visible"
+                  custom={currentIndex++}
+                  className="flex-shrink-0 bg-white/80 backdrop-blur-md rounded-3xl shadow-md p-4 border border-indigo-50/50 hover:shadow-xl transition-all duration-300 snap-center"
+                  whileHover={{ y: -4, scale: 1.01 }}
+                >
+                  <div className="flex justify-between items-center mb-4">
+                    <p className="text-sm font-semibold text-gray-900">
+                      Pinned Tasks ({pinnedTasks.length})
+                    </p>
+                    <span className="text-xs px-2 py-1 rounded-full bg-indigo-50 text-indigo-600 font-medium">
+                      Pinned
+                    </span>
+                  </div>
+                  <div className="flex flex-row gap-4">
+                    {pinnedTasks.map((task, idx) => {
+                      const daysLeft = calculateDaysLeft(task.deadline);
+                      const daysLeftColor = getDaysLeftColor(daysLeft);
+                      const isNearDeadline = daysLeft !== null && daysLeft !== "Overdue" && daysLeft <= 3;
+                      const update = assignedTasksUpdates.find((u) => u.id === task.id);
+                      const colors = getStatusColor(task.status);
+                      const today = new Date();
+
                       return (
-                        <div key={sprint.id} className={`p-2 rounded-xl border ${sprintColors.border}/50 ${sprintColors.bg}/50 shadow-sm`}>
-                          <p className="text-xs font-medium text-gray-900 truncate">
-                            {sprint.title || "Untitled Sprint"}
+                        <motion.div
+                          key={task.id}
+                          className={`flex-shrink-0 w-64 bg-white/80 backdrop-blur-md rounded-3xl shadow-md p-4 border ${colors.border} hover:shadow-xl transition-all duration-300`}
+                          whileHover={{ y: -4, scale: 1.01 }}
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1, transition: { delay: idx * 0.02 } }}
+                        >
+                          <p className={`text-xs font-bold ${daysLeftColor} mb-2 flex items-center gap-1`}>
+                            <Calendar size={12} /> Days Left: {daysLeft ?? "No Deadline"}
                           </p>
-                          <p className={`text-xs ${sprintColors.text} capitalize`}>
-                            Status: {(sprint.status || "not_started").replace("_", " ")}
+                          <div className="flex justify-between items-center mb-3">
+                            <p className="text-sm font-semibold text-gray-900 truncate pr-4">
+                              {task.title || "Untitled"}
+                            </p>
+                            <span className={`text-xs px-2 py-1 rounded-full ${colors.bg} ${colors.text} font-medium capitalize`}>
+                              {(task.status || "not_started").replace("_", " ")}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-600 mb-3 flex items-center gap-1">
+                            <Info size={12} /> Assigned By: {getAssignedBy(task.createdBy)}
                           </p>
-                        </div>
+                          {task.sprints && task.sprints.length > 0 && (
+                            <div className="mb-3">
+                              <p className="text-xs font-semibold text-gray-700 mb-1">Sprints:</p>
+                              <div className="space-y-1">
+                                {task.sprints.map((sprint) => {
+                                  const sprintColors = getStatusColor(sprint.status);
+                                  return (
+                                    <div key={sprint.id} className={`p-2 rounded-xl border ${sprintColors.border}/50 ${sprintColors.bg}/50 shadow-sm`}>
+                                      <p className="text-xs font-medium text-gray-900 truncate">
+                                        {sprint.title || "Untitled Sprint"}
+                                      </p>
+                                      <p className={`text-xs ${sprintColors.text} capitalize`}>
+                                        Status: {(sprint.status || "not_started").replace("_", " ")}
+                                      </p>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                          {isNearDeadline && (
+                            <div className="mt-2">
+                              <label className="block text-xs font-medium text-gray-700 mb-1">Transfer Deadline To:</label>
+                              <input
+                                type="date"
+                                value={update?.newDeadline || ""}
+                                onChange={(e) => handleUpdateAssignedTask(task.id, "newDeadline", e.target.value)}
+                                className="border border-teal-200 p-2 rounded-xl w-full text-xs focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 bg-teal-50/50"
+                                min={format(new Date(today.getTime() + 86400000), "yyyy-MM-dd")}
+                              />
+                            </div>
+                          )}
+                          <div className="mt-2">
+                            <label className="block text-xs font-medium text-gray-700 mb-1">Update Status:</label>
+                            <select
+                              value={update?.statusUpdate || task.status}
+                              onChange={(e) => handleUpdateAssignedTask(task.id, "statusUpdate", e.target.value)}
+                              className="border border-teal-200 p-2 rounded-xl w-full text-xs focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 bg-teal-50/50"
+                            >
+                              <option value="not_started">Not Started</option>
+                              <option value="in_progress">In Progress</option>
+                              <option value="pending_verification">Pending Verification</option>
+                              <option value="done">Done</option>
+                            </select>
+                          </div>
+                          <div className="mt-2">
+                            <label className="block text-xs font-medium text-gray-700 mb-1">Comment:</label>
+                            <textarea
+                              value={update?.comment || ""}
+                              onChange={(e) => handleUpdateAssignedTask(task.id, "comment", e.target.value)}
+                              className="border border-teal-200 p-2 rounded-xl w-full text-xs h-20 focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 bg-teal-50/50 resize-none"
+                            />
+                          </div>
+                          <motion.button
+                            onClick={() => setSelectedTaskDetails(task)}
+                            className="mt-3 flex items-center gap-1 text-blue-600 hover:text-blue-800 text-xs font-medium"
+                            whileHover={{ scale: 1.05 }}
+                          >
+                            <Info size={14} /> View Details
+                          </motion.button>
+                        </motion.div>
                       );
                     })}
                   </div>
-                </div>
+                </motion.div>
               )}
-              {isNearDeadline && (
-                <div className="mt-2">
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Transfer Deadline To:</label>
-                  <input
-                    type="date"
-                    value={update?.newDeadline || ""}
-                    onChange={(e) => handleUpdateAssignedTask(task.id, "newDeadline", e.target.value)}
-                    className="border border-teal-200 p-2 rounded-xl w-full text-xs focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 bg-teal-50/50"
-                    min={format(new Date(today.getTime() + 86400000), "yyyy-MM-dd")}
-                  />
-                </div>
-              )}
-              <div className="mt-2">
-                <label className="block text-xs font-medium text-gray-700 mb-1">Update Status:</label>
-                <select
-                  value={update?.statusUpdate || task.status}
-                  onChange={(e) => handleUpdateAssignedTask(task.id, "statusUpdate", e.target.value)}
-                  className="border border-teal-200 p-2 rounded-xl w-full text-xs focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 bg-teal-50/50"
+              {normalTasks.map((task) => {
+                const daysLeft = calculateDaysLeft(task.deadline);
+                const daysLeftColor = getDaysLeftColor(daysLeft);
+                const isNearDeadline = daysLeft !== null && daysLeft !== "Overdue" && daysLeft <= 3;
+                const update = assignedTasksUpdates.find((u) => u.id === task.id);
+                const colors = getStatusColor(task.status);
+                const index = currentIndex++;
+                const today = new Date();
+
+                return (
+                  <motion.div
+                    key={task.id}
+                    variants={cardVariants}
+                    initial="hidden"
+                    animate="visible"
+                    custom={index}
+                    className={`flex-shrink-0 w-64 bg-white/80 backdrop-blur-md rounded-3xl shadow-md p-4 border ${colors.border} hover:shadow-xl transition-all duration-300 snap-center`}
+                    whileHover={{ y: -4, scale: 1.01 }}
+                  >
+                    <p className={`text-xs font-bold ${daysLeftColor} mb-2 flex items-center gap-1`}>
+                      <Calendar size={12} /> Days Left: {daysLeft ?? "No Deadline"}
+                    </p>
+                    <div className="flex justify-between items-center mb-3">
+                      <p className="text-sm font-semibold text-gray-900 truncate pr-4">
+                        {task.title || "Untitled"}
+                      </p>
+                      <span className={`text-xs px-2 py-1 rounded-full ${colors.bg} ${colors.text} font-medium capitalize`}>
+                        {(task.status || "not_started").replace("_", " ")}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-600 mb-3 flex items-center gap-1">
+                      <Info size={12} /> Assigned By: {getAssignedBy(task.createdBy)}
+                    </p>
+                    {task.sprints && task.sprints.length > 0 && (
+                      <div className="mb-3">
+                        <p className="text-xs font-semibold text-gray-700 mb-1">Sprints:</p>
+                        <div className="space-y-1">
+                          {task.sprints.map((sprint) => {
+                            const sprintColors = getStatusColor(sprint.status);
+                            return (
+                              <div key={sprint.id} className={`p-2 rounded-xl border ${sprintColors.border}/50 ${sprintColors.bg}/50 shadow-sm`}>
+                                <p className="text-xs font-medium text-gray-900 truncate">
+                                  {sprint.title || "Untitled Sprint"}
+                                </p>
+                                <p className={`text-xs ${sprintColors.text} capitalize`}>
+                                  Status: {(sprint.status || "not_started").replace("_", " ")}
+                                </p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                    {isNearDeadline && (
+                      <div className="mt-2">
+                        <label className="block text-xs font-medium text-gray-700 mb-1">Transfer Deadline To:</label>
+                        <input
+                          type="date"
+                          value={update?.newDeadline || ""}
+                          onChange={(e) => handleUpdateAssignedTask(task.id, "newDeadline", e.target.value)}
+                          className="border border-teal-200 p-2 rounded-xl w-full text-xs focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 bg-teal-50/50"
+                          min={format(new Date(today.getTime() + 86400000), "yyyy-MM-dd")}
+                        />
+                      </div>
+                    )}
+                    <div className="mt-2">
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Update Status:</label>
+                      <select
+                        value={update?.statusUpdate || task.status}
+                        onChange={(e) => handleUpdateAssignedTask(task.id, "statusUpdate", e.target.value)}
+                        className="border border-teal-200 p-2 rounded-xl w-full text-xs focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 bg-teal-50/50"
+                      >
+                        <option value="not_started">Not Started</option>
+                        <option value="in_progress">In Progress</option>
+                        <option value="pending_verification">Pending Verification</option>
+                        <option value="done">Done</option>
+                      </select>
+                    </div>
+                    <div className="mt-2">
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Comment:</label>
+                      <textarea
+                        value={update?.comment || ""}
+                        onChange={(e) => handleUpdateAssignedTask(task.id, "comment", e.target.value)}
+                        className="border border-teal-200 p-2 rounded-xl w-full text-xs h-20 focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 bg-teal-50/50 resize-none"
+                      />
+                    </div>
+                    <motion.button
+                      onClick={() => setSelectedTaskDetails(task)}
+                      className="mt-3 flex items-center gap-1 text-blue-600 hover:text-blue-800 text-xs font-medium"
+                      whileHover={{ scale: 1.05 }}
+                    >
+                      <Info size={14} /> View Details
+                    </motion.button>
+                  </motion.div>
+                );
+              })}
+              {savedTasks.length > 0 && (
+                <motion.div
+                  key="saved"
+                  variants={cardVariants}
+                  initial="hidden"
+                  animate="visible"
+                  custom={currentIndex++}
+                  className="flex-shrink-0 bg-white/80 backdrop-blur-md rounded-3xl shadow-md p-4 border border-amber-50/50 hover:shadow-xl transition-all duration-300 snap-center"
+                  whileHover={{ y: -4, scale: 1.01 }}
                 >
-                  <option value="not_started">Not Started</option>
-                  <option value="in_progress">In Progress</option>
-                  <option value="pending_verification">Pending Verification</option>
-                  <option value="done">Done</option>
-                </select>
-              </div>
-              <div className="mt-2">
-                <label className="block text-xs font-medium text-gray-700 mb-1">Comment:</label>
-                <textarea
-                  value={update?.comment || ""}
-                  onChange={(e) => handleUpdateAssignedTask(task.id, "comment", e.target.value)}
-                  className="border border-teal-200 p-2 rounded-xl w-full text-xs h-20 focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 bg-teal-50/50 resize-none"
-                />
-              </div>
-              <motion.button
-                onClick={() => setSelectedTaskDetails(task)}
-                className="mt-3 flex items-center gap-1 text-blue-600 hover:text-blue-800 text-xs font-medium"
-                whileHover={{ scale: 1.05 }}
-              >
-                <Info size={14} /> View Details
-              </motion.button>
-            </motion.div>
+                  <div className="flex justify-between items-center mb-4">
+                    <p className="text-sm font-semibold text-gray-900">
+                      Saved for Later ({savedTasks.length})
+                    </p>
+                    <span className="text-xs px-2 py-1 rounded-full bg-amber-50 text-amber-600 font-medium">
+                      Saved
+                    </span>
+                  </div>
+                  <div className="flex flex-row gap-4">
+                    {savedTasks.map((task, idx) => {
+                      const daysLeft = calculateDaysLeft(task.deadline);
+                      const daysLeftColor = getDaysLeftColor(daysLeft);
+                      const isNearDeadline = daysLeft !== null && daysLeft !== "Overdue" && daysLeft <= 3;
+                      const update = assignedTasksUpdates.find((u) => u.id === task.id);
+                      const colors = getStatusColor(task.status);
+                      const today = new Date();
+
+                      return (
+                        <motion.div
+                          key={task.id}
+                          className={`flex-shrink-0 w-64 bg-white/80 backdrop-blur-md rounded-3xl shadow-md p-4 border ${colors.border} hover:shadow-xl transition-all duration-300`}
+                          whileHover={{ y: -4, scale: 1.01 }}
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1, transition: { delay: idx * 0.02 } }}
+                        >
+                          <p className={`text-xs font-bold ${daysLeftColor} mb-2 flex items-center gap-1`}>
+                            <Calendar size={12} /> Days Left: {daysLeft ?? "No Deadline"}
+                          </p>
+                          <div className="flex justify-between items-center mb-3">
+                            <p className="text-sm font-semibold text-gray-900 truncate pr-4">
+                              {task.title || "Untitled"}
+                            </p>
+                            <span className={`text-xs px-2 py-1 rounded-full ${colors.bg} ${colors.text} font-medium capitalize`}>
+                              {(task.status || "not_started").replace("_", " ")}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-600 mb-3 flex items-center gap-1">
+                            <Info size={12} /> Assigned By: {getAssignedBy(task.createdBy)}
+                          </p>
+                          {task.sprints && task.sprints.length > 0 && (
+                            <div className="mb-3">
+                              <p className="text-xs font-semibold text-gray-700 mb-1">Sprints:</p>
+                              <div className="space-y-1">
+                                {task.sprints.map((sprint) => {
+                                  const sprintColors = getStatusColor(sprint.status);
+                                  return (
+                                    <div key={sprint.id} className={`p-2 rounded-xl border ${sprintColors.border}/50 ${sprintColors.bg}/50 shadow-sm`}>
+                                      <p className="text-xs font-medium text-gray-900 truncate">
+                                        {sprint.title || "Untitled Sprint"}
+                                      </p>
+                                      <p className={`text-xs ${sprintColors.text} capitalize`}>
+                                        Status: {(sprint.status || "not_started").replace("_", " ")}
+                                      </p>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                          {isNearDeadline && (
+                            <div className="mt-2">
+                              <label className="block text-xs font-medium text-gray-700 mb-1">Transfer Deadline To:</label>
+                              <input
+                                type="date"
+                                value={update?.newDeadline || ""}
+                                onChange={(e) => handleUpdateAssignedTask(task.id, "newDeadline", e.target.value)}
+                                className="border border-teal-200 p-2 rounded-xl w-full text-xs focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 bg-teal-50/50"
+                                min={format(new Date(today.getTime() + 86400000), "yyyy-MM-dd")}
+                              />
+                            </div>
+                          )}
+                          <div className="mt-2">
+                            <label className="block text-xs font-medium text-gray-700 mb-1">Update Status:</label>
+                            <select
+                              value={update?.statusUpdate || task.status}
+                              onChange={(e) => handleUpdateAssignedTask(task.id, "statusUpdate", e.target.value)}
+                              className="border border-teal-200 p-2 rounded-xl w-full text-xs focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 bg-teal-50/50"
+                            >
+                              <option value="not_started">Not Started</option>
+                              <option value="in_progress">In Progress</option>
+                              <option value="pending_verification">Pending Verification</option>
+                              <option value="done">Done</option>
+                            </select>
+                          </div>
+                          <div className="mt-2">
+                            <label className="block text-xs font-medium text-gray-700 mb-1">Comment:</label>
+                            <textarea
+                              value={update?.comment || ""}
+                              onChange={(e) => handleUpdateAssignedTask(task.id, "comment", e.target.value)}
+                              className="border border-teal-200 p-2 rounded-xl w-full text-xs h-20 focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 bg-teal-50/50 resize-none"
+                            />
+                          </div>
+                          <motion.button
+                            onClick={() => setSelectedTaskDetails(task)}
+                            className="mt-3 flex items-center gap-1 text-blue-600 hover:text-blue-800 text-xs font-medium"
+                            whileHover={{ scale: 1.05 }}
+                          >
+                            <Info size={14} /> View Details
+                          </motion.button>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                </motion.div>
+              )}
+            </>
           );
-        })}
+        })()}
       </div>
       {showLeftArrow && (
         <motion.button
@@ -359,7 +639,7 @@ export default function AssignedTasksStep({
 
       {/* Details Modal */}
       <AnimatePresence>
-        {showDetailsModal && taskDetails && (
+        {showDetailsModal && taskDetails?.task && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -372,68 +652,19 @@ export default function AssignedTasksStep({
               exit={{ scale: 0.95 }}
               className="bg-white/90 backdrop-blur-md p-6 rounded-3xl max-w-lg w-full shadow-xl border border-teal-100/50"
             >
-              <div className="flex flex-row gap-4 mb-4">
-                <div className="flex-1 space-y-3">
-                  <p className="text-sm font-medium text-gray-700"><strong>Title:</strong> {taskDetails?.title || "Untitled Task"}</p>
-                  <p className="text-sm font-medium text-gray-700"><strong>Description:</strong> {taskDetails?.description || "No description"}</p>
-                  <p className="text-sm font-medium text-gray-700"><strong>Assigned By:</strong> {taskDetails?.createdBy ? `User ID ${taskDetails.createdBy}` : "Unknown"}</p>
-                  <p className="text-sm font-medium text-gray-700"><strong>Status:</strong> {(taskDetails?.status || "not_started").replace("_", " ")}</p>
-                  <p className="text-sm font-medium text-gray-700"><strong>Assigned Date:</strong> {taskDetails?.assignedDate ? new Date(taskDetails.assignedDate).toLocaleDateString() : "N/A"}</p>
-                  <p className="text-sm font-medium text-gray-700"><strong>Deadline:</strong> {taskDetails?.deadline ? new Date(taskDetails.deadline).toLocaleDateString() : "No deadline"}</p>
-                  <p className="text-sm font-medium text-gray-700"><strong>Resources:</strong> {taskDetails?.resources || "No resources"}</p>
-
-                  {taskDetails.sprints?.length > 0 && (
-                    <div>
-                      <h3 className="text-sm font-semibold text-gray-700">Sprints</h3>
-                      <ul className="space-y-2">
-                        {taskDetails.sprints.map((s) => (
-                          <li key={s.id} className="p-2 bg-gray-50 rounded border">
-                            <p className="font-medium">{s.title || "Untitled Sprint"}</p>
-                            <p className="text-sm text-gray-600">Status: {s.status.replace("_", " ")}</p>
-                            <p className="text-sm text-gray-600">{s.description || "No description."}</p>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex-1">
-                  <h3 className="text-sm font-semibold text-gray-700 mb-2">Discussion</h3>
-                  <div className="max-h-96 overflow-y-auto space-y-2">
-                    {(!taskDetails.logs || taskDetails.logs.length === 0) ? (
-                      <p className="text-sm text-gray-500">No discussion yet.</p>
-                    ) : (
-                      taskDetails.logs.map((log) => {
-                        const sprint = log.sprintId ? taskDetails.sprints?.find((s) => s.id === log.sprintId) : null;
-                        const prefix = sprint ? `[${sprint.title || "Untitled Sprint"}] ` : "[Main] ";
-                        return (
-                          <div key={log.id} className="p-3 bg-gray-50 rounded-lg shadow-sm border border-gray-200">
-                            <p className="text-xs text-gray-600">
-                              {prefix}User ID {log.userId || "Unknown"} ({new Date(log.createdAt).toLocaleString()}):
-                            </p>
-                            <p className="text-sm text-gray-700">{log.details}</p>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-              </div>
-              <div className="flex justify-end mt-4">
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => setShowDetailsModal(false)}
-                  className="px-4 py-2 bg-gray-500 text-white rounded-md text-sm font-medium"
-                >
-                  Close
-                </motion.button>
-              </div>
+              <AssignedTaskDetails
+                task={taskDetails.task}
+                taskLogs={taskLogs?.logs || []}
+                users={users || []}
+                onClose={() => setShowDetailsModal(false)}
+                currentUserId={session?.user?.id}
+                currentUserName={session?.user?.name}
+              />
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
+
     </div>
   );
 }

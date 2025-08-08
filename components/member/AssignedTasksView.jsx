@@ -102,6 +102,10 @@ export default function AssignedTasksView({
     [assignedTasks]
   );
 
+  const pinnedTasks = useMemo(() => pendingTasks.filter(task => task.pinned), [pendingTasks]);
+  const savedTasks = useMemo(() => pendingTasks.filter(task => task.savedForLater), [pendingTasks]);
+  const normalTasks = useMemo(() => pendingTasks.filter(task => !task.pinned && !task.savedForLater), [pendingTasks]);
+
   const summary = useMemo(() => ({
     total: assignedTasks.length,
     completed: completedTasks.length,
@@ -112,13 +116,28 @@ export default function AssignedTasksView({
 
   const displayedCompleted = activeFilter === null || activeFilter === "completed";
 
-  const displayedPending = useMemo(() => {
+  const displayedPinned = useMemo(() => {
     if (activeFilter === "completed") return [];
-    if (activeFilter === null) return pendingTasks;
-    return pendingTasks.filter(task => task.status === activeFilter);
-  }, [activeFilter, pendingTasks]);
+    if (activeFilter === null) return pinnedTasks;
+    return pinnedTasks.filter(task => task.status === activeFilter);
+  }, [activeFilter, pinnedTasks]);
 
-  const hasContent = (displayedCompleted && completedTasks.length > 0) || displayedPending.length > 0;
+  const displayedSaved = useMemo(() => {
+    if (activeFilter === "completed") return [];
+    if (activeFilter === null) return savedTasks;
+    return savedTasks.filter(task => task.status === activeFilter);
+  }, [activeFilter, savedTasks]);
+
+  const displayedNormal = useMemo(() => {
+    if (activeFilter === "completed") return [];
+    if (activeFilter === null) return normalTasks;
+    return normalTasks.filter(task => task.status === activeFilter);
+  }, [activeFilter, normalTasks]);
+
+  const hasContent = (displayedCompleted && completedTasks.length > 0) ||
+    displayedPinned.length > 0 ||
+    displayedNormal.length > 0 ||
+    displayedSaved.length > 0;
 
   const getFilterLabel = () => {
     if (!activeFilter) return "";
@@ -148,6 +167,88 @@ export default function AssignedTasksView({
   const summaryVariants = {
     hidden: { opacity: 0, y: 20 },
     visible: { opacity: 1, y: 0, transition: { duration: 0.4, delay: 0.1 } },
+  };
+
+  const handlePinTask = async (taskId) => {
+    const oldTask = assignedTasks.find((t) => t.id === taskId);
+    if (!oldTask) return;
+
+    const oldPinned = oldTask.pinned;
+    const oldSavedForLater = oldTask.savedForLater;
+    const newPinned = !oldPinned;
+    const newSavedForLater = newPinned ? false : oldSavedForLater;
+
+    setAssignedTasks((prev) =>
+      prev.map((t) =>
+        t.id === taskId ? { ...t, pinned: newPinned, savedForLater: newSavedForLater } : t
+      )
+    );
+
+    try {
+      const response = await fetch("/api/member/assignedTasks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "update_flags",
+          statusId: oldTask.taskStatusId,
+          pinned: newPinned,
+          savedForLater: newSavedForLater,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to update flags");
+      }
+    } catch (error) {
+      console.error("Error updating pin:", error);
+      setAssignedTasks((prev) =>
+        prev.map((t) =>
+          t.id === taskId ? { ...t, pinned: oldPinned, savedForLater: oldSavedForLater } : t
+        )
+      );
+    }
+  };
+
+  const handleSaveForLater = async (taskId) => {
+    const oldTask = assignedTasks.find((t) => t.id === taskId);
+    if (!oldTask) return;
+
+    const oldPinned = oldTask.pinned;
+    const oldSavedForLater = oldTask.savedForLater;
+    const newSavedForLater = !oldSavedForLater;
+    const newPinned = newSavedForLater ? false : oldPinned;
+
+    setAssignedTasks((prev) =>
+      prev.map((t) =>
+        t.id === taskId ? { ...t, savedForLater: newSavedForLater, pinned: newPinned } : t
+      )
+    );
+
+    try {
+      const response = await fetch("/api/member/assignedTasks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "update_flags",
+          statusId: oldTask.taskStatusId,
+          pinned: newPinned,
+          savedForLater: newSavedForLater,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to update flags");
+      }
+    } catch (error) {
+      console.error("Error updating save for later:", error);
+      setAssignedTasks((prev) =>
+        prev.map((t) =>
+          t.id === taskId ? { ...t, pinned: oldPinned, savedForLater: oldSavedForLater } : t
+        )
+      );
+    }
   };
 
   return (
@@ -201,124 +302,365 @@ export default function AssignedTasksView({
             </p>
           ) : (
             <div className="flex gap-4 pb-4">
-              {displayedCompleted && completedTasks.length > 0 && (
-                <motion.div
-                  key="completed"
-                  custom={0}
-                  variants={cardVariants}
-                  initial="hidden"
-                  animate="visible"
-                  className="flex-shrink-0 w-72 bg-white rounded-3xl shadow-md p-4 border border-emerald-50 hover:shadow-xl transition-all duration-300"
-                  whileHover={{ y: -4, scale: 1.01 }}
-                >
-                  <div className="flex justify-between items-center mb-4">
-                    <p className="text-sm font-semibold text-gray-900">
-                      Completed Tasks ({completedTasks.length})
-                    </p>
-                    <span className="text-xs px-2 py-1 rounded-full bg-emerald-50 text-emerald-600 font-medium">
-                      Done
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    {completedTasks.map((task, idx) => (
-                      <motion.div
-                        key={task.id}
-                        className="aspect-square bg-emerald-50 rounded-2xl p-2 cursor-pointer hover:bg-emerald-100 transition-all duration-200 flex flex-col justify-between shadow-sm"
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => handleTaskDetails(task)}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1, transition: { delay: idx * 0.02 } }}
-                      >
-                        <p className="text-xs font-medium text-gray-900 truncate">
-                          {task.title || "Untitled"}
-                        </p>
-                        <p className="text-xs text-gray-600 truncate">
-                          {getAssignedBy(task.createdBy)}
-                        </p>
-                      </motion.div>
-                    ))}
-                  </div>
-                </motion.div>
-              )}
-              {displayedPending.map((task, index) => {
-                const colors = getStatusColor(task.status);
-                const customIndex = (displayedCompleted && completedTasks.length > 0) ? index + 1 : index;
+              {(() => {
+                let currentIndex = 0;
                 return (
-                  <motion.div
-                    key={task.id}
-                    custom={customIndex}
-                    variants={cardVariants}
-                    initial="hidden"
-                    animate="visible"
-                    className={`flex-shrink-0 w-64 bg-white rounded-3xl shadow-md p-4 border ${colors.border} hover:shadow-xl transition-all duration-300`}
-                    whileHover={{ y: -4, scale: 1.01 }}
-                  >
-                    <div className="flex justify-between items-center mb-4">
-                      <p className="text-sm font-semibold text-gray-900 truncate pr-4">
-                        {task.title || "Untitled"}
-                      </p>
-                      <span className={`text-xs px-2 py-1 rounded-full ${colors.bg} ${colors.text} font-medium capitalize`}>
-                        {(task.status || "not_started").replace("_", " ")}
-                      </span>
-                    </div>
-                    <p className="text-xs text-gray-600 mb-4">
-                      Assigned By: {getAssignedBy(task.createdBy)}
-                    </p>
-                    {task.sprints && task.sprints.length > 0 && (
-                      <div className="mb-4">
-                        <p className="text-xs font-semibold text-gray-700 mb-2">Sprints:</p>
-                        <div className="space-y-2">
-                          {task.sprints.map((sprint) => {
-                            const sprintColors = getStatusColor(sprint.status);
+                  <>
+                    {displayedCompleted && completedTasks.length > 0 && (
+                      <motion.div
+                        key="completed"
+                        custom={currentIndex++}
+                        variants={cardVariants}
+                        initial="hidden"
+                        animate="visible"
+                        className="flex-shrink-0 bg-white rounded-3xl shadow-md p-4 border border-emerald-50 hover:shadow-xl transition-all duration-300"
+                        whileHover={{ y: -4, scale: 1.01 }}
+                      >
+                        <div className="flex justify-between items-center mb-4">
+                          <p className="text-sm font-semibold text-gray-900">
+                            Completed Tasks ({completedTasks.length})
+                          </p>
+                          <span className="text-xs px-2 py-1 rounded-full bg-emerald-50 text-emerald-600 font-medium">
+                            Done
+                          </span>
+                        </div>
+                        <div className="grid grid-rows-3 grid-flow-col gap-2">
+                          {completedTasks.map((task, idx) => (
+                            <motion.div
+                              key={task.id}
+                              className="w-24 h-24 bg-emerald-50 rounded-2xl p-2 cursor-pointer hover:bg-emerald-100 transition-all duration-200 flex flex-col justify-between shadow-sm"
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                              onClick={() => handleTaskDetails(task)}
+                              initial={{ opacity: 0 }}
+                              animate={{ opacity: 1, transition: { delay: idx * 0.02 } }}
+                            >
+                              <p className="text-xs font-medium text-gray-900 truncate">
+                                {task.title || "Untitled"}
+                              </p>
+                              <p className="text-xs text-gray-600 truncate">
+                                {getAssignedBy(task.createdBy)}
+                              </p>
+                            </motion.div>
+                          ))}
+                        </div>
+                      </motion.div>
+                    )}
+                    {displayedPinned.length > 0 && (
+                      <motion.div
+                        key="pinned"
+                        custom={currentIndex++}
+                        variants={cardVariants}
+                        initial="hidden"
+                        animate="visible"
+                        className="flex-shrink-0 bg-white rounded-3xl shadow-md p-4 border border-indigo-50 hover:shadow-xl transition-all duration-300"
+                        whileHover={{ y: -4, scale: 1.01 }}
+                      >
+                        <div className="flex justify-between items-center mb-4">
+                          <p className="text-sm font-semibold text-gray-900">
+                            Pinned Tasks ({displayedPinned.length})
+                          </p>
+                          <span className="text-xs px-2 py-1 rounded-full bg-indigo-50 text-indigo-600 font-medium">
+                            Pinned
+                          </span>
+                        </div>
+                        <div className="flex flex-row gap-4">
+                          {displayedPinned.map((task, idx) => {
+                            const colors = getStatusColor(task.status);
                             return (
                               <motion.div
-                                key={sprint.id}
-                                className={`p-2 rounded-2xl cursor-pointer hover:bg-gray-50 transition-all duration-200 border ${sprintColors.border} ${sprintColors.bg} shadow-sm`}
-                                whileHover={{ scale: 1.02 }}
-                                whileTap={{ scale: 0.98 }}
-                                onClick={() => handleSprintSelect(task, sprint)}
+                                key={task.id}
+                                className={`flex-shrink-0 w-64 bg-white rounded-3xl shadow-md p-4 border ${colors.border} hover:shadow-xl transition-all duration-300`}
+                                whileHover={{ y: -4, scale: 1.01 }}
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1, transition: { delay: idx * 0.02 } }}
                               >
-                                <p className="text-xs font-medium text-gray-900 truncate">
-                                  {sprint.title || "Untitled Sprint"}
+                                <div className="flex justify-between items-center mb-4">
+                                  <p className="text-sm font-semibold text-gray-900 truncate pr-4">
+                                    {task.title || "Untitled"}
+                                  </p>
+                                  <span className={`text-xs px-2 py-1 rounded-full ${colors.bg} ${colors.text} font-medium capitalize`}>
+                                    {(task.status || "not_started").replace("_", " ")}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-gray-600 mb-4">
+                                  Assigned By: {getAssignedBy(task.createdBy)}
                                 </p>
-                                <p className={`text-xs ${sprintColors.text} capitalize`}>
-                                  Status: {(sprint.status || "not_started").replace("_", " ")}
-                                </p>
+                                {task.sprints && task.sprints.length > 0 && (
+                                  <div className="mb-4">
+                                    <p className="text-xs font-semibold text-gray-700 mb-2">Sprints:</p>
+                                    <div className="space-y-2">
+                                      {task.sprints.map((sprint) => {
+                                        const sprintColors = getStatusColor(sprint.status);
+                                        return (
+                                          <motion.div
+                                            key={sprint.id}
+                                            className={`p-2 rounded-2xl cursor-pointer hover:bg-gray-50 transition-all duration-200 border ${sprintColors.border} ${sprintColors.bg} shadow-sm`}
+                                            whileHover={{ scale: 1.02 }}
+                                            whileTap={{ scale: 0.98 }}
+                                            onClick={() => handleSprintSelect(task, sprint)}
+                                          >
+                                            <p className="text-xs font-medium text-gray-900 truncate">
+                                              {sprint.title || "Untitled Sprint"}
+                                            </p>
+                                            <p className={`text-xs ${sprintColors.text} capitalize`}>
+                                              Status: {(sprint.status || "not_started").replace("_", " ")}
+                                            </p>
+                                          </motion.div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+                                <div className="grid grid-cols-2 gap-2">
+                                  <motion.button
+                                    whileHover={{ scale: 1.02 }}
+                                    whileTap={{ scale: 0.98 }}
+                                    onClick={() => handleTaskSelect(task)}
+                                    className={`col-span-1 px-4 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 text-sm font-medium transition-all duration-200 shadow-sm ${
+                                      task.sprints && task.sprints.length > 0 ? "opacity-50 cursor-not-allowed" : ""
+                                    }`}
+                                    disabled={task.sprints && task.sprints.length > 0}
+                                  >
+                                    Update Status
+                                  </motion.button>
+                                  <motion.button
+                                    whileHover={{ scale: 1.02 }}
+                                    whileTap={{ scale: 0.98 }}
+                                    onClick={() => handleTaskDetails(task)}
+                                    className="col-span-1 px-4 py-2 bg-gray-700 text-white rounded-xl hover:bg-gray-800 text-sm font-medium transition-all duration-200 shadow-sm"
+                                  >
+                                    View Details
+                                  </motion.button>
+                                  <motion.button
+                                    whileHover={{ scale: 1.02 }}
+                                    whileTap={{ scale: 0.98 }}
+                                    onClick={() => handlePinTask(task.id)}
+                                    className="col-span-1 px-2 py-1 bg-transparent border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 text-xs font-medium transition-all duration-200"
+                                  >
+                                    {task.pinned ? "Unpin" : "Pin"}
+                                  </motion.button>
+                                  <motion.button
+                                    whileHover={{ scale: 1.02 }}
+                                    whileTap={{ scale: 0.98 }}
+                                    onClick={() => handleSaveForLater(task.id)}
+                                    className="col-span-1 px-2 py-1 bg-transparent border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 text-xs font-medium transition-all duration-200"
+                                  >
+                                    {task.savedForLater ? "Unsave" : "Save for Later"}
+                                  </motion.button>
+                                </div>
                               </motion.div>
                             );
                           })}
                         </div>
-                      </div>
+                      </motion.div>
                     )}
-                    <div className="flex gap-2">
-                      <motion.button
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        onClick={() => handleTaskSelect(task)}
-                        className={`flex-1 px-4 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 text-sm font-medium transition-all duration-200 shadow-sm ${
-                          task.sprints && task.sprints.length > 0 ? "opacity-50 cursor-not-allowed" : ""
-                        }`}
-                        disabled={task.sprints && task.sprints.length > 0}
+                    {displayedNormal.map((task) => {
+                      const colors = getStatusColor(task.status);
+                      const index = currentIndex++;
+                      return (
+                        <motion.div
+                          key={task.id}
+                          custom={index}
+                          variants={cardVariants}
+                          initial="hidden"
+                          animate="visible"
+                          className={`flex-shrink-0 w-64 bg-white rounded-3xl shadow-md p-4 border ${colors.border} hover:shadow-xl transition-all duration-300`}
+                          whileHover={{ y: -4, scale: 1.01 }}
+                        >
+                          <div className="flex justify-between items-center mb-4">
+                            <p className="text-sm font-semibold text-gray-900 truncate pr-4">
+                              {task.title || "Untitled"}
+                            </p>
+                            <span className={`text-xs px-2 py-1 rounded-full ${colors.bg} ${colors.text} font-medium capitalize`}>
+                              {(task.status || "not_started").replace("_", " ")}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-600 mb-4">
+                            Assigned By: {getAssignedBy(task.createdBy)}
+                          </p>
+                          {task.sprints && task.sprints.length > 0 && (
+                            <div className="mb-4">
+                              <p className="text-xs font-semibold text-gray-700 mb-2">Sprints:</p>
+                              <div className="space-y-2">
+                                {task.sprints.map((sprint) => {
+                                  const sprintColors = getStatusColor(sprint.status);
+                                  return (
+                                    <motion.div
+                                      key={sprint.id}
+                                      className={`p-2 rounded-2xl cursor-pointer hover:bg-gray-50 transition-all duration-200 border ${sprintColors.border} ${sprintColors.bg} shadow-sm`}
+                                      whileHover={{ scale: 1.02 }}
+                                      whileTap={{ scale: 0.98 }}
+                                      onClick={() => handleSprintSelect(task, sprint)}
+                                    >
+                                      <p className="text-xs font-medium text-gray-900 truncate">
+                                        {sprint.title || "Untitled Sprint"}
+                                      </p>
+                                      <p className={`text-xs ${sprintColors.text} capitalize`}>
+                                        Status: {(sprint.status || "not_started").replace("_", " ")}
+                                      </p>
+                                    </motion.div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                          <div className="grid grid-cols-2 gap-2">
+                            <motion.button
+                              whileHover={{ scale: 1.02 }}
+                              whileTap={{ scale: 0.98 }}
+                              onClick={() => handleTaskSelect(task)}
+                              className={`col-span-1 px-4 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 text-sm font-medium transition-all duration-200 shadow-sm ${
+                                task.sprints && task.sprints.length > 0 ? "opacity-50 cursor-not-allowed" : ""
+                              }`}
+                              disabled={task.sprints && task.sprints.length > 0}
+                            >
+                              Update Status
+                            </motion.button>
+                            <motion.button
+                              whileHover={{ scale: 1.02 }}
+                              whileTap={{ scale: 0.98 }}
+                              onClick={() => handleTaskDetails(task)}
+                              className="col-span-1 px-4 py-2 bg-gray-700 text-white rounded-xl hover:bg-gray-800 text-sm font-medium transition-all duration-200 shadow-sm"
+                            >
+                              View Details
+                            </motion.button>
+                            <motion.button
+                              whileHover={{ scale: 1.02 }}
+                              whileTap={{ scale: 0.98 }}
+                              onClick={() => handlePinTask(task.id)}
+                              className="col-span-1 px-2 py-1 bg-transparent border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 text-xs font-medium transition-all duration-200"
+                            >
+                              {task.pinned ? "Unpin" : "Pin"}
+                            </motion.button>
+                            <motion.button
+                              whileHover={{ scale: 1.02 }}
+                              whileTap={{ scale: 0.98 }}
+                              onClick={() => handleSaveForLater(task.id)}
+                              className="col-span-1 px-2 py-1 bg-transparent border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 text-xs font-medium transition-all duration-200"
+                            >
+                              {task.savedForLater ? "Unsave" : "Save for Later"}
+                            </motion.button>
+                          </div>
+                        </motion.div>
+                      );
+                    })}
+                    {displayedSaved.length > 0 && (
+                      <motion.div
+                        key="saved"
+                        custom={currentIndex++}
+                        variants={cardVariants}
+                        initial="hidden"
+                        animate="visible"
+                        className="flex-shrink-0 bg-white rounded-3xl shadow-md p-4 border border-amber-50 hover:shadow-xl transition-all duration-300"
+                        whileHover={{ y: -4, scale: 1.01 }}
                       >
-                        Update Status
-                      </motion.button>
-                      <motion.button
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        onClick={() => handleTaskDetails(task)}
-                        className="flex-1 px-4 py-2 bg-gray-700 text-white rounded-xl hover:bg-gray-800 text-sm font-medium transition-all duration-200 shadow-sm"
-                      >
-                        View Details
-                      </motion.button>
-                    </div>
-                  </motion.div>
+                        <div className="flex justify-between items-center mb-4">
+                          <p className="text-sm font-semibold text-gray-900">
+                            Saved for Later ({displayedSaved.length})
+                          </p>
+                          <span className="text-xs px-2 py-1 rounded-full bg-amber-50 text-amber-600 font-medium">
+                            Saved
+                          </span>
+                        </div>
+                        <div className="flex flex-row gap-4">
+                          {displayedSaved.map((task, idx) => {
+                            const colors = getStatusColor(task.status);
+                            return (
+                              <motion.div
+                                key={task.id}
+                                className={`flex-shrink-0 w-64 bg-white rounded-3xl shadow-md p-4 border ${colors.border} hover:shadow-xl transition-all duration-300`}
+                                whileHover={{ y: -4, scale: 1.01 }}
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1, transition: { delay: idx * 0.02 } }}
+                              >
+                                <div className="flex justify-between items-center mb-4">
+                                  <p className="text-sm font-semibold text-gray-900 truncate pr-4">
+                                    {task.title || "Untitled"}
+                                  </p>
+                                  <span className={`text-xs px-2 py-1 rounded-full ${colors.bg} ${colors.text} font-medium capitalize`}>
+                                    {(task.status || "not_started").replace("_", " ")}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-gray-600 mb-4">
+                                  Assigned By: {getAssignedBy(task.createdBy)}
+                                </p>
+                                {task.sprints && task.sprints.length > 0 && (
+                                  <div className="mb-4">
+                                    <p className="text-xs font-semibold text-gray-700 mb-2">Sprints:</p>
+                                    <div className="space-y-2">
+                                      {task.sprints.map((sprint) => {
+                                        const sprintColors = getStatusColor(sprint.status);
+                                        return (
+                                          <motion.div
+                                            key={sprint.id}
+                                            className={`p-2 rounded-2xl cursor-pointer hover:bg-gray-50 transition-all duration-200 border ${sprintColors.border} ${sprintColors.bg} shadow-sm`}
+                                            whileHover={{ scale: 1.02 }}
+                                            whileTap={{ scale: 0.98 }}
+                                            onClick={() => handleSprintSelect(task, sprint)}
+                                          >
+                                            <p className="text-xs font-medium text-gray-900 truncate">
+                                              {sprint.title || "Untitled Sprint"}
+                                            </p>
+                                            <p className={`text-xs ${sprintColors.text} capitalize`}>
+                                              Status: {(sprint.status || "not_started").replace("_", " ")}
+                                            </p>
+                                          </motion.div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+                                <div className="grid grid-cols-2 gap-2">
+                                  <motion.button
+                                    whileHover={{ scale: 1.02 }}
+                                    whileTap={{ scale: 0.98 }}
+                                    onClick={() => handleTaskSelect(task)}
+                                    className={`col-span-1 px-4 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 text-sm font-medium transition-all duration-200 shadow-sm ${
+                                      task.sprints && task.sprints.length > 0 ? "opacity-50 cursor-not-allowed" : ""
+                                    }`}
+                                    disabled={task.sprints && task.sprints.length > 0}
+                                  >
+                                    Update Status
+                                  </motion.button>
+                                  <motion.button
+                                    whileHover={{ scale: 1.02 }}
+                                    whileTap={{ scale: 0.98 }}
+                                    onClick={() => handleTaskDetails(task)}
+                                    className="col-span-1 px-4 py-2 bg-gray-700 text-white rounded-xl hover:bg-gray-800 text-sm font-medium transition-all duration-200 shadow-sm"
+                                  >
+                                    View Details
+                                  </motion.button>
+                                  <motion.button
+                                    whileHover={{ scale: 1.02 }}
+                                    whileTap={{ scale: 0.98 }}
+                                    onClick={() => handlePinTask(task.id)}
+                                    className="col-span-1 px-2 py-1 bg-transparent border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 text-xs font-medium transition-all duration-200"
+                                  >
+                                    {task.pinned ? "Unpin" : "Pin"}
+                                  </motion.button>
+                                  <motion.button
+                                    whileHover={{ scale: 1.02 }}
+                                    whileTap={{ scale: 0.98 }}
+                                    onClick={() => handleSaveForLater(task.id)}
+                                    className="col-span-1 px-2 py-1 bg-transparent border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 text-xs font-medium transition-all duration-200"
+                                  >
+                                    {task.savedForLater ? "Unsave" : "Save for Later"}
+                                  </motion.button>
+                                </div>
+                              </motion.div>
+                            );
+                          })}
+                        </div>
+                      </motion.div>
+                    )}
+                  </>
                 );
-              })}
+              })()}
             </div>
           )}
         </div>
-        {( (displayedCompleted && completedTasks.length > 1) || displayedPending.length > 1 ) && (
+        {( (displayedCompleted && completedTasks.length > 1) || displayedPinned.length > 1 || displayedNormal.length > 1 || displayedSaved.length > 1 ) && (
           <>
             {showLeftArrow && (
               <motion.button
