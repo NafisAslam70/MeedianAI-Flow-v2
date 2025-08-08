@@ -1,7 +1,7 @@
 "use client";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRef, useState, useEffect, useMemo } from "react";
-import { ArrowLeft, ArrowRight, RefreshCw, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, RefreshCw, X, Pin, PinOff, BookmarkPlus, BookmarkMinus } from "lucide-react";
 
 export default function AssignedTasksView({
   handleBack,
@@ -383,7 +383,7 @@ export default function AssignedTasksView({
                             return (
                               <motion.div
                                 key={task.id}
-                                className={`flex-shrink-0 w-64 bg-white rounded-3xl shadow-md p-4 border ${colors.border} hover:shadow-xl transition-all duration-300`}
+                                className={`flex-shrink-0 w-64 bg-white rounded-3xl shadow-md p-4 border ${colors.border} hover:shadow-xl transition-all duration-300 max-h-75 overflow-y-auto custom-scrollbar`}
                                 whileHover={{ y: -4, scale: 1.01 }}
                                 initial={{ opacity: 0 }}
                                 animate={{ opacity: 1, transition: { delay: idx * 0.02 } }}
@@ -449,17 +449,19 @@ export default function AssignedTasksView({
                                     whileHover={{ scale: 1.02 }}
                                     whileTap={{ scale: 0.98 }}
                                     onClick={() => handlePinTask(task.id)}
-                                    className="col-span-1 px-2 py-1 bg-transparent border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 text-xs font-medium transition-all duration-200"
+                                    aria-label={task.pinned ? "Unpin" : "Pin"}
+                                    className="col-span-1 px-2 py-1 bg-transparent border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 text-xs font-medium transition-all duration-200 flex items-center justify-center"
                                   >
-                                    {task.pinned ? "Unpin" : "Pin"}
+                                    {task.pinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}
                                   </motion.button>
                                   <motion.button
                                     whileHover={{ scale: 1.02 }}
                                     whileTap={{ scale: 0.98 }}
                                     onClick={() => handleSaveForLater(task.id)}
-                                    className="col-span-1 px-2 py-1 bg-transparent border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 text-xs font-medium transition-all duration-200"
+                                    aria-label={task.savedForLater ? "Unsave" : "Save for Later"}
+                                    className="col-span-1 px-2 py-1 bg-transparent border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 text-xs font-medium transition-all duration-200 flex items-center justify-center"
                                   >
-                                    {task.savedForLater ? "Unsave" : "Save for Later"}
+                                    {task.savedForLater ? <BookmarkMinus className="w-4 h-4" /> : <BookmarkPlus className="w-4 h-4" />}
                                   </motion.button>
                                 </div>
                               </motion.div>
@@ -478,7 +480,7 @@ export default function AssignedTasksView({
                           variants={cardVariants}
                           initial="hidden"
                           animate="visible"
-                          className={`flex-shrink-0 w-64 bg-white rounded-3xl shadow-md p-4 border ${colors.border} hover:shadow-xl transition-all duration-300`}
+                          className={`flex-shrink-0 w-64 bg-white rounded-3xl shadow-md p-4 border ${colors.border} hover:shadow-xl transition-all duration-300 max-h-75 overflow-y-auto custom-scrollbar`}
                           whileHover={{ y: -4, scale: 1.01 }}
                         >
                           <div className="flex justify-between items-center mb-4">
@@ -542,17 +544,19 @@ export default function AssignedTasksView({
                               whileHover={{ scale: 1.02 }}
                               whileTap={{ scale: 0.98 }}
                               onClick={() => handlePinTask(task.id)}
-                              className="col-span-1 px-2 py-1 bg-transparent border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 text-xs font-medium transition-all duration-200"
+                              aria-label={task.pinned ? "Unpin" : "Pin"}
+                              className="col-span-1 px-2 py-1 bg-transparent border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 text-xs font-medium transition-all duration-200 flex items-center justify-center"
                             >
-                              {task.pinned ? "Unpin" : "Pin"}
+                              {task.pinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}
                             </motion.button>
                             <motion.button
                               whileHover={{ scale: 1.02 }}
                               whileTap={{ scale: 0.98 }}
                               onClick={() => handleSaveForLater(task.id)}
-                              className="col-span-1 px-2 py-1 bg-transparent border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 text-xs font-medium transition-all duration-200"
+                              aria-label={task.savedForLater ? "Unsave" : "Save for Later"}
+                              className="col-span-1 px-2 py-1 bg-transparent border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 text-xs font-medium transition-all duration-200 flex items-center justify-center"
                             >
-                              {task.savedForLater ? "Unsave" : "Save for Later"}
+                              {task.savedForLater ? <BookmarkMinus className="w-4 h-4" /> : <BookmarkPlus className="w-4 h-4" />}
                             </motion.button>
                           </div>
                         </motion.div>
@@ -582,7 +586,7 @@ export default function AssignedTasksView({
                             return (
                               <motion.div
                                 key={task.id}
-                                className={`flex-shrink-0 w-64 bg-white rounded-3xl shadow-md p-4 border ${colors.border} hover:shadow-xl transition-all duration-300`}
+                                className={`flex-shrink-0 w-64 bg-white rounded-3xl shadow-md p-4 border ${colors.border} hover:shadow-xl transition-all duration-300 max-h-75 overflow-y-auto custom-scrollbar`}
                                 whileHover={{ y: -4, scale: 1.01 }}
                                 initial={{ opacity: 0 }}
                                 animate={{ opacity: 1, transition: { delay: idx * 0.02 } }}
@@ -648,17 +652,19 @@ export default function AssignedTasksView({
                                     whileHover={{ scale: 1.02 }}
                                     whileTap={{ scale: 0.98 }}
                                     onClick={() => handlePinTask(task.id)}
-                                    className="col-span-1 px-2 py-1 bg-transparent border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 text-xs font-medium transition-all duration-200"
+                                    aria-label={task.pinned ? "Unpin" : "Pin"}
+                                    className="col-span-1 px-2 py-1 bg-transparent border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 text-xs font-medium transition-all duration-200 flex items-center justify-center"
                                   >
-                                    {task.pinned ? "Unpin" : "Pin"}
+                                    {task.pinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}
                                   </motion.button>
                                   <motion.button
                                     whileHover={{ scale: 1.02 }}
                                     whileTap={{ scale: 0.98 }}
                                     onClick={() => handleSaveForLater(task.id)}
-                                    className="col-span-1 px-2 py-1 bg-transparent border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 text-xs font-medium transition-all duration-200"
+                                    aria-label={task.savedForLater ? "Unsave" : "Save for Later"}
+                                    className="col-span-1 px-2 py-1 bg-transparent border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 text-xs font-medium transition-all duration-200 flex items-center justify-center"
                                   >
-                                    {task.savedForLater ? "Unsave" : "Save for Later"}
+                                    {task.savedForLater ? <BookmarkMinus className="w-4 h-4" /> : <BookmarkPlus className="w-4 h-4" />}
                                   </motion.button>
                                 </div>
                               </motion.div>
@@ -781,6 +787,20 @@ export default function AssignedTasksView({
           </motion.div>
         )}
       </AnimatePresence>
+      <style jsx global>{`
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 7px;
+          background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: #b6e0fe66;
+          border-radius: 6px;
+        }
+        .custom-scrollbar {
+          scrollbar-color: #60a5fa44 #0000;
+          scrollbar-width: thin;
+        }
+      `}</style>
     </motion.div>
   );
 }
