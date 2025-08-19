@@ -11,9 +11,10 @@ import UpdateStatusForAll from "@/components/UpdateStatusForAll";
 import DashboardContent from "@/components/member/DashboardContent";
 import AssignedTasksView from "@/components/member/AssignedTasksView";
 import RoutineTasksView from "@/components/member/RoutineTasksView";
+import MyNotes from "@/components/MyNotes"; // ✅ added
 
 /* ------------------------------------------------------------------ */
-/*  In‑memory cache, helpers                                           */
+/*  In-memory cache, helpers                                           */
 /* ------------------------------------------------------------------ */
 const taskCache = new Map();
 
@@ -157,7 +158,7 @@ const taskReducer = (state, action) => {
 };
 
 /* ------------------------------------------------------------------ */
-/*  Data‑fetch hook                                                    */
+/*  Data-fetch hook                                                    */
 /* ------------------------------------------------------------------ */
 const useDashboardData = (session, selectedDate, role, router, viewUserId = null) => {
   const [state, dispatch] = useReducer(taskReducer, {
@@ -537,7 +538,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
 
   const { activeSlot, timeLeft } = useSlotTiming(mriData);
 
-  /* redirect non‑members */
+  /* redirect non-members */
   useEffect(() => {
     if (
       status === "authenticated" && session?.user?.role !== role &&
@@ -983,18 +984,29 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
 
         <AnimatePresence mode="wait">
           {activeTab === "dashboard" && (
-            <DashboardContent
-              mriData={mriData}
-              mriError={mriError}
-              activeSlot={activeSlot}
-              timeLeft={timeLeft}
-              formatTimeLeft={formatTimeLeft}
-              session={session}
-              getTODName={getTODName}
-              setActiveTab={setActiveTab}
-              assignedTaskSummary={state.assignedTaskSummary}
-              routineTaskSummary={state.routineTaskSummary}
-            />
+            <>
+              <DashboardContent
+                mriData={mriData}
+                mriError={mriError}
+                activeSlot={activeSlot}
+                timeLeft={timeLeft}
+                formatTimeLeft={formatTimeLeft}
+                session={session}
+                getTODName={getTODName}
+                setActiveTab={setActiveTab}
+                assignedTaskSummary={state.assignedTaskSummary}
+                routineTaskSummary={state.routineTaskSummary}
+              />
+              {/* ✅ Notes (embedded): view + add modals handled inside component */}
+              <section className="mt-4">
+                <MyNotes
+                  embedded
+                  userId={viewUserId || user?.id}
+                  setError={setError}
+                  setSuccess={setSuccess}
+                />
+              </section>
+            </>
           )}
 
           {activeTab === "assigned" && (
