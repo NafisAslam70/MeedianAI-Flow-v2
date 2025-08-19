@@ -1,4 +1,5 @@
 "use client";
+
 import { motion } from "framer-motion";
 import {
   Calendar,
@@ -9,7 +10,8 @@ import {
   MessageSquare,
   X,
   UserCircle,
-  ArrowDownCircle
+  ArrowDownCircle,
+  Edit
 } from "lucide-react";
 import { useState } from "react";
 
@@ -39,6 +41,20 @@ const capitalize = (str) =>
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
 
+const deriveTaskStatus = (sprints) => {
+  if (!sprints || sprints.length === 0) return "not_started";
+  const statuses = sprints.map((s) => s.status);
+  const allVerified = statuses.every((s) => s === "verified");
+  const allDone = statuses.every((s) => s === "done");
+  const allCompleted = statuses.every((s) => ["done", "verified"].includes(s));
+  const someInProgress = statuses.some((s) => s === "in_progress");
+  if (allVerified) return "verified";
+  if (allDone) return "done";
+  if (allCompleted) return "pending_verification";
+  if (someInProgress) return "in_progress";
+  return "not_started";
+};
+
 const statusStyles = (status) => {
   switch (status) {
     case "not_started":
@@ -55,6 +71,24 @@ const statusStyles = (status) => {
   }
 };
 
+const dedupeAssignees = (assignees) => {
+  const seen = new Set();
+  return assignees.filter((a) => {
+    if (seen.has(a.id)) return false;
+    seen.add(a.id);
+    return true;
+  });
+};
+
+const dedupeSprints = (sprints) => {
+  const seen = new Set();
+  return sprints.filter((s) => {
+    if (seen.has(s.id)) return false;
+    seen.add(s.id);
+    return true;
+  });
+};
+
 const AssignedTaskDetails = ({
   task,
   taskLogs = [],
@@ -63,6 +97,18 @@ const AssignedTaskDetails = ({
   isManager = false,
   currentUserId,
   currentUserName,
+  onUpdateStatusClick,
+  newLogComment,
+  setNewLogComment,
+  isAddingLog,
+  onAddLog,
+  newTaskStatuses,
+  setNewTaskStatuses,
+  newSprintStatuses,
+  setNewSprintStatuses,
+  handleUpdateTaskStatus,
+  handleUpdateSprintStatus,
+  isUpdating,
 }) => {
   const [showFullDescription, setShowFullDescription] = useState(false);
   const [showFullLogs, setShowFullLogs] = useState(false);
@@ -70,29 +116,31 @@ const AssignedTaskDetails = ({
   const description = task?.description || "No description provided.";
   const isLongDescription = description.length > 240;
 
+  const assignees = isManager ? dedupeAssignees(task.assignees || []) : [];
+
   // Responsive sprints grid (2 columns on md+)
-  const sprintsGrid =
-    !isManager && task?.sprints?.length > 0 ? (
-      <div className="mt-3">
-        <h3 className="text-base font-semibold text-gray-800 mb-3 flex items-center gap-2">
-          <FileText className="w-4 h-4 text-teal-600" />
-          Sprints
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {task.sprints.map((s) => (
-            <div
-              key={s.id}
-              className={`
-                p-4 rounded-2xl shadow group transition-all
-                border-2 ${statusStyles(s.status)}
-                hover:shadow-xl hover:-translate-y-1 hover:bg-white/90
-                cursor-pointer
-              `}
-            >
-              <div className="flex items-center justify-between mb-1">
-                <span className="font-semibold text-gray-900 text-[15px] truncate">
-                  {s.title || "Untitled Sprint"}
-                </span>
+  const sprintsGrid = (sprints, isSprintManager = false, assigneeId) => (
+    <div className="mt-3">
+      <h3 className="text-base font-semibold text-gray-800 mb-3 flex items-center gap-2">
+        <FileText className="w-4 h-4 text-teal-600" />
+        Sprints
+      </h3>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {dedupeSprints(sprints).map((s) => (
+          <div
+            key={s.id}
+            className={`
+              p-4 rounded-2xl shadow group transition-all
+              border-2 ${statusStyles(s.status)}
+              hover:shadow-xl hover:-translate-y-1 hover:bg-white/90
+              cursor-pointer
+            `}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <span className="font-semibold text-gray-900 text-[15px] truncate">
+                {s.title || "Untitled Sprint"}
+              </span>
+              {!isSprintManager ? (
                 <span
                   className={`ml-2 px-2 py-0.5 text-xs font-bold rounded-xl border ${statusStyles(
                     s.status
@@ -100,15 +148,38 @@ const AssignedTaskDetails = ({
                 >
                   {capitalize(s.status.replace("_", " "))}
                 </span>
-              </div>
-              <p className="text-xs text-gray-500 font-medium mb-1">
-                {s.description || <span className="italic text-gray-300">No description.</span>}
-              </p>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <select
+                    value={newSprintStatuses[`${assigneeId}-${s.id}`] || s.status}
+                    onChange={(e) => setNewSprintStatuses(prev => ({ ...prev, [`${assigneeId}-${s.id}`]: e.target.value }))}
+                    className="px-2 py-1 border rounded-lg text-xs bg-gray-50 focus:ring-2 focus:ring-teal-500 text-gray-700"
+                  >
+                    <option value="not_started">Not Started</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="pending_verification">Pending Verification</option>
+                    <option value="done">Done</option>
+                  </select>
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => handleUpdateSprintStatus(assigneeId, s.id, newSprintStatuses[`${assigneeId}-${s.id}`] || s.status)}
+                    disabled={isUpdating}
+                    className={`px-2 py-1 bg-teal-600 text-white rounded-lg text-xs font-medium ${isUpdating ? "opacity-50 cursor-not-allowed" : ""}`}
+                  >
+                    {isUpdating ? "Updating..." : "Update"}
+                  </motion.button>
+                </div>
+              )}
             </div>
-          ))}
-        </div>
+            <p className="text-xs text-gray-500 font-medium mb-1">
+              {s.description || <span className="italic text-gray-300">No description.</span>}
+            </p>
+          </div>
+        ))}
       </div>
-    ) : null;
+    </div>
+  );
 
   return (
     <motion.div
@@ -153,6 +224,17 @@ const AssignedTaskDetails = ({
               <FileText className="w-6 h-6 text-teal-600" />
               {task?.title || "Untitled Task"}
             </h2>
+            {!isManager && (
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={onUpdateStatusClick}
+                className="w-fit px-4 py-2 bg-teal-600 text-white rounded-xl text-sm font-medium hover:bg-teal-700 dark:bg-teal-700 dark:hover:bg-teal-800 flex items-center gap-1 shadow-lg border border-teal-200 transition-all mb-4"
+              >
+                <Edit className="w-4 h-4" />
+                Update Status
+              </motion.button>
+            )}
             <p className="text-[15px] text-gray-700 dark:text-slate-200 mb-3 whitespace-pre-line">
               {isLongDescription && !showFullDescription
                 ? `${description.slice(0, 240)}...`
@@ -220,36 +302,60 @@ const AssignedTaskDetails = ({
             </div>
 
             {/* Manager assignees list */}
-            {isManager && task.assignees && (
+            {isManager && assignees.length > 0 && (
               <div className="mt-2">
                 <h3 className="text-base font-semibold text-gray-800 dark:text-white mb-2 flex items-center gap-2">
                   <UserCircle className="w-4 h-4 text-teal-600" />
                   Assignees
                 </h3>
                 <div className="space-y-2">
-                  {task.assignees.map((assignee) => (
+                  {assignees.map((assignee) => (
                     <div
                       key={assignee.id}
-                      className="bg-gray-50 dark:bg-slate-800/60 p-3 rounded-xl border border-gray-200 dark:border-slate-700 shadow flex items-center gap-2"
+                      className="bg-gray-50 dark:bg-slate-800/60 p-3 rounded-xl border border-gray-200 dark:border-slate-700 shadow flex flex-col gap-2"
                     >
-                      <span className="w-8 h-8 flex items-center justify-center bg-teal-100 text-teal-800 rounded-full font-bold mr-2">
-                        {getInitials(getUserName(assignee.id, users))}
-                      </span>
-                      <div>
-                        <span className="font-semibold text-gray-900 dark:text-gray-200">
-                          {getUserName(assignee.id, users, currentUserId, currentUserName)}
+                      <div className="flex items-center gap-2">
+                        <span className="w-8 h-8 flex items-center justify-center bg-teal-100 text-teal-800 rounded-full font-bold mr-2">
+                          {getInitials(getUserName(assignee.id, users))}
                         </span>
-                        <p className="text-xs text-gray-600 dark:text-gray-400">
-                          Status:{" "}
-                          <span
-                            className={`px-2 py-0.5 rounded-xl border font-semibold shadow-sm ${statusStyles(
-                              assignee.status || "not_started"
-                            )}`}
-                          >
-                            {capitalize(assignee.status?.replace("_", " ") || "N/A")}
+                        <div>
+                          <span className="font-semibold text-gray-900 dark:text-gray-200">
+                            {getUserName(assignee.id, users, currentUserId, currentUserName)}
                           </span>
-                        </p>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-gray-600 dark:text-gray-400">
+                              Status:{" "}
+                              <span
+                                className={`px-2 py-0.5 rounded-xl border font-semibold shadow-sm ${statusStyles(
+                                  deriveTaskStatus(assignee.sprints || [])
+                                )}`}
+                              >
+                                {capitalize(deriveTaskStatus(assignee.sprints || []).replace("_", " "))}
+                              </span>
+                            </span>
+                            <select
+                              value={newTaskStatuses[assignee.id] || assignee.status}
+                              onChange={(e) => setNewTaskStatuses(prev => ({ ...prev, [assignee.id]: e.target.value }))}
+                              className="px-2 py-1 border rounded-lg text-xs bg-gray-50 focus:ring-2 focus:ring-teal-500 text-gray-700"
+                            >
+                              <option value="not_started">Not Started</option>
+                              <option value="in_progress">In Progress</option>
+                              <option value="pending_verification">Pending Verification</option>
+                              <option value="done">Done</option>
+                            </select>
+                            <motion.button
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                              onClick={() => handleUpdateTaskStatus(assignee.id, newTaskStatuses[assignee.id] || assignee.status)}
+                              disabled={isUpdating}
+                              className={`px-2 py-1 bg-teal-600 text-white rounded-lg text-xs font-medium ${isUpdating ? "opacity-50 cursor-not-allowed" : ""}`}
+                            >
+                              {isUpdating ? "Updating..." : "Update Task Status"}
+                            </motion.button>
+                          </div>
+                        </div>
                       </div>
+                      {assignee.sprints?.length > 0 && sprintsGrid(assignee.sprints, true, assignee.id)}
                     </div>
                   ))}
                 </div>
@@ -257,7 +363,29 @@ const AssignedTaskDetails = ({
             )}
 
             {/* Sprints: two-column modern grid */}
-            {sprintsGrid}
+            {!isManager && task.sprints?.length > 0 && sprintsGrid(task.sprints)}
+
+            {/* Add Log Section for Manager */}
+            {isManager && (
+              <div className="mt-4">
+                <h3 className="text-base font-semibold text-gray-800 dark:text-white mb-2">Add Log</h3>
+                <textarea
+                  value={newLogComment}
+                  onChange={(e) => setNewLogComment(e.target.value)}
+                  placeholder="Add a comment..."
+                  className="w-full px-4 py-2 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-teal-500 text-sm font-medium text-gray-700 mb-2"
+                />
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={onAddLog}
+                  disabled={!newLogComment || isAddingLog}
+                  className={`px-4 py-2 bg-teal-600 text-white rounded-md text-sm font-medium ${!newLogComment || isAddingLog ? "opacity-50 cursor-not-allowed" : ""}`}
+                >
+                  {isAddingLog ? "Adding..." : "Add Log"}
+                </motion.button>
+              </div>
+            )}
           </div>
 
           {/* RIGHT: Modern discussion panel */}

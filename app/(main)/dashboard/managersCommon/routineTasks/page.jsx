@@ -122,7 +122,6 @@ export default function RoutineTaskStatus() {
         body: JSON.stringify({
           memberId: selectedUserId,
           description: newTaskDescription,
-          status: "not_started",
         }),
       });
 
@@ -135,16 +134,6 @@ export default function RoutineTaskStatus() {
       setRoutineTasks((prev) => [
         ...prev,
         { id: taskId, description: newTaskDescription, memberId: selectedUserId },
-      ]);
-      setRoutineTaskStatuses((prev) => [
-        ...prev,
-        {
-          routineTaskId: taskId,
-          memberId: selectedUserId,
-          status: "not_started",
-          updatedAt: new Date().toISOString(),
-          comment: null,
-        },
       ]);
       setNewTaskDescription("");
       setError("");

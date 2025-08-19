@@ -1,4 +1,4 @@
-// app/(main)/dashboard/member/closeMyDay/RoutineTasksStep.jsx
+"use client";
 import { motion, AnimatePresence } from "framer-motion";
 import { CheckCircle, AlertCircle } from "lucide-react";
 
@@ -41,7 +41,7 @@ export default function RoutineTasksStep({
         })}
       </div>
       <div className="mt-4">
-        <label className="block text-sm font-medium text-gray-800 mb-1">Routine Task Log:</label>
+        <label className="block text-sm font-medium text-gray-800 mb-1">Routine Task Log (common for all tasks):</label>
         <textarea
           value={routineLog}
           onChange={(e) => setRoutineLog(e.target.value)}

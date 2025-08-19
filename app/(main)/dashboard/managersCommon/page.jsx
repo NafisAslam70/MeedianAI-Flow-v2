@@ -10,6 +10,20 @@ import AssignedTaskDetails from "@/components/assignedTaskCardDetailForAll";
 
 const fetcher = (url) => fetch(url).then((res) => res.json());
 
+const deriveTaskStatus = (sprints) => {
+  if (!sprints || sprints.length === 0) return "not_started";
+  const statuses = sprints.map((s) => s.status);
+  const allVerified = statuses.every((s) => s === "verified");
+  const allDone = statuses.every((s) => s === "done");
+  const allCompleted = statuses.every((s) => ["done", "verified"].includes(s));
+  const someInProgress = statuses.some((s) => s === "in_progress");
+  if (allVerified) return "verified";
+  if (allDone) return "done";
+  if (allCompleted) return "pending_verification";
+  if (someInProgress) return "in_progress";
+  return "not_started";
+};
+
 export default function ManagersCommonDashboard({ disableUserSelect = false }) {
   const router = useRouter();
   const pathname = usePathname();

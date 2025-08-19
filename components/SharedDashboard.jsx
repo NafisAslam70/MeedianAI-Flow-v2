@@ -6,8 +6,7 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import AssignedTaskDetails from "@/components/assignedTaskCardDetailForAll";
-
-
+import UpdateStatusForAll from "@/components/UpdateStatusForAll";
 
 import DashboardContent from "@/components/member/DashboardContent";
 import AssignedTasksView from "@/components/member/AssignedTasksView";
@@ -437,213 +436,6 @@ const Modal = ({ isOpen, onClose, title, children }) => (
 );
 
 /* ------------------------------------------------------------------ */
-/*  Status-update modal (now with WhatsApp checkbox)                   */
-/* ------------------------------------------------------------------ */
-const StatusUpdateModal = ({
-  task,
-  sprints,
-  selectedSprint,
-  setSelectedSprint,
-  newStatus,
-  setNewStatus,
-  taskLogs,
-  users,
-  newLogComment,
-  setNewLogComment,
-  sendNotification,
-  setSendNotification,
-  sendWhatsapp,
-  setSendWhatsapp,
-  isUpdating,
-  onUpdate,
-  onAddLog,
-  onClose,
-  startVoiceRecording,
-  isRecording,
-  handleTranslateComment,
-}) => (
-  <div>
-    <div className="flex flex-row gap-4 mb-4">
-      <div className="flex-1">
-        {sprints.length ? (
-          <>
-{/* ─── choose sprint ─────────────────────────────────────────────── */}
-<select
-  value={selectedSprint}
-  onChange={(e) => setSelectedSprint(e.target.value)}
-  className="w-full px-4 py-2 border rounded-lg mb-3 bg-gray-50 focus:ring-2 focus:ring-teal-500 text-sm font-medium text-gray-700"
->
-  <option value="">Select Sprint</option>
-  {sprints.map((s) => (
-    <option key={s.id} value={s.id}>
-      {s.title || "Untitled Sprint"}
-    </option>
-  ))}
-</select>
-
-            <select
-              value={newStatus}
-              onChange={(e) => setNewStatus(e.target.value)}
-              className="w-full px-4 py-2 border rounded-lg mb-3 bg-gray-50 focus:ring-2 focus:ring-teal-500 text-sm font-medium text-gray-700"
-              disabled={!selectedSprint}
-            >
-              <option value="">Select Status</option>
-              <option value="not_started">Not Started</option>
-              <option value="in_progress">In Progress</option>
-              <option value="pending_verification">Pending Verification</option>
-              <option value="done">Done</option>
-            </select>
-          </>
-        ) : (
-          <select
-            value={newStatus}
-            onChange={(e) => setNewStatus(e.target.value)}
-            className="w-full px-4 py-2 border rounded-lg mb-3 bg-gray-50 focus:ring-2 focus:ring-teal-500 text-sm font-medium text-gray-700"
-          >
-            <option value="">Select Status</option>
-            <option value="not_started">Not Started</option>
-            <option value="in_progress">In Progress</option>
-            <option value="pending_verification">Pending Verification</option>
-            <option value="done">Done</option>
-          </select>
-        )}
-
-        <div className="flex items-center mb-2">
-          <input
-            type="checkbox"
-            checked={sendNotification}
-            onChange={(e) => setSendNotification(e.target.checked)}
-            className="h-4 w-4 text-teal-600 focus:ring-teal-500"
-          />
-          <label className="ml-2 text-sm font-medium text-gray-700">
-            Chat‑notify assignees
-          </label>
-        </div>
-        <div className="flex items-center mb-4">
-          <input
-            type="checkbox"
-            checked={sendWhatsapp}
-            onChange={(e) => setSendWhatsapp(e.target.checked)}
-            className="h-4 w-4 text-teal-600 focus:ring-teal-500"
-          />
-          <label className="ml-2 text-sm font-medium text-gray-700">
-            WhatsApp ping
-          </label>
-        </div>
-      </div>
-
-      <div className="flex-1">
-        <h3 className="text-sm font-semibold text-gray-700 mb-2">Task Discussion</h3>
-        <div className="max-h-40 overflow-y-auto space-y-2 mb-2">
-          {taskLogs.length ? (
-            taskLogs.map((log) => {
-              const sprint = log.sprintId ? sprints.find((s) => s.id === log.sprintId) : null;
-              const prefix = sprint ? `[${sprint.title || "Untitled Sprint"}] ` : "[Main] ";
-              return (
-                <div
-                  key={log.id}
-                  className="p-3 bg-gray-50 rounded-lg shadow-sm border border-gray-200"
-                >
-                  <p className="text-xs text-gray-600">
-                    {prefix}{users.find((u) => u.id === log.userId)?.name || "Unknown"} (
-                    {new Date(log.createdAt).toLocaleString()}):
-                  </p>
-                  <p className="text-sm text-gray-700">{log.details}</p>
-                </div>
-              );
-            })
-          ) : (
-            <p className="text-sm text-gray-500">No discussion yet.</p>
-          )}
-        </div>
-      </div>
-    </div>
-    <textarea
-      value={newLogComment}
-      onChange={(e) => setNewLogComment(e.target.value)}
-      placeholder="Add a comment to the task discussion..."
-      className="w-full px-4 py-2 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-teal-500 text-sm font-medium text-gray-700 mb-4"
-    />
-    <div className="flex items-center gap-2 mb-4">
-      <motion.button
-        onClick={startVoiceRecording}
-        disabled={isRecording}
-        className={`px-3 py-1 rounded-lg text-sm font-medium ${isRecording ? "bg-gray-400 cursor-not-allowed" : "bg-teal-600 text-white hover:bg-teal-700"}`}
-        whileHover={{ scale: isRecording ? 1 : 1.05 }}
-        whileTap={{ scale: isRecording ? 1 : 0.95 }}
-      >
-        {isRecording ? "Recording..." : "Record Comment (Hindi)"}
-      </motion.button>
-      <motion.button
-        onClick={handleTranslateComment}
-        className="px-3 py-1 rounded-lg text-sm font-medium bg-purple-600 text-white hover:bg-purple-700"
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
-      >
-        Translate to English
-      </motion.button>
-    </div>
-
-    <div className="flex justify-end space-x-2">
-      <motion.button
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
-        onClick={onClose}
-        className="px-4 py-2 bg-gray-500 text-white rounded-md text-sm font-medium"
-      >
-        Cancel
-      </motion.button>
-      {/* <motion.button
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
-        onClick={onAddLog}
-        disabled={!newLogComment || isUpdating}
-        className={`px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium ${!newLogComment || isUpdating
-            ? "opacity-50 cursor-not-allowed"
-            : ""
-          }`}
-      >
-        {isUpdating ? (
-          <motion.span
-            animate={{ rotate: 360 }}
-            transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-            className="inline-block w-4 h-4 border-4 border-t-blue-200 border-blue-600 rounded-full"
-          />
-        ) : (
-          "Add Log"
-        )}
-      </motion.button> */}
-      <motion.button
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
-        onClick={onUpdate}
-        disabled={
-          !newStatus || (sprints.length && !selectedSprint) || isUpdating
-        }
-        className={`px-4 py-2 bg-teal-600 text-white rounded-md text-sm font-medium ${!newStatus || (sprints.length && !selectedSprint) || isUpdating
-            ? "opacity-50 cursor-not-allowed"
-            : ""
-          }`}
-      >
-        {isUpdating ? (
-          <motion.span
-            animate={{ rotate: 360 }}
-            transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-            className="inline-block w-4 h-4 border-4 border-t-teal-200 border-teal-600 rounded-full"
-          />
-        ) : (
-          "Update Status"
-        )}
-      </motion.button>
-    </div>
-  </div>
-);
-
-/* ------------------------------------------------------------------ */
-/*  Task Details Modal (restored from earlier code with all details)  */
-/* ------------------------------------------------------------------ */
-
-/* ------------------------------------------------------------------ */
 /*  Close Day Modal Content (from earlier code)                       */
 /* ------------------------------------------------------------------ */
 const CloseDayModal = ({
@@ -808,6 +600,21 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
       setError("Failed to fetch task logs. Please try again.");
       setTimeout(() => setError(""), 3000);
     }
+  };
+
+  const fetchFullTask = async (taskId) => {
+    try {
+      const r = await fetch(`/api/member/assignedTasks?taskId=${taskId}&action=task`);
+      if (r.ok) {
+        const d = await r.json();
+        return d.task;
+      }
+    } catch (err) {
+      console.error("fetchFullTask error:", err.message);
+      setError("Failed to fetch full task details. Please try again.");
+      setTimeout(() => setError(""), 3000);
+    }
+    return null;
   };
 
   const notifyAssigneesChat = async (taskId, messageContent) => {
@@ -1028,13 +835,21 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
         state.assignedTasks
       );
 
+      // Update selectedTask from the updated state
+      const updatedTask = state.assignedTasks.find((t) => t.id === selectedTask.id);
+      if (updatedTask) {
+        setSelectedTask(updatedTask);
+      }
+
+      // Refetch logs if a new comment was added
+      if (newLogComment) {
+        await fetchTaskLogs(selectedTask.id);
+      }
+
       setSuccess("Task status updated!");
       setShowStatusModal(false);
-      setSelectedTask(null);
       setNewStatus("");
       setSelectedSprint("");
-      setSprints([]);
-      setTaskLogs([]);
       setNewLogComment("");
       setSendNotification(true);
       setSendWhatsapp(false);
@@ -1204,9 +1019,15 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                 setShowStatusModal(true);
               }}
               handleTaskDetails={async (t) => {
-                setSelectedTask(t);
+                let taskToSet = t;
+                const isManager = role === "team_manager" || role === "admin";
+                if (isManager) {
+                  const fullTask = await fetchFullTask(t.id);
+                  if (fullTask) taskToSet = fullTask;
+                }
+                setSelectedTask(taskToSet);
                 await fetchTaskLogs(t.id);
-                await fetchSprints(t.id, user?.id);
+                if (!isManager) await fetchSprints(t.id, user?.id);
                 setShowDetailsModal(true);
               }}
               users={users}
@@ -1235,12 +1056,8 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
         </AnimatePresence>
 
         {/* --- Modals --------------------------------------------------- */}
-        <Modal
-          isOpen={showStatusModal}
-          onClose={() => setShowStatusModal(false)}
-          title="Update Task Status"
-        >
-          <StatusUpdateModal
+        {showStatusModal && (
+          <UpdateStatusForAll
             task={selectedTask}
             sprints={sprints}
             selectedSprint={selectedSprint}
@@ -1260,11 +1077,8 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
             onAddLog={handleAddLog}
             onClose={() => {
               setShowStatusModal(false);
-              setSelectedTask(null);
               setNewStatus("");
               setSelectedSprint("");
-              setSprints([]);
-              setTaskLogs([]);
               setNewLogComment("");
               setSendNotification(true);
               setSendWhatsapp(false);
@@ -1272,8 +1086,12 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
             startVoiceRecording={startVoiceRecording}
             isRecording={isRecording}
             handleTranslateComment={handleTranslateComment}
+            currentUserId={session?.user?.id}
+            currentUserName={session?.user?.name}
+            error={error}
+            success={success}
           />
-        </Modal>
+        )}
 
         <Modal
           isOpen={showDetailsModal}
@@ -1281,21 +1099,28 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
             setShowDetailsModal(false);
             setSelectedTask(null);
             setTaskLogs([]);
+            setSprints([]);
           }}
           title="Task Details"
         >
-<AssignedTaskDetails
-  task={selectedTask}
-  taskLogs={taskLogs}
-  users={users}
-  onClose={() => {
-    setShowDetailsModal(false);
-    setSelectedTask(null);
-    setTaskLogs([]);
-  }}
-  currentUserId={session?.user?.id}
-  currentUserName={session?.user?.name}
-/>
+          <AssignedTaskDetails
+            task={selectedTask}
+            taskLogs={taskLogs}
+            users={users}
+            onClose={() => {
+              setShowDetailsModal(false);
+              setSelectedTask(null);
+              setTaskLogs([]);
+              setSprints([]);
+            }}
+            currentUserId={session?.user?.id}
+            currentUserName={session?.user?.name}
+            onUpdateStatusClick={() => {
+              setNewStatus(selectedTask?.status || "not_started");
+              setSelectedSprint("");
+              setShowStatusModal(true);
+            }}
+          />
         </Modal>
 
         <Modal

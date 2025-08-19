@@ -1,4 +1,3 @@
-// app/(main)/api/member/routine-tasks/route.js
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
@@ -38,7 +37,13 @@ export async function GET(req) {
         )
         .where(eq(routineTasks.memberId, parseInt(session.user.id)));
 
-      return NextResponse.json({ tasks }, { status: 200 });
+      // Default status to "not_done" if no daily status exists
+      const tasksWithDefault = tasks.map((task) => ({
+        ...task,
+        status: task.status || "not_done",
+      }));
+
+      return NextResponse.json({ tasks: tasksWithDefault }, { status: 200 });
     } catch (error) {
       console.error("GET /api/member/routine-tasks error:", error);
       return NextResponse.json({ error: `Failed to fetch routine tasks: ${error.message}` }, { status: 500 });
@@ -134,7 +139,7 @@ export async function POST(req) {
       await db.insert(routineTaskDailyStatuses).values({
         routineTaskId: task.id,
         date: new Date(),
-        status: status || "not_started",
+        status: status || "not_done", // Default to "not_done" instead of "not_started"
         updatedAt: new Date(),
         isLocked: false,
       });

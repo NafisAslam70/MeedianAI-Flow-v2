@@ -1,4 +1,3 @@
-// app/(main)/api/member/dayClose/dayCloseRequest/route.js
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
@@ -7,7 +6,7 @@ import { eq, and } from "drizzle-orm";
 
 export async function POST(req) {
   const session = await auth();
-  if (!session || !["member", "team_manager"].includes(session.user.role)) {
+  if (!session || !["member", "team_manager"].includes(session.user?.role)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const userId = Number(session.user.id);
