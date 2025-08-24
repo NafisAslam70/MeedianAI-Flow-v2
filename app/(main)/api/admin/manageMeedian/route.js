@@ -11,7 +11,7 @@ export async function GET(req) {
   const { searchParams } = new URL(req.url);
   const section = searchParams.get("section");
 
-  // Allow members for 'slots' section
+  // Allow members for 'slots' section, restrict others
   if (section === "slots") {
     if (!session || !["admin", "team_manager", "member"].includes(session.user?.role)) {
       console.error("Unauthorized access attempt:", { user: session?.user });
@@ -34,7 +34,7 @@ export async function GET(req) {
           whatsapp_number: users.whatsapp_number,
           member_scope: users.member_scope,
           team_manager_type: users.team_manager_type,
-          immediate_supervisor: users.immediate_supervisor, // Add immediate_supervisor
+          immediate_supervisor: users.immediate_supervisor,
         })
         .from(users);
       console.log("Fetched team data:", userData);
@@ -77,7 +77,10 @@ export async function GET(req) {
 
       const slotsWithAssignments = slots.map((slot) => ({
         ...slot,
-        assignedMemberId: assignments.find((a) => a.slotId === slot.id)?.memberId || slot.assignedMemberId || null,
+        assignedMemberId:
+          assignments.find((a) => a.slotId === slot.id)?.memberId ||
+          slot.assignedMemberId ||
+          null,
       }));
 
       console.log("Fetched slots data with assignments:", slotsWithAssignments);
@@ -152,7 +155,7 @@ export async function POST(req) {
           minor_term: minorTerm,
           start_date: new Date(startDate),
           end_date: new Date(endDate),
-          name: name,
+          name,
           week_number: weekNumber !== undefined ? weekNumber : null,
           is_major_term_boundary: isMajorTermBoundary || false,
         })
@@ -187,9 +190,7 @@ export async function POST(req) {
         return NextResponse.json({ error: `Invalid slotId: ${slotId}` }, { status: 400 });
       }
 
-      const userIds = new Set(
-        (await db.select({ id: users.id }).from(users)).map((user) => user.id)
-      );
+      const userIds = new Set((await db.select({ id: users.id }).from(users)).map((u) => u.id));
       if (!userIds.has(memberId)) {
         console.error("Invalid memberId:", memberId);
         return NextResponse.json({ error: `Invalid memberId: ${memberId}` }, { status: 400 });
@@ -197,10 +198,7 @@ export async function POST(req) {
 
       const newAssignment = await db
         .insert(dailySlotAssignments)
-        .values({
-          slotId,
-          memberId,
-        })
+        .values({ slotId, memberId })
         .returning({
           id: dailySlotAssignments.id,
           slotId: dailySlotAssignments.slotId,
@@ -240,9 +238,8 @@ export async function PATCH(req) {
       }
 
       // Fetch all user IDs for validation
-      const userIds = new Set(
-        (await db.select({ id: users.id }).from(users)).map((user) => user.id)
-      );
+      const allUsers = await db.select({ id: users.id, email: users.email }).from(users);
+      const userIds = new Set(allUsers.map((u) => u.id));
 
       for (const user of updates) {
         if (
@@ -298,15 +295,17 @@ export async function PATCH(req) {
           }
         }
 
+        const normalizedEmail = String(user.email).toLowerCase();
+
         const updateData = {
           name: user.name,
-          email: user.email,
+          email: normalizedEmail,
           role: user.role,
           type: user.type,
           whatsapp_number: user.whatsapp_number,
           member_scope: user.member_scope,
           team_manager_type: user.role === "team_manager" ? user.team_manager_type : null,
-          immediate_supervisor: user.immediate_supervisor || null, // Handle immediate_supervisor
+          immediate_supervisor: user.immediate_supervisor ?? null,
         };
         if (user.password) {
           updateData.password = await bcrypt.hash(user.password, 10);
@@ -315,9 +314,9 @@ export async function PATCH(req) {
         const existingUser = await db
           .select({ id: users.id })
           .from(users)
-          .where(eq(users.email, user.email.toLowerCase()));
+          .where(eq(users.email, normalizedEmail));
         if (existingUser.length > 0 && existingUser[0].id !== user.id) {
-          console.error("Email already in use:", user.email);
+          console.error("Email already in use:", normalizedEmail);
           return NextResponse.json({ error: `Email already in use for user ${user.id}` }, { status: 400 });
         }
 
@@ -369,19 +368,17 @@ export async function PATCH(req) {
         return NextResponse.json({ error: "Invalid or empty updates" }, { status: 400 });
       }
 
-      const userIds = new Set(
-        (await db.select({ id: users.id }).from(users)).map((user) => user.id)
-      );
-      const slotIds = new Set(
-        (await db.select({ id: dailySlots.id }).from(dailySlots)).map((slot) => slot.id)
-      );
+      const userIds = new Set((await db.select({ id: users.id }).from(users)).map((u) => u.id));
+      const slotIds = new Set((await db.select({ id: dailySlots.id }).from(dailySlots)).map((s) => s.id));
 
       const updatedAssignments = [];
       for (const update of updates) {
         const { slotId, memberId, startTime, endTime } = update;
         if (!slotId || (!memberId && !startTime && !endTime)) {
           console.error("Missing required slot assignment fields:", update);
-          return NextResponse.json({ error: `Missing required fields for slot assignment: slotId or memberId/startTime/endTime` }, { status: 400 });
+          return NextResponse.json({
+            error: `Missing required fields for slot assignment: slotId or memberId/startTime/endTime`,
+          }, { status: 400 });
         }
 
         if (!slotIds.has(slotId)) {
@@ -405,9 +402,7 @@ export async function PATCH(req) {
               .set({ memberId })
               .where(eq(dailySlotAssignments.slotId, slotId));
           } else {
-            await db
-              .insert(dailySlotAssignments)
-              .values({ slotId, memberId });
+            await db.insert(dailySlotAssignments).values({ slotId, memberId });
           }
           updatedAssignments.push({ slotId, memberId });
         }
@@ -446,7 +441,7 @@ export async function PATCH(req) {
             minor_term: minorTerm,
             start_date: new Date(startDate),
             end_date: new Date(endDate),
-            name: name,
+            name,
             week_number: weekNumber !== undefined ? weekNumber : null,
             is_major_term_boundary: isMajorTermBoundary || false,
           })
@@ -464,7 +459,7 @@ export async function PATCH(req) {
   }
 }
 
-// DELETE Handler: Delete a calendar entry or slot assignment
+// DELETE Handler: Delete a calendar entry, slot assignment, or user
 export async function DELETE(req) {
   const session = await auth();
   if (!session || !["admin", "team_manager"].includes(session.user?.role)) {
@@ -479,7 +474,7 @@ export async function DELETE(req) {
     const body = await req.json();
 
     if (section === "schoolCalendar") {
-      const { id } = body;
+      const { id } = body || {};
       if (!id) {
         console.error("Missing required field: id", body);
         return NextResponse.json({ error: "Missing required field: id" }, { status: 400 });
@@ -492,7 +487,7 @@ export async function DELETE(req) {
     }
 
     if (section === "slots") {
-      const { slotId } = body;
+      const { slotId } = body || {};
       if (!slotId) {
         console.error("Missing required field: slotId", body);
         return NextResponse.json({ error: "Missing required field: slotId" }, { status: 400 });
@@ -502,6 +497,49 @@ export async function DELETE(req) {
 
       console.log(`Deleted slot assignment for slotId: ${slotId}`);
       return NextResponse.json({ message: "Slot assignment deleted successfully" }, { status: 200 });
+    }
+
+    if (section === "team") {
+      const { userId } = body || {};
+      if (!userId) {
+        console.error("Missing required field: userId", body);
+        return NextResponse.json({ error: "Missing required field: userId" }, { status: 400 });
+      }
+
+      // Prevent deleting yourself
+      const me = Number(session.user?.id);
+      if (Number(userId) === me) {
+        return NextResponse.json({ error: "You cannot delete your own account." }, { status: 400 });
+      }
+
+      // Fetch target user & role protection (team_manager cannot delete admin)
+      const target = await db
+        .select({ id: users.id, role: users.role })
+        .from(users)
+        .where(eq(users.id, userId));
+
+      if (target.length === 0) {
+        return NextResponse.json({ error: `User ${userId} not found` }, { status: 404 });
+      }
+
+      if (session.user?.role === "team_manager" && target[0].role === "admin") {
+        return NextResponse.json({ error: "Insufficient privileges to delete an admin." }, { status: 403 });
+      }
+
+      // Cleanup: remove slot assignments where this user is assigned
+      await db.delete(dailySlotAssignments).where(eq(dailySlotAssignments.memberId, userId));
+
+      // Cleanup: nullify immediate_supervisor for any direct reports
+      await db
+        .update(users)
+        .set({ immediate_supervisor: null })
+        .where(eq(users.immediate_supervisor, userId));
+
+      // Delete the user
+      await db.delete(users).where(eq(users.id, userId));
+
+      console.log(`Deleted user ${userId} and cleaned up related records`);
+      return NextResponse.json({ message: "User deleted successfully" }, { status: 200 });
     }
 
     return NextResponse.json({ error: "Invalid section" }, { status: 400 });
