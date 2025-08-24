@@ -31,7 +31,10 @@ export default function ManageTeamPage() {
   const [showManageTimingsModal, setShowManageTimingsModal] = useState(false);
   const [editTimingsSlot, setEditTimingsSlot] = useState(null);
   const [teamFilter, setTeamFilter] = useState("members");
-  const [expandedCard, setExpandedCard] = useState(null); // Track which card is expanded
+  const [expandedCard, setExpandedCard] = useState(null);
+  const [confirmDeleteUser, setConfirmDeleteUser] = useState(null); // user object to delete
+  const [showPasswords, setShowPasswords] = useState({}); // { [userId]: boolean }
+
   const userTypes = ["residential", "non_residential", "semi_residential"];
   const roleTypes = ["member", "admin", "team_manager"];
   const memberScopes = ["i_member", "o_member", "s_member"];
@@ -80,65 +83,59 @@ export default function ManageTeamPage() {
     }
   );
 
+  /* ----------------------------- Effects ----------------------------- */
   useEffect(() => {
     if (userData) {
-      console.log("Fetched users:", userData.users);
       setUsers(userData.users || []);
-      setMembers(userData.users.filter((u) => u.role === "member" || u.role === "team_manager") || []);
-      setLoading((prev) => ({ ...prev, team: false }));
+      setMembers(userData.users?.filter((u) => u.role === "member" || u.role === "team_manager") || []);
+      setLoading((p) => ({ ...p, team: false }));
     }
     if (userError) {
-      console.error("User fetch error:", userError);
       setError(`Failed to load users: ${userError.message}. Check database, auth, or server logs.`);
-      setLoading((prev) => ({ ...prev, team: false }));
+      setLoading((p) => ({ ...p, team: false }));
     }
   }, [userData, userError]);
 
   useEffect(() => {
     if (slotData) {
-      console.log("Fetched slots:", slotData.slots);
       setSlots(slotData.slots || []);
       setBulkAssignments(
-        slotData.slots.reduce((acc, slot) => ({
-          ...acc,
-          [slot.id]: slot.assignedMemberId || null,
-        }), {})
+        (slotData.slots || []).reduce((acc, slot) => {
+          acc[slot.id] = slot.assignedMemberId || null;
+          return acc;
+        }, {})
       );
-      setLoading((prev) => ({ ...prev, slots: false }));
+      setLoading((p) => ({ ...p, slots: false }));
     }
     if (slotError) {
-      console.error("Slots fetch error:", slotError);
       setError(`Failed to load slots: ${slotError.message}. Check database, auth, or server logs.`);
-      setLoading((prev) => ({ ...prev, slots: false }));
+      setLoading((p) => ({ ...p, slots: false }));
     }
   }, [slotData, slotError]);
 
   useEffect(() => {
     if (calendarData) {
-      console.log("Fetched calendar:", calendarData.calendar);
       setCalendar(calendarData.calendar || []);
-      setLoading((prev) => ({ ...prev, calendar: false }));
+      setLoading((p) => ({ ...p, calendar: false }));
     }
     if (calendarError) {
-      console.error("Calendar fetch error:", calendarError);
       setError(`Failed to load school calendar: ${calendarError.message}`);
-      setLoading((prev) => ({ ...prev, calendar: false }));
+      setLoading((p) => ({ ...p, calendar: false }));
     }
   }, [calendarData, calendarError]);
 
   useEffect(() => {
     if (studentData) {
-      console.log("Fetched students:", studentData.students);
       setStudents(studentData.students || []);
-      setLoading((prev) => ({ ...prev, students: false }));
+      setLoading((p) => ({ ...p, students: false }));
     }
     if (studentError) {
-      console.error("Students fetch error:", studentError);
       setError(`Failed to load students: ${studentError.message}. Check database or server logs.`);
-      setLoading((prev) => ({ ...prev, students: false }));
+      setLoading((p) => ({ ...p, students: false }));
     }
   }, [studentData, studentError]);
 
+  /* -------------------------- Team Handlers -------------------------- */
   const handleUserChange = (id, field, value) => {
     setUsers((prev) =>
       prev.map((u) =>
@@ -153,131 +150,129 @@ export default function ManageTeamPage() {
   };
 
   const saveTeamChanges = async () => {
-    setSaving((prev) => ({ ...prev, team: true }));
+    setSaving((p) => ({ ...p, team: true }));
     setError("");
     setSuccess("");
     try {
-      console.log("Saving team changes:", users);
       const res = await fetch("/api/admin/manageMeedian?section=team", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ updates: users }),
       });
       const responseData = await res.json();
-      if (!res.ok) {
-        console.error("Team save response error:", responseData);
-        throw new Error(responseData.error || `Save failed: ${res.status}`);
-      }
-      console.log("Team save response:", responseData);
+      if (!res.ok) throw new Error(responseData.error || `Save failed: ${res.status}`);
       setSuccess("Team changes saved successfully!");
       setTimeout(() => setSuccess(""), 3000);
       await mutate("/api/admin/manageMeedian?section=team");
-      setExpandedCard(null); // Collapse all cards after saving
+      setExpandedCard(null);
     } catch (err) {
-      console.error("Save team error:", err);
       setError(`Error saving team: ${err.message}`);
     } finally {
-      setSaving((prev) => ({ ...prev, team: false }));
+      setSaving((p) => ({ ...p, team: false }));
     }
   };
 
-  const saveSlotAssignment = async (slotId, memberId) => {
-    setSaving((prev) => ({ ...prev, slots: true }));
+  const requestDeleteUser = (user) => {
+    setConfirmDeleteUser(user);
+  };
+
+  const deleteUser = async () => {
+    if (!confirmDeleteUser) return;
+    setSaving((p) => ({ ...p, team: true }));
     setError("");
     setSuccess("");
     try {
-      console.log("Saving slot assignment:", { slotId, memberId });
+      const res = await fetch("/api/admin/manageMeedian?section=team", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: confirmDeleteUser.id }),
+      });
+      const responseData = await res.json();
+      if (!res.ok) throw new Error(responseData.error || `Delete failed: ${res.status}`);
+      // Optimistic UI update
+      setUsers((prev) => prev.filter((u) => u.id !== confirmDeleteUser.id));
+      setMembers((prev) => prev.filter((u) => u.id !== confirmDeleteUser.id));
+      setSuccess(`Deleted user: ${confirmDeleteUser.name}`);
+      setTimeout(() => setSuccess(""), 3000);
+      await mutate("/api/admin/manageMeedian?section=team");
+    } catch (err) {
+      setError(`Error deleting user: ${err.message}`);
+    } finally {
+      setSaving((p) => ({ ...p, team: false }));
+      setConfirmDeleteUser(null);
+    }
+  };
+
+  /* ------------------------- Slot Assignments ------------------------ */
+  const saveSlotAssignment = async (slotId, memberId) => {
+    setSaving((p) => ({ ...p, slots: true }));
+    setError("");
+    setSuccess("");
+    try {
       const res = await fetch("/api/admin/manageMeedian?section=slots", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ updates: [{ slotId, memberId }] }),
       });
       const responseData = await res.json();
-      if (!res.ok) {
-        console.error("Slot assignment save response error:", responseData);
-        throw new Error(responseData.error || `Save failed: ${res.status}`);
-      }
-      console.log("Slot assignment save response:", responseData);
-      setSlots((prev) =>
-        prev.map((slot) =>
-          slot.id === slotId ? { ...slot, assignedMemberId: memberId } : slot
-        )
-      );
+      if (!res.ok) throw new Error(responseData.error || `Save failed: ${res.status}`);
+      setSlots((prev) => prev.map((s) => (s.id === slotId ? { ...s, assignedMemberId: memberId } : s)));
       setBulkAssignments((prev) => ({ ...prev, [slotId]: memberId }));
       setSuccess("Slot assignment saved successfully!");
       setTimeout(() => setSuccess(""), 3000);
       await mutate("/api/admin/manageMeedian?section=slots", undefined, { revalidate: true });
     } catch (err) {
-      console.error("Save slot assignment error:", err);
       setError(`Error saving slot assignment: ${err.message}. Check server logs for details.`);
     } finally {
-      setSaving((prev) => ({ ...prev, slots: false }));
+      setSaving((p) => ({ ...p, slots: false }));
       setEditSlot(null);
     }
   };
 
   const deleteSlotAssignment = async (slotId) => {
-    setSaving((prev) => ({ ...prev, slots: true }));
+    setSaving((p) => ({ ...p, slots: true }));
     setError("");
     setSuccess("");
     try {
-      console.log("Deleting slot assignment for slotId:", slotId);
       const res = await fetch("/api/admin/manageMeedian?section=slots", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ slotId }),
       });
       const responseData = await res.json();
-      if (!res.ok) {
-        console.error("Delete slot assignment response error:", responseData);
-        throw new Error(responseData.error || `Delete failed: ${res.status}`);
-      }
-      console.log("Delete slot assignment response:", responseData);
-      setSlots((prev) =>
-        prev.map((slot) =>
-          slot.id === slotId ? { ...slot, assignedMemberId: null } : slot
-        )
-      );
+      if (!res.ok) throw new Error(responseData.error || `Delete failed: ${res.status}`);
+      setSlots((prev) => prev.map((s) => (s.id === slotId ? { ...s, assignedMemberId: null } : s)));
       setBulkAssignments((prev) => ({ ...prev, [slotId]: null }));
       setSuccess("Slot assignment deleted successfully!");
       setTimeout(() => setSuccess(""), 3000);
       await mutate("/api/admin/manageMeedian?section=slots", undefined, { revalidate: true });
     } catch (err) {
-      console.error("Delete slot assignment error:", err);
       setError(`Error deleting slot assignment: ${err.message}`);
     } finally {
-      setSaving((prev) => ({ ...prev, slots: false }));
+      setSaving((p) => ({ ...p, slots: false }));
       setEditSlot(null);
     }
   };
 
   const saveBulkAssignments = async () => {
-    setSaving((prev) => ({ ...prev, slots: true }));
+    setSaving((p) => ({ ...p, slots: true }));
     setError("");
     setSuccess("");
     try {
       const updates = Object.entries(bulkAssignments)
         .filter(([_, memberId]) => memberId !== null)
-        .map(([slotId, memberId]) => ({
-          slotId: parseInt(slotId),
-          memberId,
-        }));
-      console.log("Saving bulk assignments:", updates);
+        .map(([slotId, memberId]) => ({ slotId: parseInt(slotId), memberId }));
       const res = await fetch("/api/admin/manageMeedian?section=slots", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ updates }),
       });
       const responseData = await res.json();
-      if (!res.ok) {
-        console.error("Bulk assignment save response error:", responseData);
-        throw new Error(responseData.error || `Save failed: ${res.status}`);
-      }
-      console.log("Bulk assignment save response:", responseData);
+      if (!res.ok) throw new Error(responseData.error || `Save failed: ${res.status}`);
       setSlots((prev) =>
-        prev.map((slot) => ({
-          ...slot,
-          assignedMemberId: bulkAssignments[slot.id] || null,
+        prev.map((s) => ({
+          ...s,
+          assignedMemberId: bulkAssignments[s.id] ?? null,
         }))
       );
       setSuccess("Bulk TOD assignments saved successfully!");
@@ -286,137 +281,112 @@ export default function ManageTeamPage() {
       setShowBulkModal(false);
       setShowConfirmModal(false);
     } catch (err) {
-      console.error("Save bulk assignments error:", err);
       setError(`Error saving bulk assignments: ${err.message}. Check server logs for details.`);
     } finally {
-      setSaving((prev) => ({ ...prev, slots: false }));
+      setSaving((p) => ({ ...p, slots: false }));
     }
   };
 
   const saveSlotTimings = async (slotId, startTime, endTime) => {
-    setSaving((prev) => ({ ...prev, slots: true }));
+    setSaving((p) => ({ ...p, slots: true }));
     setError("");
     setSuccess("");
     try {
-      console.log("Saving slot timings:", { slotId, startTime, endTime });
       const res = await fetch("/api/admin/manageMeedian?section=slots", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ updates: [{ slotId, startTime: startTime + ":00", endTime: endTime + ":00" }] }),
+        body: JSON.stringify({
+          updates: [{ slotId, startTime: startTime + ":00", endTime: endTime + ":00" }],
+        }),
       });
       const responseData = await res.json();
-      if (!res.ok) {
-        console.error("Slot timings save response error:", responseData);
-        throw new Error(responseData.error || `Save failed: ${res.status}`);
-      }
-      console.log("Slot timings save response:", responseData);
-      setSlots((prev) =>
-        prev.map((slot) =>
-          slot.id === slotId ? { ...slot, startTime, endTime } : slot
-        )
-      );
+      if (!res.ok) throw new Error(responseData.error || `Save failed: ${res.status}`);
+      setSlots((prev) => prev.map((s) => (s.id === slotId ? { ...s, startTime, endTime } : s)));
       setSuccess("Slot timings saved successfully!");
       setTimeout(() => setSuccess(""), 3000);
       await mutate("/api/admin/manageMeedian?section=slots", undefined, { revalidate: true });
     } catch (err) {
-      console.error("Save slot timings error:", err);
       setError(`Error saving slot timings: ${err.message}. Check server logs for details.`);
     } finally {
-      setSaving((prev) => ({ ...prev, slots: false }));
+      setSaving((p) => ({ ...p, slots: false }));
       setEditTimingsSlot(null);
     }
   };
 
+  /* -------------------------- Calendar Handlers -------------------------- */
   const handleCalendarChange = (id, field, value) => {
     setCalendar((prev) => prev.map((c) => (c.id === id ? { ...c, [field]: value } : c)));
   };
 
   const saveCalendarChanges = async () => {
-    setSaving((prev) => ({ ...prev, calendar: true }));
+    setSaving((p) => ({ ...p, calendar: true }));
     setError("");
     setSuccess("");
     try {
-      console.log("Saving calendar changes:", calendar);
       const res = await fetch("/api/admin/manageMeedian?section=schoolCalendar", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ updates: calendar }),
       });
       const responseData = await res.json();
-      if (!res.ok) {
-        console.error("Calendar save response error:", responseData);
-        throw new Error(responseData.error || `Save failed: ${res.status}`);
-      }
-      console.log("Calendar save response:", responseData);
+      if (!res.ok) throw new Error(responseData.error || `Save failed: ${res.status}`);
       setSuccess("School calendar saved successfully!");
       setTimeout(() => setSuccess(""), 3000);
       await mutate("/api/admin/manageMeedian?section=schoolCalendar");
     } catch (err) {
-      console.error("Save calendar error:", err);
       setError(`Error saving calendar: ${err.message}`);
     } finally {
-      setSaving((prev) => ({ ...prev, calendar: false }));
+      setSaving((p) => ({ ...p, calendar: false }));
     }
   };
 
   const addCalendarEntry = async (entry) => {
-    setSaving((prev) => ({ ...prev, calendar: true }));
+    setSaving((p) => ({ ...p, calendar: true }));
     setError("");
     setSuccess("");
     try {
-      console.log("Adding calendar entry:", entry);
       const res = await fetch("/api/admin/manageMeedian?section=schoolCalendar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(entry),
       });
       const responseData = await res.json();
-      if (!res.ok) {
-        console.error("Add calendar entry response error:", responseData);
-        throw new Error(responseData.error || `Save failed: ${res.status}`);
-      }
-      console.log("Add calendar entry response:", responseData);
+      if (!res.ok) throw new Error(responseData.error || `Save failed: ${res.status}`);
       setCalendar((prev) => [...prev, responseData.entry]);
       setSuccess("Calendar entry added successfully!");
       setTimeout(() => setSuccess(""), 3000);
       await mutate("/api/admin/manageMeedian?section=schoolCalendar");
     } catch (err) {
-      console.error("Add calendar entry error:", err);
       setError(`Error adding calendar entry: ${err.message}`);
     } finally {
-      setSaving((prev) => ({ ...prev, calendar: false }));
+      setSaving((p) => ({ ...p, calendar: false }));
     }
   };
 
   const deleteCalendarEntry = async (id) => {
-    setSaving((prev) => ({ ...prev, calendar: true }));
+    setSaving((p) => ({ ...p, calendar: true }));
     setError("");
     setSuccess("");
     try {
-      console.log("Deleting calendar entry with id:", id);
       const res = await fetch("/api/admin/manageMeedian?section=schoolCalendar", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id }),
       });
       const responseData = await res.json();
-      if (!res.ok) {
-        console.error("Delete calendar entry response error:", responseData);
-        throw new Error(responseData.error || `Delete failed: ${res.status}`);
-      }
-      console.log("Delete calendar entry response:", responseData);
+      if (!res.ok) throw new Error(responseData.error || `Delete failed: ${res.status}`);
       setCalendar((prev) => prev.filter((entry) => entry.id !== id));
       setSuccess("Calendar entry deleted successfully!");
       setTimeout(() => setSuccess(""), 3000);
       await mutate("/api/admin/manageMeedian?section=schoolCalendar");
     } catch (err) {
-      console.error("Delete calendar entry error:", err);
       setError(`Error deleting calendar entry: ${err.message}`);
     } finally {
-      setSaving((prev) => ({ ...prev, calendar: false }));
+      setSaving((p) => ({ ...p, calendar: false }));
     }
   };
 
+  /* --------------------------- UI helpers --------------------------- */
   const handleBack = () => {
     setActiveSection(null);
     setError("");
@@ -431,6 +401,11 @@ export default function ManageTeamPage() {
     setExpandedCard((prev) => (prev === id ? null : id));
   };
 
+  const toggleShowPassword = (userId) => {
+    setShowPasswords((prev) => ({ ...prev, [userId]: !prev[userId] }));
+  };
+
+  /* ------------------------------- JSX ------------------------------- */
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -476,6 +451,7 @@ export default function ManageTeamPage() {
           >
             ← Back
           </motion.button>
+
           <motion.div
             onClick={() => setActiveSection("n-mris")}
             className={`flex-1 min-w-[150px] bg-white rounded-lg shadow-md p-4 flex flex-col justify-center cursor-pointer ${
@@ -486,6 +462,7 @@ export default function ManageTeamPage() {
           >
             <h2 className="text-lg font-semibold text-center">N-MRIs</h2>
           </motion.div>
+
           <motion.div
             onClick={() => setActiveSection("mspr")}
             className={`flex-1 min-w-[150px] bg-white rounded-lg shadow-md p-4 flex flex-col justify-center cursor-pointer ${
@@ -498,6 +475,7 @@ export default function ManageTeamPage() {
           >
             <h2 className="text-lg font-semibold text-center">MSPR</h2>
           </motion.div>
+
           <motion.div
             onClick={() => setActiveSection("mhcp")}
             className={`flex-1 min-w-[150px] bg-white rounded-lg shadow-md p-4 flex flex-col justify-center cursor-pointer ${
@@ -510,6 +488,7 @@ export default function ManageTeamPage() {
           >
             <h2 className="text-lg font-semibold text-center">MHCP</h2>
           </motion.div>
+
           <motion.div
             onClick={() => setActiveSection("calendar")}
             className={`flex-1 min-w-[150px] bg-white rounded-lg shadow-md p-4 flex flex-col justify-center cursor-pointer ${
@@ -591,6 +570,7 @@ export default function ManageTeamPage() {
               transition={{ duration: 0.3 }}
               className="flex flex-col sm:flex-row gap-6 sm:gap-8 h-full"
             >
+              {/* Manage Team */}
               <motion.div
                 className="flex-1 bg-white rounded-lg shadow-md p-6 sm:p-8 flex flex-col justify-between cursor-pointer h-full"
                 onClick={() => setActiveSection("team")}
@@ -599,27 +579,18 @@ export default function ManageTeamPage() {
               >
                 <div className="text-center">
                   <div className="flex justify-center mb-4">
-                    <svg
-                      className="w-12 h-12 sm:w-16 sm:h-16 text-teal-600"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth="2"
-                        d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v2h5m-2-2a3 3 0 005.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
-                      />
+                    <svg className="w-12 h-12 sm:w-16 sm:h-16 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v2h5m-2-2a3 3 0 005.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                     </svg>
                   </div>
                   <h2 className="text-xl sm:text-2xl font-semibold text-gray-800 mb-2">Manage Meedian Team</h2>
                   <p className="text-base sm:text-lg text-gray-600">
-                    Update team member details such as name, email, role, and supervisor.
+                    Update team member details such as name, email, role, supervisor — or remove a user.
                   </p>
                 </div>
               </motion.div>
 
+              {/* Manage Times */}
               <motion.div
                 className="flex-1 bg-white rounded-lg shadow-md p-6 sm:p-8 flex flex-col justify-between cursor-pointer h-full"
                 onClick={() => setActiveSection("times")}
@@ -628,18 +599,8 @@ export default function ManageTeamPage() {
               >
                 <div className="text-center">
                   <div className="flex justify-center mb-4">
-                    <svg
-                      className="w-12 h-12 sm:w-16 sm:h-16 text-purple-600"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth="2"
-                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                      />
+                    <svg className="w-12 h-12 sm:w-16 sm:h-16 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                   </div>
                   <h2 className="text-xl sm:text-2xl font-semibold text-gray-800 mb-2">Manage Day-Close Times</h2>
@@ -647,6 +608,7 @@ export default function ManageTeamPage() {
                 </div>
               </motion.div>
 
+              {/* Manage Students */}
               <motion.div
                 className="flex-1 bg-white rounded-lg shadow-md p-6 sm:p-8 flex flex-col justify-between cursor-pointer h-full"
                 onClick={() => setActiveSection("students")}
@@ -655,18 +617,8 @@ export default function ManageTeamPage() {
               >
                 <div className="text-center">
                   <div className="flex justify-center mb-4">
-                    <svg
-                      className="w-12 h-12 sm:w-16 sm:h-16 text-blue-600"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth="2"
-                        d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"
-                      />
+                    <svg className="w-12 h-12 sm:w-16 sm:h-16 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
                     </svg>
                   </div>
                   <h2 className="text-xl sm:text-2xl font-semibold text-gray-800 mb-2">Manage Meedian Students</h2>
@@ -676,6 +628,7 @@ export default function ManageTeamPage() {
                 </div>
               </motion.div>
 
+              {/* Manage Calendar */}
               <motion.div
                 className="flex-1 bg-white rounded-lg shadow-md p-6 sm:p-8 flex flex-col justify-between cursor-pointer h-full"
                 onClick={() => setActiveSection("calendar")}
@@ -684,18 +637,8 @@ export default function ManageTeamPage() {
               >
                 <div className="text-center">
                   <div className="flex justify-center mb-4">
-                    <svg
-                      className="w-12 h-12 sm:w-16 sm:h-16 text-purple-600"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth="2"
-                        d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-                      />
+                    <svg className="w-12 h-12 sm:w-16 sm:h-16 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                     </svg>
                   </div>
                   <h2 className="text-xl sm:text-2xl font-semibold text-gray-800 mb-2">Manage Calendar</h2>
@@ -712,6 +655,7 @@ export default function ManageTeamPage() {
               transition={{ duration: 0.3 }}
               className="w-full h-full flex flex-col gap-4"
             >
+              {/* TEAM SECTION */}
               {activeSection === "team" && (
                 <div className="space-y-6">
                   {loading.team ? (
@@ -730,184 +674,222 @@ export default function ManageTeamPage() {
                           <option value="all">All Users</option>
                         </select>
                       </div>
+
                       {users.length === 0 ? (
-                        <p className="text-gray-600 text-center text-lg">
-                          No users found. Please check the database or authentication.
-                        </p>
+                        <p className="text-gray-600 text-center text-lg">No users found. Please check the database or authentication.</p>
                       ) : (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                          {users
-                            .filter((user) => {
-                              if (teamFilter === "members") return user.role === "member";
-                              if (teamFilter === "managers") return user.role === "team_manager" || user.role === "admin";
-                              return true; // "all"
-                            })
-                            .map((user) => (
-                              <motion.div
-                                key={user.id}
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                transition={{ duration: 0.3 }}
-                                className="bg-white rounded-lg shadow-md p-4 flex flex-col gap-2"
-                              >
-                                <div className="flex justify-between items-center">
-                                  <div>
-                                    <h3 className="text-lg font-semibold text-gray-800">{user.name}</h3>
-                                    <p className="text-sm text-gray-500 capitalize">{user.role}</p>
-                                    <p className="text-sm text-gray-500">
-                                      Supervisor: {users.find((u) => u.id === user.immediate_supervisor)?.name || "None"}
-                                    </p>
+                        <>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {users
+                              .filter((user) => {
+                                if (teamFilter === "members") return user.role === "member";
+                                if (teamFilter === "managers") return user.role === "team_manager" || user.role === "admin";
+                                return true;
+                              })
+                              .map((user) => (
+                                <motion.div
+                                  key={user.id}
+                                  initial={{ opacity: 0, y: 10 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  transition={{ duration: 0.3 }}
+                                  className="bg-white rounded-lg shadow-md p-4 flex flex-col gap-2"
+                                >
+                                  <div className="flex justify-between items-start gap-2">
+                                    <div>
+                                      <h3 className="text-lg font-semibold text-gray-800">{user.name}</h3>
+                                      <p className="text-sm text-gray-500 capitalize">{user.role}</p>
+                                      <p className="text-sm text-gray-500">
+                                        Supervisor: {users.find((u) => u.id === user.immediate_supervisor)?.name || "None"}
+                                      </p>
+                                    </div>
+
+                                    <div className="flex items-center gap-2">
+                                      {/* Expand / collapse */}
+                                      <motion.button
+                                        onClick={() => toggleCard(user.id)}
+                                        className="text-teal-600 hover:text-teal-700"
+                                        whileHover={{ scale: 1.1 }}
+                                        whileTap={{ scale: 0.9 }}
+                                        title={expandedCard === user.id ? "Collapse" : "Expand"}
+                                      >
+                                        <svg className={`w-5 h-5 transform ${expandedCard === user.id ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                                        </svg>
+                                      </motion.button>
+
+                                      {/* Delete user */}
+                                      <motion.button
+                                        onClick={() => requestDeleteUser(user)}
+                                        className="text-red-600 hover:text-red-700"
+                                        whileHover={{ scale: 1.1 }}
+                                        whileTap={{ scale: 0.9 }}
+                                        title="Remove user"
+                                      >
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 7h12M9 7v10m6-10v10M4 7h16l-1 12a2 2 0 01-2 2H7a2 2 0 01-2-2L4 7zm5-3h6l1 3H8l1-3z" />
+                                        </svg>
+                                      </motion.button>
+                                    </div>
                                   </div>
-                                  <motion.button
-                                    onClick={() => toggleCard(user.id)}
-                                    className="text-teal-600 hover:text-teal-700"
-                                    whileHover={{ scale: 1.1 }}
-                                    whileTap={{ scale: 0.9 }}
-                                  >
-                                    <svg
-                                      className={`w-5 h-5 transform ${expandedCard === user.id ? "rotate-180" : ""}`}
-                                      fill="none"
-                                      stroke="currentColor"
-                                      viewBox="0 0 24 24"
-                                    >
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                                    </svg>
-                                  </motion.button>
-                                </div>
-                                <AnimatePresence>
-                                  {expandedCard === user.id && (
-                                    <motion.div
-                                      initial={{ height: 0, opacity: 0 }}
-                                      animate={{ height: "auto", opacity: 1 }}
-                                      exit={{ height: 0, opacity: 0 }}
-                                      transition={{ duration: 0.2 }}
-                                      className="space-y-4 pt-4 border-t border-gray-200"
-                                    >
-                                      <div>
-                                        <label className="block text-sm font-medium text-gray-700">Name</label>
-                                        <input
-                                          type="text"
-                                          value={user.name}
-                                          onChange={(e) => handleUserChange(user.id, "name", e.target.value)}
-                                          className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
-                                          placeholder="Enter name"
-                                        />
-                                      </div>
-                                      <div>
-                                        <label className="block text-sm font-medium text-gray-700">Email</label>
-                                        <input
-                                          type="email"
-                                          value={user.email}
-                                          onChange={(e) => handleUserChange(user.id, "email", e.target.value)}
-                                          className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
-                                          placeholder="Enter email"
-                                        />
-                                      </div>
-                                      <div>
-                                        <label className="block text-sm font-medium text-gray-700">WhatsApp Number</label>
-                                        <input
-                                          type="text"
-                                          value={user.whatsapp_number}
-                                          onChange={(e) => handleUserChange(user.id, "whatsapp_number", e.target.value)}
-                                          className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
-                                          placeholder="+1234567890"
-                                        />
-                                      </div>
-                                      <div>
-                                        <label className="block text-sm font-medium text-gray-700">Password (optional)</label>
-                                        <input
-                                          type="password"
-                                          value={user.password || ""}
-                                          onChange={(e) => handleUserChange(user.id, "password", e.target.value)}
-                                          className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
-                                          placeholder="Enter new password"
-                                        />
-                                      </div>
-                                      <div>
-                                        <label className="block text-sm font-medium text-gray-700">Role</label>
-                                        <select
-                                          value={user.role}
-                                          onChange={(e) => handleUserChange(user.id, "role", e.target.value)}
-                                          className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
-                                        >
-                                          {roleTypes.map((role) => (
-                                            <option key={role} value={role}>
-                                              {role.charAt(0).toUpperCase() + role.slice(1)}
-                                            </option>
-                                          ))}
-                                        </select>
-                                      </div>
-                                      {user.role === "team_manager" && (
+
+                                  <AnimatePresence>
+                                    {expandedCard === user.id && (
+                                      <motion.div
+                                        initial={{ height: 0, opacity: 0 }}
+                                        animate={{ height: "auto", opacity: 1 }}
+                                        exit={{ height: 0, opacity: 0 }}
+                                        transition={{ duration: 0.2 }}
+                                        className="space-y-4 pt-4 border-t border-gray-200"
+                                      >
                                         <div>
-                                          <label className="block text-sm font-medium text-gray-700">Team Manager Type</label>
+                                          <label className="block text-sm font-medium text-gray-700">Name</label>
+                                          <input
+                                            type="text"
+                                            value={user.name || ""}
+                                            onChange={(e) => handleUserChange(user.id, "name", e.target.value)}
+                                            className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
+                                            placeholder="Enter name"
+                                          />
+                                        </div>
+
+                                        <div>
+                                          <label className="block text-sm font-medium text-gray-700">Email</label>
+                                          <input
+                                            type="email"
+                                            value={user.email || ""}
+                                            onChange={(e) => handleUserChange(user.id, "email", e.target.value)}
+                                            className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
+                                            placeholder="Enter email"
+                                          />
+                                        </div>
+
+                                        <div>
+                                          <label className="block text-sm font-medium text-gray-700">WhatsApp Number</label>
+                                          <input
+                                            type="text"
+                                            value={user.whatsapp_number || ""}
+                                            onChange={(e) => handleUserChange(user.id, "whatsapp_number", e.target.value)}
+                                            className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
+                                            placeholder="+1234567890"
+                                          />
+                                        </div>
+
+                                        {/* Password with show/hide */}
+                                        <div>
+                                          <label className="block text-sm font-medium text-gray-700">Password (optional)</label>
+                                          <div className="mt-1 flex gap-2">
+                                            <input
+                                              type={showPasswords[user.id] ? "text" : "password"}
+                                              value={user.password || ""}
+                                              onChange={(e) => handleUserChange(user.id, "password", e.target.value)}
+                                              className="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
+                                              placeholder="Enter new password"
+                                            />
+                                            <button
+                                              type="button"
+                                              onClick={() => toggleShowPassword(user.id)}
+                                              className="px-3 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50"
+                                              title={showPasswords[user.id] ? "Hide password" : "Show password"}
+                                            >
+                                              {showPasswords[user.id] ? "Hide" : "Show"}
+                                            </button>
+                                          </div>
+                                          <p className="text-xs text-gray-500 mt-1">
+                                            Leave blank to keep current password.
+                                          </p>
+                                        </div>
+
+                                        <div>
+                                          <label className="block text-sm font-medium text-gray-700">Role</label>
                                           <select
-                                            value={user.team_manager_type || ""}
-                                            onChange={(e) => handleUserChange(user.id, "team_manager_type", e.target.value)}
+                                            value={user.role}
+                                            onChange={(e) => handleUserChange(user.id, "role", e.target.value)}
                                             className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
                                           >
-                                            <option value="">Select Type</option>
-                                            {teamManagerTypes.map((type) => (
+                                            {roleTypes.map((role) => (
+                                              <option key={role} value={role}>
+                                                {role.charAt(0).toUpperCase() + role.slice(1)}
+                                              </option>
+                                            ))}
+                                          </select>
+                                        </div>
+
+                                        {user.role === "team_manager" && (
+                                          <div>
+                                            <label className="block text-sm font-medium text-gray-700">Team Manager Type</label>
+                                            <select
+                                              value={user.team_manager_type || ""}
+                                              onChange={(e) => handleUserChange(user.id, "team_manager_type", e.target.value)}
+                                              className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
+                                            >
+                                              <option value="">Select Type</option>
+                                              {teamManagerTypes.map((type) => (
+                                                <option key={type} value={type}>
+                                                  {type.replace("_", " ").toUpperCase()}
+                                                </option>
+                                              ))}
+                                            </select>
+                                          </div>
+                                        )}
+
+                                        <div>
+                                          <label className="block text-sm font-medium text-gray-700">Type</label>
+                                          <select
+                                            value={user.type}
+                                            onChange={(e) => handleUserChange(user.id, "type", e.target.value)}
+                                            className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
+                                          >
+                                            {userTypes.map((type) => (
                                               <option key={type} value={type}>
                                                 {type.replace("_", " ").toUpperCase()}
                                               </option>
                                             ))}
                                           </select>
                                         </div>
-                                      )}
-                                      <div>
-                                        <label className="block text-sm font-medium text-gray-700">Type</label>
-                                        <select
-                                          value={user.type}
-                                          onChange={(e) => handleUserChange(user.id, "type", e.target.value)}
-                                          className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
-                                        >
-                                          {userTypes.map((type) => (
-                                            <option key={type} value={type}>
-                                              {type.replace("_", " ").toUpperCase()}
-                                            </option>
-                                          ))}
-                                        </select>
-                                      </div>
-                                      <div>
-                                        <label className="block text-sm font-medium text-gray-700">Member Scope</label>
-                                        <select
-                                          value={user.member_scope}
-                                          onChange={(e) => handleUserChange(user.id, "member_scope", e.target.value)}
-                                          className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
-                                        >
-                                          {memberScopes.map((scope) => (
-                                            <option key={scope} value={scope}>
-                                              {scope.replace("_", " ").toUpperCase()}
-                                            </option>
-                                          ))}
-                                        </select>
-                                      </div>
-                                      <div>
-                                        <label className="block text-sm font-medium text-gray-700">Immediate Supervisor</label>
-                                        <select
-                                          value={user.immediate_supervisor || ""}
-                                          onChange={(e) => handleUserChange(user.id, "immediate_supervisor", e.target.value)}
-                                          className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
-                                        >
-                                          <option value="">None</option>
-                                          {users
-                                            .filter((u) => u.id !== user.id && (u.role === "admin" || u.role === "team_manager"))
-                                            .map((supervisor) => (
-                                              <option key={supervisor.id} value={supervisor.id}>
-                                                {supervisor.name} ({supervisor.role})
+
+                                        <div>
+                                          <label className="block text-sm font-medium text-gray-700">Member Scope</label>
+                                          <select
+                                            value={user.member_scope || ""}
+                                            onChange={(e) => handleUserChange(user.id, "member_scope", e.target.value)}
+                                            className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
+                                          >
+                                            {memberScopes.map((scope) => (
+                                              <option key={scope} value={scope}>
+                                                {scope.replace("_", " ").toUpperCase()}
                                               </option>
                                             ))}
-                                        </select>
-                                      </div>
-                                    </motion.div>
-                                  )}
-                                </AnimatePresence>
-                              </motion.div>
-                            ))}
+                                          </select>
+                                        </div>
+
+                                        <div>
+                                          <label className="block text-sm font-medium text-gray-700">Immediate Supervisor</label>
+                                          <select
+                                            value={user.immediate_supervisor || ""}
+                                            onChange={(e) => handleUserChange(user.id, "immediate_supervisor", e.target.value)}
+                                            className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
+                                          >
+                                            <option value="">None</option>
+                                            {users
+                                              .filter((u) => u.id !== user.id && (u.role === "admin" || u.role === "team_manager"))
+                                              .map((supervisor) => (
+                                                <option key={supervisor.id} value={supervisor.id}>
+                                                  {supervisor.name} ({supervisor.role})
+                                                </option>
+                                              ))}
+                                          </select>
+                                        </div>
+                                      </motion.div>
+                                    )}
+                                  </AnimatePresence>
+                                </motion.div>
+                              ))}
+                          </div>
+
                           <motion.button
                             onClick={saveTeamChanges}
                             disabled={saving.team || users.length === 0}
-                            className={`w-full sm:w-auto px-6 py-3 rounded-lg text-white font-semibold text-lg transition-all duration-200 bg-teal-600 hover:bg-teal-700 shadow-md ${
+                            className={`w-full sm:w-auto mt-4 px-6 py-3 rounded-lg text-white font-semibold text-lg transition-all duration-200 bg-teal-600 hover:bg-teal-700 shadow-md ${
                               saving.team || users.length === 0 ? "opacity-50 cursor-not-allowed" : ""
                             }`}
                             whileHover={{ scale: saving.team || users.length === 0 ? 1 : 1.05 }}
@@ -915,13 +897,15 @@ export default function ManageTeamPage() {
                           >
                             {saving.team ? "Saving..." : "Save All Changes"}
                           </motion.button>
-                        </div>
+                        </>
                       )}
                     </div>
                   )}
                 </div>
               )}
+
               {activeSection === "times" && <ManageDayClose setError={setError} setSuccess={setSuccess} />}
+
               {activeSection === "n-mris" && (
                 <ManageSlots
                   slots={slots}
@@ -935,20 +919,20 @@ export default function ManageTeamPage() {
                   members={members}
                 />
               )}
+
               {activeSection === "mspr" && (
                 <div className="space-y-4 h-full">
                   <div className="grid grid-cols-2 gap-4 h-full">
                     <div className="bg-white rounded-lg shadow-md p-6">
                       <h2 className="text-xl font-semibold text-gray-800 mb-2 text-center">Pre-Primary Column</h2>
-                      {/* Placeholder content */}
                     </div>
                     <div className="bg-white rounded-lg shadow-md p-6">
                       <h2 className="text-xl font-semibold text-gray-800 mb-2 text-center">Primary Column</h2>
-                      {/* Placeholder content */}
                     </div>
                   </div>
                 </div>
               )}
+
               {activeSection === "mhcp" && (
                 <div className="space-y-4">
                   <div className="space-y-4">
@@ -962,11 +946,11 @@ export default function ManageTeamPage() {
                           transition={{ duration: 0.2 }}
                         >
                           <h3 className="font-semibold text-teal-900 mb-2">{schedule}</h3>
-                          {/* Placeholder for schedule details */}
                         </motion.div>
                       ))}
                     </div>
                   </div>
+
                   <div className="space-y-4">
                     <h2 className="text-xl font-semibold text-gray-800">Beyond Potential (7:30 - 8:30 PM)</h2>
                     <div className="grid grid-cols-4 gap-4">
@@ -978,11 +962,11 @@ export default function ManageTeamPage() {
                           transition={{ duration: 0.2 }}
                         >
                           <h3 className="font-semibold text-teal-900 mb-2">{schedule}</h3>
-                          {/* Placeholder for schedule details */}
                         </motion.div>
                       ))}
                     </div>
                   </div>
+
                   <div className="flex gap-4">
                     <motion.button
                       onClick={() => setActiveSection("mhcp1")}
@@ -1007,6 +991,7 @@ export default function ManageTeamPage() {
                   </div>
                 </div>
               )}
+
               {activeSection === "students" && (
                 <div className="space-y-4 h-full">
                   {loading.students ? (
@@ -1019,28 +1004,19 @@ export default function ManageTeamPage() {
                         <h2 className="text-xl font-semibold text-gray-800 mb-4">Hostellers</h2>
                         {Object.entries(
                           students
-                            .filter((student) => student.residentialStatus === "hosteller")
-                            .reduce((acc, student) => {
-                              (acc[student.className] = acc[student.className] || []).push(student);
+                            .filter((s) => s.residentialStatus === "hosteller")
+                            .reduce((acc, s) => {
+                              (acc[s.className] = acc[s.className] || []).push(s);
                               return acc;
                             }, {})
                         )
                           .sort()
                           .map(([className, classStudents]) => (
-                            <motion.div
-                              key={className}
-                              className="mb-4"
-                              initial={{ opacity: 0, y: 10 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              transition={{ duration: 0.3 }}
-                            >
+                            <motion.div key={className} className="mb-4" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
                               <h3 className="text-lg font-medium text-teal-900 mb-2">{className}</h3>
                               <div className="space-y-2">
                                 {classStudents.map((student) => (
-                                  <div
-                                    key={student.id}
-                                    className="bg-gray-50 rounded-lg p-3 shadow-sm flex justify-between items-center"
-                                  >
+                                  <div key={student.id} className="bg-gray-50 rounded-lg p-3 shadow-sm flex justify-between items-center">
                                     <div>
                                       <p className="text-gray-700">{student.name}</p>
                                       <p className="text-sm text-gray-500">Father: {student.fatherName || "N/A"}</p>
@@ -1051,32 +1027,24 @@ export default function ManageTeamPage() {
                             </motion.div>
                           ))}
                       </div>
+
                       <div className="bg-white rounded-lg shadow-md p-6">
                         <h2 className="text-xl font-semibold text-gray-800 mb-4">Day Scholars</h2>
                         {Object.entries(
                           students
-                            .filter((student) => student.residentialStatus === "dayscholar")
-                            .reduce((acc, student) => {
-                              (acc[student.className] = acc[student.className] || []).push(student);
+                            .filter((s) => s.residentialStatus === "dayscholar")
+                            .reduce((acc, s) => {
+                              (acc[s.className] = acc[s.className] || []).push(s);
                               return acc;
                             }, {})
                         )
                           .sort()
                           .map(([className, classStudents]) => (
-                            <motion.div
-                              key={className}
-                              className="mb-4"
-                              initial={{ opacity: 0, y: 10 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              transition={{ duration: 0.3 }}
-                            >
+                            <motion.div key={className} className="mb-4" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
                               <h3 className="text-lg font-medium text-teal-900 mb-2">{className}</h3>
                               <div className="space-y-2">
                                 {classStudents.map((student) => (
-                                  <div
-                                    key={student.id}
-                                    className="bg-gray-50 rounded-lg p-3 shadow-sm flex justify-between items-center"
-                                  >
+                                  <div key={student.id} className="bg-gray-50 rounded-lg p-3 shadow-sm flex justify-between items-center">
                                     <div>
                                       <p className="text-gray-700">{student.name}</p>
                                       <p className="text-sm text-gray-500">Father: {student.fatherName || "N/A"}</p>
@@ -1095,14 +1063,10 @@ export default function ManageTeamPage() {
           )}
         </AnimatePresence>
 
+        {/* BULK MODAL */}
         <AnimatePresence>
           {showBulkModal && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
-            >
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
               <motion.div
                 initial={{ scale: 0.8, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
@@ -1157,12 +1121,7 @@ export default function ManageTeamPage() {
                   )
                 )}
                 <div className="mt-6 flex justify-end gap-2">
-                  <motion.button
-                    onClick={() => setShowBulkModal(false)}
-                    className="px-6 py-3 bg-gray-400 text-white rounded-lg hover:bg-gray-500 transition-all duration-200"
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                  >
+                  <motion.button onClick={() => setShowBulkModal(false)} className="px-6 py-3 bg-gray-400 text-white rounded-lg hover:bg-gray-500 transition-all duration-200" whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
                     Cancel
                   </motion.button>
                   <motion.button
@@ -1180,14 +1139,10 @@ export default function ManageTeamPage() {
           )}
         </AnimatePresence>
 
+        {/* CONFIRM BULK */}
         <AnimatePresence>
           {showConfirmModal && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
-            >
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
               <motion.div
                 initial={{ scale: 0.8, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
@@ -1198,12 +1153,7 @@ export default function ManageTeamPage() {
                 <h2 className="text-xl font-bold text-gray-800 mb-4">Confirm TOD Allotments</h2>
                 <p className="text-gray-600 mb-4">Are you sure you want to apply these TOD assignments?</p>
                 <div className="flex justify-end gap-2">
-                  <motion.button
-                    onClick={() => setShowConfirmModal(false)}
-                    className="px-4 py-2 bg-gray-400 text-white rounded-lg hover:bg-gray-500 transition-all duration-200"
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                  >
+                  <motion.button onClick={() => setShowConfirmModal(false)} className="px-4 py-2 bg-gray-400 text-white rounded-lg hover:bg-gray-500 transition-all duration-200" whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
                     Cancel
                   </motion.button>
                   <motion.button
@@ -1221,14 +1171,10 @@ export default function ManageTeamPage() {
           )}
         </AnimatePresence>
 
+        {/* MANAGE TIMINGS */}
         <AnimatePresence>
           {showManageTimingsModal && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
-            >
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
               <motion.div
                 initial={{ scale: 0.8, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
@@ -1266,11 +1212,7 @@ export default function ManageTeamPage() {
                               value={editTimingsSlot === slot.id ? slots.find((s) => s.id === slot.id).startTime || "" : slot.startTime}
                               onChange={(e) => {
                                 setEditTimingsSlot(slot.id);
-                                setSlots((prev) =>
-                                  prev.map((s) =>
-                                    s.id === slot.id ? { ...s, startTime: e.target.value } : s
-                                  )
-                                );
+                                setSlots((prev) => prev.map((s) => (s.id === slot.id ? { ...s, startTime: e.target.value } : s)));
                               }}
                               className="col-span-3 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
                             />
@@ -1279,11 +1221,7 @@ export default function ManageTeamPage() {
                               value={editTimingsSlot === slot.id ? slots.find((s) => s.id === slot.id).endTime || "" : slot.endTime}
                               onChange={(e) => {
                                 setEditTimingsSlot(slot.id);
-                                setSlots((prev) =>
-                                  prev.map((s) =>
-                                    s.id === slot.id ? { ...s, endTime: e.target.value } : s
-                                  )
-                                );
+                                setSlots((prev) => prev.map((s) => (s.id === slot.id ? { ...s, endTime: e.target.value } : s)));
                               }}
                               className="col-span-3 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
                             />
@@ -1293,12 +1231,7 @@ export default function ManageTeamPage() {
                   )
                 )}
                 <div className="mt-6 flex justify-end gap-2">
-                  <motion.button
-                    onClick={() => setShowManageTimingsModal(false)}
-                    className="px-6 py-3 bg-gray-400 text-white rounded-lg hover:bg-gray-500 transition-all duration-200"
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                  >
+                  <motion.button onClick={() => setShowManageTimingsModal(false)} className="px-6 py-3 bg-gray-400 text-white rounded-lg hover:bg-gray-500 transition-all duration-200" whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
                     Cancel
                   </motion.button>
                   <motion.button
@@ -1322,16 +1255,10 @@ export default function ManageTeamPage() {
           )}
         </AnimatePresence>
 
+        {/* CALENDAR SECTION */}
         <AnimatePresence>
           {activeSection === "calendar" && (
-            <motion.div
-              key="calendar"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              transition={{ duration: 0.3 }}
-              className="w-full h-full flex flex-col gap-4"
-            >
+            <motion.div key="calendar" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.3 }} className="w-full h-full flex flex-col gap-4">
               <ManageCalendar
                 calendar={calendar}
                 loading={loading.calendar}
@@ -1345,6 +1272,42 @@ export default function ManageTeamPage() {
                 setError={setError}
                 setSuccess={setSuccess}
               />
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* DELETE USER CONFIRMATION */}
+        <AnimatePresence>
+          {confirmDeleteUser && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+              <motion.div
+                initial={{ scale: 0.85, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.85, opacity: 0 }}
+                transition={{ duration: 0.25 }}
+                className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md"
+              >
+                <h2 className="text-xl font-bold text-gray-800 mb-2">Remove User</h2>
+                <p className="text-gray-600">
+                  Are you sure you want to permanently remove <span className="font-semibold">{confirmDeleteUser.name}</span>? This action
+                  cannot be undone.
+                </p>
+                <div className="mt-6 flex justify-end gap-2">
+                  <button
+                    onClick={() => setConfirmDeleteUser(null)}
+                    className="px-4 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-800"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={deleteUser}
+                    disabled={saving.team}
+                    className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white disabled:opacity-60"
+                  >
+                    {saving.team ? "Removing..." : "Remove"}
+                  </button>
+                </div>
+              </motion.div>
             </motion.div>
           )}
         </AnimatePresence>

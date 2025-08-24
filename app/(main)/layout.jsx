@@ -11,11 +11,12 @@ export default function MainLayout({ children }) {
   const [mounted, setMounted] = useState(false);
   const [userDetails, setUserDetails] = useState({ id: null, role: null });
   const [positions, setPositions] = useState([]);
+  const [chatboxOpen, setChatboxOpen] = useState(false);
+  const [chatRecipient, setChatRecipient] = useState("");
   const socket = useSocket(session?.user?.id);
 
   useEffect(() => {
     setMounted(true);
-    // Generate random positions only on the client
     const newPositions = [...Array(10)].map(() => ({
       left: `${Math.random() * 100}%`,
       top: `${Math.random() * 100}%`,
@@ -73,7 +74,15 @@ export default function MainLayout({ children }) {
         {children}
       </main>
       <Footer className="h-10" />
-      {userDetails.id && socket && <ChatBox userDetails={userDetails} socket={socket} />}
+      {userDetails.id && socket && (
+        <ChatBox
+          userDetails={userDetails}
+          socket={socket}
+          isOpen={chatboxOpen}
+          setIsOpen={setChatboxOpen}
+          recipientId={chatRecipient}
+        />
+      )}
     </div>
   );
 }

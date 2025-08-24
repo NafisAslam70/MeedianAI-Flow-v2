@@ -10,7 +10,6 @@ import ScheduleMeet from "@/components/ScheduleMeet";
 import QuickCallInvite from "@/components/QuickCallInvite";
 import { useRouter, usePathname } from "next/navigation";
 
-/* ───────── helpers ───────── */
 const toTitle = (s = "") =>
   s
     .split("_")
@@ -18,17 +17,12 @@ const toTitle = (s = "") =>
     .join(" ");
 
 const linkify = (raw = "") => {
-  // 0️⃣ normalise all whitespace (NBSP, tabs, etc.)
   const txt = raw.replace(/\s+/g, " ").trim();
-
-  // 1️⃣ URLs → anchor
   const withUrls = txt.replace(
     /(https?:\/\/[^\s]+)/g,
     (url) =>
       `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-blue-600 underline break-all">${url}</a>`
   );
-
-  // 2️⃣ [task:114]  or  [task:114 sprint:3] → button
   return withUrls.replace(
     /\[task\s*:\s*(\d+)(?:\s+?sprint\s*:\s*(\d+))?\]/gi,
     (_m, taskId, sprintId) => {
@@ -38,69 +32,69 @@ const linkify = (raw = "") => {
   );
 };
 
-// Validate image URL
 const getValidImageUrl = (url) => {
-  if (!url || typeof url !== 'string') return 'https://via.placeholder.com/40';
-  // Check if URL starts with http(s) or is a valid path
-  return url.match(/^https?:\/\//) || url.startsWith('/') 
-    ? url 
-    : 'https://via.placeholder.com/40';
+  if (!url || typeof url !== "string") return "https://via.placeholder.com/40";
+  return url.match(/^https?:\/\//) || url.startsWith("/")
+    ? url
+    : "https://via.placeholder.com/40";
 };
 
-/* ───────── component ───────── */
-export default function ChatBox({ userDetails }) {
+export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipientId }) {
   const pathname = usePathname();
-  if (pathname.includes('/workTogether')) return null;
-  /* ------------ state ------------- */
+  if (pathname.includes("/workTogether")) return null;
+
   const [messages, setMessages] = useState([]);
   const [users, setUsers] = useState([]);
-  const [selectedRecipient, setSelectedRecipient] = useState("");
+  const [selectedRecipient, setSelectedRecipient] = useState(recipientId || "");
   const [messageContent, setMessageContent] = useState("");
-
-  const [showChatbox, setShowChatbox] = useState(false);
+  const [showChatbox, setShowChatbox] = useState(isOpen);
   const [showHistory, setShowHistory] = useState(false);
-
   const [unreadCounts, setUnreadCounts] = useState({});
   const [hasUnread, setHasUnread] = useState(false);
-
   const [error, setError] = useState(null);
-
-  /* admin-fallback task modal (unchanged) */
   const [showTaskDetailsModal, setShowTaskDetailsModal] = useState(false);
   const [selectedTask, setSelectedTask] = useState(null);
   const [taskLogs, setTaskLogs] = useState([]);
+  const [isRecording, setIsRecording] = useState(false);
+  const [showComingSoonModal, setShowComingSoonModal] = useState(false);
+  const [recordLang, setRecordLang] = useState("hi-IN");
 
   const messagesEndRef = useRef(null);
   const audioRef = useRef(null);
   const sendAudioRef = useRef(null);
   const receiveAudioRef = useRef(null);
   const lastAlertedId = useRef(null);
-  const [jumpKey, setJumpKey] = useState(0);
-
+  const prevMessageCount = useRef(0);
   const chatContainerRef = useRef(null);
   const historyContainerRef = useRef(null);
-
-  /* drag-n-drop */
+  const [jumpKey, setJumpKey] = useState(0);
   const [pos, setPos] = useState({ x: 20, y: -20 });
   const [dragging, setDragging] = useState(false);
   const dragStart = useRef({ x: 0, y: 0 });
 
-  const [isRecording, setIsRecording] = useState(false);
-  const [showComingSoonModal, setShowComingSoonModal] = useState(false);
-  const [recordLang, setRecordLang] = useState("hi-IN");
-
-  const prevMessageCount = useRef(0);
-
-  const pathname_ = usePathname();
   const router = useRouter();
 
-  /* ------------ utils ------------- */
+  // Sync showChatbox with isOpen prop
+  useEffect(() => {
+    console.log("ChatBox isOpen changed:", isOpen, { recipientId }); // Debug log
+    setShowChatbox(isOpen);
+  }, [isOpen]);
+
+  // Sync selectedRecipient with recipientId prop
+  useEffect(() => {
+    console.log("ChatBox recipientId changed:", recipientId); // Debug log
+    if (recipientId) {
+      setSelectedRecipient(String(recipientId));
+    }
+  }, [recipientId]);
+
   const playSound = () => {
     if (!audioRef.current) return;
     audioRef.current.loop = true;
     audioRef.current.currentTime = 0;
     audioRef.current.play().catch(() => {});
   };
+
   const stopSound = () => {
     if (!audioRef.current) return;
     audioRef.current.pause();
@@ -121,7 +115,14 @@ export default function ChatBox({ userDetails }) {
 
   const scrollBottom = () =>
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  const closeAll = () => { setShowChatbox(false); setShowHistory(false); };
+
+  const closeAll = () => {
+    console.log("ChatBox closeAll called"); // Debug log
+    setShowChatbox(false);
+    setShowHistory(false);
+    if (setIsOpen) setIsOpen(false);
+  };
+
   const getRole = (u) => {
     if (u.role === "admin") return "Admin";
     if (u.role === "team_manager")
@@ -129,7 +130,6 @@ export default function ChatBox({ userDetails }) {
     return u.type ? toTitle(u.type) : "Member";
   };
 
-  /* ------------ polling ------------ */
   const fetchData = async () => {
     if (!userDetails?.id) return;
     try {
@@ -139,6 +139,7 @@ export default function ChatBox({ userDetails }) {
       ]);
       const { users: fetchedUsers = [] } = await uRes.json();
       const { messages: fetchedMsgs = [] } = await mRes.json();
+      console.log("ChatBox fetched users:", fetchedUsers); // Debug log
       setUsers(fetchedUsers);
       setMessages(fetchedMsgs);
 
@@ -161,20 +162,22 @@ export default function ChatBox({ userDetails }) {
       const newest = unread
         .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
 
-      if (newest &&
-          newest.id !== lastAlertedId.current &&
-          !showChatbox && !showHistory) {
+      if (
+        newest &&
+        newest.id !== lastAlertedId.current &&
+        !showChatbox &&
+        !showHistory
+      ) {
         playSound();
         setJumpKey(Date.now());
         lastAlertedId.current = newest.id;
       }
     } catch (e) {
-      console.error(e);
+      console.error("ChatBox fetch error:", e);
       setError("Chat fetch error.");
     }
   };
 
-  /* ------------ mark-as-read ---------- */
   const markReadForPartner = async (partnerId) => {
     const toMark = messages.filter(
       (m) =>
@@ -208,7 +211,6 @@ export default function ChatBox({ userDetails }) {
     );
   };
 
-  /* ------------ send message ---------- */
   const sendMessage = async () => {
     if (!selectedRecipient || !messageContent.trim()) {
       setError("Pick a recipient and write something.");
@@ -242,20 +244,20 @@ export default function ChatBox({ userDetails }) {
     }
   };
 
-  /* ------------ drag helpers ---------- */
   const mouseDown = (e) => {
     if (e.target.closest(".chatbox-header")) {
       setDragging(true);
       dragStart.current = { x: e.clientX - pos.x, y: e.clientY - pos.y };
     }
   };
+
   const mouseMove = (e) => {
     if (dragging)
       setPos({ x: e.clientX - dragStart.current.x, y: e.clientY - dragStart.current.y });
   };
+
   const mouseUp = () => setDragging(false);
 
-  /* ------------ member dispatch ------- */
   const dispatchOpenTask = (taskId, sprintId) => {
     window.dispatchEvent(
       new CustomEvent("member-open-task", {
@@ -264,7 +266,6 @@ export default function ChatBox({ userDetails }) {
     );
   };
 
-  /* ------------ single click-handler --- */
   useEffect(() => {
     const handleTaskClick = (e) => {
       if (!e.target.classList.contains("task-link")) return;
@@ -275,7 +276,7 @@ export default function ChatBox({ userDetails }) {
       console.log("Task link clicked:", { taskId, sprintId });
 
       const isManagerRole = ["admin", "team_manager"].includes(userDetails?.role);
-      const isManagerPage = pathname_ === "/dashboard/managersCommon";
+      const isManagerPage = pathname === "/dashboard/managersCommon";
 
       if (isManagerRole) {
         if (isManagerPage) {
@@ -300,9 +301,8 @@ export default function ChatBox({ userDetails }) {
       chatEl?.removeEventListener("click", handleTaskClick);
       historyEl?.removeEventListener("click", handleTaskClick);
     };
-  }, [showHistory, userDetails?.role, pathname_, router]);
+  }, [showHistory, userDetails?.role, pathname, router]);
 
-  /* ------------ life-cycle ------------ */
   useEffect(() => {
     audioRef.current = new Audio("/sms.mp3");
     audioRef.current.loop = true;
@@ -326,15 +326,6 @@ export default function ChatBox({ userDetails }) {
   }, [showChatbox, selectedRecipient]);
 
   useEffect(() => {
-    window.addEventListener("mousemove", mouseMove);
-    window.addEventListener("mouseup", mouseUp);
-    return () => {
-      window.removeEventListener("mousemove", mouseMove);
-      window.removeEventListener("mouseup", mouseUp);
-    };
-  }, [dragging]);
-
-  useEffect(() => {
     scrollBottom();
 
     if (prevMessageCount.current === 0) {
@@ -356,6 +347,15 @@ export default function ChatBox({ userDetails }) {
     prevMessageCount.current = messages.length;
   }, [messages, showChatbox, selectedRecipient]);
 
+  useEffect(() => {
+    window.addEventListener("mousemove", mouseMove);
+    window.addEventListener("mouseup", mouseUp);
+    return () => {
+      window.removeEventListener("mousemove", mouseMove);
+      window.removeEventListener("mouseup", mouseUp);
+    };
+  }, [dragging]);
+
   const startVoiceRecording = () => {
     if (!window.SpeechRecognition && !window.webkitSpeechRecognition) {
       setError("Speech recognition is not supported in this browser.");
@@ -374,7 +374,7 @@ export default function ChatBox({ userDetails }) {
 
     recognition.onresult = (event) => {
       const transcript = event.results[0][0].transcript;
-      setMessageContent(prev => prev ? prev + ' ' + transcript : transcript);
+      setMessageContent((prev) => (prev ? prev + " " + transcript : transcript));
       setIsRecording(false);
     };
 
@@ -393,7 +393,6 @@ export default function ChatBox({ userDetails }) {
     setShowComingSoonModal(true);
   };
 
-  /* ------------ render (UI updated with image fixes and chat history overflow) -- */
   return (
     <motion.div
       initial={{ opacity: 0, x: 20 }}
@@ -417,8 +416,10 @@ export default function ChatBox({ userDetails }) {
       <div className="flex gap-2">
         <button
           onClick={() => {
+            console.log("Chat button clicked"); // Debug log
             closeAll();
             setShowChatbox(true);
+            if (setIsOpen) setIsOpen(true);
           }}
           className="p-4 bg-gradient-to-r from-teal-500 to-cyan-600 text-white rounded-full shadow-lg hover:scale-105 transition-transform"
           title="Open Chat"
@@ -436,6 +437,7 @@ export default function ChatBox({ userDetails }) {
           }
           transition={{ duration: 0.5, ease: "easeOut" }}
           onClick={() => {
+            console.log("History button clicked"); // Debug log
             closeAll();
             setShowHistory(true);
           }}
@@ -461,11 +463,18 @@ export default function ChatBox({ userDetails }) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
             transition={{ duration: 0.3 }}
-            className="bg-white rounded-2xl shadow-2xl p-6 w-[400px] max-h-[70vh] overflow-hidden border mt-4 flex flex-col"
+            className="bg-white rounded-2xl shadow-2xl p-6 w-[400px] max-h-[70vh] overflow-hidden border mt-4 flex flex-col z-50"
           >
             <div className="chatbox-header flex justify-between items-center mb-4 bg-gradient-to-r from-teal-500 to-cyan-600 text-white p-4 -mx-6 -mt-6 rounded-t-2xl">
               <h3 className="text-xl font-semibold">Messages</h3>
-              <button onClick={() => setShowChatbox(false)} className="text-white hover:text-gray-200">
+              <button
+                onClick={() => {
+                  console.log("Chatbox close button clicked"); // Debug log
+                  setShowChatbox(false);
+                  if (setIsOpen) setIsOpen(false);
+                }}
+                className="text-white hover:text-gray-200"
+              >
                 ✕
               </button>
             </div>
@@ -473,16 +482,17 @@ export default function ChatBox({ userDetails }) {
             <select
               className="p-3 border rounded-lg w-full mb-4 bg-gray-50"
               value={selectedRecipient}
-              onChange={(e) => setSelectedRecipient(e.target.value)}
+              onChange={(e) => {
+                console.log("Recipient selected:", e.target.value); // Debug log
+                setSelectedRecipient(e.target.value);
+              }}
             >
               <option value="">Select Recipient</option>
-              {users
-                .filter((u) => u.id !== Number(userDetails.id))
-                .map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name} ({getRole(u)})
-                  </option>
-                ))}
+              {users.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name} ({getRole(u)})
+                </option>
+              ))}
             </select>
 
             <div className="flex-1 overflow-y-auto pr-2 mb-2" ref={chatContainerRef}>
@@ -498,32 +508,45 @@ export default function ChatBox({ userDetails }) {
                     )
                     .slice(-20)
                     .map((m) => {
-                      const sender = users.find(u => u.id === m.senderId);
+                      const sender = users.find((u) => u.id === m.senderId);
                       const isOwnMessage = m.senderId === Number(userDetails.id);
                       return (
                         <li
                           key={m.id}
-                          className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`}
+                          className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}
                         >
-                          <div className={`flex items-start gap-2 max-w-[80%] p-3 rounded-xl border ${isOwnMessage ? "bg-teal-100 ml-8" : "bg-gray-100 mr-8"}`}>
+                          <div
+                            className={`flex items-start gap-2 max-w-[80%] p-3 rounded-xl border ${
+                              isOwnMessage ? "bg-teal-100 ml-8" : "bg-gray-100 mr-8"
+                            }`}
+                          >
                             {!isOwnMessage && (
                               <img
                                 src={getValidImageUrl(sender?.image)}
-                                alt={`${sender?.name || 'User'}'s profile`}
+                                alt={`${sender?.name || "User"}'s profile`}
                                 className="w-8 h-8 rounded-full object-cover"
-                                onError={(e) => { e.target.src = 'https://via.placeholder.com/32'; }}
+                                onError={(e) => {
+                                  e.target.src = "https://via.placeholder.com/32";
+                                }}
                               />
                             )}
                             <div>
-                              <p className="text-xs text-gray-500">{new Date(m.createdAt).toLocaleTimeString()}</p>
-                              <p className="break-words" dangerouslySetInnerHTML={{ __html: linkify(m.content) }} />
+                              <p className="text-xs text-gray-500">
+                                {new Date(m.createdAt).toLocaleTimeString()}
+                              </p>
+                              <p
+                                className="break-words"
+                                dangerouslySetInnerHTML={{ __html: linkify(m.content) }}
+                              />
                             </div>
                             {isOwnMessage && (
                               <img
                                 src={getValidImageUrl(userDetails?.image)}
                                 alt="Your profile"
                                 className="w-8 h-8 rounded-full object-cover"
-                                onError={(e) => { e.target.src = 'https://via.placeholder.com/32'; }}
+                                onError={(e) => {
+                                  e.target.src = "https://via.placeholder.com/32";
+                                }}
                               />
                             )}
                           </div>
@@ -533,7 +556,9 @@ export default function ChatBox({ userDetails }) {
                   <div ref={messagesEndRef} />
                 </ul>
               ) : (
-                <p className="text-gray-500 text-center mt-5">Select a recipient to start chatting.</p>
+                <p className="text-gray-500 text-center mt-5">
+                  Select a recipient to start chatting.
+                </p>
               )}
             </div>
 
@@ -546,7 +571,10 @@ export default function ChatBox({ userDetails }) {
                 onChange={(e) => setMessageContent(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && sendMessage()}
               />
-              <button onClick={sendMessage} className="p-3 bg-gradient-to-r from-teal-500 to-cyan-600 text-white rounded-lg">
+              <button
+                onClick={sendMessage}
+                className="p-3 bg-gradient-to-r from-teal-500 to-cyan-600 text-white rounded-lg"
+              >
                 <PaperAirplaneIcon className="h-5 w-5" />
               </button>
             </div>
@@ -563,7 +591,9 @@ export default function ChatBox({ userDetails }) {
               <motion.button
                 onClick={startVoiceRecording}
                 disabled={isRecording}
-                className={`px-3 py-1 rounded-lg text-sm font-medium ${isRecording ? "bg-gray-400 cursor-not-allowed" : "bg-teal-600 text-white hover:bg-teal-700"}`}
+                className={`px-3 py-1 rounded-lg text-sm font-medium ${
+                  isRecording ? "bg-gray-400 cursor-not-allowed" : "bg-teal-600 text-white hover:bg-teal-700"
+                }`}
                 whileHover={{ scale: isRecording ? 1 : 1.05 }}
                 whileTap={{ scale: isRecording ? 1 : 0.95 }}
               >
@@ -597,7 +627,13 @@ export default function ChatBox({ userDetails }) {
           >
             <div className="flex justify-between items-center mb-4 bg-gradient-to-r from-blue-500 to-indigo-600 text-white p-4 -mx-6 -mt-6 rounded-t-2xl">
               <h3 className="text-xl font-semibold">Chat History</h3>
-              <button onClick={() => setShowHistory(false)} className="text-white hover:text-gray-200">
+              <button
+                onClick={() => {
+                  console.log("History close button clicked"); // Debug log
+                  setShowHistory(false);
+                }}
+                className="text-white hover:text-gray-200"
+              >
                 ✕
               </button>
             </div>
@@ -643,9 +679,11 @@ export default function ChatBox({ userDetails }) {
                   <div
                     key={u.id}
                     onClick={() => {
+                      console.log("Chat history item clicked:", u.id); // Debug log
                       setSelectedRecipient(String(u.id));
                       closeAll();
                       setShowChatbox(true);
+                      if (setIsOpen) setIsOpen(true);
                     }}
                     className="relative mb-3 p-3 bg-gray-50 border rounded-lg cursor-pointer hover:bg-blue-50 flex items-center gap-3"
                   >
@@ -653,7 +691,9 @@ export default function ChatBox({ userDetails }) {
                       src={getValidImageUrl(u.image)}
                       alt={`${u.name}'s profile`}
                       className="w-10 h-10 rounded-full object-cover"
-                      onError={(e) => { e.target.src = 'https://via.placeholder.com/40'; }}
+                      onError={(e) => {
+                        e.target.src = "https://via.placeholder.com/40";
+                      }}
                     />
                     <div className="flex-1 min-w-0">
                       <p className="font-semibold truncate">
@@ -661,7 +701,7 @@ export default function ChatBox({ userDetails }) {
                       </p>
                       <p
                         className="text-xs text-gray-600 break-words"
-                        style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}
+                        style={{ wordBreak: "break-word", overflowWrap: "break-word" }}
                         dangerouslySetInnerHTML={{
                           __html: linkify(lastMsg?.content || "No messages yet"),
                         }}
@@ -697,6 +737,7 @@ export default function ChatBox({ userDetails }) {
             >
               <button
                 onClick={() => {
+                  console.log("Task details modal closed"); // Debug log
                   setShowTaskDetailsModal(false);
                   setSelectedTask(null);
                   setTaskLogs([]);
@@ -707,22 +748,47 @@ export default function ChatBox({ userDetails }) {
               </button>
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Task Details</h2>
               <div className="space-y-3">
-                <p className="text-sm font-medium text-gray-700"><strong>Title:</strong> {selectedTask?.title || "Untitled Task"}</p>
-                <p className="text-sm font-medium text-gray-700"><strong>Description:</strong> {selectedTask?.description || "No description"}</p>
-                <p className="text-sm font-medium text-gray-700"><strong>Assigned By:</strong> {selectedTask?.createdBy ? users.find((u) => u.id === selectedTask.createdBy)?.name || "Unknown" : "Unknown"}</p>
-                <p className="text-sm font-medium text-gray-700"><strong>Status:</strong> {(selectedTask?.status || "not_started").replace("_", " ")}</p>
-                <p className="text-sm font-medium text-gray-700"><strong>Assigned Date:</strong> {selectedTask?.assignedDate ? new Date(selectedTask.assignedDate).toLocaleDateString() : "N/A"}</p>
-                <p className="text-sm font-medium text-gray-700"><strong>Deadline:</strong> {selectedTask?.deadline ? new Date(selectedTask.deadline).toLocaleDateString() : "No deadline"}</p>
-                <p className="text-sm font-medium text-gray-700"><strong>Resources:</strong> {selectedTask?.resources || "No resources"}</p>
+                <p className="text-sm font-medium text-gray-700">
+                  <strong>Title:</strong> {selectedTask?.title || "Untitled Task"}
+                </p>
+                <p className="text-sm font-medium text-gray-700">
+                  <strong>Description:</strong> {selectedTask?.description || "No description"}
+                </p>
+                <p className="text-sm font-medium text-gray-700">
+                  <strong>Assigned By:</strong>{" "}
+                  {selectedTask?.createdBy
+                    ? users.find((u) => u.id === selectedTask.createdBy)?.name || "Unknown"
+                    : "Unknown"}
+                </p>
+                <p className="text-sm font-medium text-gray-700">
+                  <strong>Status:</strong> {(selectedTask?.status || "not_started").replace("_", " ")}
+                </p>
+                <p className="text-sm font-medium text-gray-700">
+                  <strong>Assigned Date:</strong>{" "}
+                  {selectedTask?.assignedDate
+                    ? new Date(selectedTask.assignedDate).toLocaleDateString()
+                    : "N/A"}
+                </p>
+                <p className="text-sm font-medium text-gray-700">
+                  <strong>Deadline:</strong>{" "}
+                  {selectedTask?.deadline
+                    ? new Date(selectedTask.deadline).toLocaleDateString()
+                    : "No deadline"}
+                </p>
+                <p className="text-sm font-medium text-gray-700">
+                  <strong>Resources:</strong> {selectedTask?.resources || "No resources"}
+                </p>
 
-                {selectedTask.sprints?.length > 0 && (
+                {selectedTask?.sprints?.length > 0 && (
                   <div>
                     <h3 className="text-sm font-semibold text-gray-700">Sprints</h3>
                     <ul className="space-y-2">
                       {selectedTask.sprints.map((s) => (
                         <li key={s.id} className="p-2 bg-gray-50 rounded border">
                           <p className="font-medium">{s.title || "Untitled Sprint"}</p>
-                          <p className="text-sm text-gray-600">Status: {s.status?.replace("_", " ") || "Unknown"}</p>
+                          <p className="text-sm text-gray-600">
+                            Status: {s.status?.replace("_", " ") || "Unknown"}
+                          </p>
                           <p className="text-sm text-gray-600">{s.description || "No description."}</p>
                         </li>
                       ))}
@@ -737,9 +803,13 @@ export default function ChatBox({ userDetails }) {
                       <p className="text-sm text-gray-500">No discussion yet.</p>
                     ) : (
                       taskLogs.map((log) => (
-                        <div key={log.id} className="p-3 bg-gray-50 rounded-lg shadow-sm border border-gray-200">
+                        <div
+                          key={log.id}
+                          className="p-3 bg-gray-50 rounded-lg shadow-sm border border-gray-200"
+                        >
                           <p className="text-xs text-gray-600">
-                            {users.find((u) => u.id === log.userId)?.name || "Unknown"} ({new Date(log.createdAt).toLocaleString()}):
+                            {users.find((u) => u.id === log.userId)?.name || "Unknown"} (
+                            {new Date(log.createdAt).toLocaleString()}):
                           </p>
                           <p className="text-sm text-gray-700">{log.details}</p>
                         </div>
@@ -752,6 +822,7 @@ export default function ChatBox({ userDetails }) {
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                     onClick={() => {
+                      console.log("Task details modal closed"); // Debug log
                       setShowTaskDetailsModal(false);
                       setSelectedTask(null);
                       setTaskLogs([]);
@@ -783,7 +854,10 @@ export default function ChatBox({ userDetails }) {
               className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md border border-teal-300 relative"
             >
               <button
-                onClick={() => setShowComingSoonModal(false)}
+                onClick={() => {
+                  console.log("Coming soon modal closed"); // Debug log
+                  setShowComingSoonModal(false);
+                }}
                 className="absolute top-2 right-2 text-gray-500 hover:text-gray-700 text-xl font-bold"
               >
                 X
@@ -794,7 +868,10 @@ export default function ChatBox({ userDetails }) {
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
-                  onClick={() => setShowComingSoonModal(false)}
+                  onClick={() => {
+                    console.log("Coming soon modal closed"); // Debug log
+                    setShowComingSoonModal(false);
+                  }}
                   className="px-4 py-2 bg-gray-500 text-white rounded-md text-sm font-medium"
                 >
                   Close

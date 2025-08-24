@@ -4,150 +4,103 @@ import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Menu, X, Users } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
 import { createPortal } from "react-dom";
 
 export default function Navbar() {
   const { data: session, status } = useSession();
   const pathname = usePathname();
   const router = useRouter();
+
   const [mounted, setMounted] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
   const [userName, setUserName] = useState(session?.user?.name || "User");
   const [userImage, setUserImage] = useState(session?.user?.image || "/default-avatar.png");
 
+  // dropdown state
+  const [isManageOpen, setIsManageOpen] = useState(false);
+
+  // --- EFFECTS ---
   useEffect(() => {
     setMounted(true);
-
-    // Update local state when session changes
     if (session?.user) {
       setUserName(session.user.name || "User");
-      const image = session.user.image || "/default-avatar.png";
-      setUserImage(image);
-      console.log("Session updated:", { name: session.user.name, image, role: session.user.role });
+      setUserImage(session.user.image || "/default-avatar.png");
+      console.log("Session updated:", { name: session.user.name, image: session.user.image, role: session.user.role });
     }
+  }, [session]);
 
-    // Fetch profile data on profile page or after update
-    const fetchProfile = async () => {
-      try {
-        const response = await fetch("/api/member/profile");
-        const data = await response.json();
-        if (response.ok) {
-          setUserName(data.user.name || "User");
-          const image = data.user.image || "/default-avatar.png";
-          setUserImage(image);
-          await fetch("/api/auth/session", { credentials: "include" });
-          console.log("Profile fetched:", { name: data.user.name, image });
-        } else {
-          console.error("Profile fetch failed:", data);
-        }
-      } catch (err) {
-        console.error("Failed to fetch profile:", err);
-      }
-    };
+  // close Managerial dropdown on route change
+  useEffect(() => {
+    setIsManageOpen(false);
+  }, [pathname]);
 
-    // Listen for profile updates from Profile.jsx
-    const handleProfileUpdate = (event) => {
-      if (event.data.type === "PROFILE_UPDATED") {
-        fetchProfile();
-      }
-    };
-
-    if (pathname.includes("/profile")) {
-      fetchProfile(); // Initial fetch on profile page
-      window.addEventListener("message", handleProfileUpdate);
-      const interval = setInterval(fetchProfile, 5000); // Refetch every 5 seconds
-      return () => {
-        window.removeEventListener("message", handleProfileUpdate);
-        clearInterval(interval);
-      };
+  // click-away for Managerial dropdown (desktop)
+  useEffect(() => {
+    function onDocClick(e) {
+      const wrapper = document.querySelector(".nav-dropdown");
+      if (isManageOpen && wrapper && !wrapper.contains(e.target)) setIsManageOpen(false);
     }
-  }, [pathname, session]);
+    document.addEventListener("click", onDocClick);
+    return () => document.removeEventListener("click", onDocClick);
+  }, [isManageOpen]);
 
-  // Prevent rendering until session is loaded and component is mounted
+  // block render until ready
   if (status === "loading" || !mounted) {
-    return (
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        className="bg-gray-900/80 dark:bg-slate-900/80 backdrop-blur-lg text-white p-4"
-      >
-        Loading...
-      </motion.div>
-    );
+    return <div className="bg-gray-900 text-white p-4">Loading...</div>;
   }
 
-  if (pathname.includes('/workTogether')) {
-    return null;
-  }
+  // hide navbar on together workspace page
+  if (pathname.includes("/workTogether")) return null;
 
+  // --- HELPERS ---
   const role = session?.user?.role || "user";
+  const profilePath = role ? `/dashboard/${role === "team_manager" ? "team_manager" : role}/profile` : "/";
+  // MyPerformance is always under member
+  const performancePath = "/dashboard/member/myPerformance";
+  const isActive = (href) => pathname.replace(/\/$/, "") === href.replace(/\/$/, "");
+  const toggleMobileMenu = () => setIsMobileMenuOpen((v) => !v);
+  const openLogoutModal = () => setIsLogoutModalOpen(true);
+  const closeLogoutModal = () => setIsLogoutModalOpen(false);
+
+  const handleLogin = (role) => router.push(`/login?role=${role}`);
+  const handleAddMember = () => router.push("/dashboard/admin/addUser");
+  const handleManageMeedian = () => router.push("/dashboard/admin/manageMeedian");
+  const openTogetherWorkspace = () => window.open("/dashboard/member/workTogether", "_blank");
   const handleLogout = async () => {
     setIsLogoutModalOpen(false);
     await signOut({ redirect: false });
     router.push("/");
   };
 
-  const handleLogin = (role) => router.push(`/login?role=${role}`);
-  const handleAddMember = () => router.push("/dashboard/admin/addUser");
-  const handleManageMeedian = () => router.push("/dashboard/admin/manageMeedian");
-  const toggleMobileMenu = () => setIsMobileMenuOpen(!isMobileMenuOpen);
-  const openLogoutModal = () => setIsLogoutModalOpen(true);
-  const closeLogoutModal = () => setIsLogoutModalOpen(false);
-  const isActive = (href) => {
-    const isActive = pathname.replace(/\/$/, "") === href.replace(/\/$/, "");
-    console.log(`isActive check: href=${href}, pathname=${pathname}, isActive=${isActive}`);
-    return isActive;
-  };
-
-  const openTogetherWorkspace = () => {
-    window.open("/dashboard/member/workTogether", '_blank');
-  };
-
-  const profilePath = role ? `/dashboard/${role === "team_manager" ? "team_manager" : role}/profile` : "/";
-
   const LogoutModal = () => (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-[10000] p-4"
-    >
-      <motion.div
-        initial={{ scale: 0.9, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        exit={{ scale: 0.9, opacity: 0 }}
-        transition={{ duration: 0.3, ease: "easeInOut" }}
-        className="bg-gray-900/90 dark:bg-slate-900/90 backdrop-blur-xl rounded-2xl p-6 max-w-[400px] w-full border border-gray-100/30 shadow-2xl"
-      >
+    <div className="modal-overlay">
+      <div className="modal-content">
         <h2 className="text-lg font-semibold text-white mb-4">Confirm Logout</h2>
         <p className="text-gray-300 mb-6">Are you sure you want to log out?</p>
         <div className="flex justify-center space-x-4">
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
+          <button
             onClick={handleLogout}
-            className="px-4 py-2 bg-cyan-600 text-white rounded-lg font-medium hover:bg-cyan-700 transition duration-200"
+            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium transition duration-200"
           >
             Yes, Log Out
-          </motion.button>
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
+          </button>
+          <button
             onClick={closeLogoutModal}
-            className="px-4 py-2 bg-gray-700 text-white rounded-lg font-medium hover:bg-gray-600 transition duration-200"
+            className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-500 font-medium transition duration-200"
           >
             Cancel
-          </motion.button>
+          </button>
         </div>
-      </motion.div>
-    </motion.div>
+      </div>
+    </div>
   );
 
   return (
     <>
-      <style global jsx>{`
+      {/* ====== STYLES (full) ====== */}
+      <style jsx global>{`
+        /* Modal */
         .modal-overlay {
           position: fixed;
           inset: 0;
@@ -164,28 +117,28 @@ export default function Navbar() {
           max-width: 400px;
           width: 90%;
           text-align: center;
-          box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+          box-shadow: 0 8px 16px rgba(0,0,0,0.3);
           border: 1px solid #4b5563;
         }
+
+        /* Mobile Menu shell */
         .mobile-menu {
           position: fixed;
           top: 0;
           right: 0;
           height: 100%;
           width: 75%;
-          max-width: 300px;
-          background: #1f2937/90;
-          backdrop-blur-lg;
+          max-width: 320px;
+          background: #111827; /* darker to match theme */
           transform: translateX(100%);
           transition: transform 0.3s ease-in-out;
           z-index: 9999;
-          box-shadow: -4px 0 12px rgba(0, 0, 0, 0.5);
-          padding: 1.5rem;
-          border-left: 1px solid #4b5563;
+          box-shadow: -4px 0 16px rgba(0,0,0,0.6);
+          padding: 1.25rem;
+          border-left: 1px solid #374151;
         }
-        .mobile-menu.open {
-          transform: translateX(0);
-        }
+        .mobile-menu.open { transform: translateX(0); }
+
         .mobile-menu-overlay {
           position: fixed;
           inset: 0;
@@ -195,112 +148,64 @@ export default function Navbar() {
           transition: opacity 0.3s ease-in-out;
           pointer-events: none;
         }
-        .mobile-menu-overlay.open {
-          opacity: 1;
-          pointer-events: auto;
-        }
-        .mobile-menu-item {
-          display: block;
-          padding: 0.75rem 1rem;
-          font-size: 0.95rem;
+        .mobile-menu-overlay.open { opacity: 1; pointer-events: auto; }
+
+        /* Menu items (mobile + desktop) */
+        .mobile-menu-item, .nav-item {
+          display: inline-block;
+          padding: 0.55rem 0.75rem;
+          font-size: 0.92rem;
           font-weight: 500;
-          font-family: 'Inter', sans-serif;
-          transition: all 0.2s ease;
           border-radius: 8px;
-          margin-bottom: 0.5rem;
-          white-space: nowrap;
-          color: #e5e7eb;
-        }
-        .mobile-menu-item:hover {
-          background: #374151/80;
-          color: #22d3ee;
-        }
-        .mobile-menu-item.active {
-          color: #22d3ee;
-          font-weight: 600;
-          background: #374151/80;
-          background: linear-gradient(to right, #22d3ee20, #37415180);
-        }
-        .mobile-together-button {
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-          padding: 0.75rem 1rem;
-          font-size: 0.95rem;
-          font-weight: 500;
-          font-family: 'Inter', sans-serif;
-          border-radius: 8px;
-          margin-bottom: 0.5rem;
           transition: all 0.2s ease;
           color: #e5e7eb;
-        }
-        .mobile-together-button:hover {
-          background: #374151/80;
-          color: #22d3ee;
-        }
-        .mobile-together-button.active {
-          color: #22d3ee;
-          background: #374151/80;
-          background: linear-gradient(to right, #22d3ee20, #37415180);
-        }
-        .nav-item {
           position: relative;
-          padding: 0.5rem 0.75rem;
-          font-weight: 500;
-          font-size: 0.85rem;
-          font-family: 'Inter', sans-serif;
-          transition: all 0.3s ease;
-          border-radius: 8px;
-          white-space: nowrap;
-          color: #e5e7eb;
         }
-        .nav-item:hover {
-          background: rgba(255, 255, 255, 0.1);
+        .mobile-menu-item:hover, .nav-item:hover {
+          background: rgba(255,255,255,0.08);
           color: #22d3ee;
           transform: translateY(-2px);
         }
-        .nav-item.active {
+        .mobile-menu-item.active, .nav-item.active {
           color: #22d3ee;
-          background: linear-gradient(to right, #22d3ee20, #37415120);
+          background: linear-gradient(to right, #22d3ee22, #37415144);
         }
-        .nav-item.active::after {
+        .nav-item.active::after, .mobile-menu-item.active::after {
           content: '';
           position: absolute;
           bottom: -4px;
           left: 50%;
           transform: translateX(-50%);
-          width: 50%;
+          width: 48%;
           height: 2px;
-          background: linear-gradient(to right, #22d3ee, #3b82f6);
+          background: linear-gradient(90deg, #22d3ee, #3b82f6);
+          border-radius: 2px;
         }
+
+        /* Buttons */
         .nav-button {
-          padding: 0.5rem 0.75rem;
-          font-weight: 500;
+          padding: 0.5rem 0.9rem;
+          font-weight: 600;
           font-size: 0.85rem;
-          font-family: 'Inter', sans-serif;
-          border-radius: 8px;
-          transition: all 0.3s ease;
+          border-radius: 10px;
+          transition: all 0.25s ease;
           white-space: nowrap;
+          box-shadow: 0 4px 14px rgba(0,0,0,0.25);
         }
-        .nav-button:hover {
-          transform: translateY(-2px);
-        }
+        .nav-button:hover { transform: translateY(-2px); filter: brightness(1.04); }
+
+        /* Icon button (Together) */
         .nav-icon-button {
-          display: flex;
+          display: inline-flex;
           align-items: center;
           justify-content: center;
           padding: 0.5rem;
-          border-radius: 50%;
-          transition: all 0.3s ease;
+          border-radius: 9999px;
+          transition: all 0.25s ease;
         }
         .nav-icon-button:hover {
-          background: rgba(255, 255, 255, 0.1);
-          color: #22d3ee;
+          background: rgba(255,255,255,0.08);
           transform: translateY(-2px);
-        }
-        .nav-icon-button.active {
-          color: #22d3ee;
-          background: linear-gradient(to right, #22d3ee20, #37415120);
         }
         .nav-icon-button.active::after {
           content: '';
@@ -310,668 +215,1347 @@ export default function Navbar() {
           transform: translateX(-50%);
           width: 24px;
           height: 2px;
-          background: linear-gradient(to right, #22d3ee, #3b82f6);
+          background: #22d3ee;
         }
-        .managerial-group {
-          display: flex;
+
+        /* Managerial dropdown (desktop) */
+        .nav-dropdown { position: relative; }
+        .nav-dropdown-btn {
+          padding: 0.5rem 0.75rem;
+          font-weight: 600;
+          font-size: 0.9rem;
+          border-radius: 10px;
+          display: inline-flex;
           align-items: center;
-          gap: 0.25rem;
-          border: 1px solid #22d3ee30;
-          padding: 0.2rem;
-          border-radius: 8px;
-          background: rgba(255, 255, 255, 0.05);
-          backdrop-blur-sm;
+          gap: 0.45rem;
+          transition: all .2s ease;
+          color: #e5e7eb;
         }
-        .mobile-managerial-group {
-          border: 1px solid #22d3ee30;
-          padding: 0.75rem;
-          border-radius: 8px;
-          margin: 0.75rem 0;
-          background: #2d3748/90;
-          backdrop-blur-sm;
+        .nav-dropdown-btn:hover {
+          background: rgba(255,255,255,.08);
+          transform: translateY(-2px);
+          color: #22d3ee;
         }
+        .nav-dropdown-menu {
+          position: absolute;
+          top: calc(100% + 10px);
+          left: 0;
+          min-width: 220px;
+          background: #0b1220; /* deep dark */
+          border: 1px solid #1f2a44;
+          border-radius: 12px;
+          padding: 8px;
+          box-shadow: 0 18px 40px rgba(0,0,0,.45), 0 0 0 1px rgba(34,211,238,.06) inset;
+          z-index: 10001;
+        }
+        .nav-dropdown-item {
+          display: block;
+          padding: 0.6rem 0.7rem;
+          border-radius: 10px;
+          font-size: 0.92rem;
+          font-weight: 500;
+          color: #e5e7eb;
+        }
+        .nav-dropdown-item:hover {
+          background: #122034;
+          color: #22d3ee;
+        }
+
+        /* User chip */
         .user-info {
           display: flex;
           align-items: center;
-          gap: 0.5rem;
-          padding: 0.5rem 1rem;
-          border-radius: 8px;
-          transition: all 0.3s ease;
-          position: relative;
-          background: rgba(255, 255, 255, 0.05);
+          gap: 0.6rem;
+          padding: 0.5rem 0.9rem;
+          border-radius: 12px;
+          border: 2px solid #334155;
+          background: #1f2937;
+          box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+          transition: all .25s ease;
         }
         .user-info:hover {
-          background: rgba(255, 255, 255, 0.1);
           transform: translateY(-2px);
+          background: #263244;
+          border-color: #00e5ff;
+        }
+        .user-info.active {
+          background: #22d3ee;
+          color: #0b1220;
+          border-color: #ffffff;
+          box-shadow: 0 0 12px rgba(34,211,238,0.5);
         }
         .user-info img {
           width: 32px;
           height: 32px;
-          border-radius: 50%;
+          border-radius: 9999px;
           border: 2px solid #22d3ee;
           object-fit: cover;
-          transition: transform 0.3s ease;
+          transition: all .25s ease;
         }
-        .user-info:hover img {
-          transform: scale(1.05);
-        }
-        .user-info-text {
-          display: flex;
-          flex-direction: column;
-          font-family: 'Inter', sans-serif;
-        }
-        .user-info-text .name {
-          font-size: 0.9rem;
-          font-weight: 600;
-          color: #e5e7eb;
-        }
+        .user-info:hover img { transform: scale(1.04); }
+        .user-info-text { display: flex; flex-direction: column; line-height: 1.05; }
+        .user-info-text .name { font-weight: 600; font-size: .9rem; color: #e5e7eb; }
         .user-info-text .account-label {
-          font-size: 0.75rem;
-          color: #9ca3af;
+          font-size: .72rem; color: #9ca3af; background: rgba(255,255,255,.08);
+          padding: 0.1rem 0.4rem; border-radius: 6px; margin-top: 2px;
+          text-align: center;
         }
+
+        /* Mobile specific items */
         .mobile-user-info {
-          display: flex;
-          align-items: center;
-          gap: 0.75rem;
-          padding: 0.75rem 1rem;
-          border-radius: 8px;
-          margin-bottom: 0.75rem;
-          background: #374151/80;
-          transition: all 0.2s ease;
+          display: flex; align-items: center; gap: .6rem;
+          padding: .7rem .9rem; border-radius: 12px; margin-bottom: .75rem;
+          border: 2px solid #334155; background: #1f2937;
+          transition: all .2s ease;
         }
-        .mobile-user-info:hover {
-          background: #374151;
-          color: #22d3ee;
-        }
+        .mobile-user-info:hover { background: #263244; border-color: #00e5ff; }
         .mobile-user-info img {
-          width: 36px;
-          height: 36px;
-          border-radius: 50%;
-          border: 2px solid #22d3ee;
-          object-fit: cover;
+          width: 36px; height: 36px; border-radius: 9999px; border: 2px solid #22d3ee; object-fit: cover;
         }
-        .mobile-user-info-text {
-          display: flex;
-          flex-direction: column;
-          font-family: 'Inter', sans-serif;
-        }
-        .mobile-user-info-text .name {
-          font-size: 0.95rem;
-          font-weight: 600;
-          color: #e5e7eb;
-        }
+        .mobile-user-info-text { display: flex; flex-direction: column; }
+        .mobile-user-info-text .name { font-weight: 600; font-size: .95rem; color: #e5e7eb; }
         .mobile-user-info-text .account-label {
-          font-size: 0.8rem;
-          color: #9ca3af;
+          font-size: .78rem; color: #9ca3af; background: rgba(255,255,255,.08);
+          padding: 0.1rem .45rem; border-radius: 6px; margin-top: 2px; text-align: center;
         }
-        .nav-container {
-          display: flex;
-          flex-wrap: nowrap;
-          align-items: center;
-          gap: 0.5rem;
-          overflow-x: auto;
-          -webkit-overflow-scrolling: touch;
-          scrollbar-width: none;
-          -ms-overflow-style: none;
+
+        .mobile-together-button {
+          display: flex; align-items: center; gap: .5rem;
+          padding: 0.6rem 0.75rem; border-radius: 10px;
+          transition: all .2s ease; color: #e5e7eb;
         }
-        .nav-container::-webkit-scrollbar {
-          display: none;
+        .mobile-together-button:hover {
+          background: rgba(255,255,255,.08); color: #22d3ee;
+        }
+
+        /* Keep navbar on brand */
+        nav {
+          background: linear-gradient(90deg, #0b1220, #111827 30%, #1f2937 70%, #0b1220);
         }
       `}</style>
-      <motion.nav
-        initial={{ y: -20, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ duration: 0.5, ease: "easeOut" }}
-        className="bg-gray-900/80 dark:bg-slate-900/80 backdrop-blur-lg text-white py-3 w-full sticky top-0 z-40 shadow-xl border-b border-gray-100/30"
-      >
-        <div className="flex items-center justify-between w-full px-4 sm:px-6">
-          {/* Left Section: Logo */}
-          <motion.div
-            whileHover={{ scale: 1.05 }}
-            className="flex items-center gap-3"
-          >
-            <img src="/flow1.png" alt="Logo" className="w-10 h-10 rounded-full border-2 border-cyan-400 p-1.5" />
+
+      {/* ====== NAVBAR ====== */}
+      <nav className="text-white px-4 py-3 w-full sticky top-0 z-40 shadow-lg border-b border-cyan-900/40">
+        <div className="flex items-center justify-between w-full px-2 sm:px-4 lg:px-6">
+          {/* Left: Logo */}
+          <div className="flex items-center gap-2">
+            <img src="/flow1.png" alt="Logo" className="w-8 h-8 rounded-full border border-cyan-400 p-1" />
             <Link
               href="/"
-              className={`text-xl sm:text-2xl font-bold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 transition duration-200 ${isActive("/") ? "active" : ""}`}
+              className={`text-xl font-bold tracking-tight bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent hover:from-cyan-300 hover:to-blue-300 transition ${
+                isActive("/") ? "drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]" : ""
+              }`}
             >
               MeedianAI-Flow
             </Link>
-          </motion.div>
-          {/* Center Section: Nav Items */}
-          <div className="hidden md:flex absolute left-1/2 transform -translate-x-1/2">
-            <div className="nav-container">
-              {role === "admin" && (
-                <>
-                  <Link
-                    href="/dashboard"
-                    className={`nav-item ${isActive("/dashboard") ? "active" : ""}`}
-                  >
-                    General Dashboard
-                  </Link>
-                  <Link
-                    href="/dashboard/admin"
-                    className={`nav-item ${isActive("/dashboard/admin") ? "active" : ""}`}
-                  >
-                    Dashboard
-                  </Link>
-                  <div className="managerial-group">
-                    <Link
-                      href="/dashboard/managersCommon/routineTasks"
-                      className={`nav-item ${isActive("/dashboard/managersCommon/routineTasks") ? "active" : ""}`}
-                    >
-                      Routine Tasks
-                    </Link>
-                    <Link
-                      href="/dashboard/managersCommon/assignTask"
-                      className={`nav-item ${isActive("/dashboard/managersCommon/assignTask") ? "active" : ""}`}
-                    >
-                      Assign Task
-                    </Link>
-                    <a
-                      href="https://meed-recruitment.onrender.com/login"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={`nav-item`}
-                    >
-                      Recruit
-                    </a>
-                    <motion.button
-                      whileHover={{ scale: 1.1 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={openTogetherWorkspace}
-                      title="Together"
-                      className={`nav-icon-button ${isActive("/dashboard/member/workTogether") ? "active" : ""}`}
-                    >
-                      <Users size={18} className="together-icon" />
-                    </motion.button>
-                  </div>
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={handleAddMember}
-                    className="nav-button bg-teal-600 hover:bg-teal-700 dark:bg-teal-700 dark:hover:bg-teal-800 text-white"
-                  >
-                    Add Member
-                  </motion.button>
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={handleManageMeedian}
-                    className="nav-button bg-blue-600 hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-800 text-white"
-                  >
-                    Manage Meedian
-                  </motion.button>
-                </>
-              )}
-              {role === "team_manager" && (
-                <>
-                  <Link
-                    href="/dashboard"
-                    className={`nav-item ${isActive("/dashboard") ? "active" : ""}`}
-                  >
-                    General
-                  </Link>
-                  <Link
-                    href="/dashboard/team_manager"
-                    className={`nav-item ${isActive("/dashboard/team_manager") ? "active" : ""}`}
-                  >
-                    My Dashboard
-                  </Link>
-                  <Link
-                    href="/dashboard/member/myMeedRituals"
-                    className={`nav-item ${isActive("/dashboard/member/myMeedRituals") ? "active" : ""}`}
-                  >
-                    MyMRIs
-                  </Link>
-                  <Link
-                    href="/dashboard/member/closeMyDay"
-                    className={`nav-item ${isActive("/dashboard/member/closeMyDay") ? "active" : ""}`}
-                  >
-                    CloseMyDay
-                  </Link>
-                  <div className="managerial-group">
-                    <Link
-                      href="/dashboard/managersCommon/routineTasks"
-                      className={`nav-item ${isActive("/dashboard/managersCommon/routineTasks") ? "active" : ""}`}
-                    >
-                      Routine Tasks
-                    </Link>
-                    <Link
-                      href="/dashboard/managersCommon/assignTask"
-                      className={`nav-item ${isActive("/dashboard/managersCommon/assignTask") ? "active" : ""}`}
-                    >
-                      Assign Task
-                    </Link>
-                    <a
-                      href="https://meed-recruitment.onrender.com/login"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={`nav-item`}
-                    >
-                      Recruit
-                    </a>
-                    <motion.button
-                      whileHover={{ scale: 1.1 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={openTogetherWorkspace}
-                      title="Together"
-                      className={`nav-icon-button ${isActive("/dashboard/member/workTogether") ? "active" : ""}`}
-                    >
-                      <Users size={18} className="together-icon" />
-                    </motion.button>
-                  </div>
-                </>
-              )}
-              {role === "member" && (
-                <>
-                  <Link
-                    href="/dashboard"
-                    className={`nav-item ${isActive("/dashboard") ? "active" : ""}`}
-                  >
-                    General
-                  </Link>
-                  <Link
-                    href="/dashboard/member"
-                    className={`nav-item ${isActive("/dashboard/member") ? "active" : ""}`}
-                  >
-                    My Dashboard
-                  </Link>
-                  <Link
-                    href="/dashboard/member/myMeedRituals"
-                    className={`nav-item ${isActive("/dashboard/member/myMeedRituals") ? "active" : ""}`}
-                  >
-                    MyMRIs
-                  </Link>
-                  <Link
-                    href="/dashboard/member/closeMyDay"
-                    className={`nav-item ${isActive("/dashboard/member/closeMyDay") ? "active" : ""}`}
-                  >
-                    CloseMyDay
-                  </Link>
-                  <div className="managerial-group">
-                    <motion.button
-                      whileHover={{ scale: 1.1 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={openTogetherWorkspace}
-                      title="Together"
-                      className={`nav-icon-button ${isActive("/dashboard/member/workTogether") ? "active" : ""}`}
-                    >
-                      <Users size={18} className="together-icon" />
-                    </motion.button>
-                  </div>
-                </>
-              )}
-              {status === "unauthenticated" && (
-                <>
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => handleLogin("admin")}
-                    className="nav-button bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-700 dark:hover:bg-indigo-800 text-white"
-                  >
-                    Admin Login
-                  </motion.button>
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => handleLogin("team_manager")}
-                    className="nav-button bg-purple-600 hover:bg-purple-700 dark:bg-purple-700 dark:hover:bg-purple-800 text-white"
-                  >
-                    Manager Login
-                  </motion.button>
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => handleLogin("member")}
-                    className="nav-button bg-teal-600 hover:bg-teal-700 dark:bg-teal-700 dark:hover:bg-teal-800 text-white"
-                  >
-                    Member Login
-                  </motion.button>
-                </>
-              )}
-            </div>
           </div>
-          {/* Right Section: User Info, Logout, and Mobile Toggle */}
-          <div className="flex items-center gap-3">
-            {(role === "admin" || role === "team_manager" || role === "member") && (
+
+          {/* Center: Desktop nav */}
+          <div className="hidden md:flex absolute left-1/2 -translate-x-1/2 items-center space-x-2">
+            {/* ADMIN */}
+            {role === "admin" && (
               <>
-                <motion.div whileHover={{ scale: 1.05 }} className="hidden md:flex">
-                  <Link href={profilePath} className={`user-info ${isActive(profilePath) ? "active" : ""}`}>
-                    <img
-                      src={userImage || "/default-avatar.png"}
-                      alt="User Avatar"
-                      onError={() => {
-                        console.error("Image failed to load:", userImage);
-                        setUserImage("/default-avatar.png");
-                      }}
-                    />
-                    <div className="user-info-text">
-                      <span className="name">{userName || "Loading..."}</span>
-                      <span className="account-label">My Account</span>
+                <Link href="/dashboard" className={`nav-item ${isActive("/dashboard") ? "active" : ""}`}>General</Link>
+                <Link href="/dashboard/admin" className={`nav-item ${isActive("/dashboard/admin") ? "active" : ""}`}>Dashboard</Link>
+
+                {/* Managerial dropdown */}
+                <div className="nav-dropdown">
+                  <button
+                    type="button"
+                    onClick={() => setIsManageOpen((v) => !v)}
+                    className="nav-dropdown-btn"
+                    aria-expanded={isManageOpen}
+                    aria-haspopup="menu"
+                  >
+                    Managerial ▾
+                  </button>
+                  {isManageOpen && (
+                    <div className="nav-dropdown-menu" role="menu">
+                      <Link href="/dashboard/managersCommon/routineTasks" className="nav-dropdown-item">Routine Tasks</Link>
+                      <Link href="/dashboard/managersCommon/assignTask" className="nav-dropdown-item">Assign Task</Link>
+                      <a href="https://meed-recruitment.onrender.com/login" target="_blank" rel="noopener noreferrer" className="nav-dropdown-item">Recruit</a>
                     </div>
-                  </Link>
-                </motion.div>
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={openLogoutModal}
-                  className="hidden md:block nav-button bg-red-600 hover:bg-red-700 dark:bg-red-700 dark:hover:bg-red-800 text-white"
-                >
-                  Logout
-                </motion.button>
+                  )}
+                </div>
+
+                {/* Together outside */}
+                <button onClick={openTogetherWorkspace} title="Together" className={`nav-icon-button ${isActive("/dashboard/member/workTogether") ? "active" : ""}`}>
+                  <Users size={18} className="together-icon" />
+                </button>
+
+                <button onClick={handleAddMember} className="nav-button bg-teal-600 hover:bg-teal-700 text-white">Add Member</button>
+                <button onClick={handleManageMeedian} className="nav-button bg-blue-600 hover:bg-blue-700 text-white">Manage Meedian</button>
+
+                {/* Admin doesn't have CloseMyDay; keep MyPerformance at end */}
+                <Link href={performancePath} className={`nav-item ${isActive(performancePath) ? "active" : ""}`}>MyPerformance</Link>
               </>
             )}
-            <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} className="md:hidden">
-              <button onClick={toggleMobileMenu} className="text-white p-2 rounded-full hover:bg-gray-700/80 dark:hover:bg-gray-600/80 transition duration-200">
-                {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+
+            {/* TEAM MANAGER */}
+            {role === "team_manager" && (
+              <>
+                <Link href="/dashboard" className={`nav-item ${isActive("/dashboard") ? "active" : ""}`}>General</Link>
+                <Link href="/dashboard/team_manager" className={`nav-item ${isActive("/dashboard/team_manager") ? "active" : ""}`}>My Dashboard</Link>
+                <Link href="/dashboard/member/myMeedRituals" className={`nav-item ${isActive("/dashboard/member/myMeedRituals") ? "active" : ""}`}>MyMRIs</Link>
+                <Link href="/dashboard/member/closeMyDay" className={`nav-item ${isActive("/dashboard/member/closeMyDay") ? "active" : ""}`}>CloseMyDay</Link>
+                {/* Move MyPerformance AFTER CloseMyDay */}
+                <Link href={performancePath} className={`nav-item ${isActive(performancePath) ? "active" : ""}`}>MyPerformance</Link>
+
+                {/* Managerial dropdown */}
+                <div className="nav-dropdown">
+                  <button type="button" onClick={() => setIsManageOpen((v) => !v)} className="nav-dropdown-btn">Managerial ▾</button>
+                  {isManageOpen && (
+                    <div className="nav-dropdown-menu" role="menu">
+                      <Link href="/dashboard/managersCommon/routineTasks" className="nav-dropdown-item">Routine Tasks</Link>
+                      <Link href="/dashboard/managersCommon/assignTask" className="nav-dropdown-item">Assign Task</Link>
+                      <a href="https://meed-recruitment.onrender.com/login" target="_blank" rel="noopener noreferrer" className="nav-dropdown-item">Recruit</a>
+                    </div>
+                  )}
+                </div>
+
+                {/* Together outside */}
+                <button onClick={openTogetherWorkspace} title="Together" className={`nav-icon-button ${isActive("/dashboard/member/workTogether") ? "active" : ""}`}>
+                  <Users size={18} className="together-icon" />
+                </button>
+              </>
+            )}
+
+            {/* MEMBER */}
+            {role === "member" && (
+              <>
+                <Link href="/dashboard" className={`nav-item ${isActive("/dashboard") ? "active" : ""}`}>General</Link>
+                <Link href="/dashboard/member" className={`nav-item ${isActive("/dashboard/member") ? "active" : ""}`}>My Dashboard</Link>
+                <Link href="/dashboard/member/myMeedRituals" className={`nav-item ${isActive("/dashboard/member/myMeedRituals") ? "active" : ""}`}>MyMRIs</Link>
+                <Link href="/dashboard/member/closeMyDay" className={`nav-item ${isActive("/dashboard/member/closeMyDay") ? "active" : ""}`}>CloseMyDay</Link>
+                {/* Move MyPerformance AFTER CloseMyDay */}
+                <Link href={performancePath} className={`nav-item ${isActive(performancePath) ? "active" : ""}`}>MyPerformance</Link>
+
+                {/* Together */}
+                <button onClick={openTogetherWorkspace} title="Together" className={`nav-icon-button ${isActive("/dashboard/member/workTogether") ? "active" : ""}`}>
+                  <Users size={18} className="together-icon" />
+                </button>
+              </>
+            )}
+
+            {/* UNAUTH */}
+            {status === "unauthenticated" && (
+              <>
+                <button onClick={() => handleLogin("admin")} className="nav-button bg-indigo-600 hover:bg-indigo-700 text-white">Admin Login</button>
+                <button onClick={() => handleLogin("team_manager")} className="nav-button bg-purple-600 hover:bg-purple-700 text-white">Manager Login</button>
+                <button onClick={() => handleLogin("member")} className="nav-button bg-teal-600 hover:bg-teal-700 text-white">Member Login</button>
+              </>
+            )}
+          </div>
+
+          {/* Right: User chip + Logout + Mobile toggler */}
+          <div className="flex items-center gap-2">
+            {(role === "admin" || role === "team_manager" || role === "member") && (
+              <>
+                <Link href={profilePath} className={`user-info hidden md:flex ${isActive(profilePath) ? "active" : ""}`}>
+                  <img
+                    src={userImage || "/default-avatar.png"}
+                    alt="User Avatar"
+                    onError={() => {
+                      console.error("Image failed to load:", userImage);
+                      setUserImage("/default-avatar.png");
+                    }}
+                  />
+                  <div className="user-info-text">
+                    <span className="name">{userName || "Loading..."}</span>
+                    <span className="account-label">My Account</span>
+                  </div>
+                </Link>
+                <button onClick={openLogoutModal} className="hidden md:block nav-button bg-red-600 hover:bg-red-700 text-white">Logout</button>
+              </>
+            )}
+            <div className="md:hidden">
+              <button onClick={toggleMobileMenu} className="text-white p-1 rounded-full hover:bg-gray-700 transition">
+                {isMobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
               </button>
-            </motion.div>
+            </div>
           </div>
         </div>
-        {/* Mobile Menu */}
-        <AnimatePresence>
-          {isMobileMenuOpen && (
-            <>
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.3 }}
-                className="mobile-menu-overlay open"
-                onClick={toggleMobileMenu}
-              />
-              <motion.div
-                initial={{ x: "100%" }}
-                animate={{ x: 0 }}
-                exit={{ x: "100%" }}
-                transition={{ duration: 0.3, ease: "easeInOut" }}
-                className={`mobile-menu open`}
-              >
-                <div className="flex justify-between items-center mb-6">
-                  <span className="text-lg font-bold text-cyan-400">Menu</span>
-                  <motion.button
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                    onClick={toggleMobileMenu}
-                    className="text-white p-2 rounded-full hover:bg-gray-700/80 dark:hover:bg-gray-600/80"
-                  >
-                    <X size={24} />
-                  </motion.button>
-                </div>
-                {(role === "admin" || role === "team_manager" || role === "member") && (
-                  <motion.div whileHover={{ scale: 1.05 }}>
-                    <Link
-                      href={profilePath}
-                      onClick={toggleMobileMenu}
-                      className={`mobile-user-info ${isActive(profilePath) ? "active" : ""}`}
-                    >
-                      <img
-                        src={userImage || "/default-avatar.png"}
-                        alt="User Avatar"
-                        onError={() => {
-                          console.error("Image failed to load:", userImage);
-                          setUserImage("/default-avatar.png");
-                        }}
-                      />
-                      <div className="mobile-user-info-text">
-                        <span className="name">{userName || "Loading..."}</span>
-                        <span className="account-label">My Account</span>
+
+        {/* ====== MOBILE MENU ====== */}
+        {isMobileMenuOpen && (
+          <>
+            <div className="mobile-menu-overlay open" onClick={toggleMobileMenu} />
+            <div className={`mobile-menu ${isMobileMenuOpen ? "open" : ""}`}>
+              <div className="flex justify-between items-center mb-4">
+                <span className="text-base font-bold text-cyan-400">Menu</span>
+                <button onClick={toggleMobileMenu} className="text-white p-1 rounded-full hover:bg-gray-700">
+                  <X size={20} />
+                </button>
+              </div>
+
+              {(role === "admin" || role === "team_manager" || role === "member") && (
+                <Link href={profilePath} onClick={toggleMobileMenu} className={`mobile-user-info ${isActive(profilePath) ? "active" : ""}`}>
+                  <img
+                    src={userImage || "/default-avatar.png"}
+                    alt="User Avatar"
+                    onError={() => {
+                      console.error("Image failed to load:", userImage);
+                      setUserImage("/default-avatar.png");
+                    }}
+                  />
+                  <div className="mobile-user-info-text">
+                    <span className="name">{userName || "Loading..."}</span>
+                    <span className="account-label">My Account</span>
+                  </div>
+                </Link>
+              )}
+
+              <div className="space-y-1">
+                {/* ADMIN (mobile) */}
+                {role === "admin" && (
+                  <>
+                    <Link href="/dashboard" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard") ? "active" : ""}`}>General</Link>
+                    <Link href="/dashboard/admin" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/admin") ? "active" : ""}`}>Dashboard</Link>
+
+                    {/* Collapsible Managerial */}
+                    <details className="mb-2">
+                      <summary className="mobile-menu-item cursor-pointer select-none">Managerial</summary>
+                      <div className="pl-2">
+                        <Link href="/dashboard/managersCommon/routineTasks" onClick={toggleMobileMenu} className="mobile-menu-item">Routine Tasks</Link>
+                        <Link href="/dashboard/managersCommon/assignTask" onClick={toggleMobileMenu} className="mobile-menu-item">Assign Task</Link>
+                        <a href="https://meed-recruitment.onrender.com/login" target="_blank" rel="noopener noreferrer" onClick={toggleMobileMenu} className="mobile-menu-item">Recruit</a>
                       </div>
-                    </Link>
-                  </motion.div>
+                    </details>
+
+                    {/* Together outside */}
+                    <button
+                      onClick={() => { openTogetherWorkspace(); toggleMobileMenu(); }}
+                      className={`mobile-together-button ${isActive("/dashboard/member/workTogether") ? "active" : ""}`}
+                    >
+                      <Users size={18} className="mobile-together-icon" />
+                      Together
+                    </button>
+
+                    <button onClick={() => { handleAddMember(); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">Add Member</button>
+                    <button onClick={() => { handleManageMeedian(); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">Manage Meedian</button>
+
+                    {/* Admin: MyPerformance placed at end */}
+                    <Link href={performancePath} onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive(performancePath) ? "active" : ""}`}>MyPerformance</Link>
+                  </>
                 )}
-                <div className="space-y-2">
-                  {role === "admin" && (
-                    <>
-                      <Link
-                        href="/dashboard"
-                        onClick={toggleMobileMenu}
-                        className={`mobile-menu-item ${isActive("/dashboard") ? "active" : ""}`}
-                      >
-                        General Dashboard
-                      </Link>
-                      <Link
-                        href="/dashboard/admin"
-                        onClick={toggleMobileMenu}
-                        className={`mobile-menu-item ${isActive("/dashboard/admin") ? "active" : ""}`}
-                      >
-                        Dashboard
-                      </Link>
-                      <div className="mobile-managerial-group">
-                        <Link
-                          href="/dashboard/managersCommon/routineTasks"
-                          onClick={toggleMobileMenu}
-                          className={`mobile-menu-item ${isActive("/dashboard/managersCommon/routineTasks") ? "active" : ""}`}
-                        >
-                          Routine Tasks
-                        </Link>
-                        <Link
-                          href="/dashboard/managersCommon/assignTask"
-                          onClick={toggleMobileMenu}
-                          className={`mobile-menu-item ${isActive("/dashboard/managersCommon/assignTask") ? "active" : ""}`}
-                        >
-                          Assign Task
-                        </Link>
-                        <a
-                          href="https://meed-recruitment.onrender.com/login"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={toggleMobileMenu}
-                          className={`mobile-menu-item`}
-                        >
-                          Recruit
-                        </a>
-                        <motion.button
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
-                          onClick={() => {
-                            openTogetherWorkspace();
-                            toggleMobileMenu();
-                          }}
-                          className={`mobile-together-button ${isActive("/dashboard/member/workTogether") ? "active" : ""}`}
-                        >
-                          <Users size={18} className="mobile-together-icon" />
-                          Together
-                        </motion.button>
+
+                {/* TEAM MANAGER (mobile) */}
+                {role === "team_manager" && (
+                  <>
+                    <Link href="/dashboard" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard") ? "active" : ""}`}>General</Link>
+                    <Link href="/dashboard/team_manager" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/team_manager") ? "active" : ""}`}>My Dashboard</Link>
+                    <Link href="/dashboard/member/myMeedRituals" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member/myMeedRituals") ? "active" : ""}`}>MyMRIs</Link>
+                    <Link href="/dashboard/member/closeMyDay" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member/closeMyDay") ? "active" : ""}`}>CloseMyDay</Link>
+                    {/* MyPerformance AFTER CloseMyDay */}
+                    <Link href={performancePath} onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive(performancePath) ? "active" : ""}`}>MyPerformance</Link>
+
+                    {/* Managerial */}
+                    <details className="mb-2">
+                      <summary className="mobile-menu-item cursor-pointer select-none">Managerial</summary>
+                      <div className="pl-2">
+                        <Link href="/dashboard/managersCommon/routineTasks" onClick={toggleMobileMenu} className="mobile-menu-item">Routine Tasks</Link>
+                        <Link href="/dashboard/managersCommon/assignTask" onClick={toggleMobileMenu} className="mobile-menu-item">Assign Task</Link>
+                        <a href="https://meed-recruitment.onrender.com/login" target="_blank" rel="noopener noreferrer" onClick={toggleMobileMenu} className="mobile-menu-item">Recruit</a>
                       </div>
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => {
-                          handleAddMember();
-                          toggleMobileMenu();
-                        }}
-                        className="mobile-menu-item text-left w-full"
-                      >
-                        Add Member
-                      </motion.button>
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => {
-                          handleManageMeedian();
-                          toggleMobileMenu();
-                        }}
-                        className="mobile-menu-item text-left w-full"
-                      >
-                        Manage Meedian
-                      </motion.button>
-                    </>
-                  )}
-                  {role === "team_manager" && (
-                    <>
-                      <Link
-                        href="/dashboard"
-                        onClick={toggleMobileMenu}
-                        className={`mobile-menu-item ${isActive("/dashboard") ? "active" : ""}`}
-                      >
-                        General
-                      </Link>
-                      <Link
-                        href="/dashboard/team_manager"
-                        onClick={toggleMobileMenu}
-                        className={`mobile-menu-item ${isActive("/dashboard/team_manager") ? "active" : ""}`}
-                      >
-                        My Dashboard
-                      </Link>
-                      <Link
-                        href="/dashboard/member/myMeedRituals"
-                        onClick={toggleMobileMenu}
-                        className={`mobile-menu-item ${isActive("/dashboard/member/myMeedRituals") ? "active" : ""}`}
-                      >
-                        MyMRIs
-                      </Link>
-                      <Link
-                        href="/dashboard/member/closeMyDay"
-                        onClick={toggleMobileMenu}
-                        className={`mobile-menu-item ${isActive("/dashboard/member/closeMyDay") ? "active" : ""}`}
-                      >
-                        CloseMyDay
-                      </Link>
-                      <div className="mobile-managerial-group">
-                        <Link
-                          href="/dashboard/managersCommon/routineTasks"
-                          onClick={toggleMobileMenu}
-                          className={`mobile-menu-item ${isActive("/dashboard/managersCommon/routineTasks") ? "active" : ""}`}
-                        >
-                          Routine Tasks
-                        </Link>
-                        <Link
-                          href="/dashboard/managersCommon/assignTask"
-                          onClick={toggleMobileMenu}
-                          className={`mobile-menu-item ${isActive("/dashboard/managersCommon/assignTask") ? "active" : ""}`}
-                        >
-                          Assign Task
-                        </Link>
-                        <a
-                          href="https://meed-recruitment.onrender.com/login"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={toggleMobileMenu}
-                          className={`mobile-menu-item`}
-                        >
-                          Recruit
-                        </a>
-                        <motion.button
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
-                          onClick={() => {
-                            openTogetherWorkspace();
-                            toggleMobileMenu();
-                          }}
-                          className={`mobile-together-button ${isActive("/dashboard/member/workTogether") ? "active" : ""}`}
-                        >
-                          <Users size={18} className="mobile-together-icon" />
-                          Together
-                        </motion.button>
-                      </div>
-                    </>
-                  )}
-                  {role === "member" && (
-                    <>
-                      <Link
-                        href="/dashboard"
-                        onClick={toggleMobileMenu}
-                        className={`mobile-menu-item ${isActive("/dashboard") ? "active" : ""}`}
-                      >
-                        General
-                      </Link>
-                      <Link
-                        href="/dashboard/member"
-                        className={`mobile-menu-item ${isActive("/dashboard/member") ? "active" : ""}`}
-                      >
-                        My Dashboard
-                      </Link>
-                      <Link
-                        href="/dashboard/member/myMeedRituals"
-                        onClick={toggleMobileMenu}
-                        className={`mobile-menu-item ${isActive("/dashboard/member/myMeedRituals") ? "active" : ""}`}
-                      >
-                        MyMRIs
-                      </Link>
-                      <Link
-                        href="/dashboard/member/closeMyDay"
-                        onClick={toggleMobileMenu}
-                        className={`mobile-menu-item ${isActive("/dashboard/member/closeMyDay") ? "active" : ""}`}
-                      >
-                        CloseMyDay
-                      </Link>
-                      <div className="mobile-managerial-group">
-                        <motion.button
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
-                          onClick={() => {
-                            openTogetherWorkspace();
-                            toggleMobileMenu();
-                          }}
-                          className={`mobile-together-button ${isActive("/dashboard/member/workTogether") ? "active" : ""}`}
-                        >
-                          <Users size={18} className="mobile-together-icon" />
-                          Together
-                        </motion.button>
-                      </div>
-                    </>
-                  )}
-                  {status === "unauthenticated" && (
-                    <>
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => {
-                          handleLogin("admin");
-                          toggleMobileMenu();
-                        }}
-                        className="mobile-menu-item text-left w-full"
-                      >
-                        Admin Login
-                      </motion.button>
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => {
-                          handleLogin("team_manager");
-                          toggleMobileMenu();
-                        }}
-                        className="mobile-menu-item text-left w-full"
-                      >
-                        Manager Login
-                      </motion.button>
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => {
-                          handleLogin("member");
-                          toggleMobileMenu();
-                        }}
-                        className="mobile-menu-item text-left w-full"
-                      >
-                        Member Login
-                      </motion.button>
-                    </>
-                  )}
-                  {(role === "admin" || role === "team_manager" || role === "member") && (
-                    <motion.button
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => {
-                        openLogoutModal();
-                        toggleMobileMenu();
-                      }}
-                      className="mobile-menu-item text-left text-red-400 hover:text-red-500 w-full"
+                    </details>
+
+                    {/* Together */}
+                    <button
+                      onClick={() => { openTogetherWorkspace(); toggleMobileMenu(); }}
+                      className={`mobile-together-button ${isActive("/dashboard/member/workTogether") ? "active" : ""}`}
                     >
-                      Logout
-                    </motion.button>
-                  )}
-                </div>
-              </motion.div>
-            </>
-          )}
-        </AnimatePresence>
-      </motion.nav>
+                      <Users size={18} className="mobile-together-icon" />
+                      Together
+                    </button>
+                  </>
+                )}
+
+                {/* MEMBER (mobile) */}
+                {role === "member" && (
+                  <>
+                    <Link href="/dashboard" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard") ? "active" : ""}`}>General</Link>
+                    <Link href="/dashboard/member" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member") ? "active" : ""}`}>My Dashboard</Link>
+                    <Link href="/dashboard/member/myMeedRituals" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member/myMeedRituals") ? "active" : ""}`}>MyMRIs</Link>
+                    <Link href="/dashboard/member/closeMyDay" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member/closeMyDay") ? "active" : ""}`}>CloseMyDay</Link>
+                    {/* MyPerformance AFTER CloseMyDay */}
+                    <Link href={performancePath} onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive(performancePath) ? "active" : ""}`}>MyPerformance</Link>
+
+                    {/* Together */}
+                    <button
+                      onClick={() => { openTogetherWorkspace(); toggleMobileMenu(); }}
+                      className={`mobile-together-button ${isActive("/dashboard/member/workTogether") ? "active" : ""}`}
+                    >
+                      <Users size={18} className="mobile-together-icon" />
+                      Together
+                    </button>
+                  </>
+                )}
+
+                {(role === "admin" || role === "team_manager" || role === "member") && (
+                  <button
+                    onClick={() => { openLogoutModal(); toggleMobileMenu(); }}
+                    className="mobile-menu-item text-left text-red-400 hover:text-red-500 w-full"
+                  >
+                    Logout
+                  </button>
+                )}
+
+                {status === "unauthenticated" && (
+                  <>
+                    <button onClick={() => { handleLogin("admin"); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">Admin Login</button>
+                    <button onClick={() => { handleLogin("team_manager"); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">Manager Login</button>
+                    <button onClick={() => { handleLogin("member"); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">Member Login</button>
+                  </>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </nav>
+
       {/* Logout Modal Portal */}
       {mounted && typeof window !== "undefined" && isLogoutModalOpen && document?.body &&
         createPortal(<LogoutModal />, document.body)}
     </>
   );
 }
+
+
+// "use client";
+// import { useSession, signOut } from "next-auth/react";
+// import Link from "next/link";
+// import { useRouter, usePathname } from "next/navigation";
+// import { useEffect, useState } from "react";
+// import { Menu, X, Users } from "lucide-react";
+// import { createPortal } from "react-dom";
+
+// export default function Navbar() {
+//   const { data: session, status } = useSession();
+//   const pathname = usePathname();
+//   const router = useRouter();
+
+//   const [mounted, setMounted] = useState(false);
+//   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+//   const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
+//   const [userName, setUserName] = useState(session?.user?.name || "User");
+//   const [userImage, setUserImage] = useState(session?.user?.image || "/default-avatar.png");
+
+//   // NEW: managerial dropdown state
+//   const [isManageOpen, setIsManageOpen] = useState(false);
+
+//   useEffect(() => {
+//     setMounted(true);
+
+//     // Update local state when session changes
+//     if (session?.user) {
+//       setUserName(session.user.name || "User");
+//       const image = session.user.image || "/default-avatar.png";
+//       setUserImage(image);
+//       console.log("Session updated:", { name: session.user.name, image, role: session.user.role });
+//     }
+
+//     // Fetch profile data on profile page or after update
+//     const fetchProfile = async () => {
+//       try {
+//         const response = await fetch("/api/member/profile");
+//         const data = await response.json();
+//         if (response.ok) {
+//           setUserName(data.user.name || "User");
+//           const image = data.user.image || "/default-avatar.png";
+//           setUserImage(image);
+//           await fetch("/api/auth/session", { credentials: "include" });
+//           console.log("Profile fetched:", { name: data.user.name, image });
+//         } else {
+//           console.error("Profile fetch failed:", data);
+//         }
+//       } catch (err) {
+//         console.error("Failed to fetch profile:", err);
+//       }
+//     };
+
+//     // Listen for profile updates from Profile.jsx
+//     const handleProfileUpdate = (event) => {
+//       if (event.data?.type === "PROFILE_UPDATED") {
+//         fetchProfile();
+//       }
+//     };
+
+//     if (pathname.includes("/profile")) {
+//       fetchProfile(); // Initial fetch on profile page
+//       window.addEventListener("message", handleProfileUpdate);
+//       const interval = setInterval(fetchProfile, 5000); // Refetch every 5 seconds
+//       return () => {
+//         window.removeEventListener("message", handleProfileUpdate);
+//         clearInterval(interval);
+//       };
+//     }
+//   }, [pathname, session]);
+
+//   // close managerial dropdown on route change
+//   useEffect(() => {
+//     setIsManageOpen(false);
+//   }, [pathname]);
+
+//   // optional: click-away to close dropdown
+//   useEffect(() => {
+//     function onDocClick(e) {
+//       const el = document.querySelector(".nav-dropdown");
+//       if (isManageOpen && el && !el.contains(e.target)) setIsManageOpen(false);
+//     }
+//     document.addEventListener("click", onDocClick);
+//     return () => document.removeEventListener("click", onDocClick);
+//   }, [isManageOpen]);
+
+//   // Prevent rendering until session is loaded and component is mounted
+//   if (status === "loading" || !mounted) {
+//     return <div className="bg-gray-900 text-white p-4">Loading...</div>;
+//   }
+
+//   // Hide navbar inside WorkTogether full-screen workspace
+//   if (pathname.includes("/workTogether")) {
+//     return null;
+//   }
+
+//   const role = session?.user?.role || "user";
+
+//   const handleLogout = async () => {
+//     setIsLogoutModalOpen(false);
+//     await signOut({ redirect: false });
+//     router.push("/");
+//   };
+
+//   const handleLogin = (role) => router.push(`/login?role=${role}`);
+//   const handleAddMember = () => router.push("/dashboard/admin/addUser");
+//   const handleManageMeedian = () => router.push("/dashboard/admin/manageMeedian");
+//   const toggleMobileMenu = () => setIsMobileMenuOpen((v) => !v);
+//   const openLogoutModal = () => setIsLogoutModalOpen(true);
+//   const closeLogoutModal = () => setIsLogoutModalOpen(false);
+
+//   const isActive = (href) => {
+//     const isA = pathname.replace(/\/$/, "") === href.replace(/\/$/, "");
+//     // console.log(`isActive check: href=${href}, pathname=${pathname}, isActive=${isA}`);
+//     return isA;
+//   };
+
+//   const openTogetherWorkspace = () => {
+//     window.open("/dashboard/member/workTogether", "_blank");
+//   };
+
+//   const profilePath = role ? `/dashboard/${role === "team_manager" ? "team_manager" : role}/profile` : "/";
+//   // MyPerformance is ALWAYS under member
+//   const performancePath = "/dashboard/member/myPerformance";
+
+//   const LogoutModal = () => (
+//     <div className="modal-overlay">
+//       <div className="modal-content">
+//         <h2 className="text-lg font-semibold text-white mb-4">Confirm Logout</h2>
+//         <p className="text-gray-300 mb-6">Are you sure you want to log out?</p>
+//         <div className="flex justify-center space-x-4">
+//           <button
+//             onClick={handleLogout}
+//             className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium transition duration-200"
+//           >
+//             Yes, Log Out
+//           </button>
+//           <button
+//             onClick={closeLogoutModal}
+//             className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-500 font-medium transition duration-200"
+//           >
+//             Cancel
+//           </button>
+//         </div>
+//       </div>
+//     </div>
+//   );
+
+//   return (
+//     <>
+//       <style jsx global>{`
+//         .modal-overlay {
+//           position: fixed;
+//           inset: 0;
+//           background: rgba(0, 0, 0, 0.75);
+//           display: flex;
+//           align-items: center;
+//           justify-content: center;
+//           z-index: 10000;
+//         }
+//         .modal-content {
+//           background: #1f2937;
+//           padding: 24px;
+//           border-radius: 12px;
+//           max-width: 400px;
+//           width: 90%;
+//           text-align: center;
+//           box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+//           border: 1px solid #4b5563;
+//         }
+//         .mobile-menu {
+//           position: fixed;
+//           top: 0;
+//           right: 0;
+//           height: 100%;
+//           width: 75%;
+//           max-width: 300px;
+//           background: #1f2937;
+//           transform: translateX(100%);
+//           transition: transform 0.3s ease-in-out;
+//           z-index: 9999;
+//           box-shadow: -4px 0 12px rgba(0, 0, 0, 0.5);
+//           padding: 1rem;
+//           border-left: 1px solid #4b5563;
+//         }
+//         .mobile-menu.open {
+//           transform: translateX(0);
+//         }
+//         .mobile-menu-overlay {
+//           position: fixed;
+//           inset: 0;
+//           background: rgba(0, 0, 0, 0.5);
+//           z-index: 9998;
+//           opacity: 0;
+//           transition: opacity 0.3s ease-in-out;
+//           pointer-events: none;
+//         }
+//         .mobile-menu-overlay.open {
+//           opacity: 1;
+//           pointer-events: auto;
+//         }
+//         .mobile-menu-item {
+//           display: block;
+//           padding: 0.5rem 0.75rem;
+//           font-size: 0.95rem;
+//           font-weight: 500;
+//           transition: all 0.2s ease;
+//           border-radius: 6px;
+//           margin-bottom: 0.3rem;
+//           white-space: nowrap;
+//         }
+//         .mobile-menu-item:hover {
+//           background: #374151;
+//         }
+//         .mobile-menu-item.active {
+//           color: #22d3ee;
+//           font-weight: 600;
+//           background: #374151;
+//           position: relative;
+//         }
+//         .mobile-menu-item.active::after {
+//           content: '';
+//           position: absolute;
+//           bottom: -4px;
+//           left: 50%;
+//           transform: translateX(-50%);
+//           width: 50%;
+//           height: 2px;
+//           background: #22d3ee;
+//         }
+//         .mobile-together-button {
+//           display: flex;
+//           align-items: center;
+//           gap: 0.5rem;
+//           padding: 0.5rem 0.75rem;
+//           font-size: 0.95rem;
+//           font-weight: 500;
+//           border-radius: 6px;
+//           margin-bottom: 0.3rem;
+//           transition: all 0.2s ease;
+//         }
+//         .mobile-together-button:hover {
+//           background: #374151;
+//         }
+//         .nav-item {
+//           position: relative;
+//           padding: 0.4rem 0.8rem;
+//           font-weight: 500;
+//           font-size: 0.85rem;
+//           transition: all 0.3s ease;
+//           border-radius: 6px;
+//           white-space: nowrap;
+//         }
+//         .nav-item:hover {
+//           background: rgba(255, 255, 255, 0.1);
+//           transform: translateY(-2px);
+//         }
+//         .nav-item.active::after {
+//           content: '';
+//           position: absolute;
+//           bottom: -4px;
+//           left: 50%;
+//           transform: translateX(-50%);
+//           width: 50%;
+//           height: 2px;
+//           background: #22d3ee;
+//         }
+//         .nav-button {
+//           padding: 0.4rem 1rem;
+//           font-weight: 500;
+//           font-size: 0.85rem;
+//           border-radius: 6px;
+//           transition: all 0.3s ease;
+//         }
+//         .nav-button:hover {
+//           transform: translateY(-2px);
+//         }
+//         .nav-icon-button {
+//           display: flex;
+//           align-items: center;
+//           justify-content: center;
+//           padding: 0.4rem;
+//           border-radius: 50%;
+//           transition: all 0.3s ease;
+//         }
+//         .nav-icon-button:hover {
+//           background: rgba(255, 255, 255, 0.1);
+//           transform: translateY(-2px);
+//         }
+//         .nav-icon-button.active::after {
+//           content: '';
+//           position: absolute;
+//           bottom: -4px;
+//           left: 50%;
+//           transform: translateX(-50%);
+//           width: 24px;
+//           height: 2px;
+//           background: #22d3ee;
+//         }
+
+//         /* NEW: Managerial dropdown (desktop) */
+//         .nav-dropdown {
+//           position: relative;
+//         }
+//         .nav-dropdown-btn {
+//           padding: 0.4rem 0.75rem;
+//           font-weight: 600;
+//           font-size: 0.85rem;
+//           border-radius: 6px;
+//           display: inline-flex;
+//           align-items: center;
+//           gap: 0.4rem;
+//           transition: all .2s ease;
+//         }
+//         .nav-dropdown-btn:hover {
+//           background: rgba(255,255,255,.1);
+//           transform: translateY(-2px);
+//         }
+//         .nav-dropdown-menu {
+//           position: absolute;
+//           top: calc(100% + 8px);
+//           left: 0;
+//           min-width: 220px;
+//           background: #111827; /* gray-900 */
+//           border: 1px solid #374151; /* gray-700 */
+//           border-radius: 10px;
+//           padding: 6px;
+//           box-shadow: 0 10px 30px rgba(0,0,0,.35);
+//           z-index: 10001;
+//         }
+//         .nav-dropdown-item {
+//           display: block;
+//           padding: 0.55rem 0.65rem;
+//           border-radius: 8px;
+//           font-size: 0.9rem;
+//           font-weight: 500;
+//           white-space: nowrap;
+//         }
+//         .nav-dropdown-item:hover {
+//           background: #1f2937; /* gray-800 */
+//           color: #22d3ee;      /* cyan-400 */
+//         }
+
+//         /* mobile managerial wrapper (details) inherits existing styles */
+//       `}</style>
+
+//       <nav className="bg-gradient-to-r from-gray-900 to-gray-800 text-white px-4 py-3 w-full sticky top-0 z-40 shadow-lg">
+//         <div className="flex items-center justify-between w-full px-2 sm:px-4 lg:px-6">
+//           {/* Left Section: Logo */}
+//           <div className="flex items-center gap-2">
+//             <img src="/flow1.png" alt="Logo" className="w-8 h-8 rounded-full border border-cyan-400 p-1" />
+//             <Link href="/" className={`text-xl font-bold tracking-tight hover:text-cyan-300 transition duration-200 ${isActive("/") ? "text-cyan-300 active" : ""}`}>
+//               MeedianAI-Flow
+//             </Link>
+//           </div>
+
+//           {/* Center Section: Nav Items */}
+//           <div className="hidden md:flex absolute left-1/2 transform -translate-x-1/2 space-x-2">
+//             {role === "admin" && (
+//               <>
+//                 <Link
+//                   href="/dashboard"
+//                   className={`nav-item hover:text-cyan-300 ${isActive("/dashboard") ? "text-cyan-300 active" : ""}`}
+//                 >
+//                   General Dashboard
+//                 </Link>
+//                 <Link
+//                   href="/dashboard/admin"
+//                   className={`nav-item hover:text-cyan-300 ${isActive("/dashboard/admin") ? "text-cyan-300 active" : ""}`}
+//                 >
+//                   Dashboard
+//                 </Link>
+
+//                 {/* MyPerformance */}
+//                 <Link
+//                   href={performancePath}
+//                   className={`nav-item hover:text-cyan-300 ${isActive(performancePath) ? "text-cyan-300 active" : ""}`}
+//                 >
+//                   MyPerformance
+//                 </Link>
+
+//                 {/* Managerial dropdown (desktop) */}
+//                 <div className="nav-dropdown">
+//                   <button
+//                     type="button"
+//                     onClick={() => setIsManageOpen((v) => !v)}
+//                     className="nav-dropdown-btn"
+//                     aria-expanded={isManageOpen}
+//                     aria-haspopup="menu"
+//                   >
+//                     Managerial <span className={`transition-transform ${isManageOpen ? "rotate-180" : ""}`}>▾</span>
+//                   </button>
+
+//                   {isManageOpen && (
+//                     <div className="nav-dropdown-menu" role="menu">
+//                       <Link href="/dashboard/managersCommon/routineTasks" className="nav-dropdown-item">
+//                         Routine Tasks
+//                       </Link>
+//                       <Link href="/dashboard/managersCommon/assignTask" className="nav-dropdown-item">
+//                         Assign Task
+//                       </Link>
+//                       <a
+//                         href="https://meed-recruitment.onrender.com/login"
+//                         target="_blank"
+//                         rel="noopener noreferrer"
+//                         className="nav-dropdown-item"
+//                       >
+//                         Recruit
+//                       </a>
+//                     </div>
+//                   )}
+//                 </div>
+
+//                 {/* Together OUTSIDE dropdown */}
+//                 <button
+//                   onClick={openTogetherWorkspace}
+//                   title="Together"
+//                   className={`nav-icon-button relative hover:text-cyan-300 ${isActive("/dashboard/member/workTogether") ? "text-cyan-300 active" : ""}`}
+//                 >
+//                   <Users size={18} className="together-icon" />
+//                 </button>
+
+//                 <button
+//                   onClick={handleAddMember}
+//                   className="nav-button bg-teal-600 hover:bg-teal-700 text-white"
+//                 >
+//                   Add Member
+//                 </button>
+//                 <button
+//                   onClick={handleManageMeedian}
+//                   className="nav-button bg-blue-600 hover:bg-blue-700 text-white"
+//                 >
+//                   Manage Meedian
+//                 </button>
+//               </>
+//             )}
+
+//             {role === "team_manager" && (
+//               <>
+//                 <Link
+//                   href="/dashboard"
+//                   className={`nav-item hover:text-cyan-300 ${isActive("/dashboard") ? "text-cyan-300 active" : ""}`}
+//                 >
+//                   General
+//                 </Link>
+//                 <Link
+//                   href="/dashboard/team_manager"
+//                   className={`nav-item hover:text-cyan-300 ${isActive("/dashboard/team_manager") ? "text-cyan-300 active" : ""}`}
+//                 >
+//                   My Dashboard
+//                 </Link>
+
+//                 {/* MyPerformance */}
+//                 <Link
+//                   href={performancePath}
+//                   className={`nav-item hover:text-cyan-300 ${isActive(performancePath) ? "text-cyan-300 active" : ""}`}
+//                 >
+//                   MyPerformance
+//                 </Link>
+
+//                 <Link
+//                   href="/dashboard/member/myMeedRituals"
+//                   className={`nav-item hover:text-cyan-300 ${isActive("/dashboard/member/myMeedRituals") ? "text-cyan-300 active" : ""}`}
+//                 >
+//                   MyMRIs
+//                 </Link>
+//                 <Link
+//                   href="/dashboard/member/closeMyDay"
+//                   className={`nav-item hover:text-cyan-300 ${isActive("/dashboard/member/closeMyDay") ? "text-cyan-300 active" : ""}`}
+//                 >
+//                   CloseMyDay
+//                 </Link>
+
+//                 {/* Managerial dropdown (desktop) */}
+//                 <div className="nav-dropdown">
+//                   <button
+//                     type="button"
+//                     onClick={() => setIsManageOpen((v) => !v)}
+//                     className="nav-dropdown-btn"
+//                     aria-expanded={isManageOpen}
+//                     aria-haspopup="menu"
+//                   >
+//                     Managerial <span className={`transition-transform ${isManageOpen ? "rotate-180" : ""}`}>▾</span>
+//                   </button>
+
+//                   {isManageOpen && (
+//                     <div className="nav-dropdown-menu" role="menu">
+//                       <Link href="/dashboard/managersCommon/routineTasks" className="nav-dropdown-item">
+//                         Routine Tasks
+//                       </Link>
+//                       <Link href="/dashboard/managersCommon/assignTask" className="nav-dropdown-item">
+//                         Assign Task
+//                       </Link>
+//                       <a
+//                         href="https://meed-recruitment.onrender.com/login"
+//                         target="_blank"
+//                         rel="noopener noreferrer"
+//                         className="nav-dropdown-item"
+//                       >
+//                         Recruit
+//                       </a>
+//                     </div>
+//                   )}
+//                 </div>
+
+//                 {/* Together OUTSIDE dropdown */}
+//                 <button
+//                   onClick={openTogetherWorkspace}
+//                   title="Together"
+//                   className={`nav-icon-button relative hover:text-cyan-300 ${isActive("/dashboard/member/workTogether") ? "text-cyan-300 active" : ""}`}
+//                 >
+//                   <Users size={18} className="together-icon" />
+//                 </button>
+//               </>
+//             )}
+
+//             {role === "member" && (
+//               <>
+//                 <Link
+//                   href="/dashboard"
+//                   className={`nav-item hover:text-cyan-300 ${isActive("/dashboard") ? "text-cyan-300 active" : ""}`}
+//                 >
+//                   General
+//                 </Link>
+//                 <Link
+//                   href="/dashboard/member"
+//                   className={`nav-item hover:text-cyan-300 ${isActive("/dashboard/member") ? "text-cyan-300 active" : ""}`}
+//                 >
+//                   My Dashboard
+//                 </Link>
+
+//                 {/* MyPerformance */}
+//                 <Link
+//                   href={performancePath}
+//                   className={`nav-item hover:text-cyan-300 ${isActive(performancePath) ? "text-cyan-300 active" : ""}`}
+//                 >
+//                   MyPerformance
+//                 </Link>
+
+//                 <Link
+//                   href="/dashboard/member/myMeedRituals"
+//                   className={`nav-item hover:text-cyan-300 ${isActive("/dashboard/member/myMeedRituals") ? "text-cyan-300 active" : ""}`}
+//                 >
+//                   MyMRIs
+//                 </Link>
+//                 <Link
+//                   href="/dashboard/member/closeMyDay"
+//                   className={`nav-item hover:text-cyan-300 ${isActive("/dashboard/member/closeMyDay") ? "text-cyan-300 active" : ""}`}
+//                 >
+//                   CloseMyDay
+//                 </Link>
+
+//                 {/* Member only had Together button already */}
+//                 <button
+//                   onClick={openTogetherWorkspace}
+//                   title="Together"
+//                   className={`nav-icon-button relative hover:text-cyan-300 ${isActive("/dashboard/member/workTogether") ? "text-cyan-300 active" : ""}`}
+//                 >
+//                   <Users size={18} className="together-icon" />
+//                 </button>
+//               </>
+//             )}
+
+//             {status === "unauthenticated" && (
+//               <>
+//                 <button
+//                   onClick={() => handleLogin("admin")}
+//                   className="nav-button bg-indigo-600 hover:bg-indigo-700 text-white"
+//                 >
+//                   Admin Login
+//                 </button>
+//                 <button
+//                   onClick={() => handleLogin("team_manager")}
+//                   className="nav-button bg-purple-600 hover:bg-purple-700 text-white"
+//                 >
+//                   Manager Login
+//                 </button>
+//                 <button
+//                   onClick={() => handleLogin("member")}
+//                   className="nav-button bg-teal-600 hover:bg-teal-700 text-white"
+//                 >
+//                   Member Login
+//                 </button>
+//               </>
+//             )}
+//           </div>
+
+//           {/* Right Section: User Info, Logout, and Mobile Toggle */}
+//           <div className="flex items-center gap-2">
+//             {(role === "admin" || role === "team_manager" || role === "member") && (
+//               <>
+//                 <Link href={profilePath} className={`user-info hidden md:flex ${isActive(profilePath) ? "active" : ""}`}>
+//                   <img
+//                     src={userImage || "/default-avatar.png"}
+//                     alt="User Avatar"
+//                     onError={() => {
+//                       console.error("Image failed to load:", userImage);
+//                       setUserImage("/default-avatar.png");
+//                     }}
+//                   />
+//                   <div className="user-info-text">
+//                     <span className="name">{userName || "Loading..."}</span>
+//                     <span className="account-label">My Account</span>
+//                   </div>
+//                 </Link>
+//                 <button
+//                   onClick={openLogoutModal}
+//                   className="hidden md:block nav-button bg-red-600 hover:bg-red-700 text-white"
+//                 >
+//                   Logout
+//                 </button>
+//               </>
+//             )}
+//             <div className="md:hidden">
+//               <button onClick={toggleMobileMenu} className="text-white p-1 rounded-full hover:bg-gray-700 transition duration-200">
+//                 {isMobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
+//               </button>
+//             </div>
+//           </div>
+//         </div>
+
+//         {/* Mobile Menu */}
+//         {isMobileMenuOpen && (
+//           <>
+//             <div className="mobile-menu-overlay open" onClick={toggleMobileMenu}></div>
+//             <div className={`mobile-menu ${isMobileMenuOpen ? "open" : ""}`}>
+//               <div className="flex justify-between items-center mb-4">
+//                 <span className="text-base font-bold text-cyan-400">Menu</span>
+//                 <button onClick={toggleMobileMenu} className="text-white p-1 rounded-full hover:bg-gray-700">
+//                   <X size={20} />
+//                 </button>
+//               </div>
+
+//               {(role === "admin" || role === "team_manager" || role === "member") && (
+//                 <Link href={profilePath} onClick={toggleMobileMenu} className={`mobile-user-info ${isActive(profilePath) ? "active" : ""}`}>
+//                   <img
+//                     src={userImage || "/default-avatar.png"}
+//                     alt="User Avatar"
+//                     onError={() => {
+//                       console.error("Image failed to load:", userImage);
+//                       setUserImage("/default-avatar.png");
+//                     }}
+//                   />
+//                   <div className="mobile-user-info-text">
+//                     <span className="name">{userName || "Loading..."}</span>
+//                     <span className="account-label">My Account</span>
+//                   </div>
+//                 </Link>
+//               )}
+
+//               <div className="space-y-1">
+//                 {role === "admin" && (
+//                   <>
+//                     <Link
+//                       href="/dashboard"
+//                       onClick={toggleMobileMenu}
+//                       className={`mobile-menu-item hover:text-cyan-400 ${isActive("/dashboard") ? "text-cyan-400 active" : ""}`}
+//                     >
+//                       General Dashboard
+//                     </Link>
+//                     <Link
+//                       href="/dashboard/admin"
+//                       onClick={toggleMobileMenu}
+//                       className={`mobile-menu-item hover:text-cyan-400 ${isActive("/dashboard/admin") ? "text-cyan-400 active" : ""}`}
+//                     >
+//                       Dashboard
+//                     </Link>
+
+//                     {/* MyPerformance */}
+//                     <Link
+//                       href={performancePath}
+//                       onClick={toggleMobileMenu}
+//                       className={`mobile-menu-item hover:text-cyan-400 ${isActive(performancePath) ? "text-cyan-400 active" : ""}`}
+//                     >
+//                       MyPerformance
+//                     </Link>
+
+//                     {/* Managerial collapsible */}
+//                     <details className="mb-2">
+//                       <summary className="mobile-menu-item cursor-pointer select-none">
+//                         Managerial
+//                       </summary>
+//                       <div className="pl-2">
+//                         <Link
+//                           href="/dashboard/managersCommon/routineTasks"
+//                           onClick={toggleMobileMenu}
+//                           className="mobile-menu-item"
+//                         >
+//                           Routine Tasks
+//                         </Link>
+//                         <Link
+//                           href="/dashboard/managersCommon/assignTask"
+//                           onClick={toggleMobileMenu}
+//                           className="mobile-menu-item"
+//                         >
+//                           Assign Task
+//                         </Link>
+//                         <a
+//                           href="https://meed-recruitment.onrender.com/login"
+//                           target="_blank"
+//                           rel="noopener noreferrer"
+//                           onClick={toggleMobileMenu}
+//                           className="mobile-menu-item"
+//                         >
+//                           Recruit
+//                         </a>
+//                       </div>
+//                     </details>
+
+//                     {/* Together outside */}
+//                     <button
+//                       onClick={() => {
+//                         openTogetherWorkspace();
+//                         toggleMobileMenu();
+//                       }}
+//                       className={`mobile-together-button hover:text-cyan-400 ${isActive("/dashboard/member/workTogether") ? "text-cyan-400 active" : ""}`}
+//                     >
+//                       <Users size={18} className="mobile-together-icon" />
+//                       Together
+//                     </button>
+
+//                     <button
+//                       onClick={() => {
+//                         handleAddMember();
+//                         toggleMobileMenu();
+//                       }}
+//                       className="mobile-menu-item text-left hover:text-cyan-400 w-full"
+//                     >
+//                       Add Member
+//                     </button>
+//                     <button
+//                       onClick={() => {
+//                         handleManageMeedian();
+//                         toggleMobileMenu();
+//                       }}
+//                       className="mobile-menu-item text-left hover:text-cyan-400 w-full"
+//                     >
+//                       Manage Meedian
+//                     </button>
+//                   </>
+//                 )}
+
+//                 {role === "team_manager" && (
+//                   <>
+//                     <Link
+//                       href="/dashboard"
+//                       onClick={toggleMobileMenu}
+//                       className={`mobile-menu-item hover:text-cyan-400 ${isActive("/dashboard") ? "text-cyan-400 active" : ""}`}
+//                     >
+//                       General
+//                     </Link>
+//                     <Link
+//                       href="/dashboard/team_manager"
+//                       onClick={toggleMobileMenu}
+//                       className={`mobile-menu-item hover:text-cyan-400 ${isActive("/dashboard/team_manager") ? "text-cyan-400 active" : ""}`}
+//                     >
+//                       My Dashboard
+//                     </Link>
+
+//                     {/* MyPerformance */}
+//                     <Link
+//                       href={performancePath}
+//                       onClick={toggleMobileMenu}
+//                       className={`mobile-menu-item hover:text-cyan-400 ${isActive(performancePath) ? "text-cyan-400 active" : ""}`}
+//                     >
+//                       MyPerformance
+//                     </Link>
+
+//                     <Link
+//                       href="/dashboard/member/myMeedRituals"
+//                       onClick={toggleMobileMenu}
+//                       className={`mobile-menu-item hover:text-cyan-400 ${isActive("/dashboard/member/myMeedRituals") ? "text-cyan-400 active" : ""}`}
+//                     >
+//                       MyMRIs
+//                     </Link>
+//                     <Link
+//                       href="/dashboard/member/closeMyDay"
+//                       onClick={toggleMobileMenu}
+//                       className={`mobile-menu-item hover:text-cyan-400 ${isActive("/dashboard/member/closeMyDay") ? "text-cyan-400 active" : ""}`}
+//                     >
+//                       CloseMyDay
+//                     </Link>
+
+//                     {/* Managerial collapsible */}
+//                     <details className="mb-2">
+//                       <summary className="mobile-menu-item cursor-pointer select-none">
+//                         Managerial
+//                       </summary>
+//                       <div className="pl-2">
+//                         <Link
+//                           href="/dashboard/managersCommon/routineTasks"
+//                           onClick={toggleMobileMenu}
+//                           className="mobile-menu-item"
+//                         >
+//                           Routine Tasks
+//                         </Link>
+//                         <Link
+//                           href="/dashboard/managersCommon/assignTask"
+//                           onClick={toggleMobileMenu}
+//                           className="mobile-menu-item"
+//                         >
+//                           Assign Task
+//                         </Link>
+//                         <a
+//                           href="https://meed-recruitment.onrender.com/login"
+//                           target="_blank"
+//                           rel="noopener noreferrer"
+//                           onClick={toggleMobileMenu}
+//                           className="mobile-menu-item"
+//                         >
+//                           Recruit
+//                         </a>
+//                       </div>
+//                     </details>
+
+//                     {/* Together outside */}
+//                     <button
+//                       onClick={() => {
+//                         openTogetherWorkspace();
+//                         toggleMobileMenu();
+//                       }}
+//                       className={`mobile-together-button hover:text-cyan-400 ${isActive("/dashboard/member/workTogether") ? "text-cyan-400 active" : ""}`}
+//                     >
+//                       <Users size={18} className="mobile-together-icon" />
+//                       Together
+//                     </button>
+//                   </>
+//                 )}
+
+//                 {role === "member" && (
+//                   <>
+//                     <Link
+//                       href="/dashboard"
+//                       onClick={toggleMobileMenu}
+//                       className={`mobile-menu-item hover:text-cyan-400 ${isActive("/dashboard") ? "text-cyan-400 active" : ""}`}
+//                     >
+//                       General
+//                     </Link>
+//                     <Link
+//                       href="/dashboard/member"
+//                       className={`mobile-menu-item hover:text-cyan-400 ${isActive("/dashboard/member") ? "text-cyan-400 active" : ""}`}
+//                       onClick={toggleMobileMenu}
+//                     >
+//                       My Dashboard
+//                     </Link>
+
+//                     {/* MyPerformance */}
+//                     <Link
+//                       href={performancePath}
+//                       onClick={toggleMobileMenu}
+//                       className={`mobile-menu-item hover:text-cyan-400 ${isActive(performancePath) ? "text-cyan-400 active" : ""}`}
+//                     >
+//                       MyPerformance
+//                     </Link>
+
+//                     <Link
+//                       href="/dashboard/member/myMeedRituals"
+//                       onClick={toggleMobileMenu}
+//                       className={`mobile-menu-item hover:text-cyan-400 ${isActive("/dashboard/member/myMeedRituals") ? "text-cyan-400 active" : ""}`}
+//                     >
+//                       MyMRIs
+//                     </Link>
+//                     <Link
+//                       href="/dashboard/member/closeMyDay"
+//                       onClick={toggleMobileMenu}
+//                       className={`mobile-menu-item hover:text-cyan-400 ${isActive("/dashboard/member/closeMyDay") ? "text-cyan-400 active" : ""}`}
+//                     >
+//                       CloseMyDay
+//                     </Link>
+
+//                     {/* Together */}
+//                     <button
+//                       onClick={() => {
+//                         openTogetherWorkspace();
+//                         toggleMobileMenu();
+//                       }}
+//                       className={`mobile-together-button hover:text-cyan-400 ${isActive("/dashboard/member/workTogether") ? "text-cyan-400 active" : ""}`}
+//                     >
+//                       <Users size={18} className="mobile-together-icon" />
+//                       Together
+//                     </button>
+//                   </>
+//                 )}
+
+//                 {(role === "admin" || role === "team_manager" || role === "member") && (
+//                   <button
+//                     onClick={() => {
+//                       openLogoutModal();
+//                       toggleMobileMenu();
+//                     }}
+//                     className="mobile-menu-item text-left text-red-400 hover:text-red-500 w-full"
+//                   >
+//                     Logout
+//                   </button>
+//                 )}
+
+//                 {status === "unauthenticated" && (
+//                   <>
+//                     <button
+//                       onClick={() => {
+//                         handleLogin("admin");
+//                         toggleMobileMenu();
+//                       }}
+//                       className="mobile-menu-item text-left hover:text-cyan-400 w-full"
+//                     >
+//                       Admin Login
+//                     </button>
+//                     <button
+//                       onClick={() => {
+//                         handleLogin("team_manager");
+//                         toggleMobileMenu();
+//                       }}
+//                       className="mobile-menu-item text-left hover:text-cyan-400 w-full"
+//                     >
+//                       Manager Login
+//                     </button>
+//                     <button
+//                       onClick={() => {
+//                         handleLogin("member");
+//                         toggleMobileMenu();
+//                       }}
+//                       className="mobile-menu-item text-left hover:text-cyan-400 w-full"
+//                     >
+//                       Member Login
+//                     </button>
+//                   </>
+//                 )}
+//               </div>
+//             </div>
+//           </>
+//         )}
+//       </nav>
+
+//       {/* Logout Modal Portal */}
+//       {mounted && typeof window !== "undefined" && isLogoutModalOpen && document?.body &&
+//         createPortal(<LogoutModal />, document.body)}
+//     </>
+//   );
+// }

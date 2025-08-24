@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Camera, Check, X, User, Calendar, MessageSquare, BookOpen, FileText, BarChart } from "lucide-react";
 import Link from "next/link";
 
-export default function Profile() {
+export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = () => {} }) {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [formData, setFormData] = useState({
@@ -78,15 +78,20 @@ export default function Profile() {
 
     const fetchUsers = async () => {
       try {
-        const response = await fetch("/api/admin/manageMeedian?section=team", { credentials: "include" });
+        const response = await fetch("/api/member/users", { credentials: "include" });
         const data = await response.json();
         if (response.ok) {
+          console.log("Fetched users from /api/member/users:", data.users); // Debug log
           setUsers(data.users || []);
         } else {
           console.error("Failed to fetch users:", { status: response.status, error: data.error });
+          setError("Failed to fetch users. Please try again.");
+          setTimeout(() => setError(""), 3000);
         }
       } catch (err) {
         console.error("Fetch users error:", err);
+        setError("Failed to fetch users. Please try again.");
+        setTimeout(() => setError(""), 3000);
       }
     };
 
@@ -321,7 +326,6 @@ export default function Profile() {
         proof: null,
       });
       setShowLeaveModal(false);
-      // Refresh leave history
       const historyResponse = await fetch("/api/member/leave-request", { credentials: "include" });
       if (!historyResponse.ok) {
         const text = await historyResponse.text();
@@ -341,6 +345,20 @@ export default function Profile() {
 
   const handleClose = () => {
     router.push(`/dashboard/${session?.user?.role === "team_manager" ? "team_manager" : session?.user?.role}`);
+  };
+
+  const handleTalkToSuperintendent = () => {
+    console.log("Talk to Superintendent clicked", { users }); // Debug log
+    const superintendent = users.find((user) => user.id === 43);
+    if (superintendent?.id) {
+      console.log("Opening chat with superintendent:", superintendent); // Debug log
+      setChatboxOpen(true);
+      setChatRecipient(String(superintendent.id));
+    } else {
+      console.error("Superintendent (id: 43) not found. Users:", users);
+      setError("Superintendent not found. Please contact an admin or try again later.");
+      setTimeout(() => setError(""), 5000);
+    }
   };
 
   if (status === "loading") {
@@ -510,23 +528,12 @@ export default function Profile() {
               </div>
             </form>
 
-            {/* Meed Widgets Section */}
             <div className="mt-6 pt-6 border-t border-gray-200/50 dark:border-gray-700/50">
               <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
                 <BookOpen className="w-5 h-5 text-teal-600" />
                 Meed Widgets for You
               </h2>
               <div className="flex flex-row flex-wrap gap-4">
-                <motion.div
-                  className="bg-white/90 dark:bg-gray-800/90 rounded-xl shadow-lg p-5 flex flex-col items-center justify-between cursor-pointer min-w-[150px] flex-1 min-h-[180px]"
-                  whileHover={{ scale: 1.05, boxShadow: "0 8px 16px rgba(0, 128, 128, 0.25)" }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => setShowLeaveModal(true)}
-                >
-                  <Calendar className="w-8 h-8 text-teal-600 mb-2" />
-                  <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 text-center">Leave Request</h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 text-center">Submit a leave of absence</p>
-                </motion.div>
                 <Link href="/dashboard/member/myPerformance">
                   <motion.div
                     className="bg-white/90 dark:bg-gray-800/90 rounded-xl shadow-lg p-5 flex flex-col items-center justify-between cursor-pointer min-w-[150px] flex-1 min-h-[180px]"
@@ -542,7 +549,18 @@ export default function Profile() {
                   className="bg-white/90 dark:bg-gray-800/90 rounded-xl shadow-lg p-5 flex flex-col items-center justify-between cursor-pointer min-w-[150px] flex-1 min-h-[180px]"
                   whileHover={{ scale: 1.05, boxShadow: "0 8px 16px rgba(0, 128, 128, 0.25)" }}
                   whileTap={{ scale: 0.95 }}
-                  onClick={() => alert("Talk to Superintendent feature will be implemented later.")}
+                  onClick={() => setShowLeaveModal(true)}
+                >
+                  <Calendar className="w-8 h-8 text-teal-600 mb-2" />
+                  <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 text-center">Leave Request</h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 text-center">Submit a leave of absence</p>
+                </motion.div>
+
+                <motion.div
+                  className="bg-white/90 dark:bg-gray-800/90 rounded-xl shadow-lg p-5 flex flex-col items-center justify-between cursor-pointer min-w-[150px] flex-1 min-h-[180px]"
+                  whileHover={{ scale: 1.05, boxShadow: "0 8px 16px rgba(0, 128, 128, 0.25)" }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={handleTalkToSuperintendent}
                 >
                   <MessageSquare className="w-8 h-8 text-teal-600 mb-2" />
                   <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 text-center">Talk to Superintendent</h3>
@@ -561,7 +579,6 @@ export default function Profile() {
               </div>
             </div>
 
-            {/* Leave History Section */}
             <div className="mt-6 pt-6 border-t border-gray-200/50 dark:border-gray-700/50">
               <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
                 <FileText className="w-5 h-5 text-teal-600" />
@@ -579,7 +596,6 @@ export default function Profile() {
             </div>
           </div>
 
-          {/* Right Section: User Information and Password Change */}
           <div className="flex-[1.3] min-w-[320px] max-w-[520px] flex flex-col bg-gradient-to-br from-blue-50/70 to-slate-100/70 dark:from-gray-800/80 dark:to-gray-900/80 rounded-2xl shadow-xl border border-teal-100/50 dark:border-gray-700/50 p-6">
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
               <User className="w-5 h-5 text-teal-600" />
@@ -676,7 +692,6 @@ export default function Profile() {
           </div>
         </div>
 
-        {/* Leave Request Modal */}
         <AnimatePresence>
           {showLeaveModal && (
             <motion.div
@@ -789,7 +804,6 @@ export default function Profile() {
           )}
         </AnimatePresence>
 
-        {/* Leave History Modal */}
         <AnimatePresence>
           {showHistoryModal && (
             <motion.div
