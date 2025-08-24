@@ -33,7 +33,7 @@ export default function GeneralDashboard() {
   const [showMSPRModal, setShowMSPRModal] = useState(false);
   const [showMHCPModal, setShowMHCPModal] = useState(false);
   const [showCalendarModal, setShowCalendarModal] = useState(false);
-  const [selectedAnnouncement, setSelectedAnnouncement] = useState(null); // ADDED: For modal
+  const [selectedAnnouncement, setSelectedAnnouncement] = useState(null);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [isLoadingSlots, setIsLoadingSlots] = useState(true);
@@ -138,7 +138,7 @@ export default function GeneralDashboard() {
   }, [slots]);
 
   const getCurrentWeekInfo = () => {
-    const now = new Date("2025-07-28T06:26:00+08:00");
+    const now = new Date(); // Use current date
     const currentEntry = calendar.find((entry) => {
       const start = new Date(entry.startDate);
       const end = new Date(entry.endDate);
@@ -284,7 +284,7 @@ export default function GeneralDashboard() {
             )}
           </motion.div>
           <motion.div
-            className="absolute top-8 right-8 sm:top-10 sm:right-10 w-40 h-40 sm:w-52 sm:h-52 bg-white/70 backdrop-blur-md rounded-2xl shadow-xl p-5 border border-white/30 overflow-y-auto" // ADDED: overflow-y-auto for long lists
+            className="absolute top-8 right-8 sm:top-10 sm:right-10 w-40 h-40 sm:w-52 sm:h-52 bg-white/70 backdrop-blur-md rounded-2xl shadow-xl p-5 border border-white/30 overflow-y-auto"
             initial={{ opacity: 0, y: -30, rotate: 10 }}
             animate={{ opacity: 1, y: 0, rotate: 0 }}
             transition={{ duration: 0.6, delay: 0.5, type: "spring" }}
@@ -298,7 +298,7 @@ export default function GeneralDashboard() {
               {announcements.map((ann, index) => (
                 <li 
                   key={index} 
-                  className="truncate cursor-pointer hover:text-purple-600" // ADDED: clickable
+                  className="truncate cursor-pointer hover:text-purple-600"
                   onClick={() => setSelectedAnnouncement(ann)}
                 >
                   {ann.subject}: {ann.content.slice(0, 30)}...
@@ -360,7 +360,7 @@ export default function GeneralDashboard() {
                     onClick={() => setShowTutorialsModal(false)}
                     className="text-gray-700 hover:text-gray-900 p-3 rounded-full bg-white/50 hover:bg-white/70 shadow-md"
                     whileHover={{ scale: 1.1, rotate: 90 }}
-                   whileTap={{ scale: 0.95 }}
+                    whileTap={{ scale: 0.95 }}
                   >
                     <X size={24} />
                   </motion.button>
@@ -385,8 +385,7 @@ export default function GeneralDashboard() {
                 exit={{ scale: 0.95, opacity: 0, y: 20 }}
                 className="bg-white/90 backdrop-blur-lg rounded-3xl shadow-2xl p-8 w-full max-w-5xl max-h-[85vh] overflow-y-auto border border-white/50"
               >
-                <div className="flex justify-between items-center mb-6"
->
+                <div className="flex justify-between items-center mb-6">
                   <h2 className="text-2xl font-bold text-gray-900">N-MRIs Slot Allotments</h2>
                   <motion.button
                     onClick={() => setShowNMRIsModal(false)}
@@ -571,7 +570,7 @@ export default function GeneralDashboard() {
               </motion.div>
             </motion.div>
           )}
-          {selectedAnnouncement && ( // ADDED: Modal for announcement details in school notice format
+          {selectedAnnouncement && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
