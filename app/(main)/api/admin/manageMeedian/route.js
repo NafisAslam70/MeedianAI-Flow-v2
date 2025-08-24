@@ -1,10 +1,34 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
-import { users, openCloseTimes, dailySlots, dailySlotAssignments, schoolCalendar, students } from "@/lib/schema";
-import { eq } from "drizzle-orm";
+import {
+  // core you already used
+  users,
+  openCloseTimes,
+  dailySlots,
+  dailySlotAssignments,
+  schoolCalendar,
+  students,
+  // NEW: all tables that reference users (directly or indirectly)
+  dailySlotLogs,
+  routineTasks,
+  routineTaskLogs,
+  routineTaskDailyStatuses,
+  assignedTaskStatus,
+  assignedTaskLogs,
+  sprints,
+  messages,
+  generalLogs,
+  memberHistory,
+  notCompletedTasks,
+  userOpenCloseTimes,
+  dayCloseRequests,
+  leaveRequests,
+} from "@/lib/schema";
+import { eq, or, inArray } from "drizzle-orm";
 import bcrypt from "bcrypt";
 
+/* ============================== GET ============================== */
 // GET Handler: Fetch data based on section parameter
 export async function GET(req) {
   const session = await auth();
@@ -127,6 +151,7 @@ export async function GET(req) {
   }
 }
 
+/* ============================== POST ============================== */
 // POST Handler: Add new entries
 export async function POST(req) {
   const session = await auth();
@@ -216,6 +241,7 @@ export async function POST(req) {
   }
 }
 
+/* ============================== PATCH ============================== */
 // PATCH Handler: Update existing entries
 export async function PATCH(req) {
   const session = await auth();
@@ -459,9 +485,8 @@ export async function PATCH(req) {
   }
 }
 
-// DELETE Handler: Delete a calendar entry, slot assignment, or user
-import { or, eq } from "drizzle-orm";
-
+/* ============================== DELETE ============================== */
+// DELETE Handler: Delete a calendar entry, slot assignment, or user (full FK cleanup)
 export async function DELETE(req) {
   const session = await auth();
   if (!session || !["admin", "team_manager"].includes(session.user?.role)) {
@@ -500,88 +525,65 @@ export async function DELETE(req) {
       }
 
       // Only allow team_manager to delete non-admins
-      const target = await db
+      const [target] = await db
         .select({ id: users.id, role: users.role })
         .from(users)
         .where(eq(users.id, userId));
-      if (target.length === 0) return NextResponse.json({ error: `User ${userId} not found` }, { status: 404 });
-      if (session.user?.role === "team_manager" && target[0].role === "admin") {
+      if (!target) return NextResponse.json({ error: `User ${userId} not found` }, { status: 404 });
+      if (session.user?.role === "team_manager" && target.role === "admin") {
         return NextResponse.json({ error: "Insufficient privileges to delete an admin." }, { status: 403 });
       }
 
-      // Do everything atomically
       await db.transaction(async (tx) => {
-        // --- DAILY SLOTS & ASSIGNMENTS ---
+        // ---- DAILY SLOTS ----
         await tx.delete(dailySlotAssignments).where(eq(dailySlotAssignments.memberId, userId));
-        await tx
-          .update(dailySlots)
-          .set({ assignedMemberId: null })
-          .where(eq(dailySlots.assignedMemberId, userId));
-        await tx
-          .update(dailySlotLogs)
-          .set({ createdBy: null })
-          .where(eq(dailySlotLogs.createdBy, userId));
+        await tx.update(dailySlots).set({ assignedMemberId: null }).where(eq(dailySlots.assignedMemberId, userId));
+        await tx.update(dailySlotLogs).set({ createdBy: null }).where(eq(dailySlotLogs.createdBy, userId));
 
-        // --- ROUTINE TASKS & LOGS ---
-        await tx.delete(routineTaskLogs).where(eq(routineTaskLogs.userId, userId));
-        await tx.delete(routineTasks).where(eq(routineTasks.memberId, userId)); // memberId is NOT NULL, so delete
+        // ---- ROUTINE TASKS (STATUSES -> LOGS -> TASKS) ----
+        const tasks = await tx
+          .select({ id: routineTasks.id })
+          .from(routineTasks)
+          .where(eq(routineTasks.memberId, userId));
+        if (tasks.length) {
+          const taskIds = tasks.map(t => t.id);
+          await tx.delete(routineTaskDailyStatuses).where(inArray(routineTaskDailyStatuses.routineTaskId, taskIds));
+          await tx.delete(routineTaskLogs).where(eq(routineTaskLogs.userId, userId));
+          await tx.delete(routineTasks).where(inArray(routineTasks.id, taskIds));
+        } else {
+          await tx.delete(routineTaskLogs).where(eq(routineTaskLogs.userId, userId));
+        }
 
-        // --- ASSIGNED TASKS & STATUS & LOGS & SPRINTS ---
-        // assigned_tasks.createdBy has onDelete:cascade -> handled by DB when user created them
-        // assigned_task_status.memberId has onDelete:cascade -> handled by DB
-        await tx
-          .update(assignedTaskStatus)
-          .set({ verifiedBy: null })
-          .where(eq(assignedTaskStatus.verifiedBy, userId));
-        // assigned_task_logs.userId has onDelete:set null (DB handles), but in case FK is RESTRICT in your DB, set null proactively:
-        await tx
-          .update(assignedTaskLogs)
-          .set({ userId: null })
-          .where(eq(assignedTaskLogs.userId, userId));
-        await tx
-          .update(sprints)
-          .set({ verifiedBy: null })
-          .where(eq(sprints.verifiedBy, userId));
+        // ---- ASSIGNED TASKS / STATUS / LOGS / SPRINTS ----
+        // (createdBy and memberId have cascades in your schema)
+        await tx.update(assignedTaskStatus).set({ verifiedBy: null }).where(eq(assignedTaskStatus.verifiedBy, userId));
+        await tx.update(assignedTaskLogs).set({ userId: null }).where(eq(assignedTaskLogs.userId, userId));
+        await tx.update(sprints).set({ verifiedBy: null }).where(eq(sprints.verifiedBy, userId));
 
-        // --- MESSAGES ---
-        await tx.delete(messages).where(
-          or(eq(messages.senderId, userId), eq(messages.recipientId, userId))
-        );
+        // ---- MESSAGES ----
+        await tx.delete(messages).where(or(eq(messages.senderId, userId), eq(messages.recipientId, userId)));
 
-        // --- LOGS & HISTORY ---
+        // ---- LOGS / HISTORY / MISC ----
         await tx.delete(generalLogs).where(eq(generalLogs.userId, userId));
         await tx.delete(memberHistory).where(eq(memberHistory.memberId, userId));
         await tx.delete(notCompletedTasks).where(eq(notCompletedTasks.userId, userId));
-
-        // --- OPEN/CLOSE ---
         await tx.delete(userOpenCloseTimes).where(eq(userOpenCloseTimes.userId, userId));
-        await tx
-          .update(openCloseTimes) // nothing per-user here; skip
 
-        // --- DAY CLOSE REQUESTS ---
-        await tx
-          .update(dayCloseRequests)
-          .set({ approvedBy: null })
-          .where(eq(dayCloseRequests.approvedBy, userId));
+        // ---- DAY CLOSE REQUESTS ----
+        await tx.update(dayCloseRequests).set({ approvedBy: null }).where(eq(dayCloseRequests.approvedBy, userId));
         await tx.delete(dayCloseRequests).where(eq(dayCloseRequests.userId, userId));
 
-        // --- LEAVE REQUESTS ---
-        // Some columns are NOT NULL (e.g., submittedTo), so safest is to delete rows involving this user
+        // ---- LEAVE REQUESTS ----
         await tx
           .update(leaveRequests)
           .set({ approvedBy: null, transferTo: null })
           .where(or(eq(leaveRequests.approvedBy, userId), eq(leaveRequests.transferTo, userId)));
-        await tx.delete(leaveRequests).where(
-          or(eq(leaveRequests.userId, userId), eq(leaveRequests.submittedTo, userId))
-        );
+        await tx.delete(leaveRequests).where(or(eq(leaveRequests.userId, userId), eq(leaveRequests.submittedTo, userId)));
 
-        // --- MISC: immediate_supervisor for reports ---
-        await tx
-          .update(users)
-          .set({ immediate_supervisor: null })
-          .where(eq(users.immediate_supervisor, userId));
+        // ---- SUPERVISOR CHAIN ----
+        await tx.update(users).set({ immediate_supervisor: null }).where(eq(users.immediate_supervisor, userId));
 
-        // Finally: delete the user
+        // ---- Finally, delete the user ----
         await tx.delete(users).where(eq(users.id, userId));
       });
 
