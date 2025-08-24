@@ -460,6 +460,8 @@ export async function PATCH(req) {
 }
 
 // DELETE Handler: Delete a calendar entry, slot assignment, or user
+import { or, eq } from "drizzle-orm";
+
 export async function DELETE(req) {
   const session = await auth();
   if (!session || !["admin", "team_manager"].includes(session.user?.role)) {
@@ -475,36 +477,21 @@ export async function DELETE(req) {
 
     if (section === "schoolCalendar") {
       const { id } = body || {};
-      if (!id) {
-        console.error("Missing required field: id", body);
-        return NextResponse.json({ error: "Missing required field: id" }, { status: 400 });
-      }
-
+      if (!id) return NextResponse.json({ error: "Missing required field: id" }, { status: 400 });
       await db.delete(schoolCalendar).where(eq(schoolCalendar.id, id));
-
-      console.log(`Deleted calendar entry with id: ${id}`);
       return NextResponse.json({ message: "Calendar entry deleted successfully" }, { status: 200 });
     }
 
     if (section === "slots") {
       const { slotId } = body || {};
-      if (!slotId) {
-        console.error("Missing required field: slotId", body);
-        return NextResponse.json({ error: "Missing required field: slotId" }, { status: 400 });
-      }
-
+      if (!slotId) return NextResponse.json({ error: "Missing required field: slotId" }, { status: 400 });
       await db.delete(dailySlotAssignments).where(eq(dailySlotAssignments.slotId, slotId));
-
-      console.log(`Deleted slot assignment for slotId: ${slotId}`);
       return NextResponse.json({ message: "Slot assignment deleted successfully" }, { status: 200 });
     }
 
     if (section === "team") {
       const { userId } = body || {};
-      if (!userId) {
-        console.error("Missing required field: userId", body);
-        return NextResponse.json({ error: "Missing required field: userId" }, { status: 400 });
-      }
+      if (!userId) return NextResponse.json({ error: "Missing required field: userId" }, { status: 400 });
 
       // Prevent deleting yourself
       const me = Number(session.user?.id);
@@ -512,33 +499,92 @@ export async function DELETE(req) {
         return NextResponse.json({ error: "You cannot delete your own account." }, { status: 400 });
       }
 
-      // Fetch target user & role protection (team_manager cannot delete admin)
+      // Only allow team_manager to delete non-admins
       const target = await db
         .select({ id: users.id, role: users.role })
         .from(users)
         .where(eq(users.id, userId));
-
-      if (target.length === 0) {
-        return NextResponse.json({ error: `User ${userId} not found` }, { status: 404 });
-      }
-
+      if (target.length === 0) return NextResponse.json({ error: `User ${userId} not found` }, { status: 404 });
       if (session.user?.role === "team_manager" && target[0].role === "admin") {
         return NextResponse.json({ error: "Insufficient privileges to delete an admin." }, { status: 403 });
       }
 
-      // Cleanup: remove slot assignments where this user is assigned
-      await db.delete(dailySlotAssignments).where(eq(dailySlotAssignments.memberId, userId));
+      // Do everything atomically
+      await db.transaction(async (tx) => {
+        // --- DAILY SLOTS & ASSIGNMENTS ---
+        await tx.delete(dailySlotAssignments).where(eq(dailySlotAssignments.memberId, userId));
+        await tx
+          .update(dailySlots)
+          .set({ assignedMemberId: null })
+          .where(eq(dailySlots.assignedMemberId, userId));
+        await tx
+          .update(dailySlotLogs)
+          .set({ createdBy: null })
+          .where(eq(dailySlotLogs.createdBy, userId));
 
-      // Cleanup: nullify immediate_supervisor for any direct reports
-      await db
-        .update(users)
-        .set({ immediate_supervisor: null })
-        .where(eq(users.immediate_supervisor, userId));
+        // --- ROUTINE TASKS & LOGS ---
+        await tx.delete(routineTaskLogs).where(eq(routineTaskLogs.userId, userId));
+        await tx.delete(routineTasks).where(eq(routineTasks.memberId, userId)); // memberId is NOT NULL, so delete
 
-      // Delete the user
-      await db.delete(users).where(eq(users.id, userId));
+        // --- ASSIGNED TASKS & STATUS & LOGS & SPRINTS ---
+        // assigned_tasks.createdBy has onDelete:cascade -> handled by DB when user created them
+        // assigned_task_status.memberId has onDelete:cascade -> handled by DB
+        await tx
+          .update(assignedTaskStatus)
+          .set({ verifiedBy: null })
+          .where(eq(assignedTaskStatus.verifiedBy, userId));
+        // assigned_task_logs.userId has onDelete:set null (DB handles), but in case FK is RESTRICT in your DB, set null proactively:
+        await tx
+          .update(assignedTaskLogs)
+          .set({ userId: null })
+          .where(eq(assignedTaskLogs.userId, userId));
+        await tx
+          .update(sprints)
+          .set({ verifiedBy: null })
+          .where(eq(sprints.verifiedBy, userId));
 
-      console.log(`Deleted user ${userId} and cleaned up related records`);
+        // --- MESSAGES ---
+        await tx.delete(messages).where(
+          or(eq(messages.senderId, userId), eq(messages.recipientId, userId))
+        );
+
+        // --- LOGS & HISTORY ---
+        await tx.delete(generalLogs).where(eq(generalLogs.userId, userId));
+        await tx.delete(memberHistory).where(eq(memberHistory.memberId, userId));
+        await tx.delete(notCompletedTasks).where(eq(notCompletedTasks.userId, userId));
+
+        // --- OPEN/CLOSE ---
+        await tx.delete(userOpenCloseTimes).where(eq(userOpenCloseTimes.userId, userId));
+        await tx
+          .update(openCloseTimes) // nothing per-user here; skip
+
+        // --- DAY CLOSE REQUESTS ---
+        await tx
+          .update(dayCloseRequests)
+          .set({ approvedBy: null })
+          .where(eq(dayCloseRequests.approvedBy, userId));
+        await tx.delete(dayCloseRequests).where(eq(dayCloseRequests.userId, userId));
+
+        // --- LEAVE REQUESTS ---
+        // Some columns are NOT NULL (e.g., submittedTo), so safest is to delete rows involving this user
+        await tx
+          .update(leaveRequests)
+          .set({ approvedBy: null, transferTo: null })
+          .where(or(eq(leaveRequests.approvedBy, userId), eq(leaveRequests.transferTo, userId)));
+        await tx.delete(leaveRequests).where(
+          or(eq(leaveRequests.userId, userId), eq(leaveRequests.submittedTo, userId))
+        );
+
+        // --- MISC: immediate_supervisor for reports ---
+        await tx
+          .update(users)
+          .set({ immediate_supervisor: null })
+          .where(eq(users.immediate_supervisor, userId));
+
+        // Finally: delete the user
+        await tx.delete(users).where(eq(users.id, userId));
+      });
+
       return NextResponse.json({ message: "User deleted successfully" }, { status: 200 });
     }
 
