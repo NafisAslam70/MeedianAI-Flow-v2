@@ -30,6 +30,8 @@ export default function ManageTeamPage() {
   const [showViewAssignments, setShowViewAssignments] = useState(false);
   const [showManageTimingsModal, setShowManageTimingsModal] = useState(false);
   const [editTimingsSlot, setEditTimingsSlot] = useState(null);
+  const [teamFilter, setTeamFilter] = useState("members");
+  const [expandedCard, setExpandedCard] = useState(null); // Track which card is expanded
   const userTypes = ["residential", "non_residential", "semi_residential"];
   const roleTypes = ["member", "admin", "team_manager"];
   const memberScopes = ["i_member", "o_member", "s_member"];
@@ -138,7 +140,16 @@ export default function ManageTeamPage() {
   }, [studentData, studentError]);
 
   const handleUserChange = (id, field, value) => {
-    setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, [field]: value } : u)));
+    setUsers((prev) =>
+      prev.map((u) =>
+        u.id === id
+          ? {
+              ...u,
+              [field]: field === "immediate_supervisor" ? (value ? parseInt(value) : null) : value,
+            }
+          : u
+      )
+    );
   };
 
   const saveTeamChanges = async () => {
@@ -161,6 +172,7 @@ export default function ManageTeamPage() {
       setSuccess("Team changes saved successfully!");
       setTimeout(() => setSuccess(""), 3000);
       await mutate("/api/admin/manageMeedian?section=team");
+      setExpandedCard(null); // Collapse all cards after saving
     } catch (err) {
       console.error("Save team error:", err);
       setError(`Error saving team: ${err.message}`);
@@ -412,6 +424,11 @@ export default function ManageTeamPage() {
     setShowBulkModal(false);
     setShowViewAssignments(false);
     setShowManageTimingsModal(false);
+    setExpandedCard(null);
+  };
+
+  const toggleCard = (id) => {
+    setExpandedCard((prev) => (prev === id ? null : id));
   };
 
   return (
@@ -421,7 +438,7 @@ export default function ManageTeamPage() {
       transition={{ duration: 0.5 }}
       className="fixed inset-0 bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 p-4 flex items-center justify-center"
     >
-      <div className="w-full h-full bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 rounded-2xl shadow-2xl p-6 sm:p-8 flex flex-col gap-6 sm:gap-8 overflow-y-auto">
+      <div className="w-full h-full bg-white rounded-2xl shadow-2xl p-6 sm:p-8 flex flex-col gap-6 sm:gap-8 overflow-y-auto">
         <AnimatePresence>
           {(error || success) && (
             <motion.p
@@ -429,7 +446,7 @@ export default function ManageTeamPage() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
               className={`absolute top-4 left-4 right-4 text-lg font-medium p-4 rounded-lg shadow-md ${
-                error ? "bg-red-50 text-red-600" : "bg-teal-50 text-teal-600"
+                error ? "bg-red-100 text-red-700" : "bg-teal-100 text-teal-700"
               }`}
               onClick={() => {
                 setError("");
@@ -450,66 +467,66 @@ export default function ManageTeamPage() {
           ⚙️ Meedian Management Portal
         </motion.h1>
 
-        <div className="flex gap-4">
+        <div className="flex gap-4 flex-wrap">
           <motion.button
             onClick={handleBack}
-            className="w-32 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-all duration-200"
-            whileHover={{ scale: 1.03 }}
+            className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-all duration-200"
+            whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
           >
             ← Back
           </motion.button>
           <motion.div
             onClick={() => setActiveSection("n-mris")}
-            className={`flex-1 bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 rounded-2xl shadow-lg p-6 flex flex-col justify-between cursor-pointer ${
-              activeSection === "n-mris" ? "bg-teal-700 text-white" : "hover:bg-teal-100"
+            className={`flex-1 min-w-[150px] bg-white rounded-lg shadow-md p-4 flex flex-col justify-center cursor-pointer ${
+              activeSection === "n-mris" ? "bg-teal-600 text-white" : "hover:bg-teal-50"
             }`}
-            whileHover={{ scale: 1.03, boxShadow: "0 10px 20px rgba(0, 128, 128, 0.3)" }}
+            whileHover={{ scale: 1.05, boxShadow: "0 6px 12px rgba(0, 128, 128, 0.2)" }}
             whileTap={{ scale: 0.95 }}
           >
-            <h2 className="text-xl font-semibold text-center text-gray-700">N-MRIs</h2>
+            <h2 className="text-lg font-semibold text-center">N-MRIs</h2>
           </motion.div>
           <motion.div
             onClick={() => setActiveSection("mspr")}
-            className={`flex-1 bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 rounded-2xl shadow-lg p-6 flex flex-col justify-between cursor-pointer ${
+            className={`flex-1 min-w-[150px] bg-white rounded-lg shadow-md p-4 flex flex-col justify-center cursor-pointer ${
               activeSection === "mspr" || activeSection === "mspr-pre" || activeSection === "mspr-primary"
-                ? "bg-teal-700 text-white"
-                : "hover:bg-teal-100"
+                ? "bg-teal-600 text-white"
+                : "hover:bg-teal-50"
             }`}
-            whileHover={{ scale: 1.03, boxShadow: "0 10px 20px rgba(0, 128, 128, 0.3)" }}
+            whileHover={{ scale: 1.05, boxShadow: "0 6px 12px rgba(0, 128, 128, 0.2)" }}
             whileTap={{ scale: 0.95 }}
           >
-            <h2 className="text-xl font-semibold text-center text-gray-700">MSPR</h2>
+            <h2 className="text-lg font-semibold text-center">MSPR</h2>
           </motion.div>
           <motion.div
             onClick={() => setActiveSection("mhcp")}
-            className={`flex-1 bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 rounded-2xl shadow-lg p-6 flex flex-col justify-between cursor-pointer ${
+            className={`flex-1 min-w-[150px] bg-white rounded-lg shadow-md p-4 flex flex-col justify-center cursor-pointer ${
               activeSection === "mhcp" || activeSection === "mhcp1" || activeSection === "mhcp2"
-                ? "bg-teal-700 text-white"
-                : "hover:bg-teal-100"
+                ? "bg-teal-600 text-white"
+                : "hover:bg-teal-50"
             }`}
-            whileHover={{ scale: 1.03, boxShadow: "0 10px 20px rgba(0, 128, 128, 0.3)" }}
+            whileHover={{ scale: 1.05, boxShadow: "0 6px 12px rgba(0, 128, 128, 0.2)" }}
             whileTap={{ scale: 0.95 }}
           >
-            <h2 className="text-xl font-semibold text-center text-gray-700">MHCP</h2>
+            <h2 className="text-lg font-semibold text-center">MHCP</h2>
           </motion.div>
           <motion.div
             onClick={() => setActiveSection("calendar")}
-            className={`flex-1 bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 rounded-2xl shadow-lg p-6 flex flex-col justify-between cursor-pointer ${
-              activeSection === "calendar" ? "bg-teal-700 text-white" : "hover:bg-teal-100"
+            className={`flex-1 min-w-[150px] bg-white rounded-lg shadow-md p-4 flex flex-col justify-center cursor-pointer ${
+              activeSection === "calendar" ? "bg-teal-600 text-white" : "hover:bg-teal-50"
             }`}
-            whileHover={{ scale: 1.03, boxShadow: "0 10px 20px rgba(0, 128, 128, 0.3)" }}
+            whileHover={{ scale: 1.05, boxShadow: "0 6px 12px rgba(0, 128, 128, 0.2)" }}
             whileTap={{ scale: 0.95 }}
           >
-            <h2 className="text-xl font-semibold text-center text-gray-700">Calendar</h2>
+            <h2 className="text-lg font-semibold text-center">Calendar</h2>
           </motion.div>
         </div>
 
         {activeSection === "n-mris" && (
           <motion.button
             onClick={() => setShowBulkModal(true)}
-            className="w-full sm:w-auto px-6 py-3 rounded-2xl text-white font-semibold text-lg bg-purple-600 hover:bg-purple-700 transition-all duration-200"
-            whileHover={{ scale: 1.03 }}
+            className="w-full sm:w-auto px-6 py-3 rounded-lg text-white font-semibold text-lg bg-purple-600 hover:bg-purple-700 transition-all duration-200"
+            whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
           >
             Manage All Allotments
@@ -518,44 +535,46 @@ export default function ManageTeamPage() {
 
         {activeSection === "n-mris" && (
           <div className="space-y-4 mt-4">
-            <h3 className="text-xl font-semibold text-gray-700 text-center">Current Allotted TODs</h3>
-            {["Block 1 (Slots 1-6)", "Block 2 (Slots 7-9)", "Block 3 (Slots 10-11)", "Block 4 (Slots 12-14)", "Block 5 (Slots 15-16)", "Block 6 (Slot 145)"].map((blockTitle, blockIndex) => (
-              <div key={blockIndex} className="mb-8">
-                <h4 className="text-lg font-medium text-gray-700 mb-4 text-center">{blockTitle}</h4>
-                <div className="grid grid-cols-12 gap-4 mb-6">
-                  <div className="col-span-2 font-medium text-gray-700">Slot ID</div>
-                  <div className="col-span-6 font-medium text-gray-700">Slot Name</div>
-                  <div className="col-span-4 font-medium text-gray-700">Allotted TOD</div>
-                </div>
-                {slots
-                  .filter((slot) => {
-                    if (blockTitle === "Block 1 (Slots 1-6)") return slot.id >= 1 && slot.id <= 6;
-                    if (blockTitle === "Block 2 (Slots 7-9)") return slot.id >= 7 && slot.id <= 9;
-                    if (blockTitle === "Block 3 (Slots 10-11)") return slot.id >= 10 && slot.id <= 11;
-                    if (blockTitle === "Block 4 (Slots 12-14)") return slot.id >= 12 && slot.id <= 14;
-                    if (blockTitle === "Block 5 (Slots 15-16)") return slot.id >= 15 && slot.id <= 16;
-                    if (blockTitle === "Block 6 (Slot 145)") return slot.id === 145;
-                    return false;
-                  })
-                  .map((slot) => (
-                    <div key={slot.id} className="grid grid-cols-12 gap-4 items-center mb-4">
-                      <div className="col-span-2 text-gray-700">Slot {slot.id}</div>
-                      <div className="col-span-6 text-gray-700">{slot.name}</div>
-                      <div className="col-span-4 text-gray-700">
-                        {members.find((m) => m.id === slot.assignedMemberId)?.name || "Unassigned"}
+            <h3 className="text-xl font-semibold text-gray-800 text-center">Current Allotted TODs</h3>
+            {["Block 1 (Slots 1-6)", "Block 2 (Slots 7-9)", "Block 3 (Slots 10-11)", "Block 4 (Slots 12-14)", "Block 5 (Slots 15-16)", "Block 6 (Slot 145)"].map(
+              (blockTitle, blockIndex) => (
+                <div key={blockIndex} className="mb-8">
+                  <h4 className="text-lg font-medium text-gray-700 mb-4 text-center">{blockTitle}</h4>
+                  <div className="grid grid-cols-12 gap-4 mb-6">
+                    <div className="col-span-2 font-medium text-gray-700">Slot ID</div>
+                    <div className="col-span-6 font-medium text-gray-700">Slot Name</div>
+                    <div className="col-span-4 font-medium text-gray-700">Allotted TOD</div>
+                  </div>
+                  {slots
+                    .filter((slot) => {
+                      if (blockTitle === "Block 1 (Slots 1-6)") return slot.id >= 1 && slot.id <= 6;
+                      if (blockTitle === "Block 2 (Slots 7-9)") return slot.id >= 7 && slot.id <= 9;
+                      if (blockTitle === "Block 3 (Slots 10-11)") return slot.id >= 10 && slot.id <= 11;
+                      if (blockTitle === "Block 4 (Slots 12-14)") return slot.id >= 12 && slot.id <= 14;
+                      if (blockTitle === "Block 5 (Slots 15-16)") return slot.id >= 15 && slot.id <= 16;
+                      if (blockTitle === "Block 6 (Slot 145)") return slot.id === 145;
+                      return false;
+                    })
+                    .map((slot) => (
+                      <div key={slot.id} className="grid grid-cols-12 gap-4 items-center mb-4">
+                        <div className="col-span-2 text-gray-700">Slot {slot.id}</div>
+                        <div className="col-span-6 text-gray-700">{slot.name}</div>
+                        <div className="col-span-4 text-gray-700">
+                          {members.find((m) => m.id === slot.assignedMemberId)?.name || "Unassigned"}
+                        </div>
                       </div>
-                    </div>
-                  ))}
-              </div>
-            ))}
+                    ))}
+                </div>
+              )
+            )}
           </div>
         )}
 
         {activeSection === "n-mris" && (
           <motion.button
             onClick={() => setShowManageTimingsModal(true)}
-            className="w-full sm:w-auto px-6 py-3 rounded-2xl text-white font-semibold text-lg bg-green-600 hover:bg-green-700 transition-all duration-200"
-            whileHover={{ scale: 1.03 }}
+            className="w-full sm:w-auto px-6 py-3 rounded-lg text-white font-semibold text-lg bg-green-600 hover:bg-green-700 transition-all duration-200"
+            whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
           >
             Manage Slot Timings
@@ -573,9 +592,9 @@ export default function ManageTeamPage() {
               className="flex flex-col sm:flex-row gap-6 sm:gap-8 h-full"
             >
               <motion.div
-                className="flex-1 bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 rounded-2xl shadow-lg p-6 sm:p-8 flex flex-col justify-between cursor-pointer h-full"
+                className="flex-1 bg-white rounded-lg shadow-md p-6 sm:p-8 flex flex-col justify-between cursor-pointer h-full"
                 onClick={() => setActiveSection("team")}
-                whileHover={{ scale: 1.03, boxShadow: "0 10px 20px rgba(0, 128, 128, 0.3)" }}
+                whileHover={{ scale: 1.05, boxShadow: "0 6px 12px rgba(0, 128, 128, 0.2)" }}
                 whileTap={{ scale: 0.95 }}
               >
                 <div className="text-center">
@@ -594,17 +613,17 @@ export default function ManageTeamPage() {
                       />
                     </svg>
                   </div>
-                  <h2 className="text-xl sm:text-2xl font-semibold text-gray-700 mb-2">Manage Meedian Team</h2>
+                  <h2 className="text-xl sm:text-2xl font-semibold text-gray-800 mb-2">Manage Meedian Team</h2>
                   <p className="text-base sm:text-lg text-gray-600">
-                    Update team member details such as name, email, role, and type.
+                    Update team member details such as name, email, role, and supervisor.
                   </p>
                 </div>
               </motion.div>
 
               <motion.div
-                className="flex-1 bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 rounded-2xl shadow-lg p-6 sm:p-8 flex flex-col justify-between cursor-pointer h-full"
+                className="flex-1 bg-white rounded-lg shadow-md p-6 sm:p-8 flex flex-col justify-between cursor-pointer h-full"
                 onClick={() => setActiveSection("times")}
-                whileHover={{ scale: 1.03, boxShadow: "0 10px 20px rgba(128, 0, 128, 0.3)" }}
+                whileHover={{ scale: 1.05, boxShadow: "0 6px 12px rgba(128, 0, 128, 0.2)" }}
                 whileTap={{ scale: 0.95 }}
               >
                 <div className="text-center">
@@ -623,15 +642,15 @@ export default function ManageTeamPage() {
                       />
                     </svg>
                   </div>
-                  <h2 className="text-xl sm:text-2xl font-semibold text-gray-700 mb-2">Manage Day-Close Times</h2>
+                  <h2 className="text-xl sm:text-2xl font-semibold text-gray-800 mb-2">Manage Day-Close Times</h2>
                   <p className="text-base sm:text-lg text-gray-600">Set open and close times for different user types.</p>
                 </div>
               </motion.div>
 
               <motion.div
-                className="flex-1 bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 rounded-2xl shadow-lg p-6 sm:p-8 flex flex-col justify-between cursor-pointer h-full"
+                className="flex-1 bg-white rounded-lg shadow-md p-6 sm:p-8 flex flex-col justify-between cursor-pointer h-full"
                 onClick={() => setActiveSection("students")}
-                whileHover={{ scale: 1.03, boxShadow: "0 10px 20px rgba(0, 0, 128, 0.3)" }}
+                whileHover={{ scale: 1.05, boxShadow: "0 6px 12px rgba(0, 0, 128, 0.2)" }}
                 whileTap={{ scale: 0.95 }}
               >
                 <div className="text-center">
@@ -650,7 +669,7 @@ export default function ManageTeamPage() {
                       />
                     </svg>
                   </div>
-                  <h2 className="text-xl sm:text-2xl font-semibold text-gray-700 mb-2">Manage Meedian Students</h2>
+                  <h2 className="text-xl sm:text-2xl font-semibold text-gray-800 mb-2">Manage Meedian Students</h2>
                   <p className="text-base sm:text-lg text-gray-600">
                     View and manage student details, grouped by hostel and day scholars.
                   </p>
@@ -658,9 +677,9 @@ export default function ManageTeamPage() {
               </motion.div>
 
               <motion.div
-                className="flex-1 bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 rounded-2xl shadow-lg p-6 sm:p-8 flex flex-col justify-between cursor-pointer h-full"
+                className="flex-1 bg-white rounded-lg shadow-md p-6 sm:p-8 flex flex-col justify-between cursor-pointer h-full"
                 onClick={() => setActiveSection("calendar")}
-                whileHover={{ scale: 1.03, boxShadow: "0 10px 20px rgba(0, 0, 128, 0.3)" }}
+                whileHover={{ scale: 1.05, boxShadow: "0 6px 12px rgba(0, 0, 128, 0.2)" }}
                 whileTap={{ scale: 0.95 }}
               >
                 <div className="text-center">
@@ -679,7 +698,7 @@ export default function ManageTeamPage() {
                       />
                     </svg>
                   </div>
-                  <h2 className="text-xl sm:text-2xl font-semibold text-gray-700 mb-2">Manage Calendar</h2>
+                  <h2 className="text-xl sm:text-2xl font-semibold text-gray-800 mb-2">Manage Calendar</h2>
                   <p className="text-base sm:text-lg text-gray-600">Manage school terms and weeks.</p>
                 </div>
               </motion.div>
@@ -694,136 +713,210 @@ export default function ManageTeamPage() {
               className="w-full h-full flex flex-col gap-4"
             >
               {activeSection === "team" && (
-                <div className="space-y-4">
+                <div className="space-y-6">
                   {loading.team ? (
                     <p className="text-gray-600 text-center text-lg">Loading team members...</p>
                   ) : (
                     <div>
+                      <div className="flex justify-between items-center mb-6">
+                        <h2 className="text-xl font-semibold text-gray-800">Manage Team</h2>
+                        <select
+                          value={teamFilter}
+                          onChange={(e) => setTeamFilter(e.target.value)}
+                          className="p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base bg-white"
+                        >
+                          <option value="members">Normal Team Members</option>
+                          <option value="managers">Team Managers</option>
+                          <option value="all">All Users</option>
+                        </select>
+                      </div>
                       {users.length === 0 ? (
                         <p className="text-gray-600 text-center text-lg">
                           No users found. Please check the database or authentication.
                         </p>
                       ) : (
-                        users.map((user) => (
-                          <motion.div
-                            key={user.id}
-                            className="bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 rounded-2xl shadow-lg p-6 flex flex-col justify-between"
-                            whileHover={{ scale: 1.02, boxShadow: "0 8px 16px rgba(0, 128, 128, 0.2)" }}
-                            transition={{ duration: 0.2 }}
-                          >
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700">Name</label>
-                                <input
-                                  type="text"
-                                  value={user.name}
-                                  onChange={(e) => handleUserChange(user.id, "name", e.target.value)}
-                                  className="mt-1 w-full p-2 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-base"
-                                  placeholder="Enter name"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700">Email</label>
-                                <input
-                                  type="email"
-                                  value={user.email}
-                                  onChange={(e) => handleUserChange(user.id, "email", e.target.value)}
-                                  className="mt-1 w-full p-2 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-base"
-                                  placeholder="Enter email"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700">WhatsApp Number</label>
-                                <input
-                                  type="text"
-                                  value={user.whatsapp_number}
-                                  onChange={(e) => handleUserChange(user.id, "whatsapp_number", e.target.value)}
-                                  className="mt-1 w-full p-2 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-base"
-                                  placeholder="+1234567890"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700">Password (optional)</label>
-                                <input
-                                  type="password"
-                                  value={user.password || ""}
-                                  onChange={(e) => handleUserChange(user.id, "password", e.target.value)}
-                                  className="mt-1 w-full p-2 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-base"
-                                  placeholder="Enter new password"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700">Role</label>
-                                <select
-                                  value={user.role}
-                                  onChange={(e) => handleUserChange(user.id, "role", e.target.value)}
-                                  className="mt-1 w-full p-2 border border-teal-200 rounded-lg focus Adult: ring-2 focus:ring-teal-500 focus:border-teal-500 text-base"
-                                >
-                                  {roleTypes.map((role) => (
-                                    <option key={role} value={role}>
-                                      {role.charAt(0).toUpperCase() + role.slice(1)}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                              {user.role === "team_manager" && (
-                                <div>
-                                  <label className="block text-sm font-medium text-gray-700">Team Manager Type</label>
-                                  <select
-                                    value={user.team_manager_type || ""}
-                                    onChange={(e) => handleUserChange(user.id, "team_manager_type", e.target.value)}
-                                    className="mt-1 w-full p-2 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-base"
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                          {users
+                            .filter((user) => {
+                              if (teamFilter === "members") return user.role === "member";
+                              if (teamFilter === "managers") return user.role === "team_manager" || user.role === "admin";
+                              return true; // "all"
+                            })
+                            .map((user) => (
+                              <motion.div
+                                key={user.id}
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ duration: 0.3 }}
+                                className="bg-white rounded-lg shadow-md p-4 flex flex-col gap-2"
+                              >
+                                <div className="flex justify-between items-center">
+                                  <div>
+                                    <h3 className="text-lg font-semibold text-gray-800">{user.name}</h3>
+                                    <p className="text-sm text-gray-500 capitalize">{user.role}</p>
+                                    <p className="text-sm text-gray-500">
+                                      Supervisor: {users.find((u) => u.id === user.immediate_supervisor)?.name || "None"}
+                                    </p>
+                                  </div>
+                                  <motion.button
+                                    onClick={() => toggleCard(user.id)}
+                                    className="text-teal-600 hover:text-teal-700"
+                                    whileHover={{ scale: 1.1 }}
+                                    whileTap={{ scale: 0.9 }}
                                   >
-                                    <option value="">Select Type</option>
-                                    {teamManagerTypes.map((type) => (
-                                      <option key={type} value={type}>
-                                        {type.replace("_", " ").toUpperCase()}
-                                      </option>
-                                    ))}
-                                  </select>
+                                    <svg
+                                      className={`w-5 h-5 transform ${expandedCard === user.id ? "rotate-180" : ""}`}
+                                      fill="none"
+                                      stroke="currentColor"
+                                      viewBox="0 0 24 24"
+                                    >
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                                    </svg>
+                                  </motion.button>
                                 </div>
-                              )}
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700">Type</label>
-                                <select
-                                  value={user.type}
-                                  onChange={(e) => handleUserChange(user.id, "type", e.target.value)}
-                                  className="mt-1 w-full p-2 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-base"
-                                >
-                                  {userTypes.map((type) => (
-                                    <option key={type} value={type}>
-                                      {type.replace("_", " ").toUpperCase()}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700">Member Scope</label>
-                                <select
-                                  value={user.member_scope}
-                                  onChange={(e) => handleUserChange(user.id, "member_scope", e.target.value)}
-                                  className="mt-1 w-full p-2 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-base"
-                                >
-                                  {memberScopes.map((scope) => (
-                                    <option key={scope} value={scope}>
-                                      {scope.replace("_", " ").toUpperCase()}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                            </div>
-                          </motion.div>
-                        ))
+                                <AnimatePresence>
+                                  {expandedCard === user.id && (
+                                    <motion.div
+                                      initial={{ height: 0, opacity: 0 }}
+                                      animate={{ height: "auto", opacity: 1 }}
+                                      exit={{ height: 0, opacity: 0 }}
+                                      transition={{ duration: 0.2 }}
+                                      className="space-y-4 pt-4 border-t border-gray-200"
+                                    >
+                                      <div>
+                                        <label className="block text-sm font-medium text-gray-700">Name</label>
+                                        <input
+                                          type="text"
+                                          value={user.name}
+                                          onChange={(e) => handleUserChange(user.id, "name", e.target.value)}
+                                          className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
+                                          placeholder="Enter name"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="block text-sm font-medium text-gray-700">Email</label>
+                                        <input
+                                          type="email"
+                                          value={user.email}
+                                          onChange={(e) => handleUserChange(user.id, "email", e.target.value)}
+                                          className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
+                                          placeholder="Enter email"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="block text-sm font-medium text-gray-700">WhatsApp Number</label>
+                                        <input
+                                          type="text"
+                                          value={user.whatsapp_number}
+                                          onChange={(e) => handleUserChange(user.id, "whatsapp_number", e.target.value)}
+                                          className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
+                                          placeholder="+1234567890"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="block text-sm font-medium text-gray-700">Password (optional)</label>
+                                        <input
+                                          type="password"
+                                          value={user.password || ""}
+                                          onChange={(e) => handleUserChange(user.id, "password", e.target.value)}
+                                          className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
+                                          placeholder="Enter new password"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="block text-sm font-medium text-gray-700">Role</label>
+                                        <select
+                                          value={user.role}
+                                          onChange={(e) => handleUserChange(user.id, "role", e.target.value)}
+                                          className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
+                                        >
+                                          {roleTypes.map((role) => (
+                                            <option key={role} value={role}>
+                                              {role.charAt(0).toUpperCase() + role.slice(1)}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                      {user.role === "team_manager" && (
+                                        <div>
+                                          <label className="block text-sm font-medium text-gray-700">Team Manager Type</label>
+                                          <select
+                                            value={user.team_manager_type || ""}
+                                            onChange={(e) => handleUserChange(user.id, "team_manager_type", e.target.value)}
+                                            className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
+                                          >
+                                            <option value="">Select Type</option>
+                                            {teamManagerTypes.map((type) => (
+                                              <option key={type} value={type}>
+                                                {type.replace("_", " ").toUpperCase()}
+                                              </option>
+                                            ))}
+                                          </select>
+                                        </div>
+                                      )}
+                                      <div>
+                                        <label className="block text-sm font-medium text-gray-700">Type</label>
+                                        <select
+                                          value={user.type}
+                                          onChange={(e) => handleUserChange(user.id, "type", e.target.value)}
+                                          className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
+                                        >
+                                          {userTypes.map((type) => (
+                                            <option key={type} value={type}>
+                                              {type.replace("_", " ").toUpperCase()}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                      <div>
+                                        <label className="block text-sm font-medium text-gray-700">Member Scope</label>
+                                        <select
+                                          value={user.member_scope}
+                                          onChange={(e) => handleUserChange(user.id, "member_scope", e.target.value)}
+                                          className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
+                                        >
+                                          {memberScopes.map((scope) => (
+                                            <option key={scope} value={scope}>
+                                              {scope.replace("_", " ").toUpperCase()}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                      <div>
+                                        <label className="block text-sm font-medium text-gray-700">Immediate Supervisor</label>
+                                        <select
+                                          value={user.immediate_supervisor || ""}
+                                          onChange={(e) => handleUserChange(user.id, "immediate_supervisor", e.target.value)}
+                                          className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
+                                        >
+                                          <option value="">None</option>
+                                          {users
+                                            .filter((u) => u.id !== user.id && (u.role === "admin" || u.role === "team_manager"))
+                                            .map((supervisor) => (
+                                              <option key={supervisor.id} value={supervisor.id}>
+                                                {supervisor.name} ({supervisor.role})
+                                              </option>
+                                            ))}
+                                        </select>
+                                      </div>
+                                    </motion.div>
+                                  )}
+                                </AnimatePresence>
+                              </motion.div>
+                            ))}
+                          <motion.button
+                            onClick={saveTeamChanges}
+                            disabled={saving.team || users.length === 0}
+                            className={`w-full sm:w-auto px-6 py-3 rounded-lg text-white font-semibold text-lg transition-all duration-200 bg-teal-600 hover:bg-teal-700 shadow-md ${
+                              saving.team || users.length === 0 ? "opacity-50 cursor-not-allowed" : ""
+                            }`}
+                            whileHover={{ scale: saving.team || users.length === 0 ? 1 : 1.05 }}
+                            whileTap={{ scale: saving.team || users.length === 0 ? 1 : 0.95 }}
+                          >
+                            {saving.team ? "Saving..." : "Save All Changes"}
+                          </motion.button>
+                        </div>
                       )}
-                      <motion.button
-                        onClick={saveTeamChanges}
-                        disabled={saving.team || users.length === 0}
-                        className={`w-full sm:w-auto px-6 py-3 rounded-2xl text-white font-semibold text-lg transition-all duration-200 bg-teal-600 hover:bg-teal-700 shadow-md`}
-                        whileHover={{ scale: saving.team || users.length === 0 ? 1 : 1.03 }}
-                        whileTap={{ scale: saving.team || users.length === 0 ? 1 : 0.95 }}
-                      >
-                        {saving.team ? "Saving..." : "Save Team Changes"}
-                      </motion.button>
                     </div>
                   )}
                 </div>
@@ -845,12 +938,12 @@ export default function ManageTeamPage() {
               {activeSection === "mspr" && (
                 <div className="space-y-4 h-full">
                   <div className="grid grid-cols-2 gap-4 h-full">
-                    <div className="bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 rounded-2xl shadow-lg p-6">
-                      <h2 className="text-xl font-semibold text-gray-700 mb-2 text-center">Pre-Primary Column</h2>
+                    <div className="bg-white rounded-lg shadow-md p-6">
+                      <h2 className="text-xl font-semibold text-gray-800 mb-2 text-center">Pre-Primary Column</h2>
                       {/* Placeholder content */}
                     </div>
-                    <div className="bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 rounded-2xl shadow-lg p-6">
-                      <h2 className="text-xl font-semibold text-gray-700 mb-2 text-center">Primary Column</h2>
+                    <div className="bg-white rounded-lg shadow-md p-6">
+                      <h2 className="text-xl font-semibold text-gray-800 mb-2 text-center">Primary Column</h2>
                       {/* Placeholder content */}
                     </div>
                   </div>
@@ -859,13 +952,13 @@ export default function ManageTeamPage() {
               {activeSection === "mhcp" && (
                 <div className="space-y-4">
                   <div className="space-y-4">
-                    <h2 className="text-xl font-semibold text-gray-700">HW Urgencies (6:30 - 7:30 PM)</h2>
+                    <h2 className="text-xl font-semibold text-gray-800">HW Urgencies (6:30 - 7:30 PM)</h2>
                     <div className="grid grid-cols-4 gap-4">
                       {["T2T3 (Mon-Thu)", "T2T3 (Sat)", "T1", "T4"].map((schedule, index) => (
                         <motion.div
                           key={index}
-                          className="bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 rounded-2xl shadow-lg p-4 flex flex-col justify-between h-48"
-                          whileHover={{ scale: 1.02, boxShadow: "0 8px 16px rgba(0, 128, 128, 0.2)" }}
+                          className="bg-white rounded-lg shadow-md p-4 flex flex-col justify-between h-48"
+                          whileHover={{ scale: 1.05, boxShadow: "0 6px 12px rgba(0, 128, 128, 0.2)" }}
                           transition={{ duration: 0.2 }}
                         >
                           <h3 className="font-semibold text-teal-900 mb-2">{schedule}</h3>
@@ -875,13 +968,13 @@ export default function ManageTeamPage() {
                     </div>
                   </div>
                   <div className="space-y-4">
-                    <h2 className="text-xl font-semibold text-gray-700">Beyond Potential (7:30 - 8:30 PM)</h2>
+                    <h2 className="text-xl font-semibold text-gray-800">Beyond Potential (7:30 - 8:30 PM)</h2>
                     <div className="grid grid-cols-4 gap-4">
                       {["T1", "T2T3", "T4", "T4Jr"].map((schedule, index) => (
                         <motion.div
                           key={index}
-                          className="bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 rounded-2xl shadow-lg p-4 flex flex-col justify-between h-48"
-                          whileHover={{ scale: 1.02, boxShadow: "0 8px 16px rgba(0, 128, 128, 0.2)" }}
+                          className="bg-white rounded-lg shadow-md p-4 flex flex-col justify-between h-48"
+                          whileHover={{ scale: 1.05, boxShadow: "0 6px 12px rgba(0, 128, 128, 0.2)" }}
                           transition={{ duration: 0.2 }}
                         >
                           <h3 className="font-semibold text-teal-900 mb-2">{schedule}</h3>
@@ -894,9 +987,9 @@ export default function ManageTeamPage() {
                     <motion.button
                       onClick={() => setActiveSection("mhcp1")}
                       className={`px-4 py-2 rounded-lg transition-all duration-200 ${
-                        activeSection === "mhcp1" ? "bg-teal-700 text-white" : "bg-teal-600 text-white hover:bg-teal-700"
+                        activeSection === "mhcp1" ? "bg-teal-600 text-white" : "bg-teal-500 text-white hover:bg-teal-600"
                       }`}
-                      whileHover={{ scale: 1.03 }}
+                      whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
                     >
                       Manage MSPR
@@ -904,9 +997,9 @@ export default function ManageTeamPage() {
                     <motion.button
                       onClick={() => setActiveSection("mhcp2")}
                       className={`px-4 py-2 rounded-lg transition-all duration-200 ${
-                        activeSection === "mhcp2" ? "bg-teal-700 text-white" : "bg-teal-600 text-white hover:bg-teal-700"
+                        activeSection === "mhcp2" ? "bg-teal-600 text-white" : "bg-teal-500 text-white hover:bg-teal-600"
                       }`}
-                      whileHover={{ scale: 1.03 }}
+                      whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
                     >
                       Manage MHCP
@@ -922,8 +1015,8 @@ export default function ManageTeamPage() {
                     <p className="text-gray-600 text-center text-lg">No students found. Please check the database.</p>
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 h-full">
-                      <div className="bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 rounded-2xl shadow-lg p-6">
-                        <h2 className="text-xl font-semibold text-gray-700 mb-4">Hostellers</h2>
+                      <div className="bg-white rounded-lg shadow-md p-6">
+                        <h2 className="text-xl font-semibold text-gray-800 mb-4">Hostellers</h2>
                         {Object.entries(
                           students
                             .filter((student) => student.residentialStatus === "hosteller")
@@ -946,7 +1039,7 @@ export default function ManageTeamPage() {
                                 {classStudents.map((student) => (
                                   <div
                                     key={student.id}
-                                    className="bg-white rounded-lg p-3 shadow-sm flex justify-between items-center"
+                                    className="bg-gray-50 rounded-lg p-3 shadow-sm flex justify-between items-center"
                                   >
                                     <div>
                                       <p className="text-gray-700">{student.name}</p>
@@ -958,8 +1051,8 @@ export default function ManageTeamPage() {
                             </motion.div>
                           ))}
                       </div>
-                      <div className="bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 rounded-2xl shadow-lg p-6">
-                        <h2 className="text-xl font-semibold text-gray-700 mb-4">Day Scholars</h2>
+                      <div className="bg-white rounded-lg shadow-md p-6">
+                        <h2 className="text-xl font-semibold text-gray-800 mb-4">Day Scholars</h2>
                         {Object.entries(
                           students
                             .filter((student) => student.residentialStatus === "dayscholar")
@@ -982,7 +1075,7 @@ export default function ManageTeamPage() {
                                 {classStudents.map((student) => (
                                   <div
                                     key={student.id}
-                                    className="bg-white rounded-lg p-3 shadow-sm flex justify-between items-center"
+                                    className="bg-gray-50 rounded-lg p-3 shadow-sm flex justify-between items-center"
                                   >
                                     <div>
                                       <p className="text-gray-700">{student.name}</p>
@@ -1015,57 +1108,59 @@ export default function ManageTeamPage() {
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.8, opacity: 0 }}
                 transition={{ duration: 0.3 }}
-                className="bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 rounded-2xl shadow-2xl p-6 w-full max -w-5xl max-h-[80vh] overflow-y-auto"
+                className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-5xl max-h-[80vh] overflow-y-auto"
               >
                 <h2 className="text-2xl font-bold text-gray-800 mb-6 text-center">Manage All Allotments</h2>
-                {["Block 1 (Slots 1-6)", "Block 2 (Slots 7-9)", "Block 3 (Slots 10-11)", "Block 4 (Slots 12-14)", "Block 5 (Slots 15-16)", "Block 6 (Slot 145)"].map((blockTitle, blockIndex) => (
-                  <div key={blockIndex} className="mb-8">
-                    <h3 className="text-lg font-semibold text-gray-700 mb-4 text-center">{blockTitle}</h3>
-                    <div className="grid grid-cols-12 gap-4 mb-6">
-                      <div className="col-span-2 font-medium text-gray-700">Slot ID</div>
-                      <div className="col-span-6 font-medium text-gray-700">Slot Name</div>
-                      <div className="col-span-4 font-medium text-gray-700">TOD Allotment</div>
+                {["Block 1 (Slots 1-6)", "Block 2 (Slots 7-9)", "Block 3 (Slots 10-11)", "Block 4 (Slots 12-14)", "Block 5 (Slots 15-16)", "Block 6 (Slot 145)"].map(
+                  (blockTitle, blockIndex) => (
+                    <div key={blockIndex} className="mb-8">
+                      <h3 className="text-lg font-semibold text-gray-700 mb-4 text-center">{blockTitle}</h3>
+                      <div className="grid grid-cols-12 gap-4 mb-6">
+                        <div className="col-span-2 font-medium text-gray-700">Slot ID</div>
+                        <div className="col-span-6 font-medium text-gray-700">Slot Name</div>
+                        <div className="col-span-4 font-medium text-gray-700">TOD Allotment</div>
+                      </div>
+                      {slots
+                        .filter((slot) => {
+                          if (blockTitle === "Block 1 (Slots 1-6)") return slot.id >= 1 && slot.id <= 6;
+                          if (blockTitle === "Block 2 (Slots 7-9)") return slot.id >= 7 && slot.id <= 9;
+                          if (blockTitle === "Block 3 (Slots 10-11)") return slot.id >= 10 && slot.id <= 11;
+                          if (blockTitle === "Block 4 (Slots 12-14)") return slot.id >= 12 && slot.id <= 14;
+                          if (blockTitle === "Block 5 (Slots 15-16)") return slot.id >= 15 && slot.id <= 16;
+                          if (blockTitle === "Block 6 (Slot 145)") return slot.id === 145;
+                          return false;
+                        })
+                        .map((slot) => (
+                          <div key={slot.id} className="grid grid-cols-12 gap-4 items-center mb-4">
+                            <div className="col-span-2 text-gray-700">Slot {slot.id}</div>
+                            <div className="col-span-6 text-gray-700">{slot.name}</div>
+                            <select
+                              value={bulkAssignments[slot.id] || ""}
+                              onChange={(e) =>
+                                setBulkAssignments((prev) => ({
+                                  ...prev,
+                                  [slot.id]: e.target.value ? parseInt(e.target.value) : null,
+                                }))
+                              }
+                              className="col-span-4 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
+                            >
+                              <option value="">Unassigned</option>
+                              {members.map((member) => (
+                                <option key={member.id} value={member.id}>
+                                  {member.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        ))}
                     </div>
-                    {slots
-                      .filter((slot) => {
-                        if (blockTitle === "Block 1 (Slots 1-6)") return slot.id >= 1 && slot.id <= 6;
-                        if (blockTitle === "Block 2 (Slots 7-9)") return slot.id >= 7 && slot.id <= 9;
-                        if (blockTitle === "Block 3 (Slots 10-11)") return slot.id >= 10 && slot.id <= 11;
-                        if (blockTitle === "Block 4 (Slots 12-14)") return slot.id >= 12 && slot.id <= 14;
-                        if (blockTitle === "Block 5 (Slots 15-16)") return slot.id >= 15 && slot.id <= 16;
-                        if (blockTitle === "Block 6 (Slot 145)") return slot.id === 145;
-                        return false;
-                      })
-                      .map((slot) => (
-                        <div key={slot.id} className="grid grid-cols-12 gap-4 items-center mb-4">
-                          <div className="col-span-2 text-gray-700">Slot {slot.id}</div>
-                          <div className="col-span-6 text-gray-700">{slot.name}</div>
-                          <select
-                            value={bulkAssignments[slot.id] || ""}
-                            onChange={(e) =>
-                              setBulkAssignments((prev) => ({
-                                ...prev,
-                                [slot.id]: e.target.value ? parseInt(e.target.value) : null,
-                              }))
-                            }
-                            className="col-span-4 p-2 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-base"
-                          >
-                            <option value="">Unassigned</option>
-                            {members.map((member) => (
-                              <option key={member.id} value={member.id}>
-                                {member.name}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      ))}
-                  </div>
-                ))}
+                  )
+                )}
                 <div className="mt-6 flex justify-end gap-2">
                   <motion.button
                     onClick={() => setShowBulkModal(false)}
                     className="px-6 py-3 bg-gray-400 text-white rounded-lg hover:bg-gray-500 transition-all duration-200"
-                    whileHover={{ scale: 1.03 }}
+                    whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                   >
                     Cancel
@@ -1073,7 +1168,7 @@ export default function ManageTeamPage() {
                   <motion.button
                     onClick={() => setShowConfirmModal(true)}
                     className="px-6 py-3 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-all duration-200"
-                    whileHover={{ scale: 1.03 }}
+                    whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                     disabled={saving.slots}
                   >
@@ -1085,7 +1180,6 @@ export default function ManageTeamPage() {
           )}
         </AnimatePresence>
 
-        {/* Confirmation Modal */}
         <AnimatePresence>
           {showConfirmModal && (
             <motion.div
@@ -1107,7 +1201,7 @@ export default function ManageTeamPage() {
                   <motion.button
                     onClick={() => setShowConfirmModal(false)}
                     className="px-4 py-2 bg-gray-400 text-white rounded-lg hover:bg-gray-500 transition-all duration-200"
-                    whileHover={{ scale: 1.03 }}
+                    whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                   >
                     Cancel
@@ -1115,7 +1209,7 @@ export default function ManageTeamPage() {
                   <motion.button
                     onClick={saveBulkAssignments}
                     className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-all duration-200"
-                    whileHover={{ scale: 1.03 }}
+                    whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                     disabled={saving.slots}
                   >
@@ -1127,7 +1221,6 @@ export default function ManageTeamPage() {
           )}
         </AnimatePresence>
 
-        {/* Manage Slot Timings Modal */}
         <AnimatePresence>
           {showManageTimingsModal && (
             <motion.div
@@ -1141,67 +1234,69 @@ export default function ManageTeamPage() {
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.8, opacity: 0 }}
                 transition={{ duration: 0.3 }}
-                className="bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 rounded-2xl shadow-2xl p-6 w-full max-w-5xl max-h-[80vh] overflow-y-auto"
+                className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-5xl max-h-[80vh] overflow-y-auto"
               >
                 <h2 className="text-2xl font-bold text-gray-800 mb-6 text-center">Manage Slot Timings</h2>
-                {["Block 1 (Slots 1-6)", "Block 2 (Slots 7-9)", "Block 3 (Slots 10-11)", "Block 4 (Slots 12-14)", "Block 5 (Slots 15-16)", "Block 6 (Slot 145)"].map((blockTitle, blockIndex) => (
-                  <div key={blockIndex} className="mb-8">
-                    <h3 className="text-lg font-semibold text-gray-700 mb-4 text-center">{blockTitle}</h3>
-                    <div className="grid grid-cols-12 gap-4 mb-6">
-                      <div className="col-span-2 font-medium text-gray-700">Slot ID</div>
-                      <div className="col-span-4 font-medium text-gray-700">Slot Name</div>
-                      <div className="col-span-3 font-medium text-gray-700">Start Time</div>
-                      <div className="col-span-3 font-medium text-gray-700">End Time</div>
+                {["Block 1 (Slots 1-6)", "Block 2 (Slots 7-9)", "Block 3 (Slots 10-11)", "Block 4 (Slots 12-14)", "Block 5 (Slots 15-16)", "Block 6 (Slot 145)"].map(
+                  (blockTitle, blockIndex) => (
+                    <div key={blockIndex} className="mb-8">
+                      <h3 className="text-lg font-semibold text-gray-700 mb-4 text-center">{blockTitle}</h3>
+                      <div className="grid grid-cols-12 gap-4 mb-6">
+                        <div className="col-span-2 font-medium text-gray-700">Slot ID</div>
+                        <div className="col-span-4 font-medium text-gray-700">Slot Name</div>
+                        <div className="col-span-3 font-medium text-gray-700">Start Time</div>
+                        <div className="col-span-3 font-medium text-gray-700">End Time</div>
+                      </div>
+                      {slots
+                        .filter((slot) => {
+                          if (blockTitle === "Block 1 (Slots 1-6)") return slot.id >= 1 && slot.id <= 6;
+                          if (blockTitle === "Block 2 (Slots 7-9)") return slot.id >= 7 && slot.id <= 9;
+                          if (blockTitle === "Block 3 (Slots 10-11)") return slot.id >= 10 && slot.id <= 11;
+                          if (blockTitle === "Block 4 (Slots 12-14)") return slot.id >= 12 && slot.id <= 14;
+                          if (blockTitle === "Block 5 (Slots 15-16)") return slot.id >= 15 && slot.id <= 16;
+                          if (blockTitle === "Block 6 (Slot 145)") return slot.id === 145;
+                          return false;
+                        })
+                        .map((slot) => (
+                          <div key={slot.id} className="grid grid-cols-12 gap-4 items-center mb-4">
+                            <div className="col-span-2 text-gray-700">Slot {slot.id}</div>
+                            <div className="col-span-4 text-gray-700">{slot.name}</div>
+                            <input
+                              type="time"
+                              value={editTimingsSlot === slot.id ? slots.find((s) => s.id === slot.id).startTime || "" : slot.startTime}
+                              onChange={(e) => {
+                                setEditTimingsSlot(slot.id);
+                                setSlots((prev) =>
+                                  prev.map((s) =>
+                                    s.id === slot.id ? { ...s, startTime: e.target.value } : s
+                                  )
+                                );
+                              }}
+                              className="col-span-3 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
+                            />
+                            <input
+                              type="time"
+                              value={editTimingsSlot === slot.id ? slots.find((s) => s.id === slot.id).endTime || "" : slot.endTime}
+                              onChange={(e) => {
+                                setEditTimingsSlot(slot.id);
+                                setSlots((prev) =>
+                                  prev.map((s) =>
+                                    s.id === slot.id ? { ...s, endTime: e.target.value } : s
+                                  )
+                                );
+                              }}
+                              className="col-span-3 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
+                            />
+                          </div>
+                        ))}
                     </div>
-                    {slots
-                      .filter((slot) => {
-                        if (blockTitle === "Block 1 (Slots 1-6)") return slot.id >= 1 && slot.id <= 6;
-                        if (blockTitle === "Block 2 (Slots 7-9)") return slot.id >= 7 && slot.id <= 9;
-                        if (blockTitle === "Block 3 (Slots 10-11)") return slot.id >= 10 && slot.id <= 11;
-                        if (blockTitle === "Block 4 (Slots 12-14)") return slot.id >= 12 && slot.id <= 14;
-                        if (blockTitle === "Block 5 (Slots 15-16)") return slot.id >= 15 && slot.id <= 16;
-                        if (blockTitle === "Block 6 (Slot 145)") return slot.id === 145;
-                        return false;
-                      })
-                      .map((slot) => (
-                        <div key={slot.id} className="grid grid-cols-12 gap-4 items-center mb-4">
-                          <div className="col-span-2 text-gray-700">Slot {slot.id}</div>
-                          <div className="col-span-4 text-gray-700">{slot.name}</div>
-                          <input
-                            type="time"
-                            value={editTimingsSlot === slot.id ? slots.find((s) => s.id === slot.id).startTime || "" : slot.startTime}
-                            onChange={(e) => {
-                              setEditTimingsSlot(slot.id);
-                              setSlots((prev) =>
-                                prev.map((s) =>
-                                  s.id === slot.id ? { ...s, startTime: e.target.value } : s
-                                )
-                              );
-                            }}
-                            className="col-span-3 p-2 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
-                          />
-                          <input
-                            type="time"
-                            value={editTimingsSlot === slot.id ? slots.find((s) => s.id === slot.id).endTime || "" : slot.endTime}
-                            onChange={(e) => {
-                              setEditTimingsSlot(slot.id);
-                              setSlots((prev) =>
-                                prev.map((s) =>
-                                  s.id === slot.id ? { ...s, endTime: e.target.value } : s
-                                )
-                              );
-                            }}
-                            className="col-span-3 p-2 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
-                          />
-                        </div>
-                      ))}
-                  </div>
-                ))}
+                  )
+                )}
                 <div className="mt-6 flex justify-end gap-2">
                   <motion.button
                     onClick={() => setShowManageTimingsModal(false)}
                     className="px-6 py-3 bg-gray-400 text-white rounded-lg hover:bg-gray-500 transition-all duration-200"
-                    whileHover={{ scale: 1.03 }}
+                    whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                   >
                     Cancel
@@ -1215,7 +1310,7 @@ export default function ManageTeamPage() {
                       });
                     }}
                     className="px-6 py-3 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-all duration-200"
-                    whileHover={{ scale: 1.03 }}
+                    whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                     disabled={saving.slots}
                   >
@@ -1227,7 +1322,6 @@ export default function ManageTeamPage() {
           )}
         </AnimatePresence>
 
-        {/* Calendar Section */}
         <AnimatePresence>
           {activeSection === "calendar" && (
             <motion.div

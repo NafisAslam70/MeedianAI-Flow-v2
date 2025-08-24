@@ -5,6 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Menu, X, Users } from "lucide-react";
 import { createPortal } from "react-dom";
+
 export default function Navbar() {
   const { data: session, status } = useSession();
   const pathname = usePathname();
@@ -12,30 +13,91 @@ export default function Navbar() {
   const [mounted, setMounted] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
+  const [userName, setUserName] = useState(session?.user?.name || "User");
+  const [userImage, setUserImage] = useState(session?.user?.image || "/default-avatar.png");
+
   useEffect(() => {
     setMounted(true);
-  }, []);
+
+    // Update local state when session changes
+    if (session?.user) {
+      setUserName(session.user.name || "User");
+      const image = session.user.image || "/default-avatar.png";
+      setUserImage(image);
+      console.log("Session updated:", { name: session.user.name, image, role: session.user.role });
+    }
+
+    // Fetch profile data on profile page or after update
+    const fetchProfile = async () => {
+      try {
+        const response = await fetch("/api/member/profile");
+        const data = await response.json();
+        if (response.ok) {
+          setUserName(data.user.name || "User");
+          const image = data.user.image || "/default-avatar.png";
+          setUserImage(image);
+          await fetch("/api/auth/session", { credentials: "include" });
+          console.log("Profile fetched:", { name: data.user.name, image });
+        } else {
+          console.error("Profile fetch failed:", data);
+        }
+      } catch (err) {
+        console.error("Failed to fetch profile:", err);
+      }
+    };
+
+    // Listen for profile updates from Profile.jsx
+    const handleProfileUpdate = (event) => {
+      if (event.data.type === "PROFILE_UPDATED") {
+        fetchProfile();
+      }
+    };
+
+    if (pathname.includes("/profile")) {
+      fetchProfile(); // Initial fetch on profile page
+      window.addEventListener("message", handleProfileUpdate);
+      const interval = setInterval(fetchProfile, 5000); // Refetch every 5 seconds
+      return () => {
+        window.removeEventListener("message", handleProfileUpdate);
+        clearInterval(interval);
+      };
+    }
+  }, [pathname, session]);
+
+  // Prevent rendering until session is loaded and component is mounted
+  if (status === "loading" || !mounted) {
+    return <div className="bg-gray-900 text-white p-4">Loading...</div>;
+  }
+
   if (pathname.includes('/workTogether')) {
     return null;
   }
-  const role = session?.user?.role;
-  const userName = session?.user?.name || "User";
-  const userImage = session?.user?.image || "/default-avatar.png";
+
+  const role = session?.user?.role || "user";
   const handleLogout = async () => {
     setIsLogoutModalOpen(false);
     await signOut({ redirect: false });
     router.push("/");
   };
+
   const handleLogin = (role) => router.push(`/login?role=${role}`);
   const handleAddMember = () => router.push("/dashboard/admin/addUser");
   const handleManageMeedian = () => router.push("/dashboard/admin/manageMeedian");
   const toggleMobileMenu = () => setIsMobileMenuOpen(!isMobileMenuOpen);
   const openLogoutModal = () => setIsLogoutModalOpen(true);
   const closeLogoutModal = () => setIsLogoutModalOpen(false);
-  const isActive = (href) => pathname.replace(/\/$/, "") === href.replace(/\/$/, "");
+  const isActive = (href) => {
+    const isActive = pathname.replace(/\/$/, "") === href.replace(/\/$/, "");
+    console.log(`isActive check: href=${href}, pathname=${pathname}, isActive=${isActive}`);
+    return isActive;
+  };
+
   const openTogetherWorkspace = () => {
     window.open("/dashboard/member/workTogether", '_blank');
   };
+
+  const profilePath = role ? `/dashboard/${role === "team_manager" ? "team_manager" : role}/profile` : "/";
+
   const LogoutModal = () => (
     <div className="modal-overlay">
       <div className="modal-content">
@@ -58,6 +120,7 @@ export default function Navbar() {
       </div>
     </div>
   );
+
   return (
     <>
       <style global jsx>{`
@@ -122,6 +185,21 @@ export default function Navbar() {
         }
         .mobile-menu-item:hover {
           background: #374151;
+        }
+        .mobile-menu-item.active {
+          color: #22d3ee;
+          font-weight: 600;
+          background: #374151;
+        }
+        .mobile-menu-item.active::after {
+          content: '';
+          position: absolute;
+          bottom: -4px;
+          left: 50%;
+          transform: translateX(-50%);
+          width: 50%;
+          height: 2px;
+          background: #22d3ee;
         }
         .mobile-together-button {
           display: flex;
@@ -192,119 +270,6 @@ export default function Navbar() {
           height: 2px;
           background: #22d3ee;
         }
-        .together-icon {
-          animation: pulse-glow 1.5s infinite ease-in-out;
-          filter: drop-shadow(0 0 4px rgba(34, 211, 238, 0.5));
-        }
-        .together-icon:hover {
-          animation: pulse-glow-hover 0.8s infinite ease-in-out;
-        }
-        @keyframes pulse-glow {
-          0% {
-            transform: scale(1);
-            opacity: 0.8;
-            filter: drop-shadow(0 0 4px rgba(34, 211, 238, 0.3));
-          }
-          50% {
-            transform: scale(1.15);
-            opacity: 1;
-            filter: drop-shadow(0 0 8px rgba(34, 211, 238, 0.7));
-          }
-          100% {
-            transform: scale(1);
-            opacity: 0.8;
-            filter: drop-shadow(0 0 4px rgba(34, 211, 238, 0.3));
-          }
-        }
-        @keyframes pulse-glow-hover {
-          0% {
-            transform: scale(1.1);
-            filter: drop-shadow(0 0 6px rgba(34, 211, 238, 0.5));
-          }
-          50% {
-            transform: scale(1.25);
-            filter: drop-shadow(0 0 12px rgba(34, 211, 238, 1));
-          }
-          100% {
-            transform: scale(1.1);
-            filter: drop-shadow(0 0 6px rgba(34, 211, 238, 0.5));
-          }
-        }
-        .mobile-together-icon {
-          animation: pulse-glow 1.5s infinite ease-in-out;
-          filter: drop-shadow(0 0 4px rgba(34, 211, 238, 0.5));
-        }
-        .mobile-together-icon:hover {
-          animation: pulse-glow-hover 0.8s infinite ease-in-out;
-        }
-        .user-info {
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-          background: #374151;
-          padding: 0.4rem 0.8rem;
-          border-radius: 10px;
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-          transition: all 0.3s ease;
-        }
-        .user-info:hover {
-          transform: translateY(-2px);
-          background: #4b5563;
-        }
-        .user-info img {
-          width: 28px;
-          height: 28px;
-          border-radius: 50%;
-          border: 2px solid #22d3ee;
-          object-fit: cover;
-        }
-        .user-info-text {
-          display: flex;
-          flex-direction: column;
-          color: #d1d5db;
-        }
-        .user-info-text .name {
-          font-weight: 600;
-          font-size: 0.8rem;
-          text-transform: capitalize;
-        }
-        .user-info-text .role {
-          font-size: 0.7rem;
-          color: #9ca3af;
-          text-transform: capitalize;
-        }
-        .mobile-user-info {
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-          background: #374151;
-          padding: 0.5rem;
-          border-radius: 10px;
-          margin-bottom: 0.75rem;
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-        }
-        .mobile-user-info img {
-          width: 36px;
-          height: 36px;
-          border-radius: 50%;
-          border: 2px solid #22d3ee;
-          object-fit: cover;
-        }
-        .mobile-user-info-text {
-          display: flex;
-          flex-direction: column;
-          color: #d1d5db;
-        }
-        .mobile-user-info-text .name {
-          font-weight: 600;
-          font-size: 0.9rem;
-          text-transform: capitalize;
-        }
-        .mobile-user-info-text .role {
-          font-size: 0.8rem;
-          color: #9ca3af;
-          text-transform: capitalize;
-        }
         .managerial-group {
           display: flex;
           align-items: center;
@@ -327,7 +292,7 @@ export default function Navbar() {
           {/* Left Section: Logo */}
           <div className="flex items-center gap-2">
             <img src="/flow1.png" alt="Logo" className="w-8 h-8 rounded-full border border-cyan-400 p-1" />
-            <Link href="/" className={`text-xl font-bold tracking-tight hover:text-cyan-300 transition duration-200 ${isActive("/") ? "text-cyan-300" : ""}`}>
+            <Link href="/" className={`text-xl font-bold tracking-tight hover:text-cyan-300 transition duration-200 ${isActive("/") ? "text-cyan-300 active" : ""}`}>
               MeedianAI-Flow
             </Link>
           </div>
@@ -416,12 +381,6 @@ export default function Navbar() {
                 >
                   CloseMyDay
                 </Link>
-                <Link
-                  href="/dashboard/member/myPerformance"
-                  className={`nav-item hover:text-cyan-300 ${isActive("/dashboard/member/myPerformance") ? "text-cyan-300 active" : ""}`}
-                >
-                  MyPerformance
-                </Link>
                 <div className="managerial-group">
                   <Link
                     href="/dashboard/managersCommon/routineTasks"
@@ -479,12 +438,6 @@ export default function Navbar() {
                 >
                   CloseMyDay
                 </Link>
-                <Link
-                  href="/dashboard/member/myPerformance"
-                  className={`nav-item hover:text-cyan-300 ${isActive("/dashboard/member/myPerformance") ? "text-cyan-300 active" : ""}`}
-                >
-                  MyPerformance
-                </Link>
                 <div className="managerial-group">
                   <button
                     onClick={openTogetherWorkspace}
@@ -519,17 +472,24 @@ export default function Navbar() {
               </>
             )}
           </div>
-          {/* Right Section: User Info, MyLife, Logout, and Mobile Toggle */}
+          {/* Right Section: User Info, Logout, and Mobile Toggle */}
           <div className="flex items-center gap-2">
             {(role === "admin" || role === "team_manager" || role === "member") && (
               <>
-                <div className="user-info hidden md:flex">
-                  <img src={userImage} alt="User Avatar" />
+                <Link href={profilePath} className={`user-info hidden md:flex ${isActive(profilePath) ? "active" : ""}`}>
+                  <img
+                    src={userImage || "/default-avatar.png"}
+                    alt="User Avatar"
+                    onError={() => {
+                      console.error("Image failed to load:", userImage);
+                      setUserImage("/default-avatar.png");
+                    }}
+                  />
                   <div className="user-info-text">
-                    <span className="name">{userName}</span>
-                    <span className="role">{role.replace("_", " ")}</span>
+                    <span className="name">{userName || "Loading..."}</span>
+                    <span className="account-label">My Account</span>
                   </div>
-                </div>
+                </Link>
                 <button
                   onClick={openLogoutModal}
                   className="hidden md:block nav-button bg-red-600 hover:bg-red-700 text-white"
@@ -557,13 +517,20 @@ export default function Navbar() {
                 </button>
               </div>
               {(role === "admin" || role === "team_manager" || role === "member") && (
-                <div className="mobile-user-info">
-                  <img src={userImage} alt="User Avatar" />
+                <Link href={profilePath} onClick={toggleMobileMenu} className={`mobile-user-info ${isActive(profilePath) ? "active" : ""}`}>
+                  <img
+                    src={userImage || "/default-avatar.png"}
+                    alt="User Avatar"
+                    onError={() => {
+                      console.error("Image failed to load:", userImage);
+                      setUserImage("/default-avatar.png");
+                    }}
+                  />
                   <div className="mobile-user-info-text">
-                    <span className="name">{userName}</span>
-                    <span className="role">{role.replace("_", " ")}</span>
+                    <span className="name">{userName || "Loading..."}</span>
+                    <span className="account-label">My Account</span>
                   </div>
-                </div>
+                </Link>
               )}
               <div className="space-y-1">
                 {role === "admin" && (
@@ -571,18 +538,14 @@ export default function Navbar() {
                     <Link
                       href="/dashboard"
                       onClick={toggleMobileMenu}
-                      className={`mobile-menu-item hover:text-cyan-400 ${
-                        isActive("/dashboard") ? "text-cyan-400 font-semibold bg-gray-700" : ""
-                      }`}
+                      className={`mobile-menu-item hover:text-cyan-400 ${isActive("/dashboard") ? "text-cyan-400 active" : ""}`}
                     >
                       General Dashboard
                     </Link>
                     <Link
                       href="/dashboard/admin"
                       onClick={toggleMobileMenu}
-                      className={`mobile-menu-item hover:text-cyan-400 ${
-                        isActive("/dashboard/admin") ? "text-cyan-400 font-semibold bg-gray-700" : ""
-                      }`}
+                      className={`mobile-menu-item hover:text-cyan-400 ${isActive("/dashboard/admin") ? "text-cyan-400 active" : ""}`}
                     >
                       Dashboard
                     </Link>
@@ -590,18 +553,14 @@ export default function Navbar() {
                       <Link
                         href="/dashboard/managersCommon/routineTasks"
                         onClick={toggleMobileMenu}
-                        className={`mobile-menu-item hover:text-cyan-400 ${
-                          isActive("/dashboard/managersCommon/routineTasks") ? "text-cyan-400 font-semibold bg-gray-700" : ""
-                        }`}
+                        className={`mobile-menu-item hover:text-cyan-400 ${isActive("/dashboard/managersCommon/routineTasks") ? "text-cyan-400 active" : ""}`}
                       >
                         Routine Tasks
                       </Link>
                       <Link
                         href="/dashboard/managersCommon/assignTask"
                         onClick={toggleMobileMenu}
-                        className={`mobile-menu-item hover:text-cyan-400 ${
-                          isActive("/dashboard/managersCommon/assignTask") ? "text-cyan-400 font-semibold bg-gray-700" : ""
-                        }`}
+                        className={`mobile-menu-item hover:text-cyan-400 ${isActive("/dashboard/managersCommon/assignTask") ? "text-cyan-400 active" : ""}`}
                       >
                         Assign Task
                       </Link>
@@ -619,9 +578,7 @@ export default function Navbar() {
                           openTogetherWorkspace();
                           toggleMobileMenu();
                         }}
-                        className={`mobile-together-button hover:text-cyan-400 ${
-                          isActive("/dashboard/member/workTogether") ? "text-cyan-400 font-semibold bg-gray-700" : ""
-                        }`}
+                        className={`mobile-together-button hover:text-cyan-400 ${isActive("/dashboard/member/workTogether") ? "text-cyan-400 active" : ""}`}
                       >
                         <Users size={18} className="mobile-together-icon" />
                         Together
@@ -652,64 +609,43 @@ export default function Navbar() {
                     <Link
                       href="/dashboard"
                       onClick={toggleMobileMenu}
-                      className={`mobile-menu-item hover:text-cyan-400 ${
-                        isActive("/dashboard") ? "text-cyan-400 font-semibold bg-gray-700" : ""
-                      }`}
+                      className={`mobile-menu-item hover:text-cyan-400 ${isActive("/dashboard") ? "text-cyan-400 active" : ""}`}
                     >
                       General
                     </Link>
                     <Link
                       href="/dashboard/team_manager"
                       onClick={toggleMobileMenu}
-                      className={`mobile-menu-item hover:text-cyan-400 ${
-                        isActive("/dashboard/team_manager") ? "text-cyan-400 font-semibold bg-gray-700" : ""
-                      }`}
+                      className={`mobile-menu-item hover:text-cyan-400 ${isActive("/dashboard/team_manager") ? "text-cyan-400 active" : ""}`}
                     >
                       My Dashboard
                     </Link>
                     <Link
                       href="/dashboard/member/myMeedRituals"
                       onClick={toggleMobileMenu}
-                      className={`mobile-menu-item hover:text-cyan-400 ${
-                        isActive("/dashboard/member/myMeedRituals") ? "text-cyan-400 font-semibold bg-gray-700" : ""
-                      }`}
+                      className={`mobile-menu-item hover:text-cyan-400 ${isActive("/dashboard/member/myMeedRituals") ? "text-cyan-400 active" : ""}`}
                     >
                       MyMRIs
                     </Link>
                     <Link
                       href="/dashboard/member/closeMyDay"
                       onClick={toggleMobileMenu}
-                      className={`mobile-menu-item hover:text-cyan-400 ${
-                        isActive("/dashboard/member/closeMyDay") ? "text-cyan-400 font-semibold bg-gray-700" : ""
-                      }`}
+                      className={`mobile-menu-item hover:text-cyan-400 ${isActive("/dashboard/member/closeMyDay") ? "text-cyan-400 active" : ""}`}
                     >
                       CloseMyDay
-                    </Link>
-                    <Link
-                      href="/dashboard/member/myPerformance"
-                      onClick={toggleMobileMenu}
-                      className={`mobile-menu-item hover:text-cyan-400 ${
-                        isActive("/dashboard/member/myPerformance") ? "text-cyan-400 font-semibold bg-gray-700" : ""
-                      }`}
-                    >
-                      MyPerformance
                     </Link>
                     <div className="mobile-managerial-group">
                       <Link
                         href="/dashboard/managersCommon/routineTasks"
                         onClick={toggleMobileMenu}
-                        className={`mobile-menu-item hover:text-cyan-400 ${
-                          isActive("/dashboard/managersCommon/routineTasks") ? "text-cyan-400 font-semibold bg-gray-700" : ""
-                        }`}
+                        className={`mobile-menu-item hover:text-cyan-400 ${isActive("/dashboard/managersCommon/routineTasks") ? "text-cyan-400 active" : ""}`}
                       >
                         Routine Tasks
                       </Link>
                       <Link
                         href="/dashboard/managersCommon/assignTask"
                         onClick={toggleMobileMenu}
-                        className={`mobile-menu-item hover:text-cyan-400 ${
-                          isActive("/dashboard/managersCommon/assignTask") ? "text-cyan-400 font-semibold bg-gray-700" : ""
-                        }`}
+                        className={`mobile-menu-item hover:text-cyan-400 ${isActive("/dashboard/managersCommon/assignTask") ? "text-cyan-400 active" : ""}`}
                       >
                         Assign Task
                       </Link>
@@ -727,9 +663,7 @@ export default function Navbar() {
                           openTogetherWorkspace();
                           toggleMobileMenu();
                         }}
-                        className={`mobile-together-button hover:text-cyan-400 ${
-                          isActive("/dashboard/member/workTogether") ? "text-cyan-400 font-semibold bg-gray-700" : ""
-                        }`}
+                        className={`mobile-together-button hover:text-cyan-400 ${isActive("/dashboard/member/workTogether") ? "text-cyan-400 active" : ""}`}
                       >
                         <Users size={18} className="mobile-together-icon" />
                         Together
@@ -742,47 +676,29 @@ export default function Navbar() {
                     <Link
                       href="/dashboard"
                       onClick={toggleMobileMenu}
-                      className={`mobile-menu-item hover:text-cyan-400 ${
-                        isActive("/dashboard") ? "text-cyan-400 font-semibold bg-gray-700" : ""
-                      }`}
+                      className={`mobile-menu-item hover:text-cyan-400 ${isActive("/dashboard") ? "text-cyan-400 active" : ""}`}
                     >
                       General
                     </Link>
                     <Link
                       href="/dashboard/member"
-                      onClick={toggleMobileMenu}
-                      className={`mobile-menu-item hover:text-cyan-400 ${
-                        isActive("/dashboard/member") ? "text-cyan-400 font-semibold bg-gray-700" : ""
-                      }`}
+                      className={`mobile-menu-item hover:text-cyan-400 ${isActive("/dashboard/member") ? "text-cyan-400 active" : ""}`}
                     >
                       My Dashboard
                     </Link>
                     <Link
                       href="/dashboard/member/myMeedRituals"
                       onClick={toggleMobileMenu}
-                      className={`mobile-menu-item hover:text-cyan-400 ${
-                        isActive("/dashboard/member/myMeedRituals") ? "text-cyan-400 font-semibold bg-gray-700" : ""
-                      }`}
+                      className={`mobile-menu-item hover:text-cyan-400 ${isActive("/dashboard/member/myMeedRituals") ? "text-cyan-400 active" : ""}`}
                     >
                       MyMRIs
                     </Link>
                     <Link
                       href="/dashboard/member/closeMyDay"
                       onClick={toggleMobileMenu}
-                      className={`mobile-menu-item hover:text-cyan-400 ${
-                        isActive("/dashboard/member/closeMyDay") ? "text-cyan-400 font-semibold bg-gray-700" : ""
-                      }`}
+                      className={`mobile-menu-item hover:text-cyan-400 ${isActive("/dashboard/member/closeMyDay") ? "text-cyan-400 active" : ""}`}
                     >
                       CloseMyDay
-                    </Link>
-                    <Link
-                      href="/dashboard/member/myPerformance"
-                      onClick={toggleMobileMenu}
-                      className={`mobile-menu-item hover:text-cyan-400 ${
-                        isActive("/dashboard/member/myPerformance") ? "text-cyan-400 font-semibold bg-gray-700" : ""
-                      }`}
-                    >
-                      MyPerformance
                     </Link>
                     <div className="mobile-managerial-group">
                       <button
@@ -790,9 +706,7 @@ export default function Navbar() {
                           openTogetherWorkspace();
                           toggleMobileMenu();
                         }}
-                        className={`mobile-together-button hover:text-cyan-400 ${
-                          isActive("/dashboard/member/workTogether") ? "text-cyan-400 font-semibold bg-gray-700" : ""
-                        }`}
+                        className={`mobile-together-button hover:text-cyan-400 ${isActive("/dashboard/member/workTogether") ? "text-cyan-400 active" : ""}`}
                       >
                         <Users size={18} className="mobile-together-icon" />
                         Together

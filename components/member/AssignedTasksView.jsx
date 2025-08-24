@@ -1,4 +1,5 @@
 "use client";
+
 import { motion, AnimatePresence } from "framer-motion";
 import { useRef, useState, useEffect, useMemo } from "react";
 import { ArrowLeft, ArrowRight, RefreshCw, X, Pin, PinOff, BookmarkPlus, BookmarkMinus } from "lucide-react";
@@ -679,7 +680,7 @@ export default function AssignedTasksView({
             </div>
           )}
         </div>
-        {( (displayedCompleted && completedTasks.length > 1) || displayedPinned.length > 1 || displayedNormal.length > 1 || displayedSaved.length > 1 ) && (
+        {((displayedCompleted && completedTasks.length > 1) || displayedPinned.length > 1 || displayedNormal.length > 1 || displayedSaved.length > 1) && (
           <>
             {showLeftArrow && (
               <motion.button

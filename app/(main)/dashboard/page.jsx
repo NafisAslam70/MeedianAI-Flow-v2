@@ -317,7 +317,7 @@ export default function GeneralDashboard() {
           >
             <div className="flex items-center gap-3">
               <Info className="w-6 h-6 text-blue-600" />
-              <h2 className="text-base font-bold text-gray-900">About MID</h2>
+              <h2 className="text-base font-bold text-gray-900">About MEED</h2>
             </div>
             <p className="text-sm text-gray-700 mt-3">Meed Internal Dynamics</p>
           </motion.div>

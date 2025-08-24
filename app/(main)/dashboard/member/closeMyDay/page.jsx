@@ -8,6 +8,7 @@ import useSWR from "swr";
 import MRIStep from "./MRIStep";
 import AssignedTasksStep from "./AssignedTasksStep";
 import RoutineTasksStep from "./RoutineTasksStep";
+import AssignedTaskDetails from "@/components/assignedTaskCardDetailForAll"; // Import directly
 
 const fetcher = (url) =>
   fetch(url, { headers: { "Content-Type": "application/json" } }).then((res) => {
@@ -45,6 +46,11 @@ export default function CloseMyDay() {
   const [isPortrait, setIsPortrait] = useState(false);
   // TO BE REMOVED FOR PRODUCTION: Bypass state for testing
   const [isBypass, setIsBypass] = useState(false);
+
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [selectedTask, setSelectedTask] = useState(null);
+  const [taskDetails, setTaskDetails] = useState(null);
+  const [taskLogs, setTaskLogs] = useState([]);
 
   const { data: timesData, error: timesError } = useSWR(
     status === "authenticated" ? "/api/member/openCloseTimes" : null,
@@ -286,6 +292,20 @@ export default function CloseMyDay() {
     }
   };
 
+  const handleShowDetails = (task, details, logs) => {
+    setSelectedTask(task);
+    setTaskDetails(details);
+    setTaskLogs(logs || []);
+    setShowDetailsModal(true);
+  };
+
+  const handleCloseDetails = () => {
+    setShowDetailsModal(false);
+    setSelectedTask(null);
+    setTaskDetails(null);
+    setTaskLogs([]);
+  };
+
   if (status === "loading") return <div>Loading...</div>;
   if (!["member", "team_manager"].includes(role)) {
     return <div>Access Denied</div>;
@@ -298,7 +318,7 @@ export default function CloseMyDay() {
       transition={{ duration: 0.5 }}
       className="fixed inset-0 bg-gradient-to-br from-teal-50 to-blue-50 p-8 flex items-center justify-center"
     >
-      <div className="w-full h-full bg-white/80 backdrop-blur-md rounded-3xl shadow-2xl p-8 flex flex-col gap-8 overflow-y-auto border border-teal-100/50">
+      <div className="w-full h-full bg-white/80 backdrop-blur-md rounded-3xl shadow-2xl p-8 flex flex-col gap-8 border border-teal-100/50" style={{ minHeight: "calc(100vh - 120px)" }}>
         {/* Error Message */}
         <AnimatePresence>
           {error && (
@@ -306,7 +326,7 @@ export default function CloseMyDay() {
               initial={{ opacity: 0, y: -20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="absolute top-4 left-4 right-4 bg-red-50 text-red-600 p-4 rounded-xl shadow-md flex items-center gap-2 z-50"
+              className="fixed top-4 left-4 right-4 bg-red-50 text-red-600 p-4 rounded-xl shadow-md flex items-center gap-2 z-60"
               onClick={() => setError("")}
             >
               <AlertCircle size={20} />
@@ -318,7 +338,7 @@ export default function CloseMyDay() {
               initial={{ opacity: 0, y: -20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="absolute top-4 left-4 right-4 bg-green-50 text-green-600 p-4 rounded-xl shadow-md flex items-center gap-2 z-50"
+              className="fixed top-4 left-4 right-4 bg-green-50 text-green-600 p-4 rounded-xl shadow-md flex items-center gap-2 z-60"
               onClick={() => setSuccess("")}
             >
               <CheckCircle size={20} />
@@ -537,6 +557,9 @@ export default function CloseMyDay() {
                       handleUpdateAssignedTask={handleUpdateAssignedTask}
                       handlePrevStep={handlePrevStep}
                       handleNextStep={handleNextStep}
+                      onShowDetails={handleShowDetails}
+                      showDetailsModal={showDetailsModal}
+                      onCloseDetails={handleCloseDetails}
                     />
                   </motion.div>
                 )}
@@ -605,6 +628,48 @@ export default function CloseMyDay() {
           )}
         </AnimatePresence>
 
+        {/* Details Modal */}
+        <AnimatePresence>
+          {showDetailsModal && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-70"
+              onClick={(e) => {
+                if (e.target === e.currentTarget) {
+                  handleCloseDetails();
+                }
+              }}
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                transition={{ duration: 0.3 }}
+                className="bg-white/90 backdrop-blur-md rounded-3xl shadow-xl p-6 w-full max-w-md border border-teal-100/50 text-center overflow-y-auto max-h-[80vh]"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <button
+                  onClick={handleCloseDetails}
+                  className="absolute top-4 right-4 text-gray-500 hover:text-gray-700"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+                <h2 className="text-xl font-bold text-gray-800 mb-4">Task Details</h2>
+                <AssignedTaskDetails
+                  task={taskDetails}
+                  taskLogs={taskLogs}
+                  users={users || []}
+                  onClose={handleCloseDetails}
+                  currentUserId={session?.user?.id}
+                  currentUserName={session?.user?.name}
+                />
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Waiting Modal */}
         <AnimatePresence>
           {showWaitingModal && (
@@ -612,7 +677,7 @@ export default function CloseMyDay() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50"
+              className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-70"
             >
               <motion.div
                 initial={{ scale: 0.95, opacity: 0 }}
@@ -626,7 +691,7 @@ export default function CloseMyDay() {
                 <p className="text-sm text-gray-600 mb-6">Your day close request has been submitted. Please wait for admin/manager approval.</p>
                 <motion.button
                   onClick={() => setShowWaitingModal(false)}
-                  className="w-full bg-gray-600 text-white py-3 rounded-xl font-semibold hover:bg-gray-500 transition-all duration-300 shadow-sm"
+                  className="w-full bg-gray-600 text-white py-3 rounded-xl font-semibold hover:bg-gray-700 transition-all duration-300 shadow-sm"
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                 >
@@ -644,7 +709,7 @@ export default function CloseMyDay() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50"
+              className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-70"
             >
               <motion.div
                 initial={{ scale: 0.95, opacity: 0 }}
@@ -681,7 +746,7 @@ export default function CloseMyDay() {
                 )}
                 <motion.button
                   onClick={() => setShowHistoryModal(false)}
-                  className="w-full bg-gray-600 text-white py-3 rounded-xl font-semibold hover:bg-gray-500 transition-all duration-300 mt-6 shadow-sm"
+                  className="w-full bg-gray-600 text-white py-3 rounded-xl font-semibold hover:bg-gray-700 transition-all duration-300 mt-6 shadow-sm"
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                 >
@@ -699,7 +764,7 @@ export default function CloseMyDay() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50"
+              className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-70"
             >
               <motion.div
                 initial={{ scale: 0.95, opacity: 0 }}
@@ -713,7 +778,7 @@ export default function CloseMyDay() {
                 <div className="flex gap-4">
                   <motion.button
                     onClick={() => setShowConfirmModal(false)}
-                    className="flex-1 bg-gray-600 text-white py-3 rounded-xl font-semibold hover:bg-gray-500 transition-all duration-300 shadow-sm"
+                    className="flex-1 bg-gray-600 text-white py-3 rounded-xl font-semibold hover:bg-gray-700 transition-all duration-300 shadow-sm"
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                   >

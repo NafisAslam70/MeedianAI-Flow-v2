@@ -76,8 +76,8 @@ export default function TeamManagerDashboard() {
         )}
       </AnimatePresence>
 
-      {/* toggle tabs – always visible */}
-      <div className="absolute top-4 left-0 right-0 flex justify-center z-50">
+      {/* toggle tabs – top-right corner */}
+      <div className="absolute top-0 left-160 z-50">
         <div className="bg-gray-100 rounded-lg p-1 flex gap-1">
           <motion.button
             whileHover={{ scale: 1.05 }}
@@ -138,6 +138,3 @@ export default function TeamManagerDashboard() {
     </>
   );
 }
-
-
-

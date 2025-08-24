@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { users, openCloseTimes, dailySlots, dailySlotAssignments, schoolCalendar, students } from "@/lib/schema";
 import { eq } from "drizzle-orm";
+import bcrypt from "bcrypt";
 
 // GET Handler: Fetch data based on section parameter
 export async function GET(req) {
@@ -33,6 +34,7 @@ export async function GET(req) {
           whatsapp_number: users.whatsapp_number,
           member_scope: users.member_scope,
           team_manager_type: users.team_manager_type,
+          immediate_supervisor: users.immediate_supervisor, // Add immediate_supervisor
         })
         .from(users);
       console.log("Fetched team data:", userData);
@@ -237,6 +239,11 @@ export async function PATCH(req) {
         return NextResponse.json({ error: "Invalid or empty updates" }, { status: 400 });
       }
 
+      // Fetch all user IDs for validation
+      const userIds = new Set(
+        (await db.select({ id: users.id }).from(users)).map((user) => user.id)
+      );
+
       for (const user of updates) {
         if (
           !user.id ||
@@ -279,6 +286,17 @@ export async function PATCH(req) {
           console.error("Invalid team manager type:", user.team_manager_type);
           return NextResponse.json({ error: `Invalid team manager type for user ${user.id}` }, { status: 400 });
         }
+        // Validate immediate_supervisor
+        if (user.immediate_supervisor !== null && user.immediate_supervisor !== undefined) {
+          if (!userIds.has(user.immediate_supervisor)) {
+            console.error("Invalid immediate_supervisor ID:", user.immediate_supervisor);
+            return NextResponse.json({ error: `Invalid immediate_supervisor ID for user ${user.id}` }, { status: 400 });
+          }
+          if (user.immediate_supervisor === user.id) {
+            console.error("User cannot be their own supervisor:", user.id);
+            return NextResponse.json({ error: `User cannot be their own supervisor for user ${user.id}` }, { status: 400 });
+          }
+        }
 
         const updateData = {
           name: user.name,
@@ -288,6 +306,7 @@ export async function PATCH(req) {
           whatsapp_number: user.whatsapp_number,
           member_scope: user.member_scope,
           team_manager_type: user.role === "team_manager" ? user.team_manager_type : null,
+          immediate_supervisor: user.immediate_supervisor || null, // Handle immediate_supervisor
         };
         if (user.password) {
           updateData.password = await bcrypt.hash(user.password, 10);

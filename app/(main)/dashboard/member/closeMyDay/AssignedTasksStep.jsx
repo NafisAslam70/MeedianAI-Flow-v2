@@ -7,6 +7,7 @@ import { format } from "date-fns";
 import useSWR from "swr";
 import AssignedTaskDetails from "@/components/assignedTaskCardDetailForAll";
 import { useSession } from "next-auth/react";
+import { createPortal } from "react-dom";
 
 const fetcher = (url) =>
   fetch(url).then((res) => res.json());
@@ -25,24 +26,26 @@ export default function AssignedTasksStep({
   const [selectedTaskDetails, setSelectedTaskDetails] = useState(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const { data: session } = useSession();
-const { data } = useSWR("/api/member/users", fetcher);
-const users = data?.users || [];
+  const { data } = useSWR("/api/member/users", fetcher);
+  const users = data?.users || [];
 
-
-  const { data: taskDetails } = useSWR(
+  const { data: taskDetails, error: taskDetailsError } = useSWR(
     selectedTaskDetails ? `/api/member/assignedTasks?taskId=${selectedTaskDetails.id}&action=task` : null,
     fetcher
   );
-  const { data: taskLogs } = useSWR(
+  const { data: taskLogs, error: taskLogsError } = useSWR(
     selectedTaskDetails ? `/api/member/assignedTasks?taskId=${selectedTaskDetails.id}&action=logs` : null,
     fetcher
   );
 
   useEffect(() => {
+    console.log("Task Details Data:", taskDetails, "Error:", taskDetailsError);
+    console.log("Task Logs Data:", taskLogs, "Error:", taskLogsError);
     if (taskDetails && selectedTaskDetails) {
+      console.log("Setting showDetailsModal to true");
       setShowDetailsModal(true);
     }
-  }, [taskDetails, selectedTaskDetails]);
+  }, [taskDetails, taskDetailsError, taskLogs, taskLogsError, selectedTaskDetails]);
 
   useEffect(() => {
     const updateArrows = () => {
@@ -367,7 +370,10 @@ const users = data?.users || [];
                             />
                           </div>
                           <motion.button
-                            onClick={() => setSelectedTaskDetails(task)}
+                            onClick={() => {
+                              console.log("View Details clicked for task:", task);
+                              setSelectedTaskDetails(task);
+                            }}
                             className="mt-3 flex items-center gap-1 text-blue-600 hover:text-blue-800 text-xs font-medium"
                             whileHover={{ scale: 1.05 }}
                           >
@@ -466,7 +472,10 @@ const users = data?.users || [];
                       />
                     </div>
                     <motion.button
-                      onClick={() => setSelectedTaskDetails(task)}
+                      onClick={() => {
+                        console.log("View Details clicked for task:", task);
+                        setSelectedTaskDetails(task);
+                      }}
                       className="mt-3 flex items-center gap-1 text-blue-600 hover:text-blue-800 text-xs font-medium"
                       whileHover={{ scale: 1.05 }}
                     >
@@ -578,7 +587,10 @@ const users = data?.users || [];
                             />
                           </div>
                           <motion.button
-                            onClick={() => setSelectedTaskDetails(task)}
+                            onClick={() => {
+                              console.log("View Details clicked for task:", task);
+                              setSelectedTaskDetails(task);
+                            }}
                             className="mt-3 flex items-center gap-1 text-blue-600 hover:text-blue-800 text-xs font-medium"
                             whileHover={{ scale: 1.05 }}
                           >
@@ -601,7 +613,7 @@ const users = data?.users || [];
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.9 }}
           onClick={() => scrollCarousel("left")}
-          className="absolute left-0 top-1/2 -translate-y-1/2 bg-white/90 text-gray-900 p-2 rounded-full shadow-lg hover:bg-white transition-all duration-200 z-10"
+          className="absolute left-0 top-1/2 -translate-y-1/2 bg-white/90 text-gray-900 p-2 rounded-full shadow-lg hover:bg-white transition-all duration-200"
         >
           <ArrowLeft className="w-4 h-4" />
         </motion.button>
@@ -613,7 +625,7 @@ const users = data?.users || [];
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.9 }}
           onClick={() => scrollCarousel("right")}
-          className="absolute right-0 top-1/2 -translate-y-1/2 bg-white/90 text-gray-900 p-2 rounded-full shadow-lg hover:bg-white transition-all duration-200 z-10"
+          className="absolute right-0 top-1/2 -translate-y-1/2 bg-white/90 text-gray-900 p-2 rounded-full shadow-lg hover:bg-white transition-all duration-200"
         >
           <ArrowRight className="w-4 h-4" />
         </motion.button>
@@ -637,34 +649,53 @@ const users = data?.users || [];
         </motion.button>
       </div>
 
-      {/* Details Modal */}
-      <AnimatePresence>
-        {showDetailsModal && taskDetails?.task && (
+      {/* Details Modal using Portal with app-consistent styling */}
+      {showDetailsModal && taskDetails?.task && createPortal(
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 bg-black/50 backdrop-blur-md flex items-center justify-center p-4 z-[100]"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              console.log("Closing modal by clicking outside");
+              setShowDetailsModal(false);
+            }
+          }}
+          style={{ pointerEvents: "auto" }} // Ensure clicks are captured
+        >
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.9, opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-2xl max-h-[80vh] border border-teal-300 relative overflow-y-auto"
+            style={{ margin: "20px auto" }} // Add margin to avoid touching edges, preserving layout
           >
-            <motion.div
-              initial={{ scale: 0.95 }}
-              animate={{ scale: 1 }}
-              exit={{ scale: 0.95 }}
-              className="bg-white/90 backdrop-blur-md p-6 rounded-3xl max-w-lg w-full shadow-xl border border-teal-100/50"
+            <button
+              onClick={() => {
+                console.log("Closing modal via button");
+                setShowDetailsModal(false);
+              }}
+              className="absolute top-2 right-2 text-gray-500 hover:text-gray-700 text-xl font-bold"
             >
-              <AssignedTaskDetails
-                task={taskDetails.task}
-                taskLogs={taskLogs?.logs || []}
-                users={users || []}
-                onClose={() => setShowDetailsModal(false)}
-                currentUserId={session?.user?.id}
-                currentUserName={session?.user?.name}
-              />
-            </motion.div>
+              X
+            </button>
+            <AssignedTaskDetails
+              task={taskDetails.task}
+              taskLogs={taskLogs?.logs || []}
+              users={users || []}
+              onClose={() => {
+                console.log("Closing modal via button");
+                setShowDetailsModal(false);
+              }}
+              currentUserId={session?.user?.id}
+              currentUserName={session?.user?.name}
+            />
           </motion.div>
-        )}
-      </AnimatePresence>
-
+        </motion.div>,
+        document.body
+      )}
     </div>
   );
 }

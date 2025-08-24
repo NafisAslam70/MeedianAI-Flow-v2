@@ -6,7 +6,7 @@ import {
   ClockIcon,
 } from "@heroicons/react/24/solid";
 import { motion, AnimatePresence } from "framer-motion";
-import ScheduleMeet    from "@/components/ScheduleMeet";
+import ScheduleMeet from "@/components/ScheduleMeet";
 import QuickCallInvite from "@/components/QuickCallInvite";
 import { useRouter, usePathname } from "next/navigation";
 
@@ -38,41 +38,50 @@ const linkify = (raw = "") => {
   );
 };
 
+// Validate image URL
+const getValidImageUrl = (url) => {
+  if (!url || typeof url !== 'string') return 'https://via.placeholder.com/40';
+  // Check if URL starts with http(s) or is a valid path
+  return url.match(/^https?:\/\//) || url.startsWith('/') 
+    ? url 
+    : 'https://via.placeholder.com/40';
+};
+
 /* ───────── component ───────── */
 export default function ChatBox({ userDetails }) {
   const pathname = usePathname();
   if (pathname.includes('/workTogether')) return null;
   /* ------------ state ------------- */
-  const [messages, setMessages]       = useState([]);
-  const [users, setUsers]             = useState([]);
+  const [messages, setMessages] = useState([]);
+  const [users, setUsers] = useState([]);
   const [selectedRecipient, setSelectedRecipient] = useState("");
-  const [messageContent, setMessageContent]       = useState("");
+  const [messageContent, setMessageContent] = useState("");
 
   const [showChatbox, setShowChatbox] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
 
   const [unreadCounts, setUnreadCounts] = useState({});
-  const [hasUnread, setHasUnread]       = useState(false);
+  const [hasUnread, setHasUnread] = useState(false);
 
   const [error, setError] = useState(null);
 
   /* admin-fallback task modal (unchanged) */
   const [showTaskDetailsModal, setShowTaskDetailsModal] = useState(false);
   const [selectedTask, setSelectedTask] = useState(null);
-  const [taskLogs, setTaskLogs]         = useState([]);
+  const [taskLogs, setTaskLogs] = useState([]);
 
-  const messagesEndRef  = useRef(null);
-  const audioRef        = useRef(null);
-  const sendAudioRef    = useRef(null);
+  const messagesEndRef = useRef(null);
+  const audioRef = useRef(null);
+  const sendAudioRef = useRef(null);
   const receiveAudioRef = useRef(null);
-  const lastAlertedId   = useRef(null);
+  const lastAlertedId = useRef(null);
   const [jumpKey, setJumpKey] = useState(0);
 
   const chatContainerRef = useRef(null);
   const historyContainerRef = useRef(null);
 
   /* drag-n-drop */
-  const [pos, setPos]     = useState({ x: 20, y: -20 });
+  const [pos, setPos] = useState({ x: 20, y: -20 });
   const [dragging, setDragging] = useState(false);
   const dragStart = useRef({ x: 0, y: 0 });
 
@@ -128,7 +137,7 @@ export default function ChatBox({ userDetails }) {
         fetch("/api/member/users"),
         fetch(`/api/others/chat?userId=${userDetails.id}`),
       ]);
-      const { users: fetchedUsers = [] }   = await uRes.json();
+      const { users: fetchedUsers = [] } = await uRes.json();
       const { messages: fetchedMsgs = [] } = await mRes.json();
       setUsers(fetchedUsers);
       setMessages(fetchedMsgs);
@@ -136,8 +145,8 @@ export default function ChatBox({ userDetails }) {
       const unread = fetchedMsgs.filter(
         (m) =>
           m.recipientId === Number(userDetails.id) &&
-          m.senderId   !== Number(userDetails.id) &&
-          m.status      === "sent"
+          m.senderId !== Number(userDetails.id) &&
+          m.status === "sent"
       );
       setUnreadCounts(
         unread.reduce((acc, m) => {
@@ -260,7 +269,7 @@ export default function ChatBox({ userDetails }) {
     const handleTaskClick = (e) => {
       if (!e.target.classList.contains("task-link")) return;
 
-      const taskId   = e.target.dataset.taskId;
+      const taskId = e.target.dataset.taskId;
       const sprintId = e.target.dataset.sprintId;
 
       console.log("Task link clicked:", { taskId, sprintId });
@@ -384,7 +393,7 @@ export default function ChatBox({ userDetails }) {
     setShowComingSoonModal(true);
   };
 
-  /* ------------ render (UI unchanged) -- */
+  /* ------------ render (UI updated with image fixes and chat history overflow) -- */
   return (
     <motion.div
       initial={{ opacity: 0, x: 20 }}
@@ -488,19 +497,39 @@ export default function ChatBox({ userDetails }) {
                           m.recipientId === Number(userDetails.id))
                     )
                     .slice(-20)
-                    .map((m) => (
-                      <li
-                        key={m.id}
-                        className={`p-3 rounded-xl border ${
-                          m.senderId === Number(userDetails.id)
-                            ? "bg-teal-100 text-right ml-8"
-                            : "bg-gray-100 text-left mr-8"
-                        }`}
-                      >
-                        <p className="text-xs text-gray-500">{new Date(m.createdAt).toLocaleTimeString()}</p>
-                        <p className="break-words" dangerouslySetInnerHTML={{ __html: linkify(m.content) }} />
-                      </li>
-                    ))}
+                    .map((m) => {
+                      const sender = users.find(u => u.id === m.senderId);
+                      const isOwnMessage = m.senderId === Number(userDetails.id);
+                      return (
+                        <li
+                          key={m.id}
+                          className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`}
+                        >
+                          <div className={`flex items-start gap-2 max-w-[80%] p-3 rounded-xl border ${isOwnMessage ? "bg-teal-100 ml-8" : "bg-gray-100 mr-8"}`}>
+                            {!isOwnMessage && (
+                              <img
+                                src={getValidImageUrl(sender?.image)}
+                                alt={`${sender?.name || 'User'}'s profile`}
+                                className="w-8 h-8 rounded-full object-cover"
+                                onError={(e) => { e.target.src = 'https://via.placeholder.com/32'; }}
+                              />
+                            )}
+                            <div>
+                              <p className="text-xs text-gray-500">{new Date(m.createdAt).toLocaleTimeString()}</p>
+                              <p className="break-words" dangerouslySetInnerHTML={{ __html: linkify(m.content) }} />
+                            </div>
+                            {isOwnMessage && (
+                              <img
+                                src={getValidImageUrl(userDetails?.image)}
+                                alt="Your profile"
+                                className="w-8 h-8 rounded-full object-cover"
+                                onError={(e) => { e.target.src = 'https://via.placeholder.com/32'; }}
+                              />
+                            )}
+                          </div>
+                        </li>
+                      );
+                    })}
                   <div ref={messagesEndRef} />
                 </ul>
               ) : (
@@ -618,17 +647,26 @@ export default function ChatBox({ userDetails }) {
                       closeAll();
                       setShowChatbox(true);
                     }}
-                    className="relative mb-3 p-3 bg-gray-50 border rounded-lg cursor-pointer hover:bg-blue-50"
+                    className="relative mb-3 p-3 bg-gray-50 border rounded-lg cursor-pointer hover:bg-blue-50 flex items-center gap-3"
                   >
-                    <p className="font-semibold">
-                      {u.name} ({getRole(u)})
-                    </p>
-                    <p
-                      className="text-xs text-gray-600 truncate break-words"
-                      dangerouslySetInnerHTML={{
-                        __html: linkify(lastMsg?.content || "No messages yet"),
-                      }}
+                    <img
+                      src={getValidImageUrl(u.image)}
+                      alt={`${u.name}'s profile`}
+                      className="w-10 h-10 rounded-full object-cover"
+                      onError={(e) => { e.target.src = 'https://via.placeholder.com/40'; }}
                     />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold truncate">
+                        {u.name} ({getRole(u)})
+                      </p>
+                      <p
+                        className="text-xs text-gray-600 break-words"
+                        style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}
+                        dangerouslySetInnerHTML={{
+                          __html: linkify(lastMsg?.content || "No messages yet"),
+                        }}
+                      />
+                    </div>
                     {unreadCounts[u.id] > 0 && (
                       <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold rounded-full px-1 py-[1px] shadow animate-pulse">
                         {unreadCounts[u.id]}

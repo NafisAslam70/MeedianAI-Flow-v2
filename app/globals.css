@@ -3,49 +3,128 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --font-sans: Arial, Helvetica, sans-serif;
+  --font-mono: "Courier New", Courier, monospace;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
 }
 
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+  }
+}
+
+/* Animations */
 @keyframes logo-pulse {
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.05); }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .logo-animation, .logo-animation:hover {
-    animation: none;
+@keyframes highlight-pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+
+@keyframes pulse-glow {
+  0% {
+    transform: scale(1);
+    opacity: 0.8;
+    filter: drop-shadow(0 0 4px rgba(0, 229, 255, 0.3));
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 1;
+    filter: drop-shadow(0 0 12px rgba(0, 229, 255, 0.9));
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0.8;
+    filter: drop-shadow(0 0 4px rgba(0, 229, 255, 0.3));
   }
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+@keyframes together-sparkle {
+  0% {
+    filter: drop-shadow(0 0 6px rgba(0, 229, 255, 0.6));
+    transform: scale(1) rotate(0deg);
+    background: linear-gradient(45deg, #22d3ee, #00e5ff);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  25% {
+    filter: drop-shadow(0 0 15px rgba(0, 229, 255, 1));
+    transform: scale(1.3) rotate(10deg);
+  }
+  50% {
+    filter: drop-shadow(0 0 20px rgba(255, 255, 255, 0.9));
+    transform: scale(1.4) rotate(0deg);
+    background: linear-gradient(45deg, #00e5ff, #22d3ee);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  75% {
+    filter: drop-shadow(0 0 15px rgba(0, 229, 255, 1));
+    transform: scale(1.3) rotate(-10deg);
+  }
+  100% {
+    filter: drop-shadow(0 0 6px rgba(0, 229, 255, 0.6));
+    transform: scale(1) rotate(0deg);
+    background: linear-gradient(45deg, #22d3ee, #00e5ff);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
 }
 
-@media (prefers-color-scheme: dark) {
-  /* :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  } */
-   :root {
-  --background: #ffffff;
-  --foreground: #111111;
+@keyframes sparkle {
+  0% {
+    box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.8), 0 0 0 0 rgba(255, 255, 255, 0.4);
+    border-color: #ffffff;
+  }
+  25% {
+    box-shadow: 0 0 12px 3px rgba(34, 211, 238, 1), 0 0 18px 5px rgba(255, 255, 255, 0.6);
+    border-color: #00e5ff;
+  }
+  50% {
+    box-shadow: 0 0 20px 6px rgba(34, 211, 238, 1.2), 0 0 25px 8px rgba(255, 255, 255, 0.8);
+    border-color: #ffffff;
+  }
+  75% {
+    box-shadow: 0 0 12px 3px rgba(34, 211, 238, 1), 0 0 18px 5px rgba(255, 255, 255, 0.6);
+    border-color: #00e5ff;
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.8), 0 0 0 0 rgba(255, 255, 255, 0.4);
+    border-color: #ffffff;
+  }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .logo-animation, .logo-animation:hover,
+  .user-info, .user-info.active, .mobile-user-info, .mobile-user-info.active,
+  .together-icon, .together-icon:hover,
+  .mobile-together-icon, .mobile-together-icon:hover {
+    animation: none;
+    background: none;
+    -webkit-text-fill-color: #00e5ff;
+  }
 }
 
+/* Body and Layout */
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
   margin: 0;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
 }
 
-/* Ensure main container takes full viewport height */
 .main-container {
   flex: 1;
   display: flex;
@@ -54,7 +133,7 @@ body {
   padding: 1rem;
 }
 
-/* Landscape-only modal enforcement */
+/* Landscape-Only Modal */
 .landscape-only {
   position: relative;
 }
@@ -75,4 +154,209 @@ body {
   .landscape-only .portrait-warning {
     display: none;
   }
+}
+
+/* Navbar Styles */
+nav {
+  background: linear-gradient(to right, #111827, #1f2937);
+  color: #ffffff;
+  padding: 0.75rem 1rem;
+  width: 100%;
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: #374151;
+  padding: 0.5rem 0.9rem;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  transition: all 0.3s ease;
+  cursor: pointer;
+  position: relative;
+  border: 2px solid #4b5563;
+}
+
+.user-info:hover {
+  transform: translateY(-2px);
+  background: #4b5563;
+  border-color: #00e5ff;
+}
+
+.user-info.active {
+  background: #22d3ee;
+  color: #1f2937;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 12px rgba(34, 211, 238, 0.6);
+  animation: sparkle 1.2s infinite ease-in-out;
+}
+
+.user-info.active::after {
+  content: '';
+  position: absolute;
+  bottom: -4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60%;
+  height: 3px;
+  background: #ffffff;
+}
+
+.user-info img {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid #00e5ff;
+  object-fit: cover;
+  display: block !important;
+  transition: all 0.3s ease;
+  animation: pulse-glow 2s infinite ease-in-out;
+  visibility: visible;
+  opacity: 1;
+}
+
+.user-info.active img {
+  border: 3px solid #ffffff;
+  box-shadow: 0 0 12px rgba(34, 211, 238, 0.8);
+  animation: pulse-glow 1.2s infinite ease-in-out;
+}
+
+.user-info-text {
+  display: flex;
+  flex-direction: column;
+  color: #d1d5db;
+  visibility: visible;
+  opacity: 1;
+  transition: opacity 0.3s ease;
+}
+
+.user-info-text .name {
+  font-weight: 600;
+  font-size: 0.8rem;
+  text-transform: capitalize;
+}
+
+.user-info-text .account-label {
+  font-size: 0.65rem;
+  color: #9ca3af;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  margin-top: 0.2rem;
+  text-align: center;
+}
+
+.mobile-user-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: #374151;
+  padding: 0.6rem;
+  border-radius: 12px;
+  margin-bottom: 0.75rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+  position: relative;
+  border: 2px solid #4b5563;
+}
+
+.mobile-user-info:hover {
+  background: #4b5563;
+  border-color: #00e5ff;
+}
+
+.mobile-user-info.active {
+  background: #22d3ee;
+  color: #1f2937;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 12px rgba(34, 211, 238, 0.6);
+  animation: sparkle 1.2s infinite ease-in-out;
+}
+
+.mobile-user-info.active::after {
+  content: '';
+  position: absolute;
+  bottom: -4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60%;
+  height: 3px;
+  background: #ffffff;
+}
+
+.mobile-user-info img {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 2px solid #00e5ff;
+  object-fit: cover;
+  display: block !important;
+  transition: all 0.3s ease;
+  animation: pulse-glow 2s infinite ease-in-out;
+  visibility: visible;
+  opacity: 1;
+}
+
+.mobile-user-info.active img {
+  border: 3px solid #ffffff;
+  box-shadow: 0 0 12px rgba(34, 211, 238, 0.8);
+  animation: pulse-glow 1.2s infinite ease-in-out;
+}
+
+.mobile-user-info-text {
+  display: flex;
+  flex-direction: column;
+  color: #d1d5db;
+  visibility: visible;
+  opacity: 1;
+  transition: opacity 0.3s ease;
+}
+
+.mobile-user-info-text .name {
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-transform: capitalize;
+}
+
+.mobile-user-info-text .account-label {
+  font-size: 0.75rem;
+  color: #9ca3af;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  margin-top: 0.2rem;
+  text-align: center;
+}
+
+.together-icon {
+  animation: together-sparkle 1.5s infinite ease-in-out;
+  background: linear-gradient(45deg, #22d3ee, #00e5ff);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 6px rgba(0, 229, 255, 0.6));
+  transition: all 0.3s ease;
+}
+
+.together-icon:hover {
+  transform: scale(1.3);
+  filter: drop-shadow(0 0 18px rgba(0, 229, 255, 1));
+}
+
+.mobile-together-icon {
+  animation: together-sparkle 1.5s infinite ease-in-out;
+  background: linear-gradient(45deg, #22d3ee, #00e5ff);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 6px rgba(0, 229, 255, 0.6));
+  transition: all 0.3s ease;
+}
+
+.mobile-together-icon:hover {
+  transform: scale(1.3);
+  filter: drop-shadow(0 0 18px rgba(0, 229, 255, 1));
 }

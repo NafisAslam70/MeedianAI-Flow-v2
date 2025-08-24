@@ -173,8 +173,8 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
           ...item,
           assignees: item.assignees
             ? Array.from(
-              new Map(item.assignees.map((a) => [a.id, a])).values()
-            )
+                new Map(item.assignees.map((a) => [a.id, a])).values()
+              )
             : [],
         });
       }
@@ -313,7 +313,7 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
         if (notifyAssignees) {
           const task = tasks.find(t => t.id === taskId);
           if (task) {
-            let message = `Log added to task "${task.title}" by ${getUserName(session?.user?.id)}: ${newLogComment} [task:${taskId}]`;
+            let message = `Log added to task "${task.title}" by ${getUserName(session?.user?.id)}: ${newLogComment} [task:${task.id}]`;
             if (body.sprintId) {
               message += ` [sprint:${body.sprintId}]`;
             }
@@ -650,6 +650,24 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
                   )}
                 </AnimatePresence>
               </div>
+              <Link href="/dashboard/managersCommon/approveCloseDay">
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm shadow-md transition-all duration-200"
+                >
+                  Approve Day Close
+                </motion.button>
+              </Link>
+              <Link href="/dashboard/managersCommon/approveLeave">
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm shadow-md transition-all duration-200"
+                >
+                  Leave Requests
+                </motion.button>
+              </Link>
             </div>
           </div>
           <SharedDashboard role="team_manager" viewUserId={selectedUserId} />
@@ -777,6 +795,15 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
                   className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm shadow-md transition-all duration-200"
                 >
                   Approve Day Close
+                </motion.button>
+              </Link>
+              <Link href="/dashboard/managersCommon/approveLeave">
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm shadow-md transition-all duration-200"
+                >
+                  Leave Requests
                 </motion.button>
               </Link>
             </div>
