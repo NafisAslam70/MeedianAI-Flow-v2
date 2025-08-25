@@ -117,15 +117,15 @@ export async function PATCH(request) {
         );
       }
       if (image.size > 4.5 * 1024 * 1024) {
-        // Vercel Blob has a 4.5MB limit for server uploads
         return NextResponse.json(
           { error: "Image size must be less than 4.5MB for server upload" },
           { status: 400 }
         );
       }
 
-      // Upload to Vercel Blob Storage
-      const fileName = `${session.user.id}-${Date.now()}${path.extname(image.name)}`;
+      // Generate a filename without path.extname
+      const extension = image.name.split(".").pop().toLowerCase();
+      const fileName = `${session.user.id}-${Date.now()}.${extension}`;
       try {
         const blob = await put(fileName, image, {
           access: "public",
@@ -134,7 +134,10 @@ export async function PATCH(request) {
         });
         imageUrl = blob.url;
       } catch (err) {
-        console.error("Failed to upload image to Vercel Blob:", err);
+        console.error("Failed to upload image to Vercel Blob:", {
+          fileName,
+          error: err.message,
+        });
         return NextResponse.json(
           { error: "Failed to upload image to storage" },
           { status: 500 }
@@ -255,9 +258,6 @@ export async function DELETE(request) {
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
-
-    // Note: No need to delete from Vercel Blob here, as we don't track old images
-    // If you want to delete old images, implement Vercel Blob delete API
 
     const [updatedUser] = await db
       .update(users)
