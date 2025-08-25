@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import {
   ChatBubbleLeftRightIcon,
   PaperAirplaneIcon,
@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import ScheduleMeet from "@/components/ScheduleMeet";
 import QuickCallInvite from "@/components/QuickCallInvite";
 import { useRouter, usePathname } from "next/navigation";
+import { useSession } from "next-auth/react";
 
 const toTitle = (s = "") =>
   s
@@ -34,12 +35,19 @@ const linkify = (raw = "") => {
 
 const getValidImageUrl = (url) => {
   if (!url || typeof url !== "string") return "/default-avatar.png";
-  return url; // Accepts Blob URLs (https://) and local paths (/)
+  const clean = url.trim();
+  if (!clean || clean.toLowerCase() === "null" || clean.toLowerCase() === "undefined") {
+    return "/default-avatar.png";
+  }
+  // Accepts Vercel Blob public URLs (https), regular https, and local paths (/)
+  return clean;
 };
 
 export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipientId }) {
   const pathname = usePathname();
   if (pathname.includes("/workTogether")) return null;
+
+  const { data: session } = useSession();
 
   const [messages, setMessages] = useState([]);
   const [users, setUsers] = useState([]);
@@ -73,6 +81,17 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
   const dragStart = useRef({ x: 0, y: 0 });
 
   const router = useRouter();
+
+  // Keep my freshest image (users list → userDetails → session → default)
+  const myImage = useMemo(() => {
+    const fromUsers = users.find(u => u.id === Number(userDetails?.id))?.image;
+    const src =
+      fromUsers ||
+      userDetails?.image ||
+      session?.user?.image ||
+      "/default-avatar.png";
+    return getValidImageUrl(src);
+  }, [users, userDetails?.id, userDetails?.image, session?.user?.image]);
 
   // Sync showChatbox with isOpen prop
   useEffect(() => {
@@ -135,8 +154,6 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
       ]);
       const { users: fetchedUsers = [] } = await uRes.json();
       const { messages: fetchedMsgs = [] } = await mRes.json();
-      console.log("Fetched users:", fetchedUsers);
-      console.log("Fetched messages:", fetchedMsgs);
       setUsers(fetchedUsers);
       setMessages(fetchedMsgs);
 
@@ -288,16 +305,6 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
   }, [showHistory, userDetails?.role, pathname, router]);
 
   useEffect(() => {
-    audioRef.current = new Audio("/sms.mp3");
-    audioRef.current.loop = true;
-    audioRef.current.preload = "auto";
-    sendAudioRef.current = new Audio("/send.mp3");
-    sendAudioRef.current.preload = "auto";
-    receiveAudioRef.current = new Audio("/receive.mp3");
-    receiveAudioRef.current.preload = "auto";
-  }, []);
-
-  useEffect(() => {
     fetchData();
     const id = setInterval(fetchData, 5000);
     return () => clearInterval(id);
@@ -306,6 +313,16 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
   useEffect(() => {
     if (showChatbox && selectedRecipient) markReadForPartner(Number(selectedRecipient));
   }, [showChatbox, selectedRecipient]);
+
+  useEffect(() => {
+    audioRef.current = new Audio("/sms.mp3");
+    audioRef.current.loop = true;
+    audioRef.current.preload = "auto";
+    sendAudioRef.current = new Audio("/send.mp3");
+    sendAudioRef.current.preload = "auto";
+    receiveAudioRef.current = new Audio("/receive.mp3");
+    receiveAudioRef.current.preload = "auto";
+  }, []);
 
   useEffect(() => {
     scrollBottom();
@@ -324,7 +341,7 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
       });
     }
     prevMessageCount.current = messages.length;
-  }, [messages, showChatbox, selectedRecipient]);
+  }, [messages, showChatbox, selectedRecipient, userDetails?.id]);
 
   useEffect(() => {
     window.addEventListener("mousemove", mouseMove);
@@ -335,22 +352,17 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
     };
   }, [dragging]);
 
-  // Sync with profile updates
+  // Sync with profile updates (image on Vercel Blob etc.)
   useEffect(() => {
-    console.log("userDetails:", userDetails);
     const handleProfileUpdate = () => {
-      console.log("Profile updated, refreshing data in ChatBox");
-      fetchData();
+      fetchData(); // pulls fresh image urls from DB (including Vercel Blob public urls)
     };
-    window.addEventListener("message", (event) => {
-      if (event.data.type === "PROFILE_UPDATED") {
-        handleProfileUpdate();
-      }
-    });
-    return () => {
-      window.removeEventListener("message", handleProfileUpdate);
+    const onMessage = (event) => {
+      if (event.data?.type === "PROFILE_UPDATED") handleProfileUpdate();
     };
-  }, [fetchData, userDetails]);
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
 
   const startVoiceRecording = () => {
     if (!window.SpeechRecognition && !window.webkitSpeechRecognition) {
@@ -556,13 +568,13 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
                                 </div>
                                 {isOwnMessage && (
                                   <img
-                                    src={getValidImageUrl(userDetails?.image || "/default-avatar.png")}
+                                    src={myImage}
                                     alt="Your profile"
                                     className="w-6 h-6 sm:w-7 sm:h-7 rounded-full object-cover flex-shrink-0"
                                     onError={(e) => {
                                       console.error("Chatbox user image failed to load:", {
                                         userId: userDetails?.id,
-                                        imageUrl: userDetails?.image,
+                                        imageUrl: myImage,
                                       });
                                       e.currentTarget.src = "/default-avatar.png";
                                     }}
