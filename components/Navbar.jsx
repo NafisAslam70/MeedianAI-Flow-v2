@@ -278,6 +278,7 @@ export default function Navbar() {
           background: #1f2937;
           box-shadow: 0 3px 10px rgba(0,0,0,0.2);
           transition: all .25s ease;
+          max-width: 200px;
         }
         .user-info:hover {
           transform: translateY(-2px);
@@ -433,6 +434,25 @@ export default function Navbar() {
 
           {/* Center: Desktop nav */}
           <div className="hidden md:flex absolute left-1/2 -translate-x-1/2 items-center space-x-2">
+            {(role === "admin" || role === "team_manager" || role === "member") && (
+              <>
+                <Link href={profilePath} className={`user-info ${isActive(profilePath) ? "active" : ""}`}>
+                  <img
+                    src={userImage || "/default-avatar.png"}
+                    alt="User Avatar"
+                    onError={() => {
+                      console.error("Image failed to load:", userImage);
+                      setUserImage("/default-avatar.png");
+                    }}
+                  />
+                  <div className="user-info-text">
+                    <span className="name">{userName || "Loading..."}</span>
+                    <span className="account-label">My Account</span>
+                  </div>
+                </Link>
+                <button onClick={openLogoutModal} className="nav-button bg-red-600 hover:bg-red-700 text-white">Logout</button>
+              </>
+            )}
             {role === "admin" && (
               <>
                 <Link href="/dashboard" className={`nav-item ${isActive("/dashboard") ? "active" : ""}`}>General</Link>
@@ -506,27 +526,8 @@ export default function Navbar() {
             )}
           </div>
 
-          {/* Right: User chip + Logout + Mobile toggler */}
+          {/* Right: Mobile toggler only in mobile view */}
           <div className="flex items-center gap-2">
-            {(role === "admin" || role === "team_manager" || role === "member") && (
-              <>
-                <Link href={profilePath} className={`user-info hidden md:flex ${isActive(profilePath) ? "active" : ""}`}>
-                  <img
-                    src={userImage || "/default-avatar.png"}
-                    alt="User Avatar"
-                    onError={() => {
-                      console.error("Image failed to load:", userImage);
-                      setUserImage("/default-avatar.png");
-                    }}
-                  />
-                  <div className="user-info-text">
-                    <span className="name">{userName || "Loading..."}</span>
-                    <span className="account-label">My Account</span>
-                  </div>
-                </Link>
-                <button onClick={openLogoutModal} className="hidden md:block nav-button bg-red-600 hover:bg-red-700 text-white">Logout</button>
-              </>
-            )}
             <div className="md:hidden">
               <button onClick={toggleMobileMenu} className="text-white p-2 rounded-full hover:bg-gray-700 transition min-h-[44px] min-w-[44px]" aria-label="Toggle menu">
                 {isMobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
@@ -656,7 +657,6 @@ export default function Navbar() {
     </>
   );
 }
-
 // "use client";
 // import { useSession, signOut } from "next-auth/react";
 // import Link from "next/link";
