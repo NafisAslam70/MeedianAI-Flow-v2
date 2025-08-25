@@ -83,7 +83,8 @@ export default function MyPerformance() {
     completed: 0,
   });
   const [yesterdaySummary, setYesterdaySummary] = useState(null);
-  const [isLoadingAssignedSummary, setIsLoadingAssignedSummary] = useState(true);
+  const [isLoadingAssignedSummary, setIsLoadingAssignedSummary] =
+    useState(true);
 
   // leave (detail filters)
   const [leaveHistory, setLeaveHistory] = useState([]);
@@ -95,7 +96,7 @@ export default function MyPerformance() {
   const [dcDate, setDcDate] = useState("");
   const [streakDays, setStreakDays] = useState(0);
 
-  // leave stats (shown inside the Leave card)
+  // leave stats (inside Leave card)
   const [leaveStats, setLeaveStats] = useState({
     totalDays: 0,
     monthDays: 0,
@@ -163,7 +164,7 @@ export default function MyPerformance() {
     );
     let cursor = new Date();
     cursor.setHours(0, 0, 0, 0);
-    cursor.setDate(cursor.getDate() - 1); // start yesterday
+    cursor.setDate(cursor.getDate() - 1); // yesterday
     const asKey = (d) => format(d, "yyyy-MM-dd");
 
     const approved = new Set(
@@ -278,7 +279,7 @@ export default function MyPerformance() {
   )} (till yesterday) — completed ${plural(
     assignedSummary.completed,
     "assigned task"
-  )} today${pendingToday ? `, ${plural(pendingToday, "pending")}` : ""}${
+  )} until now${pendingToday ? `, ${plural(pendingToday, "pending")}` : ""}${
     assignedSummary.pendingVerification
       ? `, ${plural(assignedSummary.pendingVerification, "awaiting verification")}`
       : ""
@@ -287,12 +288,16 @@ export default function MyPerformance() {
   /* ------------------ UI ------------------ */
   return (
     <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.5 }}
+      initial={{ opacity: 0, scale: 1 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.45 }}
+      /* DO NOT change base width/height/padding */
       className="fixed inset-0 bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 p-4 sm:p-6 flex items-center justify-center"
     >
-      <div className="w-full h-full bg-white rounded-2xl shadow-2xl p-6 sm:p-8 flex flex-col gap-6 overflow-hidden border border-teal-100/50">
+      <div
+        /* DO NOT change base width/height/padding */
+        className="w-full h-full bg-white rounded-2xl shadow-2xl p-6 sm:p-8 flex flex-col gap-6 overflow-hidden border border-teal-100/50"
+      >
         <div className="flex items-center justify-between">
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">
             📊 My Performance
@@ -303,11 +308,11 @@ export default function MyPerformance() {
                 setActiveSection(null);
                 setErr("");
               }}
-              className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-all duration-200 flex items-center gap-2"
+              className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-all duration-200 flex items-center gap-2 text-[0.95rem]"
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
             >
-              <ArrowLeft size={16} /> Back
+              <ArrowLeft size={18} /> Back
             </motion.button>
           )}
         </div>
@@ -321,7 +326,7 @@ export default function MyPerformance() {
               className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-red-700"
             >
               <AlertCircle size={18} />
-              <span className="text-sm">{err}</span>
+              <span className="text-[0.95rem]">{err}</span>
             </motion.div>
           )}
         </AnimatePresence>
@@ -329,7 +334,7 @@ export default function MyPerformance() {
         {/* ====== MAIN (only when no detail section is open) ====== */}
         {!activeSection && (
           <>
-            {/* Streak header */}
+            {/* Streak header (modernized but same container size context) */}
             <motion.div
               className="rounded-3xl border border-teal-200 bg-gradient-to-r from-amber-50 via-orange-50 to-pink-50 p-4 sm:p-6 shadow-lg"
               initial={{ opacity: 0, y: -10 }}
@@ -338,9 +343,13 @@ export default function MyPerformance() {
             >
               <div className="flex items-center gap-2 mb-2">
                 <Flame className="w-5 h-5 text-orange-500" />
-                <h2 className="text-lg font-bold text-gray-800">🔥 Streaks</h2>
+                <h2 className="text-[1.05rem] sm:text-lg font-bold text-gray-800">
+                  🔥 Streaks
+                </h2>
               </div>
-              <p className="text-sm sm:text-base text-gray-700">{headline}</p>
+              <p className="text-[0.98rem] sm:text-base text-gray-700 leading-relaxed">
+                {headline}
+              </p>
               {yesterdaySummary && (
                 <span
                   className={`mt-2 inline-block text-xs px-2 py-0.5 rounded-full border ${
@@ -356,7 +365,7 @@ export default function MyPerformance() {
               )}
             </motion.div>
 
-            {/* Grid of 4 mini-cards */}
+            {/* Grid of 4 mini-cards (consistent styling) */}
             <motion.div
               key="cards"
               initial={{ opacity: 0, y: 12 }}
@@ -383,14 +392,16 @@ export default function MyPerformance() {
                 ) : (
                   <div className="grid grid-cols-2 gap-3">
                     <div className="rounded-xl bg-indigo-50/70 p-3 text-center">
-                      <div className="text-xs text-gray-500">Total (Approved)</div>
-                      <div className="text-base font-bold text-indigo-700">
+                      <div className="text-xs text-gray-500">
+                        Total (Approved)
+                      </div>
+                      <div className="text-[1.1rem] font-bold text-indigo-700">
                         {leaveStats.totalDays}
                       </div>
                     </div>
                     <div className="rounded-xl bg-blue-50/70 p-3 text-center">
                       <div className="text-xs text-gray-500">This Month</div>
-                      <div className="text-base font-bold text-blue-700">
+                      <div className="text-[1.1rem] font-bold text-blue-700">
                         {leaveStats.monthDays}
                       </div>
                     </div>
@@ -402,7 +413,7 @@ export default function MyPerformance() {
                     whileHover={{ scale: 1.03 }}
                     whileTap={{ scale: 0.97 }}
                     onClick={() => setActiveSection("leave")}
-                    className="w-full px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm"
+                    className="w-full px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-[0.95rem]"
                   >
                     View Leave History
                   </motion.button>
@@ -420,7 +431,7 @@ export default function MyPerformance() {
                   <Calendar className="w-6 h-6 text-teal-600" />
                   <h2 className="text-lg font-semibold">Day Close History</h2>
                 </div>
-                <p className="text-sm text-gray-600">
+                <p className="text-[0.95rem] text-gray-600">
                   Check approvals/rejections and timestamps.
                 </p>
                 <div className="text-xs text-gray-500">Tap to open →</div>
@@ -446,7 +457,7 @@ export default function MyPerformance() {
                   </svg>
                   <h2 className="text-lg font-semibold">Reviews & Metrics</h2>
                 </div>
-                <p className="text-sm text-gray-600">
+                <p className="text-[0.95rem] text-gray-600">
                   Coming soon: charts and performance reviews.
                 </p>
                 <div className="text-xs text-gray-500">Stay tuned</div>
@@ -478,31 +489,37 @@ export default function MyPerformance() {
                   <div className="grid grid-cols-2 gap-3">
                     <div className="rounded-2xl bg-indigo-50/70 p-3 text-center">
                       <div className="text-xs text-gray-500">Total</div>
-                      <div className="text-base font-bold text-indigo-600">
+                      <div className="text-[1.1rem] font-bold text-indigo-600">
                         {assignedSummary.total}
                       </div>
                     </div>
                     <div className="rounded-2xl bg-green-50/70 p-3 text-center">
-                      <div className="text-xs text-gray-500">Completed (Today)</div>
-                      <div className="text-base font-bold text-green-600">
+                      <div className="text-xs text-gray-500">
+                        Completed (Today)
+                      </div>
+                      <div className="text-[1.1rem] font-bold text-green-600">
                         {assignedSummary.completed}
                       </div>
                     </div>
                     <div className="rounded-2xl bg-blue-50/70 p-3 text-center">
                       <div className="text-xs text-gray-500">Pending</div>
-                      <div className="text-base font-bold text-blue-700">
-                        {clamp0(assignedSummary.total - assignedSummary.completed)}
+                      <div className="text-[1.1rem] font-bold text-blue-700">
+                        {clamp0(
+                          assignedSummary.total - assignedSummary.completed
+                        )}
                       </div>
                     </div>
                     <div className="rounded-2xl bg-yellow-50/70 p-3 text-center">
                       <div className="text-xs text-gray-500">In Progress</div>
-                      <div className="text-base font-bold text-yellow-600">
+                      <div className="text-[1.1rem] font-bold text-yellow-600">
                         {assignedSummary.inProgress}
                       </div>
                     </div>
                     <div className="rounded-2xl bg-orange-50/70 p-3 text-center">
-                      <div className="text-xs text-gray-500">Awaiting Verification</div>
-                      <div className="text-base font-bold text-orange-600">
+                      <div className="text-xs text-gray-500">
+                        Awaiting Verification
+                      </div>
+                      <div className="text-[1.1rem] font-bold text-orange-600">
                         {assignedSummary.pendingVerification}
                       </div>
                     </div>
