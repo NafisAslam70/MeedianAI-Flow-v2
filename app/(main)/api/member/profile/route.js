@@ -3,8 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { users, openCloseTimes } from "@/lib/schema";
 import { eq, sql } from "drizzle-orm";
-import { writeFile, unlink, mkdir } from "fs/promises";
-import path from "path";
+import { put } from "@vercel/blob";
 import bcrypt from "bcrypt";
 
 export async function GET(req) {
@@ -117,46 +116,30 @@ export async function PATCH(request) {
           { status: 400 }
         );
       }
-      if (image.size > 5 * 1024 * 1024) {
+      if (image.size > 4.5 * 1024 * 1024) {
+        // Vercel Blob has a 4.5MB limit for server uploads
         return NextResponse.json(
-          { error: "Image size must be less than 5MB" },
+          { error: "Image size must be less than 4.5MB for server upload" },
           { status: 400 }
         );
       }
 
-      const uploadsDir = path.join(process.cwd(), "public", "uploads");
-      try {
-        await mkdir(uploadsDir, { recursive: true });
-      } catch (err) {
-        console.error("Failed to create uploads directory:", err);
-        return NextResponse.json(
-          { error: "Failed to create uploads directory" },
-          { status: 500 }
-        );
-      }
-
-      if (session.user.image && session.user.image !== "/default-avatar.png") {
-        const existingFilePath = path.join(process.cwd(), "public", session.user.image);
-        try {
-          await unlink(existingFilePath);
-        } catch (err) {
-          console.warn("Failed to delete existing image file:", err.message);
-        }
-      }
-
+      // Upload to Vercel Blob Storage
       const fileName = `${session.user.id}-${Date.now()}${path.extname(image.name)}`;
-      const filePath = path.join(process.cwd(), "public", "uploads", fileName);
-      const buffer = Buffer.from(await image.arrayBuffer());
       try {
-        await writeFile(filePath, buffer);
+        const blob = await put(fileName, image, {
+          access: "public",
+          token: process.env.BLOB_READ_WRITE_TOKEN,
+          addRandomSuffix: true,
+        });
+        imageUrl = blob.url;
       } catch (err) {
-        console.error("Failed to write image file:", { filePath, error: err.message });
+        console.error("Failed to upload image to Vercel Blob:", err);
         return NextResponse.json(
-          { error: "Failed to save image file" },
+          { error: "Failed to upload image to storage" },
           { status: 500 }
         );
       }
-      imageUrl = `/uploads/${fileName}`;
     }
 
     const updateData = {
@@ -273,14 +256,8 @@ export async function DELETE(request) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    if (user.image && user.image !== "/default-avatar.png") {
-      const filePath = path.join(process.cwd(), "public", user.image);
-      try {
-        await unlink(filePath);
-      } catch (err) {
-        console.warn("Failed to delete image file:", err.message);
-      }
-    }
+    // Note: No need to delete from Vercel Blob here, as we don't track old images
+    // If you want to delete old images, implement Vercel Blob delete API
 
     const [updatedUser] = await db
       .update(users)
