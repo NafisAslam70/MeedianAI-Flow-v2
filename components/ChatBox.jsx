@@ -33,10 +33,8 @@ const linkify = (raw = "") => {
 };
 
 const getValidImageUrl = (url) => {
-  if (!url || typeof url !== "string") return "https://via.placeholder.com/40";
-  return url.match(/^https?:\/\//) || url.startsWith("/")
-    ? url
-    : "https://via.placeholder.com/40";
+  if (!url || typeof url !== "string") return "/default-avatar.png";
+  return url; // Accepts Blob URLs (https://) and local paths (/)
 };
 
 export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipientId }) {
@@ -117,6 +115,7 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
   };
 
   const getRole = (u) => {
+    if (!u) return "Unknown";
     if (u.role === "admin") return "Admin";
     if (u.role === "team_manager")
       return `Team Manager${u.team_manager_type ? ` (${toTitle(u.team_manager_type)})` : ""}`;
@@ -124,7 +123,11 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
   };
 
   const fetchData = async () => {
-    if (!userDetails?.id) return;
+    if (!userDetails?.id) {
+      setError("User details missing.");
+      console.error("No userDetails.id provided");
+      return;
+    }
     try {
       const [uRes, mRes] = await Promise.all([
         fetch("/api/member/users"),
@@ -132,6 +135,8 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
       ]);
       const { users: fetchedUsers = [] } = await uRes.json();
       const { messages: fetchedMsgs = [] } = await mRes.json();
+      console.log("Fetched users:", fetchedUsers);
+      console.log("Fetched messages:", fetchedMsgs);
       setUsers(fetchedUsers);
       setMessages(fetchedMsgs);
 
@@ -158,6 +163,7 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
       }
     } catch (e) {
       setError("Chat fetch error.");
+      console.error("Fetch data error:", e);
     }
   };
 
@@ -329,6 +335,23 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
     };
   }, [dragging]);
 
+  // Sync with profile updates
+  useEffect(() => {
+    console.log("userDetails:", userDetails);
+    const handleProfileUpdate = () => {
+      console.log("Profile updated, refreshing data in ChatBox");
+      fetchData();
+    };
+    window.addEventListener("message", (event) => {
+      if (event.data.type === "PROFILE_UPDATED") {
+        handleProfileUpdate();
+      }
+    });
+    return () => {
+      window.removeEventListener("message", handleProfileUpdate);
+    };
+  }, [fetchData, userDetails]);
+
   const startVoiceRecording = () => {
     if (!window.SpeechRecognition && !window.webkitSpeechRecognition) {
       setError("Speech recognition is not supported in this browser.");
@@ -492,7 +515,10 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
                         )
                         .slice(-40)
                         .map((m) => {
-                          const sender = users.find((u) => u.id === m.senderId);
+                          const sender = users.find((u) => u.id === m.senderId) || {
+                            name: "Unknown",
+                            image: "/default-avatar.png",
+                          };
                           const isOwnMessage = m.senderId === Number(userDetails.id);
                           return (
                             <li
@@ -506,11 +532,16 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
                               >
                                 {!isOwnMessage && (
                                   <img
-                                    src={getValidImageUrl(sender?.image)}
-                                    alt={`${sender?.name || "User"}'s profile`}
+                                    src={getValidImageUrl(sender.image)}
+                                    alt={`${sender.name}'s profile`}
                                     className="w-6 h-6 sm:w-7 sm:h-7 rounded-full object-cover flex-shrink-0"
                                     onError={(e) => {
-                                      e.currentTarget.src = "https://via.placeholder.com/32";
+                                      console.error("Chatbox sender image failed to load:", {
+                                        senderId: m.senderId,
+                                        senderName: sender.name,
+                                        imageUrl: sender.image,
+                                      });
+                                      e.currentTarget.src = "/default-avatar.png";
                                     }}
                                   />
                                 )}
@@ -525,11 +556,15 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
                                 </div>
                                 {isOwnMessage && (
                                   <img
-                                    src={getValidImageUrl(userDetails?.image)}
+                                    src={getValidImageUrl(userDetails?.image || "/default-avatar.png")}
                                     alt="Your profile"
                                     className="w-6 h-6 sm:w-7 sm:h-7 rounded-full object-cover flex-shrink-0"
                                     onError={(e) => {
-                                      e.currentTarget.src = "https://via.placeholder.com/32";
+                                      console.error("Chatbox user image failed to load:", {
+                                        userId: userDetails?.id,
+                                        imageUrl: userDetails?.image,
+                                      });
+                                      e.currentTarget.src = "/default-avatar.png";
                                     }}
                                   />
                                 )}
@@ -684,7 +719,12 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
                           alt={`${u.name}'s profile`}
                           className="w-8 h-8 sm:w-9 sm:h-9 rounded-full object-cover"
                           onError={(e) => {
-                            e.currentTarget.src = "https://via.placeholder.com/40";
+                            console.error("History image failed to load:", {
+                              userId: u.id,
+                              userName: u.name,
+                              imageUrl: u.image,
+                            });
+                            e.currentTarget.src = "/default-avatar.png";
                           }}
                         />
                         <div className="flex-1 min-w-0">

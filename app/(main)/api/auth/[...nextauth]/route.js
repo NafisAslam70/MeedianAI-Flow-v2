@@ -1,11 +1,9 @@
-
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { db } from "@/lib/db";
 import { users } from "@/lib/schema";
 import { eq } from "drizzle-orm";
 
-// Disable static generation to avoid JSON parsing issues
 export const dynamic = "force-dynamic";
 
 export const authOptions = {
@@ -44,6 +42,7 @@ export const authOptions = {
               password: users.password,
               role: users.role,
               team_manager_type: users.team_manager_type,
+              image: users.image, // Add image field
             })
             .from(users)
             .where(eq(users.email, email));
@@ -55,7 +54,7 @@ export const authOptions = {
             throw new Error("No user found with the provided email");
           }
 
-          // TODO: Replace plain-text password comparison with bcrypt in production
+          // TODO: Replace with bcrypt comparison in production
           const isValid = credentials.password === user.password;
           console.log("Password valid:", isValid);
           if (!isValid) {
@@ -79,12 +78,13 @@ export const authOptions = {
             email: user.email,
             role: user.role,
             team_manager_type: user.team_manager_type || null,
+            image: user.image || "/default-avatar.png", // Include image with fallback
           };
           console.log("Returning user:", userData);
           return userData;
         } catch (error) {
           console.error("Authorize error:", error.message);
-          throw new Error(error.message); // Ensure specific error is passed
+          throw new Error(error.message);
         }
       },
     }),
@@ -96,6 +96,7 @@ export const authOptions = {
         token.id = user.id;
         token.role = user.role;
         token.team_manager_type = user.team_manager_type;
+        token.image = user.image; // Add image to JWT
       }
       return token;
     },
@@ -104,6 +105,7 @@ export const authOptions = {
         session.user.id = token.id;
         session.user.role = token.role;
         session.user.team_manager_type = token.team_manager_type;
+        session.user.image = token.image || "/default-avatar.png"; // Add image to session
       }
       return session;
     },
@@ -114,7 +116,6 @@ export const authOptions = {
   },
   secret: process.env.NEXTAUTH_SECRET,
   debug: process.env.NODE_ENV === "development",
-  // Custom error handling to propagate specific errors
   error: async (error, req, res) => {
     if (error === "CredentialsSignin") {
       return NextResponse.redirect(new URL(`/login?error=${encodeURIComponent(req?.body?.error || "Authentication failed")}`, req.url));

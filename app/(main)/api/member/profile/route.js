@@ -20,11 +20,9 @@ export async function GET(req) {
         { status: 401 }
       );
     }
-
     const userId = parseInt(session.user.id);
     const { searchParams } = new URL(req.url);
     const userTypeParam = searchParams.get("userType");
-
     const [user] = await db
       .select({
         id: users.id,
@@ -43,12 +41,10 @@ export async function GET(req) {
       .from(users)
       .leftJoin(sql`users as supervisor`, eq(users.immediate_supervisor, sql`supervisor.id`))
       .where(eq(users.id, userId));
-
     if (!user) {
       console.log("User not found for ID:", userId);
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
-
     const effectiveType = userTypeParam || user.type;
     let times = null;
     if (effectiveType) {
@@ -61,7 +57,6 @@ export async function GET(req) {
         })
         .from(openCloseTimes)
         .where(eq(openCloseTimes.userType, effectiveType));
-
       if (openClose) {
         times = {
           dayOpenTime: openClose.dayOpenTime,
@@ -71,7 +66,6 @@ export async function GET(req) {
         };
       }
     }
-
     console.log("User profile fetched:", {
       userId,
       userType: effectiveType,
@@ -79,7 +73,6 @@ export async function GET(req) {
       whatsapp_number: user.whatsapp_number,
       immediate_supervisor: user.immediate_supervisor,
     });
-
     return NextResponse.json({ user, times });
   } catch (error) {
     console.error("Error fetching user profile:", error);
@@ -95,18 +88,15 @@ export async function PATCH(request) {
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-
   try {
     const formData = await request.formData();
     const name = formData.get("name");
     const whatsapp_number = formData.get("whatsapp_number") || null;
     const whatsapp_enabled = formData.get("whatsapp_enabled") === "true";
     const image = formData.get("image");
-
     if (!name) {
       return NextResponse.json({ error: "Name is required" }, { status: 400 });
     }
-
     let imageUrl = session.user.image || null;
     if (image && image instanceof File) {
       const validTypes = ["image/jpeg", "image/png", "image/gif"];
@@ -122,8 +112,6 @@ export async function PATCH(request) {
           { status: 400 }
         );
       }
-
-      // Generate a filename without path.extname
       const extension = image.name.split(".").pop().toLowerCase();
       const fileName = `${session.user.id}-${Date.now()}.${extension}`;
       try {
@@ -144,7 +132,6 @@ export async function PATCH(request) {
         );
       }
     }
-
     const updateData = {
       name,
       whatsapp_number,
@@ -176,7 +163,6 @@ export async function PATCH(request) {
       );
     }
     console.log("Updated user:", updatedUser);
-
     return NextResponse.json({ user: updatedUser });
   } catch (error) {
     console.error("Profile update error:", error);
@@ -192,33 +178,27 @@ export async function POST(request) {
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-
   try {
     const { currentPassword, newPassword } = await request.json();
-
     if (!currentPassword || !newPassword) {
       return NextResponse.json(
         { error: "Current and new passwords are required" },
         { status: 400 }
       );
     }
-
     if (newPassword.length < 8) {
       return NextResponse.json(
         { error: "New password must be at least 8 characters long" },
         { status: 400 }
       );
     }
-
     const [user] = await db
       .select({ password: users.password })
       .from(users)
       .where(eq(users.id, parseInt(session.user.id)));
-
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
-
     const isValid = await bcrypt.compare(currentPassword, user.password);
     if (!isValid) {
       return NextResponse.json(
@@ -226,13 +206,11 @@ export async function POST(request) {
         { status: 400 }
       );
     }
-
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     await db
       .update(users)
       .set({ password: hashedPassword })
       .where(eq(users.id, parseInt(session.user.id)));
-
     return NextResponse.json({ message: "Password changed successfully" });
   } catch (error) {
     console.error("Password change error:", error);
@@ -248,17 +226,14 @@ export async function DELETE(request) {
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-
   try {
     const [user] = await db
       .select({ image: users.image })
       .from(users)
       .where(eq(users.id, parseInt(session.user.id)));
-
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
-
     const [updatedUser] = await db
       .update(users)
       .set({ image: null })
@@ -273,7 +248,6 @@ export async function DELETE(request) {
         role: users.role,
         team_manager_type: users.team_manager_type,
       });
-
     return NextResponse.json({
       user: updatedUser,
       message: "Profile picture removed",
