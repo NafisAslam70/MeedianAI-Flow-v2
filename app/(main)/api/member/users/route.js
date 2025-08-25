@@ -33,6 +33,7 @@
 //     return NextResponse.json({ error: `Failed to fetch users: ${error.message}` }, { status: 500 });
 //   }
 // }
+// pages/api/member/users/route.js
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { users } from "@/lib/schema";
@@ -48,10 +49,15 @@ export async function GET(req) {
       !["admin", "team_manager", "member"].includes(session.user.role)
     ) {
       console.error("Unauthorized access attempt:", { session });
-      return NextResponse.json({ error: "Unauthorized: Admin, Team Manager, or Member access required" }, { status: 401 });
+      return NextResponse.json(
+        { error: "Unauthorized: Admin, Team Manager, or Member access required" },
+        { status: 401 }
+      );
     }
 
-    // No exclusion! Return all users:
+    const userId = parseInt(session.user.id);
+
+    // Include the image field in the select query
     const availableUsers = await db
       .select({
         id: users.id,
@@ -59,14 +65,26 @@ export async function GET(req) {
         role: users.role,
         type: users.type,
         team_manager_type: users.team_manager_type,
+        image: users.image, // Add this field
       })
       .from(users);
+      // Optionally exclude the current user if needed
+      // .where(ne(users.id, userId));
 
-    console.log("Users fetched for messaging:", availableUsers.length);
+    console.log("Users fetched for messaging:", availableUsers.length, { userId });
 
-    return NextResponse.json({ users: availableUsers });
+    // Ensure image field has a default value if null
+    const formattedUsers = availableUsers.map(user => ({
+      ...user,
+      image: user.image || '/default-avatar.png', // Fallback to default image
+    }));
+
+    return NextResponse.json({ users: formattedUsers });
   } catch (error) {
     console.error("Error fetching users:", error);
-    return NextResponse.json({ error: `Failed to fetch users: ${error.message}` }, { status: 500 });
+    return NextResponse.json(
+      { error: `Failed to fetch users: ${error.message}` },
+      { status: 500 }
+    );
   }
 }
