@@ -56,7 +56,6 @@ export default function Navbar() {
   // --- HELPERS ---
   const role = session?.user?.role || "user";
   const profilePath = role ? `/dashboard/${role === "team_manager" ? "team_manager" : role}/profile` : "/";
-  // MyPerformance is always under member
   const performancePath = "/dashboard/member/myPerformance";
   const isActive = (href) => pathname.replace(/\/$/, "") === href.replace(/\/$/, "");
   const toggleMobileMenu = () => setIsMobileMenuOpen((v) => !v);
@@ -77,17 +76,17 @@ export default function Navbar() {
     <div className="modal-overlay">
       <div className="modal-content">
         <h2 className="text-lg font-semibold text-white mb-4">Confirm Logout</h2>
-        <p className="text-gray-300 mb-6">Are you sure you want to log out?</p>
+        <p className="text-gray-200 mb-6">Are you sure you want to log out?</p>
         <div className="flex justify-center space-x-4">
           <button
             onClick={handleLogout}
-            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium transition duration-200"
+            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium transition duration-200 min-h-[44px]"
           >
             Yes, Log Out
           </button>
           <button
             onClick={closeLogoutModal}
-            className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-500 font-medium transition duration-200"
+            className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-500 font-medium transition duration-200 min-h-[44px]"
           >
             Cancel
           </button>
@@ -98,7 +97,7 @@ export default function Navbar() {
 
   return (
     <>
-      {/* ====== STYLES (full) ====== */}
+      {/* ====== STYLES ====== */}
       <style jsx global>{`
         /* Modal */
         .modal-overlay {
@@ -112,13 +111,19 @@ export default function Navbar() {
         }
         .modal-content {
           background: #1f2937;
-          padding: 24px;
+          padding: 16px;
           border-radius: 12px;
-          max-width: 400px;
-          width: 90%;
+          max-width: 90%;
+          width: 400px;
           text-align: center;
           box-shadow: 0 8px 16px rgba(0,0,0,0.3);
           border: 1px solid #4b5563;
+        }
+        @media (max-width: 640px) {
+          .modal-content {
+            padding: 12px;
+            max-width: 95vw;
+          }
         }
 
         /* Mobile Menu shell */
@@ -127,14 +132,14 @@ export default function Navbar() {
           top: 0;
           right: 0;
           height: 100%;
-          width: 75%;
-          max-width: 320px;
-          background: #111827; /* darker to match theme */
+          width: 80%;
+          max-width: 300px;
+          background: #111827;
           transform: translateX(100%);
           transition: transform 0.3s ease-in-out;
           z-index: 9999;
           box-shadow: -4px 0 16px rgba(0,0,0,0.6);
-          padding: 1.25rem;
+          padding: 1rem;
           border-left: 1px solid #374151;
         }
         .mobile-menu.open { transform: translateX(0); }
@@ -152,19 +157,17 @@ export default function Navbar() {
 
         /* Menu items (mobile + desktop) */
         .mobile-menu-item, .nav-item {
-          display: inline-block;
-          padding: 0.55rem 0.75rem;
-          font-size: 0.92rem;
+          display: block;
+          padding: 0.5rem 0.75rem;
+          font-size: 0.9rem;
           font-weight: 500;
           border-radius: 8px;
           transition: all 0.2s ease;
-          color: #e5e7eb;
-          position: relative;
+          color: #f3f4f6;
         }
         .mobile-menu-item:hover, .nav-item:hover {
-          background: rgba(255,255,255,0.08);
+          background: rgba(255,255,255,0.1);
           color: #22d3ee;
-          transform: translateY(-2px);
         }
         .mobile-menu-item.active, .nav-item.active {
           color: #22d3ee;
@@ -191,8 +194,9 @@ export default function Navbar() {
           transition: all 0.25s ease;
           white-space: nowrap;
           box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+          min-h: 44px;
         }
-        .nav-button:hover { transform: translateY(-2px); filter: brightness(1.04); }
+        .nav-button:hover { transform: translateY(-2px); filter: brightness(1.1); }
 
         /* Icon button (Together) */
         .nav-icon-button {
@@ -202,9 +206,11 @@ export default function Navbar() {
           padding: 0.5rem;
           border-radius: 9999px;
           transition: all 0.25s ease;
+          min-h: 44px;
+          min-w: 44px;
         }
         .nav-icon-button:hover {
-          background: rgba(255,255,255,0.08);
+          background: rgba(255,255,255,0.1);
           transform: translateY(-2px);
         }
         .nav-icon-button.active::after {
@@ -229,120 +235,175 @@ export default function Navbar() {
           align-items: center;
           gap: 0.45rem;
           transition: all .2s ease;
-          color: #e5e7eb;
+          color: #f3f4f6;
         }
         .nav-dropdown-btn:hover {
-          background: rgba(255,255,255,.08);
+          background: rgba(255,255,255,.1);
           transform: translateY(-2px);
           color: #22d3ee;
         }
         .nav-dropdown-menu {
           position: absolute;
-          top: calc(100% + 10px);
+          top: calc(100% + 8px);
           left: 0;
-          min-width: 220px;
-          background: #0b1220; /* deep dark */
+          min-width: 200px;
+          background: #0b1220;
           border: 1px solid #1f2a44;
           border-radius: 12px;
-          padding: 8px;
-          box-shadow: 0 18px 40px rgba(0,0,0,.45), 0 0 0 1px rgba(34,211,238,.06) inset;
+          padding: 6px;
+          box-shadow: 0 12px 30px rgba(0,0,0,.4);
           z-index: 10001;
         }
         .nav-dropdown-item {
           display: block;
-          padding: 0.6rem 0.7rem;
-          border-radius: 10px;
-          font-size: 0.92rem;
+          padding: 0.5rem 0.7rem;
+          border-radius: 8px;
+          font-size: 0.9rem;
           font-weight: 500;
-          color: #e5e7eb;
+          color: #f3f4f6;
         }
         .nav-dropdown-item:hover {
           background: #122034;
           color: #22d3ee;
         }
 
-        /* User chip */
+        /* User chip (desktop) */
         .user-info {
           display: flex;
           align-items: center;
-          gap: 0.6rem;
-          padding: 0.5rem 0.9rem;
-          border-radius: 12px;
-          border: 2px solid #334155;
+          gap: 0.5rem;
+          padding: 0.4rem 0.8rem;
+          border-radius: 10px;
+          border: 2px solid #4b5563;
           background: #1f2937;
-          box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+          box-shadow: 0 3px 10px rgba(0,0,0,0.2);
           transition: all .25s ease;
         }
         .user-info:hover {
           transform: translateY(-2px);
           background: #263244;
-          border-color: #00e5ff;
+          border-color: #22d3ee;
         }
         .user-info.active {
           background: #22d3ee;
           color: #0b1220;
           border-color: #ffffff;
-          box-shadow: 0 0 12px rgba(34,211,238,0.5);
+          box-shadow: 0 0 10px rgba(34,211,238,0.5);
         }
         .user-info img {
-          width: 32px;
-          height: 32px;
+          width: 28px;
+          height: 28px;
           border-radius: 9999px;
           border: 2px solid #22d3ee;
           object-fit: cover;
           transition: all .25s ease;
         }
-        .user-info:hover img { transform: scale(1.04); }
-        .user-info-text { display: flex; flex-direction: column; line-height: 1.05; }
-        .user-info-text .name { font-weight: 600; font-size: .9rem; color: #e5e7eb; }
+        .user-info:hover img { transform: scale(1.05); }
+        .user-info-text { display: flex; flex-direction: column; line-height: 1.1; }
+        .user-info-text .name {
+          font-weight: 600;
+          font-size: 0.85rem;
+          color: #f3f4f6;
+        }
         .user-info-text .account-label {
-          font-size: .72rem; color: #9ca3af; background: rgba(255,255,255,.08);
-          padding: 0.1rem 0.4rem; border-radius: 6px; margin-top: 2px;
+          font-size: 0.7rem;
+          color: #d1d5db;
+          background: rgba(255,255,255,.1);
+          padding: 0.1rem 0.35rem;
+          border-radius: 5px;
+          margin-top: 2px;
           text-align: center;
         }
 
-        /* Mobile specific items */
+        /* User chip (mobile) */
         .mobile-user-info {
-          display: flex; align-items: center; gap: .6rem;
-          padding: .7rem .9rem; border-radius: 12px; margin-bottom: .75rem;
-          border: 2px solid #334155; background: #1f2937;
+          display: flex;
+          align-items: center;
+          gap: 0.4rem;
+          padding: 0.5rem 0.7rem;
+          border-radius: 10px;
+          margin-bottom: 0.5rem;
+          border: 2px solid #4b5563;
+          background: #1f2937;
           transition: all .2s ease;
         }
-        .mobile-user-info:hover { background: #263244; border-color: #00e5ff; }
-        .mobile-user-info img {
-          width: 36px; height: 36px; border-radius: 9999px; border: 2px solid #22d3ee; object-fit: cover;
+        .mobile-user-info:hover {
+          background: #263244;
+          border-color: #22d3ee;
         }
-        .mobile-user-info-text { display: flex; flex-direction: column; }
-        .mobile-user-info-text .name { font-weight: 600; font-size: .95rem; color: #e5e7eb; }
+        .mobile-user-info.active {
+          background: #22d3ee;
+          color: #0b1220;
+          border-color: #ffffff;
+          box-shadow: 0 0 10px rgba(34,211,238,0.5);
+        }
+        .mobile-user-info img {
+          width: 30px;
+          height: 30px;
+          border-radius: 9999px;
+          border: 2px solid #22d3ee;
+          object-fit: cover;
+        }
+        .mobile-user-info-text {
+          display: flex;
+          flex-direction: column;
+          line-height: 1.1;
+        }
+        .mobile-user-info-text .name {
+          font-weight: 600;
+          font-size: 0.85rem;
+          color: #f3f4f6;
+        }
         .mobile-user-info-text .account-label {
-          font-size: .78rem; color: #9ca3af; background: rgba(255,255,255,.08);
-          padding: 0.1rem .45rem; border-radius: 6px; margin-top: 2px; text-align: center;
+          font-size: 0.65rem;
+          color: #d1d5db;
+          background: rgba(255,255,255,.1);
+          padding: 0.1rem 0.35rem;
+          border-radius: 5px;
+          margin-top: 2px;
+          text-align: center;
         }
 
+        /* Mobile together button */
         .mobile-together-button {
-          display: flex; align-items: center; gap: .5rem;
-          padding: 0.6rem 0.75rem; border-radius: 10px;
-          transition: all .2s ease; color: #e5e7eb;
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          padding: 0.5rem 0.75rem;
+          border-radius: 8px;
+          transition: all .2s ease;
+          color: #f3f4f6;
         }
         .mobile-together-button:hover {
-          background: rgba(255,255,255,.08); color: #22d3ee;
+          background: rgba(255,255,255,.1);
+          color: #22d3ee;
         }
 
-        /* Keep navbar on brand */
+        /* Navbar background */
         nav {
           background: linear-gradient(90deg, #0b1220, #111827 30%, #1f2937 70%, #0b1220);
+        }
+
+        /* Reduced motion */
+        @media (prefers-reduced-motion: reduce) {
+          .user-info, .user-info.active, .mobile-user-info, .mobile-user-info.active,
+          .together-icon, .mobile-together-icon {
+            animation: none;
+            transform: none;
+            box-shadow: none;
+          }
         }
       `}</style>
 
       {/* ====== NAVBAR ====== */}
-      <nav className="text-white px-4 py-3 w-full sticky top-0 z-40 shadow-lg border-b border-cyan-900/40">
+      <nav className="text-white px-3 py-2 w-full sticky top-0 z-40 shadow-lg border-b border-cyan-900/40">
         <div className="flex items-center justify-between w-full px-2 sm:px-4 lg:px-6">
           {/* Left: Logo */}
           <div className="flex items-center gap-2">
-            <img src="/flow1.png" alt="Logo" className="w-8 h-8 rounded-full border border-cyan-400 p-1" />
+            <img src="/flow1.png" alt="Logo" className="w-7 h-7 rounded-full border border-cyan-400 p-1" />
             <Link
               href="/"
-              className={`text-xl font-bold tracking-tight bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent hover:from-cyan-300 hover:to-blue-300 transition ${
+              className={`text-lg sm:text-xl font-bold tracking-tight bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent hover:from-cyan-300 hover:to-blue-300 transition ${
                 isActive("/") ? "drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]" : ""
               }`}
             >
@@ -352,13 +413,10 @@ export default function Navbar() {
 
           {/* Center: Desktop nav */}
           <div className="hidden md:flex absolute left-1/2 -translate-x-1/2 items-center space-x-2">
-            {/* ADMIN */}
             {role === "admin" && (
               <>
                 <Link href="/dashboard" className={`nav-item ${isActive("/dashboard") ? "active" : ""}`}>General</Link>
                 <Link href="/dashboard/admin" className={`nav-item ${isActive("/dashboard/admin") ? "active" : ""}`}>Dashboard</Link>
-
-                {/* Managerial dropdown */}
                 <div className="nav-dropdown">
                   <button
                     type="button"
@@ -377,31 +435,21 @@ export default function Navbar() {
                     </div>
                   )}
                 </div>
-
-                {/* Together outside */}
                 <button onClick={openTogetherWorkspace} title="Together" className={`nav-icon-button ${isActive("/dashboard/member/workTogether") ? "active" : ""}`}>
                   <Users size={18} className="together-icon" />
                 </button>
-
                 <button onClick={handleAddMember} className="nav-button bg-teal-600 hover:bg-teal-700 text-white">Add Member</button>
                 <button onClick={handleManageMeedian} className="nav-button bg-blue-600 hover:bg-blue-700 text-white">Manage Meedian</button>
-
-                {/* Admin doesn't have CloseMyDay; keep MyPerformance at end */}
                 <Link href={performancePath} className={`nav-item ${isActive(performancePath) ? "active" : ""}`}>MyPerformance</Link>
               </>
             )}
-
-            {/* TEAM MANAGER */}
             {role === "team_manager" && (
               <>
                 <Link href="/dashboard" className={`nav-item ${isActive("/dashboard") ? "active" : ""}`}>General</Link>
                 <Link href="/dashboard/team_manager" className={`nav-item ${isActive("/dashboard/team_manager") ? "active" : ""}`}>My Dashboard</Link>
                 <Link href="/dashboard/member/myMeedRituals" className={`nav-item ${isActive("/dashboard/member/myMeedRituals") ? "active" : ""}`}>MyMRIs</Link>
                 <Link href="/dashboard/member/closeMyDay" className={`nav-item ${isActive("/dashboard/member/closeMyDay") ? "active" : ""}`}>CloseMyDay</Link>
-                {/* Move MyPerformance AFTER CloseMyDay */}
                 <Link href={performancePath} className={`nav-item ${isActive(performancePath) ? "active" : ""}`}>MyPerformance</Link>
-
-                {/* Managerial dropdown */}
                 <div className="nav-dropdown">
                   <button type="button" onClick={() => setIsManageOpen((v) => !v)} className="nav-dropdown-btn">Managerial ▾</button>
                   {isManageOpen && (
@@ -412,32 +460,23 @@ export default function Navbar() {
                     </div>
                   )}
                 </div>
-
-                {/* Together outside */}
                 <button onClick={openTogetherWorkspace} title="Together" className={`nav-icon-button ${isActive("/dashboard/member/workTogether") ? "active" : ""}`}>
                   <Users size={18} className="together-icon" />
                 </button>
               </>
             )}
-
-            {/* MEMBER */}
             {role === "member" && (
               <>
                 <Link href="/dashboard" className={`nav-item ${isActive("/dashboard") ? "active" : ""}`}>General</Link>
                 <Link href="/dashboard/member" className={`nav-item ${isActive("/dashboard/member") ? "active" : ""}`}>My Dashboard</Link>
                 <Link href="/dashboard/member/myMeedRituals" className={`nav-item ${isActive("/dashboard/member/myMeedRituals") ? "active" : ""}`}>MyMRIs</Link>
                 <Link href="/dashboard/member/closeMyDay" className={`nav-item ${isActive("/dashboard/member/closeMyDay") ? "active" : ""}`}>CloseMyDay</Link>
-                {/* Move MyPerformance AFTER CloseMyDay */}
                 <Link href={performancePath} className={`nav-item ${isActive(performancePath) ? "active" : ""}`}>MyPerformance</Link>
-
-                {/* Together */}
                 <button onClick={openTogetherWorkspace} title="Together" className={`nav-icon-button ${isActive("/dashboard/member/workTogether") ? "active" : ""}`}>
                   <Users size={18} className="together-icon" />
                 </button>
               </>
             )}
-
-            {/* UNAUTH */}
             {status === "unauthenticated" && (
               <>
                 <button onClick={() => handleLogin("admin")} className="nav-button bg-indigo-600 hover:bg-indigo-700 text-white">Admin Login</button>
@@ -469,7 +508,7 @@ export default function Navbar() {
               </>
             )}
             <div className="md:hidden">
-              <button onClick={toggleMobileMenu} className="text-white p-1 rounded-full hover:bg-gray-700 transition">
+              <button onClick={toggleMobileMenu} className="text-white p-2 rounded-full hover:bg-gray-700 transition min-h-[44px] min-w-[44px]">
                 {isMobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
               </button>
             </div>
@@ -481,9 +520,9 @@ export default function Navbar() {
           <>
             <div className="mobile-menu-overlay open" onClick={toggleMobileMenu} />
             <div className={`mobile-menu ${isMobileMenuOpen ? "open" : ""}`}>
-              <div className="flex justify-between items-center mb-4">
+              <div className="flex justify-between items-center mb-3">
                 <span className="text-base font-bold text-cyan-400">Menu</span>
-                <button onClick={toggleMobileMenu} className="text-white p-1 rounded-full hover:bg-gray-700">
+                <button onClick={toggleMobileMenu} className="text-white p-2 rounded-full hover:bg-gray-700 min-h-[44px] min-w-[44px]">
                   <X size={20} />
                 </button>
               </div>
@@ -506,13 +545,10 @@ export default function Navbar() {
               )}
 
               <div className="space-y-1">
-                {/* ADMIN (mobile) */}
                 {role === "admin" && (
                   <>
                     <Link href="/dashboard" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard") ? "active" : ""}`}>General</Link>
                     <Link href="/dashboard/admin" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/admin") ? "active" : ""}`}>Dashboard</Link>
-
-                    {/* Collapsible Managerial */}
                     <details className="mb-2">
                       <summary className="mobile-menu-item cursor-pointer select-none">Managerial</summary>
                       <div className="pl-2">
@@ -521,8 +557,6 @@ export default function Navbar() {
                         <a href="https://meed-recruitment.onrender.com/login" target="_blank" rel="noopener noreferrer" onClick={toggleMobileMenu} className="mobile-menu-item">Recruit</a>
                       </div>
                     </details>
-
-                    {/* Together outside */}
                     <button
                       onClick={() => { openTogetherWorkspace(); toggleMobileMenu(); }}
                       className={`mobile-together-button ${isActive("/dashboard/member/workTogether") ? "active" : ""}`}
@@ -530,26 +564,18 @@ export default function Navbar() {
                       <Users size={18} className="mobile-together-icon" />
                       Together
                     </button>
-
                     <button onClick={() => { handleAddMember(); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">Add Member</button>
                     <button onClick={() => { handleManageMeedian(); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">Manage Meedian</button>
-
-                    {/* Admin: MyPerformance placed at end */}
                     <Link href={performancePath} onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive(performancePath) ? "active" : ""}`}>MyPerformance</Link>
                   </>
                 )}
-
-                {/* TEAM MANAGER (mobile) */}
                 {role === "team_manager" && (
                   <>
                     <Link href="/dashboard" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard") ? "active" : ""}`}>General</Link>
                     <Link href="/dashboard/team_manager" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/team_manager") ? "active" : ""}`}>My Dashboard</Link>
                     <Link href="/dashboard/member/myMeedRituals" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member/myMeedRituals") ? "active" : ""}`}>MyMRIs</Link>
                     <Link href="/dashboard/member/closeMyDay" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member/closeMyDay") ? "active" : ""}`}>CloseMyDay</Link>
-                    {/* MyPerformance AFTER CloseMyDay */}
                     <Link href={performancePath} onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive(performancePath) ? "active" : ""}`}>MyPerformance</Link>
-
-                    {/* Managerial */}
                     <details className="mb-2">
                       <summary className="mobile-menu-item cursor-pointer select-none">Managerial</summary>
                       <div className="pl-2">
@@ -558,8 +584,6 @@ export default function Navbar() {
                         <a href="https://meed-recruitment.onrender.com/login" target="_blank" rel="noopener noreferrer" onClick={toggleMobileMenu} className="mobile-menu-item">Recruit</a>
                       </div>
                     </details>
-
-                    {/* Together */}
                     <button
                       onClick={() => { openTogetherWorkspace(); toggleMobileMenu(); }}
                       className={`mobile-together-button ${isActive("/dashboard/member/workTogether") ? "active" : ""}`}
@@ -569,18 +593,13 @@ export default function Navbar() {
                     </button>
                   </>
                 )}
-
-                {/* MEMBER (mobile) */}
                 {role === "member" && (
                   <>
                     <Link href="/dashboard" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard") ? "active" : ""}`}>General</Link>
                     <Link href="/dashboard/member" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member") ? "active" : ""}`}>My Dashboard</Link>
                     <Link href="/dashboard/member/myMeedRituals" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member/myMeedRituals") ? "active" : ""}`}>MyMRIs</Link>
                     <Link href="/dashboard/member/closeMyDay" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member/closeMyDay") ? "active" : ""}`}>CloseMyDay</Link>
-                    {/* MyPerformance AFTER CloseMyDay */}
                     <Link href={performancePath} onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive(performancePath) ? "active" : ""}`}>MyPerformance</Link>
-
-                    {/* Together */}
                     <button
                       onClick={() => { openTogetherWorkspace(); toggleMobileMenu(); }}
                       className={`mobile-together-button ${isActive("/dashboard/member/workTogether") ? "active" : ""}`}
@@ -590,16 +609,14 @@ export default function Navbar() {
                     </button>
                   </>
                 )}
-
                 {(role === "admin" || role === "team_manager" || role === "member") && (
                   <button
                     onClick={() => { openLogoutModal(); toggleMobileMenu(); }}
-                    className="mobile-menu-item text-left text-red-400 hover:text-red-500 w-full"
+                    className="mobile-menu-item text-left text-red-400 hover:text-red-300 w-full"
                   >
                     Logout
                   </button>
                 )}
-
                 {status === "unauthenticated" && (
                   <>
                     <button onClick={() => { handleLogin("admin"); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">Admin Login</button>
@@ -619,7 +636,6 @@ export default function Navbar() {
     </>
   );
 }
-
 
 // "use client";
 // import { useSession, signOut } from "next-auth/react";
