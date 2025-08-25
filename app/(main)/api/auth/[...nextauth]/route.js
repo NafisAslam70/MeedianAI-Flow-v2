@@ -3,6 +3,7 @@ import Credentials from "next-auth/providers/credentials";
 import { db } from "@/lib/db";
 import { users } from "@/lib/schema";
 import { eq } from "drizzle-orm";
+import bcrypt from "bcrypt";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +43,7 @@ export const authOptions = {
               password: users.password,
               role: users.role,
               team_manager_type: users.team_manager_type,
-              image: users.image, // Add image field
+              image: users.image, // Include image
             })
             .from(users)
             .where(eq(users.email, email));
@@ -54,8 +55,7 @@ export const authOptions = {
             throw new Error("No user found with the provided email");
           }
 
-          // TODO: Replace with bcrypt comparison in production
-          const isValid = credentials.password === user.password;
+          const isValid = await bcrypt.compare(credentials.password, user.password);
           console.log("Password valid:", isValid);
           if (!isValid) {
             console.log("Password mismatch for user:", user.email);
@@ -96,7 +96,7 @@ export const authOptions = {
         token.id = user.id;
         token.role = user.role;
         token.team_manager_type = user.team_manager_type;
-        token.image = user.image; // Add image to JWT
+        token.image = user.image; // Include image in JWT
       }
       return token;
     },
@@ -105,7 +105,7 @@ export const authOptions = {
         session.user.id = token.id;
         session.user.role = token.role;
         session.user.team_manager_type = token.team_manager_type;
-        session.user.image = token.image || "/default-avatar.png"; // Add image to session
+        session.user.image = token.image || "/default-avatar.png"; // Include image with fallback
       }
       return session;
     },
