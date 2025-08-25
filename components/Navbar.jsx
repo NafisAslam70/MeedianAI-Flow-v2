@@ -299,11 +299,19 @@ export default function Navbar() {
           transition: all .25s ease;
         }
         .user-info:hover img { transform: scale(1.05); }
-        .user-info-text { display: flex; flex-direction: column; line-height: 1.1; }
+        .user-info-text { 
+          display: flex; 
+          flex-direction: column; 
+          line-height: 1.1; 
+          max-width: 120px;
+        }
         .user-info-text .name {
           font-weight: 600;
           font-size: 0.85rem;
           color: #f3f4f6;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
         .user-info-text .account-label {
           font-size: 0.7rem;
@@ -313,6 +321,9 @@ export default function Navbar() {
           border-radius: 5px;
           margin-top: 2px;
           text-align: center;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
 
         /* User chip (mobile) */
@@ -320,12 +331,14 @@ export default function Navbar() {
           display: flex;
           align-items: center;
           gap: 0.4rem;
-          padding: 0.5rem 0.7rem;
+          padding: 0.4rem 0.6rem;
           border-radius: 10px;
           margin-bottom: 0.5rem;
           border: 2px solid #4b5563;
           background: #1f2937;
           transition: all .2s ease;
+          max-width: 80%;
+          min-height: 44px;
         }
         .mobile-user-info:hover {
           background: #263244;
@@ -338,8 +351,8 @@ export default function Navbar() {
           box-shadow: 0 0 10px rgba(34,211,238,0.5);
         }
         .mobile-user-info img {
-          width: 30px;
-          height: 30px;
+          width: 28px;
+          height: 28px;
           border-radius: 9999px;
           border: 2px solid #22d3ee;
           object-fit: cover;
@@ -348,20 +361,27 @@ export default function Navbar() {
           display: flex;
           flex-direction: column;
           line-height: 1.1;
+          max-width: 150px;
         }
         .mobile-user-info-text .name {
           font-weight: 600;
-          font-size: 0.85rem;
+          font-size: 0.8rem;
           color: #f3f4f6;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
         .mobile-user-info-text .account-label {
           font-size: 0.65rem;
           color: #d1d5db;
           background: rgba(255,255,255,.1);
-          padding: 0.1rem 0.35rem;
+          padding: 0.1rem 0.3rem;
           border-radius: 5px;
           margin-top: 2px;
           text-align: center;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
 
         /* Mobile together button */
@@ -508,7 +528,7 @@ export default function Navbar() {
               </>
             )}
             <div className="md:hidden">
-              <button onClick={toggleMobileMenu} className="text-white p-2 rounded-full hover:bg-gray-700 transition min-h-[44px] min-w-[44px]">
+              <button onClick={toggleMobileMenu} className="text-white p-2 rounded-full hover:bg-gray-700 transition min-h-[44px] min-w-[44px]" aria-label="Toggle menu">
                 {isMobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
               </button>
             </div>
@@ -522,7 +542,7 @@ export default function Navbar() {
             <div className={`mobile-menu ${isMobileMenuOpen ? "open" : ""}`}>
               <div className="flex justify-between items-center mb-3">
                 <span className="text-base font-bold text-cyan-400">Menu</span>
-                <button onClick={toggleMobileMenu} className="text-white p-2 rounded-full hover:bg-gray-700 min-h-[44px] min-w-[44px]">
+                <button onClick={toggleMobileMenu} className="text-white p-2 rounded-full hover:bg-gray-700 min-h-[44px] min-w-[44px]" aria-label="Close menu">
                   <X size={20} />
                 </button>
               </div>
