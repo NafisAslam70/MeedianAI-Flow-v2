@@ -59,15 +59,6 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
   const [showComingSoonModal, setShowComingSoonModal] = useState(false);
   const [recordLang, setRecordLang] = useState("hi-IN");
 
-  const [isMobile, setIsMobile] = useState(false);
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 640px)");
-    const update = () => setIsMobile(mq.matches);
-    update();
-    mq.addEventListener("change", update);
-    return () => mq.removeEventListener("change", update);
-  }, []);
-
   const messagesEndRef = useRef(null);
   const audioRef = useRef(null);
   const sendAudioRef = useRef(null);
@@ -77,16 +68,20 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
   const chatContainerRef = useRef(null);
   const historyContainerRef = useRef(null);
   const [jumpKey, setJumpKey] = useState(0);
-  const [pos, setPos] = useState({ x: 20, y: -20 });
+
+  // position + drag (kept same, just slightly gentler default)
+  const [pos, setPos] = useState({ x: 16, y: -16 });
   const [dragging, setDragging] = useState(false);
   const dragStart = useRef({ x: 0, y: 0 });
 
   const router = useRouter();
 
+  // Sync showChatbox with isOpen prop
   useEffect(() => {
     setShowChatbox(isOpen);
   }, [isOpen]);
 
+  // Sync selectedRecipient with recipientId prop
   useEffect(() => {
     if (recipientId) setSelectedRecipient(String(recipientId));
   }, [recipientId]);
@@ -112,6 +107,7 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
     receiveAudioRef.current.currentTime = 0;
     receiveAudioRef.current.play().catch(() => {});
   };
+
   const scrollBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
 
   const closeAll = () => {
@@ -152,7 +148,6 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
         }, {})
       );
       setHasUnread(unread.length > 0);
-
       if (unread.length === 0) stopSound();
 
       const newest = unread.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
@@ -161,7 +156,7 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
         setJumpKey(Date.now());
         lastAlertedId.current = newest.id;
       }
-    } catch {
+    } catch (e) {
       setError("Chat fetch error.");
     }
   };
@@ -230,17 +225,14 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
     }
   };
 
-  // Dragging only on desktop
   const mouseDown = (e) => {
-    if (isMobile) return;
     if (e.target.closest(".chatbox-header")) {
       setDragging(true);
       dragStart.current = { x: e.clientX - pos.x, y: e.clientY - pos.y };
     }
   };
   const mouseMove = (e) => {
-    if (!isMobile && dragging)
-      setPos({ x: e.clientX - dragStart.current.x, y: e.clientY - dragStart.current.y });
+    if (dragging) setPos({ x: e.clientX - dragStart.current.x, y: e.clientY - dragStart.current.y });
   };
   const mouseUp = () => setDragging(false);
 
@@ -255,6 +247,7 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
   useEffect(() => {
     const handleTaskClick = (e) => {
       if (!e.target.classList.contains("task-link")) return;
+
       const taskId = e.target.dataset.taskId;
       const sprintId = e.target.dataset.sprintId;
 
@@ -276,10 +269,8 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
 
     const chatEl = chatContainerRef.current;
     const historyEl = historyContainerRef.current;
-
     chatEl?.addEventListener("click", handleTaskClick);
     historyEl?.addEventListener("click", handleTaskClick);
-
     return () => {
       chatEl?.removeEventListener("click", handleTaskClick);
       historyEl?.removeEventListener("click", handleTaskClick);
@@ -315,23 +306,24 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
     if (messages.length > prevMessageCount.current) {
       const newMessages = messages.slice(prevMessageCount.current);
       newMessages.forEach((m) => {
-        if (m.senderId === Number(userDetails.id)) playSend();
-        else if (showChatbox && selectedRecipient === String(m.senderId)) playReceive();
+        if (m.senderId === Number(userDetails.id)) {
+          playSend();
+        } else if (showChatbox && selectedRecipient === String(m.senderId)) {
+          playReceive();
+        }
       });
     }
     prevMessageCount.current = messages.length;
   }, [messages, showChatbox, selectedRecipient]);
 
   useEffect(() => {
-    if (!isMobile) {
-      window.addEventListener("mousemove", mouseMove);
-      window.addEventListener("mouseup", mouseUp);
-      return () => {
-        window.removeEventListener("mousemove", mouseMove);
-        window.removeEventListener("mouseup", mouseUp);
-      };
-    }
-  }, [dragging, isMobile]);
+    window.addEventListener("mousemove", mouseMove);
+    window.addEventListener("mouseup", mouseUp);
+    return () => {
+      window.removeEventListener("mousemove", mouseMove);
+      window.removeEventListener("mouseup", mouseUp);
+    };
+  }, [dragging]);
 
   const startVoiceRecording = () => {
     if (!window.SpeechRecognition && !window.webkitSpeechRecognition) {
@@ -343,10 +335,8 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
     recognition.lang = recordLang;
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
-
     setIsRecording(true);
     recognition.start();
-
     recognition.onresult = (event) => {
       const transcript = event.results[0][0].transcript;
       setMessageContent((prev) => (prev ? prev + " " + transcript : transcript));
@@ -363,11 +353,11 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
 
   return (
     <motion.div
-      initial={{ opacity: 0, x: isMobile ? 0 : 20 }}
+      initial={{ opacity: 0, x: 20 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ duration: 0.3 }}
-      className={`fixed z-50 ${isMobile ? "inset-x-0 bottom-0 px-3 pb-[calc(8px+env(safe-area-inset-bottom))]" : ""}`}
-      style={!isMobile ? { right: `${pos.x}px`, bottom: `${-pos.y + 40}px` } : {}}
+      className="fixed z-50"
+      style={{ right: `${pos.x}px`, bottom: `${-pos.y + 40}px` }}
       onMouseDown={mouseDown}
     >
       {error && (
@@ -375,51 +365,43 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -20 }}
-          className="absolute left-3 right-3 -top-10 bg-red-50 text-red-600 text-sm p-3 rounded-md shadow"
+          className="absolute top-4 left-4 right-4 bg-red-50 text-red-600 text-sm p-3 rounded-md shadow"
         >
           {error}
         </motion.p>
       )}
 
-      {/* Launcher row */}
-      <div className={`flex ${isMobile ? "justify-between" : "gap-2"}`}>
+      {/* Launcher + History + (kept) Quick actions */}
+      <div className="flex gap-2 items-center flex-wrap">
         <button
           onClick={() => {
             closeAll();
             setShowChatbox(true);
             if (setIsOpen) setIsOpen(true);
           }}
-          className={`flex items-center justify-center shadow-lg transition-transform active:scale-95 ${
-            isMobile
-              ? "flex-1 mr-2 py-3 rounded-xl bg-gradient-to-r from-teal-500 to-cyan-600 text-white"
-              : "p-4 rounded-full bg-gradient-to-r from-teal-500 to-cyan-600 text-white hover:scale-105"
-          }`}
+          className="p-3 sm:p-4 bg-gradient-to-r from-teal-500 to-cyan-600 text-white rounded-full shadow-lg hover:scale-105 transition-transform"
           title="Open Chat"
         >
-          <ChatBubbleLeftRightIcon className={isMobile ? "h-6 w-6 mr-2" : "h-6 w-6"} />
-          {isMobile && <span className="font-semibold">Chat</span>}
+          <ChatBubbleLeftRightIcon className="h-5 w-5 sm:h-6 sm:w-6" />
         </button>
 
         <motion.button
           key={jumpKey}
           initial={false}
-          animate={hasUnread ? { y: [0, -6, 0], rotate: [0, -6, 6, -6, 6, 0] } : {}}
+          animate={
+            hasUnread
+              ? { y: [0, -40, 0], rotate: [0, -10, 10, -10, 10, 0], scale: [1, 1.15, 1] }
+              : {}
+          }
           transition={{ duration: 0.5, ease: "easeOut" }}
           onClick={() => {
             closeAll();
             setShowHistory(true);
           }}
-          className={`relative shadow-lg transition-transform active:scale-95 ${
-            isMobile
-              ? "flex-1 ml-2 py-3 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 text-white"
-              : "p-4 rounded-full bg-gradient-to-r from-blue-500 to-indigo-600 text-white hover:scale-105"
-          }`}
+          className="relative p-3 sm:p-4 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-full shadow-lg hover:scale-105 transition-transform"
           title="Chat History"
         >
-          <div className={`flex items-center justify-center ${isMobile ? "" : ""}`}>
-            <ClockIcon className={isMobile ? "h-6 w-6 mr-2" : "h-6 w-6"} />
-            {isMobile && <span className="font-semibold">History</span>}
-          </div>
+          <ClockIcon className="h-5 w-5 sm:h-6 sm:w-6" />
           {hasUnread && (
             <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold rounded-full px-2 py-[1px] shadow animate-pulse">
               NEW
@@ -427,51 +409,42 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
           )}
         </motion.button>
 
-        {!isMobile && (
-          <>
-            <ScheduleMeet userDetails={userDetails} position={pos} closeAllModals={closeAll} />
-            <QuickCallInvite userDetails={userDetails} position={pos} closeAllModals={closeAll} />
-          </>
-        )}
+        {/* kept exactly like before (visible on all viewports) */}
+        <ScheduleMeet userDetails={userDetails} position={pos} closeAllModals={closeAll} />
+        <QuickCallInvite userDetails={userDetails} position={pos} closeAllModals={closeAll} />
       </div>
 
-      {/* CHAT SHEET */}
+      {/* CHATBOX */}
       <AnimatePresence>
         {showChatbox && (
           <motion.div
-            initial={{ opacity: 0, y: isMobile ? 30 : 20 }}
+            initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: isMobile ? 30 : 20 }}
+            exit={{ opacity: 0, y: 20 }}
             transition={{ duration: 0.25 }}
-            className={`mt-4 border shadow-2xl flex flex-col overflow-hidden z-50 ${
-              isMobile
-                ? "fixed inset-x-0 bottom-0 rounded-t-2xl bg-white max-h-[85vh]"
-                : "bg-white rounded-2xl w-[400px] max-h-[70vh]"
-            }`}
+            className="
+              bg-white rounded-2xl shadow-2xl border mt-3 flex flex-col z-50
+              w-[92vw] sm:w-[380px] md:w-[400px]
+              max-h-[70vh] sm:max-h-[72vh] overflow-hidden
+            "
           >
-            <div
-              className={`chatbox-header flex justify-between items-center text-white ${
-                isMobile
-                  ? "p-4 bg-gradient-to-r from-teal-500 to-cyan-600 rounded-t-2xl"
-                  : "p-4 bg-gradient-to-r from-teal-500 to-cyan-600 -mx-0"
-              }`}
-            >
-              <h3 className={`font-semibold ${isMobile ? "text-lg" : "text-xl"}`}>Messages</h3>
+            {/* header is drag handle */}
+            <div className="chatbox-header flex justify-between items-center bg-gradient-to-r from-teal-500 to-cyan-600 text-white px-4 py-3 sm:px-5 sm:py-4">
+              <h3 className="text-base sm:text-lg font-semibold">Messages</h3>
               <button
                 onClick={() => {
                   setShowChatbox(false);
                   if (setIsOpen) setIsOpen(false);
                 }}
-                className="text-white/90 hover:text-white text-2xl leading-none"
-                aria-label="Close"
+                className="text-white/90 hover:text-white"
               >
-                ×
+                ✕
               </button>
             </div>
 
-            <div className={`${isMobile ? "p-3" : "p-6"} space-y-3`}>
+            <div className="p-3 sm:p-4 space-y-3 sm:space-y-4 flex-1 flex flex-col overflow-hidden">
               <select
-                className="p-3 border rounded-lg w-full bg-gray-50 text-sm"
+                className="p-2 sm:p-2.5 border rounded-lg w-full bg-gray-50 text-sm"
                 value={selectedRecipient}
                 onChange={(e) => setSelectedRecipient(e.target.value)}
               >
@@ -482,75 +455,81 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
                   </option>
                 ))}
               </select>
-            </div>
 
-            <div
-              className={`flex-1 overflow-y-auto px-3 pb-2 ${isMobile ? "" : "pr-4"} `}
-              ref={chatContainerRef}
-              style={{ maxHeight: isMobile ? "calc(85vh - 210px)" : undefined }}
-            >
-              {selectedRecipient ? (
-                <ul className="space-y-3">
-                  {messages
-                    .filter(
-                      (m) =>
-                        (m.senderId === Number(userDetails.id) &&
-                          m.recipientId === Number(selectedRecipient)) ||
-                        (m.senderId === Number(selectedRecipient) &&
-                          m.recipientId === Number(userDetails.id))
-                    )
-                    .slice(-50) // show a bit more on mobile
-                    .map((m) => {
-                      const sender = users.find((u) => u.id === m.senderId);
-                      const isOwnMessage = m.senderId === Number(userDetails.id);
-                      return (
-                        <li key={m.id} className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
-                          <div
-                            className={`flex items-start gap-2 max-w-[85%] p-3 rounded-xl border text-sm ${
-                              isOwnMessage ? "bg-teal-100 ml-8" : "bg-gray-100 mr-8"
-                            }`}
+              <div
+                className="flex-1 overflow-y-auto pr-1 sm:pr-2"
+                ref={chatContainerRef}
+              >
+                {selectedRecipient ? (
+                  <ul className="space-y-2 sm:space-y-3">
+                    {messages
+                      .filter(
+                        (m) =>
+                          (m.senderId === Number(userDetails.id) &&
+                            m.recipientId === Number(selectedRecipient)) ||
+                          (m.senderId === Number(selectedRecipient) &&
+                            m.recipientId === Number(userDetails.id))
+                      )
+                      .slice(-40) // show a few more but still compact
+                      .map((m) => {
+                        const sender = users.find((u) => u.id === m.senderId);
+                        const isOwnMessage = m.senderId === Number(userDetails.id);
+                        return (
+                          <li
+                            key={m.id}
+                            className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}
                           >
-                            {!isOwnMessage && (
-                              <img
-                                src={getValidImageUrl(sender?.image)}
-                                alt={`${sender?.name || "User"}'s profile`}
-                                className="w-8 h-8 rounded-full object-cover shrink-0"
-                                onError={(e) => (e.target.src = "https://via.placeholder.com/32")}
-                              />
-                            )}
-                            <div>
-                              <p className="text-[11px] text-gray-500">
-                                {new Date(m.createdAt).toLocaleTimeString()}
-                              </p>
-                              <p
-                                className="break-words"
-                                dangerouslySetInnerHTML={{ __html: linkify(m.content) }}
-                              />
+                            <div
+                              className={`flex items-start gap-2 max-w-[86%] sm:max-w-[80%] p-2 sm:p-3 rounded-xl border ${
+                                isOwnMessage ? "bg-teal-100 ml-6 sm:ml-8" : "bg-gray-100 mr-6 sm:mr-8"
+                              }`}
+                            >
+                              {!isOwnMessage && (
+                                <img
+                                  src={getValidImageUrl(sender?.image)}
+                                  alt={`${sender?.name || "User"}'s profile`}
+                                  className="w-7 h-7 sm:w-8 sm:h-8 rounded-full object-cover flex-shrink-0"
+                                  onError={(e) => {
+                                    e.currentTarget.src = "https://via.placeholder.com/32";
+                                  }}
+                                />
+                              )}
+                              <div className="min-w-0">
+                                <p className="text-[10px] sm:text-xs text-gray-500">
+                                  {new Date(m.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                </p>
+                                <p
+                                  className="text-sm sm:text-[15px] leading-snug break-words"
+                                  dangerouslySetInnerHTML={{ __html: linkify(m.content) }}
+                                />
+                              </div>
+                              {isOwnMessage && (
+                                <img
+                                  src={getValidImageUrl(userDetails?.image)}
+                                  alt="Your profile"
+                                  className="w-7 h-7 sm:w-8 sm:h-8 rounded-full object-cover flex-shrink-0"
+                                  onError={(e) => {
+                                    e.currentTarget.src = "https://via.placeholder.com/32";
+                                  }}
+                                />
+                              )}
                             </div>
-                            {isOwnMessage && (
-                              <img
-                                src={getValidImageUrl(userDetails?.image)}
-                                alt="Your profile"
-                                className="w-8 h-8 rounded-full object-cover shrink-0"
-                                onError={(e) => (e.target.src = "https://via.placeholder.com/32")}
-                              />
-                            )}
-                          </div>
-                        </li>
-                      );
-                    })}
-                  <div ref={messagesEndRef} />
-                </ul>
-              ) : (
-                <p className="text-gray-500 text-center mt-5 text-sm">Select a recipient to start chatting.</p>
-              )}
-            </div>
+                          </li>
+                        );
+                      })}
+                    <div ref={messagesEndRef} />
+                  </ul>
+                ) : (
+                  <p className="text-gray-500 text-center mt-4 text-sm">
+                    Select a recipient to start chatting.
+                  </p>
+                )}
+              </div>
 
-            <div className={`border-t ${isMobile ? "p-3" : "p-4"} bg-white`}>
               <div className="flex gap-2">
                 <input
                   type="text"
-                  className="flex-1 p-3 border rounded-lg bg-gray-50 text-sm"
+                  className="flex-1 p-2 sm:p-3 border rounded-lg bg-gray-50 text-sm"
                   placeholder="Type message..."
                   value={messageContent}
                   onChange={(e) => setMessageContent(e.target.value)}
@@ -558,18 +537,18 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
                 />
                 <button
                   onClick={sendMessage}
-                  className="px-4 py-3 bg-gradient-to-r from-teal-500 to-cyan-600 text-white rounded-lg active:scale-95"
+                  className="p-2.5 sm:p-3 bg-gradient-to-r from-teal-500 to-cyan-600 text-white rounded-lg"
                   aria-label="Send"
                 >
                   <PaperAirplaneIcon className="h-5 w-5" />
                 </button>
               </div>
 
-              <div className="flex items-center mt-3 gap-2">
+              <div className="flex items-center mt-1 sm:mt-2 gap-2">
                 <select
                   value={recordLang}
                   onChange={(e) => setRecordLang(e.target.value)}
-                  className="p-2 border rounded-lg bg-gray-50 text-sm"
+                  className="p-1.5 border rounded-lg bg-gray-50 text-xs sm:text-sm"
                 >
                   <option value="hi-IN">Hindi</option>
                   <option value="en-US">English</option>
@@ -577,22 +556,22 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
                 <motion.button
                   onClick={startVoiceRecording}
                   disabled={isRecording}
-                  className={`px-3 py-2 rounded-lg text-sm font-medium ${
+                  className={`px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium ${
                     isRecording ? "bg-gray-400 cursor-not-allowed text-white" : "bg-teal-600 text-white hover:bg-teal-700"
                   }`}
-                  whileHover={{ scale: isRecording ? 1 : 1.03 }}
-                  whileTap={{ scale: isRecording ? 1 : 0.97 }}
+                  whileHover={{ scale: isRecording ? 1 : 1.04 }}
+                  whileTap={{ scale: isRecording ? 1 : 0.96 }}
                 >
                   {isRecording ? "Recording..." : "Record"}
                 </motion.button>
                 {recordLang === "hi-IN" && (
                   <motion.button
                     onClick={handleTranslateMessage}
-                    className="px-3 py-2 rounded-lg text-sm font-medium bg-purple-600 text-white hover:bg-purple-700"
-                    whileHover={{ scale: 1.03 }}
-                    whileTap={{ scale: 0.97 }}
+                    className="px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium bg-purple-600 text-white hover:bg-purple-700"
+                    whileHover={{ scale: 1.04 }}
+                    whileTap={{ scale: 0.96 }}
                   >
-                    Translate
+                    Translate → EN
                   </motion.button>
                 )}
               </div>
@@ -601,34 +580,33 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
         )}
       </AnimatePresence>
 
-      {/* HISTORY SHEET */}
+      {/* HISTORY */}
       <AnimatePresence>
         {showHistory && (
           <motion.div
-            initial={{ opacity: 0, y: isMobile ? 30 : 20 }}
+            initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: isMobile ? 30 : 20 }}
+            exit={{ opacity: 0, y: 20 }}
             transition={{ duration: 0.25 }}
-            className={`border shadow-2xl overflow-y-auto z-50 ${
-              isMobile
-                ? "fixed inset-x-0 bottom-0 rounded-t-2xl bg-white max-h-[80vh]"
-                : "fixed bg-white rounded-2xl p-6 w-[400px] max-h-[60vh] mt-4"
-            }`}
-            style={!isMobile ? { right: `${pos.x}px`, bottom: `${-pos.y + 100}px` } : {}}
+            className="
+              fixed bg-white rounded-2xl shadow-2xl border z-50
+              w-[92vw] sm:w-[360px] md:w-[380px]
+              max-h-[62vh] overflow-y-auto mt-3
+            "
+            style={{ right: `${pos.x}px`, bottom: `${-pos.y + 96}px` }}
             ref={historyContainerRef}
           >
-            <div className="flex justify-between items-center mb-4 bg-gradient-to-r from-blue-500 to-indigo-600 text-white p-4 rounded-t-2xl">
-              <h3 className="text-lg sm:text-xl font-semibold">Chat History</h3>
+            <div className="flex justify-between items-center bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-4 py-3 sm:px-5 sm:py-4 rounded-t-2xl">
+              <h3 className="text-base sm:text-lg font-semibold">Chat History</h3>
               <button
                 onClick={() => setShowHistory(false)}
-                className="text-white/90 hover:text-white text-2xl leading-none"
-                aria-label="Close"
+                className="text-white/90 hover:text-white"
               >
-                ×
+                ✕
               </button>
             </div>
 
-            <div className={`${isMobile ? "px-3 pb-3" : ""}`}>
+            <div className="p-3 sm:p-4">
               {(() => {
                 const partnerIds = new Set(
                   messages
@@ -637,7 +615,9 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
                         m.senderId === Number(userDetails.id) ||
                         m.recipientId === Number(userDetails.id)
                     )
-                    .map((m) => (m.senderId === Number(userDetails.id) ? m.recipientId : m.senderId))
+                    .map((m) =>
+                      m.senderId === Number(userDetails.id) ? m.recipientId : m.senderId
+                    )
                 );
 
                 const partners = users
@@ -655,7 +635,7 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
                   });
 
                 if (!partners.length)
-                  return <p className="text-gray-500 text-center px-4 pb-4">No conversation history.</p>;
+                  return <p className="text-gray-500 text-center text-sm">No conversation history.</p>;
 
                 return partners.map((u) => {
                   const lastMsg = messages
@@ -667,7 +647,7 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
                     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
 
                   return (
-                    <button
+                    <div
                       key={u.id}
                       onClick={() => {
                         setSelectedRecipient(String(u.id));
@@ -675,18 +655,18 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
                         setShowChatbox(true);
                         if (setIsOpen) setIsOpen(true);
                       }}
-                      className="relative w-full text-left mb-3 p-3 bg-gray-50 border rounded-lg hover:bg-blue-50 flex items-center gap-3"
+                      className="relative mb-2 sm:mb-3 p-2.5 sm:p-3 bg-gray-50 border rounded-lg cursor-pointer hover:bg-blue-50 flex items-center gap-2 sm:gap-3"
                     >
                       <img
                         src={getValidImageUrl(u.image)}
                         alt={`${u.name}'s profile`}
-                        className="w-10 h-10 rounded-full object-cover"
-                        onError={(e) => (e.target.src = "https://via.placeholder.com/40")}
+                        className="w-9 h-9 sm:w-10 sm:h-10 rounded-full object-cover"
+                        onError={(e) => {
+                          e.currentTarget.src = "https://via.placeholder.com/40";
+                        }}
                       />
                       <div className="flex-1 min-w-0">
-                        <p className="font-semibold truncate">
-                          {u.name} ({getRole(u)})
-                        </p>
+                        <p className="font-semibold truncate text-sm">{u.name} ({getRole(u)})</p>
                         <p
                           className="text-xs text-gray-600 break-words"
                           style={{ wordBreak: "break-word", overflowWrap: "break-word" }}
@@ -696,11 +676,11 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
                         />
                       </div>
                       {unreadCounts[u.id] > 0 && (
-                        <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold rounded-full px-1 py-[1px] shadow animate-pulse">
+                        <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold rounded-full px-1.5 py-[1px] shadow">
                           {unreadCounts[u.id]}
                         </span>
                       )}
-                    </button>
+                    </div>
                   );
                 });
               })()}
@@ -709,7 +689,7 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
         )}
       </AnimatePresence>
 
-      {/* Task details modal unchanged */}
+      {/* Task Details Modal */}
       <AnimatePresence>
         {showTaskDetailsModal && (
           <motion.div
@@ -719,11 +699,11 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
             className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 z-50"
           >
             <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
+              initial={{ scale: 0.96, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              transition={{ duration: 0.3 }}
-              className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md border border-teal-300 relative"
+              exit={{ scale: 0.96, opacity: 0 }}
+              transition={{ duration: 0.25 }}
+              className="bg-white rounded-2xl shadow-2xl p-5 sm:p-6 w-full max-w-sm sm:max-w-md border border-teal-300 relative"
             >
               <button
                 onClick={() => {
@@ -731,12 +711,14 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
                   setSelectedTask(null);
                   setTaskLogs([]);
                 }}
-                className="absolute top-2 right-2 text-gray-500 hover:text-gray-700 text-xl font-bold"
+                className="absolute top-2 right-2 text-gray-500 hover:text-gray-700 text-lg font-bold"
               >
-                X
+                ×
               </button>
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Task Details</h2>
-              <div className="space-y-3">
+              <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">
+                Task Details
+              </h2>
+              <div className="space-y-2.5 sm:space-y-3">
                 <p className="text-sm font-medium text-gray-700">
                   <strong>Title:</strong> {selectedTask?.title || "Untitled Task"}
                 </p>
@@ -760,7 +742,9 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
                 </p>
                 <p className="text-sm font-medium text-gray-700">
                   <strong>Deadline:</strong>{" "}
-                  {selectedTask?.deadline ? new Date(selectedTask.deadline).toLocaleDateString() : "No deadline"}
+                  {selectedTask?.deadline
+                    ? new Date(selectedTask.deadline).toLocaleDateString()
+                    : "No deadline"}
                 </p>
                 <p className="text-sm font-medium text-gray-700">
                   <strong>Resources:</strong> {selectedTask?.resources || "No resources"}
@@ -772,9 +756,11 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
                     <ul className="space-y-2">
                       {selectedTask.sprints.map((s) => (
                         <li key={s.id} className="p-2 bg-gray-50 rounded border">
-                          <p className="font-medium">{s.title || "Untitled Sprint"}</p>
-                          <p className="text-sm text-gray-600">Status: {s.status?.replace("_", " ") || "Unknown"}</p>
-                          <p className="text-sm text-gray-600">{s.description || "No description."}</p>
+                          <p className="font-medium text-sm">{s.title || "Untitled Sprint"}</p>
+                          <p className="text-xs text-gray-600">
+                            Status: {s.status?.replace("_", " ") || "Unknown"}
+                          </p>
+                          <p className="text-xs text-gray-600">{s.description || "No description."}</p>
                         </li>
                       ))}
                     </ul>
@@ -783,13 +769,16 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
 
                 <div>
                   <h3 className="text-sm font-semibold text-gray-700 mb-2">Discussion</h3>
-                  <div className="max-h-40 overflow-y-auto space-y-2">
+                  <div className="max-h-36 sm:max-h-40 overflow-y-auto space-y-2">
                     {taskLogs.length === 0 ? (
                       <p className="text-sm text-gray-500">No discussion yet.</p>
                     ) : (
                       taskLogs.map((log) => (
-                        <div key={log.id} className="p-3 bg-gray-50 rounded-lg shadow-sm border border-gray-200">
-                          <p className="text-xs text-gray-600">
+                        <div
+                          key={log.id}
+                          className="p-2.5 bg-gray-50 rounded-lg shadow-sm border border-gray-200"
+                        >
+                          <p className="text-[11px] sm:text-xs text-gray-600">
                             {users.find((u) => u.id === log.userId)?.name || "Unknown"} (
                             {new Date(log.createdAt).toLocaleString()}):
                           </p>
@@ -799,10 +788,10 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
                     )}
                   </div>
                 </div>
-                <div className="flex justify-end mt-4">
+                <div className="flex justify-end pt-1">
                   <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
+                    whileHover={{ scale: 1.03 }}
+                    whileTap={{ scale: 0.97 }}
                     onClick={() => {
                       setShowTaskDetailsModal(false);
                       setSelectedTask(null);
@@ -819,34 +808,32 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
         )}
       </AnimatePresence>
 
-      {/* Coming soon */}
+      {/* Coming soon modal */}
       <AnimatePresence>
         {showComingSoonModal && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 z-50"
           >
             <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
+              initial={{ scale: 0.96, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              transition={{ duration: 0.3 }}
-              className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md border border-teal-300 relative"
+              exit={{ scale: 0.96, opacity: 0 }}
+              transition={{ duration: 0.25 }}
+              className="bg-white rounded-2xl shadow-2xl p-5 sm:p-6 w-full max-w-sm border border-teal-300 relative"
             >
               <button
                 onClick={() => setShowComingSoonModal(false)}
-                className="absolute top-2 right-2 text-gray-500 hover:text-gray-700 text-xl font-bold"
+                className="absolute top-2 right-2 text-gray-500 hover:text-gray-700 text-lg font-bold"
               >
-                X
+                ×
               </button>
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Coming Soon</h2>
-              <p>Translation is coming soon.</p>
+              <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-3">Coming Soon</h2>
+              <p className="text-sm">Translation is coming soon.</p>
               <div className="flex justify-end mt-4">
                 <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.97 }}
                   onClick={() => setShowComingSoonModal(false)}
                   className="px-4 py-2 bg-gray-500 text-white rounded-md text-sm font-medium"
                 >
