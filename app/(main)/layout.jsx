@@ -3,6 +3,7 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation"; // Import usePathname
 import ChatBox from "@/components/ChatBox";
 import { useSocket } from "@/lib/useSocket";
 
@@ -14,6 +15,7 @@ export default function MainLayout({ children }) {
   const [chatboxOpen, setChatboxOpen] = useState(false);
   const [chatRecipient, setChatRecipient] = useState("");
   const socket = useSocket(session?.user?.id);
+  const pathname = usePathname(); // Get current route
 
   useEffect(() => {
     setMounted(true);
@@ -34,6 +36,13 @@ export default function MainLayout({ children }) {
       });
     }
   }, [session]);
+
+  // Define routes where ChatBox should be hidden
+  const hideChatBoxRoutes = [
+    "/dashboard/admin/profile",
+    "/dashboard/team_manager/profile",
+    "/dashboard/member/profile",
+  ];
 
   if (!mounted || status === "loading") {
     return (
@@ -74,7 +83,7 @@ export default function MainLayout({ children }) {
         {children}
       </main>
       <Footer className="h-10" />
-      {userDetails.id && socket && (
+      {userDetails.id && socket && !hideChatBoxRoutes.includes(pathname) && (
         <ChatBox
           userDetails={userDetails}
           socket={socket}

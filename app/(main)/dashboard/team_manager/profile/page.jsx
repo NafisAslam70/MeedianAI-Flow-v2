@@ -5,9 +5,9 @@
 // }
 "use client";
 import { useState } from "react";
-import { useSession } from "next-auth/react";
 import Profile from "@/components/Profile";
 import ChatBox from "@/components/ChatBox";
+import { useSession } from "next-auth/react";
 
 export default function TeamManagerProfilePage() {
   const [chatboxOpen, setChatboxOpen] = useState(false);
