@@ -334,7 +334,7 @@ export default function MyPerformance() {
         {/* ====== MAIN (only when no detail section is open) ====== */}
         {!activeSection && (
           <>
-            {/* Streak header (modernized but same container size context) */}
+            {/* Streak header */}
             <motion.div
               className="rounded-3xl border border-teal-200 bg-gradient-to-r from-amber-50 via-orange-50 to-pink-50 p-4 sm:p-6 shadow-lg"
               initial={{ opacity: 0, y: -10 }}
@@ -365,7 +365,7 @@ export default function MyPerformance() {
               )}
             </motion.div>
 
-            {/* Grid of 4 mini-cards (consistent styling) */}
+            {/* Cards grid (now 4 columns on md) */}
             <motion.div
               key="cards"
               initial={{ opacity: 0, y: 12 }}
@@ -373,7 +373,47 @@ export default function MyPerformance() {
               transition={{ duration: 0.25 }}
               className="grid grid-cols-1 md:grid-cols-4 gap-6"
             >
-              {/* 1) LEAVE (merged: stats + open button) */}
+              {/* 0) STREAK (mini) */}
+              <motion.div
+                onClick={() => setActiveSection("dayclose")}
+                className="cursor-pointer bg-white rounded-xl shadow-md border border-orange-200/60 p-5 flex flex-col justify-between hover:shadow-lg transition-shadow"
+                style={{ minHeight: "11rem" }}
+                whileHover={{ scale: 1.02 }}
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <Flame className="w-6 h-6 text-orange-500" />
+                  <h2 className="text-lg font-semibold">Streak</h2>
+                </div>
+                <div className="flex items-end justify-between">
+                  <div>
+                    <div className="text-xs text-gray-500">Till yesterday</div>
+                    <div className="text-[1.7rem] font-extrabold text-gray-800 leading-none">
+                      {streakDays}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      {plural(streakDays, "day")}
+                    </div>
+                  </div>
+                  {yesterdaySummary && (
+                    <span
+                      className={`text-xs h-min px-2 py-1 rounded-full border ${
+                        delta > 0
+                          ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                          : delta < 0
+                          ? "bg-red-50 text-red-700 border-red-200"
+                          : "bg-gray-50 text-gray-600 border-gray-200"
+                      }`}
+                    >
+                      {trendLabel}
+                    </span>
+                  )}
+                </div>
+                <div className="mt-3 text-right text-xs text-gray-500">
+                  Tap to view Day Close →
+                </div>
+              </motion.div>
+
+              {/* 1) LEAVE */}
               <motion.div
                 className="bg-white rounded-xl shadow-md border border-indigo-100/70 p-5 flex flex-col justify-between hover:shadow-lg transition-shadow"
                 style={{ minHeight: "11rem" }}
@@ -420,7 +460,7 @@ export default function MyPerformance() {
                 </div>
               </motion.div>
 
-              {/* 2) DAY CLOSE HISTORY */}
+              {/* 2) DAY CLOSE HISTORY (tile) */}
               <motion.div
                 onClick={() => setActiveSection("dayclose")}
                 className="cursor-pointer bg-white rounded-xl shadow-md border border-teal-100/50 p-5 flex flex-col justify-between hover:shadow-lg transition-shadow"
@@ -437,9 +477,9 @@ export default function MyPerformance() {
                 <div className="text-xs text-gray-500">Tap to open →</div>
               </motion.div>
 
-              {/* 3) REVIEWS & METRICS (coming soon) */}
+              {/* 3) REVIEWS & METRICS (as a CARD) */}
               <motion.div
-                className="bg-white rounded-xl shadow-md border border-teal-100/50 p-5 flex flex-col justify-between opacity-90"
+                className="bg-white rounded-xl shadow-md border border-teal-100/50 p-5 flex flex-col justify-between opacity-95"
                 style={{ minHeight: "11rem" }}
                 whileHover={{ scale: 1.01 }}
               >
@@ -462,70 +502,75 @@ export default function MyPerformance() {
                 </p>
                 <div className="text-xs text-gray-500">Stay tuned</div>
               </motion.div>
+            </motion.div>
 
-              {/* 4) ASSIGNED TASK PERFORMANCE (summary) */}
-              <motion.div
-                className="bg-white rounded-xl shadow-md border border-teal-100/50 p-5 flex flex-col gap-3"
-                style={{ minHeight: "11rem" }}
-                whileHover={{ scale: 1.01 }}
-              >
-                <div className="flex items-center gap-2">
-                  <CheckSquare className="w-6 h-6 text-teal-600" />
-                  <h2 className="text-lg font-semibold">
-                    Assigned Task Performance
-                  </h2>
+            {/* FULL-WIDTH Assigned Task Performance (bottom strip, one row) */}
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25 }}
+              className="bg-white rounded-2xl shadow-md border border-teal-100/60 p-5"
+            >
+              <div className="flex items-center gap-2 mb-3">
+                <CheckSquare className="w-5 h-5 text-teal-600" />
+                <h2 className="text-lg font-semibold">Assigned Task Performance</h2>
+              </div>
+
+              {isLoadingAssignedSummary ? (
+                <div className="flex gap-3 overflow-hidden">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="h-12 w-40 animate-pulse rounded-2xl bg-gray-200/60"
+                    />
+                  ))}
                 </div>
-
-                {isLoadingAssignedSummary ? (
-                  <div className="grid grid-cols-2 gap-3">
-                    {Array.from({ length: 5 }).map((_, i) => (
-                      <div
-                        key={i}
-                        className="h-10 w-full animate-pulse rounded-2xl bg-gray-200/50"
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="rounded-2xl bg-indigo-50/70 p-3 text-center">
-                      <div className="text-xs text-gray-500">Total</div>
-                      <div className="text-[1.1rem] font-bold text-indigo-600">
+              ) : (
+                <div className="overflow-x-auto">
+                  <div className="min-w-max flex gap-3">
+                    <div className="rounded-2xl bg-indigo-50/70 px-4 py-3 text-center border border-indigo-100">
+                      <div className="text-[0.7rem] text-gray-500 uppercase tracking-wide">
+                        Total
+                      </div>
+                      <div className="text-xl font-bold text-indigo-700">
                         {assignedSummary.total}
                       </div>
                     </div>
-                    <div className="rounded-2xl bg-green-50/70 p-3 text-center">
-                      <div className="text-xs text-gray-500">
+                    <div className="rounded-2xl bg-green-50/70 px-4 py-3 text-center border border-green-100">
+                      <div className="text-[0.7rem] text-gray-500 uppercase tracking-wide">
                         Completed (Today)
                       </div>
-                      <div className="text-[1.1rem] font-bold text-green-600">
+                      <div className="text-xl font-bold text-green-700">
                         {assignedSummary.completed}
                       </div>
                     </div>
-                    <div className="rounded-2xl bg-blue-50/70 p-3 text-center">
-                      <div className="text-xs text-gray-500">Pending</div>
-                      <div className="text-[1.1rem] font-bold text-blue-700">
-                        {clamp0(
-                          assignedSummary.total - assignedSummary.completed
-                        )}
+                    <div className="rounded-2xl bg-blue-50/70 px-4 py-3 text-center border border-blue-100">
+                      <div className="text-[0.7rem] text-gray-500 uppercase tracking-wide">
+                        Pending
+                      </div>
+                      <div className="text-xl font-bold text-blue-700">
+                        {clamp0(assignedSummary.total - assignedSummary.completed)}
                       </div>
                     </div>
-                    <div className="rounded-2xl bg-yellow-50/70 p-3 text-center">
-                      <div className="text-xs text-gray-500">In Progress</div>
-                      <div className="text-[1.1rem] font-bold text-yellow-600">
+                    <div className="rounded-2xl bg-yellow-50/70 px-4 py-3 text-center border border-yellow-100">
+                      <div className="text-[0.7rem] text-gray-500 uppercase tracking-wide">
+                        In Progress
+                      </div>
+                      <div className="text-xl font-bold text-yellow-700">
                         {assignedSummary.inProgress}
                       </div>
                     </div>
-                    <div className="rounded-2xl bg-orange-50/70 p-3 text-center">
-                      <div className="text-xs text-gray-500">
+                    <div className="rounded-2xl bg-orange-50/70 px-4 py-3 text-center border border-orange-100">
+                      <div className="text-[0.7rem] text-gray-500 uppercase tracking-wide">
                         Awaiting Verification
                       </div>
-                      <div className="text-[1.1rem] font-bold text-orange-600">
+                      <div className="text-xl font-bold text-orange-700">
                         {assignedSummary.pendingVerification}
                       </div>
                     </div>
                   </div>
-                )}
-              </motion.div>
+                </div>
+              )}
             </motion.div>
           </>
         )}
