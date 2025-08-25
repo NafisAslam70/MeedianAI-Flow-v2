@@ -3,8 +3,9 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { users, openCloseTimes } from "@/lib/schema";
 import { eq, sql } from "drizzle-orm";
-import { writeFile, unlink } from "fs/promises";
+import { writeFile, unlink, mkdir } from "fs/promises";
 import path from "path";
+import bcrypt from "bcrypt";
 
 export async function GET(req) {
   try {
@@ -111,10 +112,27 @@ export async function PATCH(request) {
     if (image && image instanceof File) {
       const validTypes = ["image/jpeg", "image/png", "image/gif"];
       if (!validTypes.includes(image.type)) {
-        return NextResponse.json({ error: "Invalid image type. Use JPEG, PNG, or GIF." }, { status: 400 });
+        return NextResponse.json(
+          { error: "Invalid image type. Use JPEG, PNG, or GIF." },
+          { status: 400 }
+        );
       }
       if (image.size > 5 * 1024 * 1024) {
-        return NextResponse.json({ error: "Image size must be less than 5MB" }, { status: 400 });
+        return NextResponse.json(
+          { error: "Image size must be less than 5MB" },
+          { status: 400 }
+        );
+      }
+
+      const uploadsDir = path.join(process.cwd(), "public", "uploads");
+      try {
+        await mkdir(uploadsDir, { recursive: true });
+      } catch (err) {
+        console.error("Failed to create uploads directory:", err);
+        return NextResponse.json(
+          { error: "Failed to create uploads directory" },
+          { status: 500 }
+        );
       }
 
       if (session.user.image && session.user.image !== "/default-avatar.png") {
@@ -129,7 +147,15 @@ export async function PATCH(request) {
       const fileName = `${session.user.id}-${Date.now()}${path.extname(image.name)}`;
       const filePath = path.join(process.cwd(), "public", "uploads", fileName);
       const buffer = Buffer.from(await image.arrayBuffer());
-      await writeFile(filePath, buffer);
+      try {
+        await writeFile(filePath, buffer);
+      } catch (err) {
+        console.error("Failed to write image file:", { filePath, error: err.message });
+        return NextResponse.json(
+          { error: "Failed to save image file" },
+          { status: 500 }
+        );
+      }
       imageUrl = `/uploads/${fileName}`;
     }
 
@@ -140,26 +166,38 @@ export async function PATCH(request) {
       image: imageUrl,
     };
     console.log("Updating user with data:", updateData);
-    const [updatedUser] = await db
-      .update(users)
-      .set(updateData)
-      .where(eq(users.id, parseInt(session.user.id)))
-      .returning({
-        id: users.id,
-        name: users.name,
-        email: users.email,
-        whatsapp_number: users.whatsapp_number,
-        whatsapp_enabled: users.whatsapp_enabled,
-        image: users.image,
-        role: users.role,
-        team_manager_type: users.team_manager_type,
-      });
+    let updatedUser;
+    try {
+      [updatedUser] = await db
+        .update(users)
+        .set(updateData)
+        .where(eq(users.id, parseInt(session.user.id)))
+        .returning({
+          id: users.id,
+          name: users.name,
+          email: users.email,
+          whatsapp_number: users.whatsapp_number,
+          whatsapp_enabled: users.whatsapp_enabled,
+          image: users.image,
+          role: users.role,
+          team_manager_type: users.team_manager_type,
+        });
+    } catch (err) {
+      console.error("Database update error:", err);
+      return NextResponse.json(
+        { error: "Failed to update user in database" },
+        { status: 500 }
+      );
+    }
     console.log("Updated user:", updatedUser);
 
     return NextResponse.json({ user: updatedUser });
   } catch (error) {
     console.error("Profile update error:", error);
-    return NextResponse.json({ error: "Failed to update profile" }, { status: 500 });
+    return NextResponse.json(
+      { error: `Failed to update profile: ${error.message}` },
+      { status: 500 }
+    );
   }
 }
 
@@ -173,11 +211,17 @@ export async function POST(request) {
     const { currentPassword, newPassword } = await request.json();
 
     if (!currentPassword || !newPassword) {
-      return NextResponse.json({ error: "Current and new passwords are required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Current and new passwords are required" },
+        { status: 400 }
+      );
     }
 
     if (newPassword.length < 8) {
-      return NextResponse.json({ error: "New password must be at least 8 characters long" }, { status: 400 });
+      return NextResponse.json(
+        { error: "New password must be at least 8 characters long" },
+        { status: 400 }
+      );
     }
 
     const [user] = await db
@@ -189,12 +233,15 @@ export async function POST(request) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    const isValid = currentPassword === user.password; // Replace with bcrypt comparison in production
+    const isValid = await bcrypt.compare(currentPassword, user.password);
     if (!isValid) {
-      return NextResponse.json({ error: "Incorrect current password" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Incorrect current password" },
+        { status: 400 }
+      );
     }
 
-    const hashedPassword = newPassword; // Replace with bcrypt hash in production
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
     await db
       .update(users)
       .set({ password: hashedPassword })
@@ -203,7 +250,10 @@ export async function POST(request) {
     return NextResponse.json({ message: "Password changed successfully" });
   } catch (error) {
     console.error("Password change error:", error);
-    return NextResponse.json({ error: "Failed to change password" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to change password" },
+      { status: 500 }
+    );
   }
 }
 
@@ -247,9 +297,15 @@ export async function DELETE(request) {
         team_manager_type: users.team_manager_type,
       });
 
-    return NextResponse.json({ user: updatedUser, message: "Profile picture removed" });
+    return NextResponse.json({
+      user: updatedUser,
+      message: "Profile picture removed",
+    });
   } catch (error) {
     console.error("Image deletion error:", error);
-    return NextResponse.json({ error: "Failed to delete profile picture" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to delete profile picture" },
+      { status: 500 }
+    );
   }
 }
