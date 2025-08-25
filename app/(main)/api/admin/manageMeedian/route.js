@@ -2,14 +2,13 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import {
-  // core you already used
   users,
   openCloseTimes,
   dailySlots,
   dailySlotAssignments,
   schoolCalendar,
   students,
-  // NEW: all tables that reference users (directly or indirectly)
+  // extra tables referenced in deletes
   dailySlotLogs,
   routineTasks,
   routineTaskLogs,
@@ -486,7 +485,7 @@ export async function PATCH(req) {
 }
 
 /* ============================== DELETE ============================== */
-// DELETE Handler: Delete a calendar entry, slot assignment, or user (full FK cleanup)
+// DELETE Handler: Delete a calendar entry, slot assignment, or user (no transactions; ordered cleanup)
 export async function DELETE(req) {
   const session = await auth();
   if (!session || !["admin", "team_manager"].includes(session.user?.role)) {
@@ -534,58 +533,57 @@ export async function DELETE(req) {
         return NextResponse.json({ error: "Insufficient privileges to delete an admin." }, { status: 403 });
       }
 
-      await db.transaction(async (tx) => {
-        // ---- DAILY SLOTS ----
-        await tx.delete(dailySlotAssignments).where(eq(dailySlotAssignments.memberId, userId));
-        await tx.update(dailySlots).set({ assignedMemberId: null }).where(eq(dailySlots.assignedMemberId, userId));
-        await tx.update(dailySlotLogs).set({ createdBy: null }).where(eq(dailySlotLogs.createdBy, userId));
+      // --- CLEANUP IN SAFE ORDER (no transactions) ---
+      // 1) Daily slot assignments and slots
+      await db.delete(dailySlotAssignments).where(eq(dailySlotAssignments.memberId, userId));
+      await db.update(dailySlots).set({ assignedMemberId: null }).where(eq(dailySlots.assignedMemberId, userId));
+      await db.update(dailySlotLogs).set({ createdBy: null }).where(eq(dailySlotLogs.createdBy, userId));
 
-        // ---- ROUTINE TASKS (STATUSES -> LOGS -> TASKS) ----
-        const tasks = await tx
-          .select({ id: routineTasks.id })
-          .from(routineTasks)
-          .where(eq(routineTasks.memberId, userId));
-        if (tasks.length) {
-          const taskIds = tasks.map(t => t.id);
-          await tx.delete(routineTaskDailyStatuses).where(inArray(routineTaskDailyStatuses.routineTaskId, taskIds));
-          await tx.delete(routineTaskLogs).where(eq(routineTaskLogs.userId, userId));
-          await tx.delete(routineTasks).where(inArray(routineTasks.id, taskIds));
-        } else {
-          await tx.delete(routineTaskLogs).where(eq(routineTaskLogs.userId, userId));
-        }
+      // 2) Routine tasks: delete statuses -> logs -> tasks
+      const taskRows = await db
+        .select({ id: routineTasks.id })
+        .from(routineTasks)
+        .where(eq(routineTasks.memberId, userId));
+      if (taskRows.length) {
+        const taskIds = taskRows.map((t) => t.id);
+        await db.delete(routineTaskDailyStatuses).where(inArray(routineTaskDailyStatuses.routineTaskId, taskIds));
+        await db.delete(routineTaskLogs).where(inArray(routineTaskLogs.routineTaskId, taskIds));
+        await db.delete(routineTasks).where(inArray(routineTasks.id, taskIds));
+      }
+      // Also remove any stray logs authored by the user
+      await db.delete(routineTaskLogs).where(eq(routineTaskLogs.userId, userId));
 
-        // ---- ASSIGNED TASKS / STATUS / LOGS / SPRINTS ----
-        // (createdBy and memberId have cascades in your schema)
-        await tx.update(assignedTaskStatus).set({ verifiedBy: null }).where(eq(assignedTaskStatus.verifiedBy, userId));
-        await tx.update(assignedTaskLogs).set({ userId: null }).where(eq(assignedTaskLogs.userId, userId));
-        await tx.update(sprints).set({ verifiedBy: null }).where(eq(sprints.verifiedBy, userId));
+      // 3) Assigned tasks-related nullifications (cascades handle the rest)
+      await db.update(assignedTaskStatus).set({ verifiedBy: null }).where(eq(assignedTaskStatus.verifiedBy, userId));
+      await db.update(assignedTaskLogs).set({ userId: null }).where(eq(assignedTaskLogs.userId, userId));
+      await db.update(sprints).set({ verifiedBy: null }).where(eq(sprints.verifiedBy, userId));
+      // Note: assignedTaskStatus.memberId has onDelete:cascade; assignedTasks.createdBy has onDelete:cascade
 
-        // ---- MESSAGES ----
-        await tx.delete(messages).where(or(eq(messages.senderId, userId), eq(messages.recipientId, userId)));
+      // 4) Messages
+      await db.delete(messages).where(or(eq(messages.senderId, userId), eq(messages.recipientId, userId)));
 
-        // ---- LOGS / HISTORY / MISC ----
-        await tx.delete(generalLogs).where(eq(generalLogs.userId, userId));
-        await tx.delete(memberHistory).where(eq(memberHistory.memberId, userId));
-        await tx.delete(notCompletedTasks).where(eq(notCompletedTasks.userId, userId));
-        await tx.delete(userOpenCloseTimes).where(eq(userOpenCloseTimes.userId, userId));
+      // 5) Logs / history / misc
+      await db.delete(generalLogs).where(eq(generalLogs.userId, userId));
+      await db.delete(memberHistory).where(eq(memberHistory.memberId, userId));
+      await db.delete(notCompletedTasks).where(eq(notCompletedTasks.userId, userId));
+      await db.delete(userOpenCloseTimes).where(eq(userOpenCloseTimes.userId, userId));
 
-        // ---- DAY CLOSE REQUESTS ----
-        await tx.update(dayCloseRequests).set({ approvedBy: null }).where(eq(dayCloseRequests.approvedBy, userId));
-        await tx.delete(dayCloseRequests).where(eq(dayCloseRequests.userId, userId));
+      // 6) Day close requests
+      await db.update(dayCloseRequests).set({ approvedBy: null }).where(eq(dayCloseRequests.approvedBy, userId));
+      await db.delete(dayCloseRequests).where(eq(dayCloseRequests.userId, userId));
 
-        // ---- LEAVE REQUESTS ----
-        await tx
-          .update(leaveRequests)
-          .set({ approvedBy: null, transferTo: null })
-          .where(or(eq(leaveRequests.approvedBy, userId), eq(leaveRequests.transferTo, userId)));
-        await tx.delete(leaveRequests).where(or(eq(leaveRequests.userId, userId), eq(leaveRequests.submittedTo, userId)));
+      // 7) Leave requests
+      await db
+        .update(leaveRequests)
+        .set({ approvedBy: null, transferTo: null })
+        .where(or(eq(leaveRequests.approvedBy, userId), eq(leaveRequests.transferTo, userId)));
+      await db.delete(leaveRequests).where(or(eq(leaveRequests.userId, userId), eq(leaveRequests.submittedTo, userId)));
 
-        // ---- SUPERVISOR CHAIN ----
-        await tx.update(users).set({ immediate_supervisor: null }).where(eq(users.immediate_supervisor, userId));
+      // 8) Supervisor chain: detach reports
+      await db.update(users).set({ immediate_supervisor: null }).where(eq(users.immediate_supervisor, userId));
 
-        // ---- Finally, delete the user ----
-        await tx.delete(users).where(eq(users.id, userId));
-      });
+      // 9) Finally delete the user
+      await db.delete(users).where(eq(users.id, userId));
 
       return NextResponse.json({ message: "User deleted successfully" }, { status: 200 });
     }
