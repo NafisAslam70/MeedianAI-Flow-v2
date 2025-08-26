@@ -478,7 +478,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
       className="fixed top-14 left-0 right-0 bottom-14 z-40 flex items-center justify-center bg-gradient-to-br from-teal-50 to-blue-50/80 dark:from-gray-800/80 dark:to-gray-900/80 p-3 md:p-6"
     >
       <div
-        className="relative w-full max-w-[90vw] max-h-[80vh] bg-white/80 dark:bg-slate-900/70 border border-teal-200/70 shadow-xl rounded-2xl px-2 md:px-6 py-4 flex flex-col overflow-y-auto backdrop-blur-xl transition-all custom-scrollbar"
+        className="relative w-full max-w-[94vw] max-h-[80vh] bg-white/80 dark:bg-slate-900/70 border border-teal-200/70 shadow-xl rounded-2xl px-2 md:px-6 py-4 flex flex-col overflow-y-auto backdrop-blur-xl transition-all custom-scrollbar"
         style={{
           boxShadow: "0 8px 32px 0 rgba(16, 42, 67, 0.1), 0 2px 8px 0 rgba(16,42,67,0.08)",
         }}
@@ -616,7 +616,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                 <BookOpen className="w-4 h-4 text-teal-600" />
                 Meed Widgets for You
               </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                 <Link href="/dashboard/member/myPerformance">
                   <motion.div
                     className="bg-white/90 dark:bg-slate-800/90 rounded-lg shadow-md p-4 flex flex-col items-center justify-between cursor-pointer min-w-[120px] min-h-[140px]"
