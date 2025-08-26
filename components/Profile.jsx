@@ -34,7 +34,7 @@ export default function Profile({ setChatboxOpen = () => { }, setChatRecipient =
         subject: "",
         message: "",
         note: "",
-        contact: "",
+        contact: "admin@mymeedai.org", // Default value set to admin@mymeedai.org
     });
     const [profileImage, setProfileImage] = useState(null);
     const [imagePreview, setImagePreview] = useState(null);
@@ -57,7 +57,6 @@ export default function Profile({ setChatboxOpen = () => { }, setChatRecipient =
             });
             setImagePreview(session.user.image || "/default-avatar.png");
         }
-
         const fetchProfile = async () => {
             try {
                 const response = await fetch("/api/member/profile", { credentials: "include" });
@@ -86,7 +85,6 @@ export default function Profile({ setChatboxOpen = () => { }, setChatRecipient =
                 setTimeout(() => setError(""), 3000);
             }
         };
-
         const fetchUsers = async () => {
             try {
                 const response = await fetch("/api/member/users", { credentials: "include" });
@@ -105,7 +103,6 @@ export default function Profile({ setChatboxOpen = () => { }, setChatRecipient =
                 setTimeout(() => setError(""), 3000);
             }
         };
-
         const fetchLeaveHistory = async () => {
             try {
                 const response = await fetch("/api/member/leave-request", { credentials: "include" });
@@ -121,7 +118,6 @@ export default function Profile({ setChatboxOpen = () => { }, setChatRecipient =
                 setTimeout(() => setError(""), 3000);
             }
         };
-
         if (status === "authenticated") {
             fetchProfile();
             fetchUsers();
@@ -157,7 +153,7 @@ export default function Profile({ setChatboxOpen = () => { }, setChatRecipient =
         const { name, value } = e.target;
         setMessageData((prev) => ({
             ...prev,
-            [name]: name === "recipientId" ? parseInt(value) || "" : value.trim(),
+            [name]: name === "recipientId" ? parseInt(value) || "" : value,
         }));
     };
 
@@ -179,7 +175,6 @@ export default function Profile({ setChatboxOpen = () => { }, setChatRecipient =
         setIsLoading(true);
         setError("");
         setSuccess("");
-
         try {
             const formDataToSend = new FormData();
             formDataToSend.append("name", formData.name);
@@ -188,17 +183,14 @@ export default function Profile({ setChatboxOpen = () => { }, setChatRecipient =
             if (profileImage) {
                 formDataToSend.append("image", profileImage);
             }
-
             const response = await fetch("/api/member/profile", {
                 method: "PATCH",
                 body: formDataToSend,
             });
-
             const data = await response.json();
             if (!response.ok) {
                 throw new Error(data.error || "Failed to update profile");
             }
-
             setFormData({
                 name: data.user.name || "",
                 whatsapp_number: data.user.whatsapp_number || "",
@@ -207,7 +199,6 @@ export default function Profile({ setChatboxOpen = () => { }, setChatRecipient =
             setImagePreview(data.user.image || "/default-avatar.png");
             setSuccess("Profile updated successfully!");
             setTimeout(() => setSuccess(""), 2500);
-
             await fetch("/api/auth/session", { credentials: "include" });
             window.postMessage({ type: "PROFILE_UPDATED" }, window.location.origin);
         } catch (err) {
@@ -223,21 +214,18 @@ export default function Profile({ setChatboxOpen = () => { }, setChatRecipient =
         setIsLoading(true);
         setError("");
         setSuccess("");
-
         if (passwordData.newPassword !== passwordData.confirmPassword) {
             setError("New password and confirmation do not match");
             setTimeout(() => setError(""), 3000);
             setIsLoading(false);
             return;
         }
-
         if (passwordData.newPassword.length < 8) {
             setError("New password must be at least 8 characters long");
             setTimeout(() => setError(""), 3000);
             setIsLoading(false);
             return;
         }
-
         try {
             const response = await fetch("/api/member/profile", {
                 method: "POST",
@@ -247,12 +235,10 @@ export default function Profile({ setChatboxOpen = () => { }, setChatRecipient =
                     newPassword: passwordData.newPassword,
                 }),
             });
-
             const data = await response.json();
             if (!response.ok) {
                 throw new Error(data.error || "Failed to change password");
             }
-
             setSuccess("Password changed successfully!");
             setPasswordData({
                 currentPassword: "",
@@ -272,22 +258,18 @@ export default function Profile({ setChatboxOpen = () => { }, setChatRecipient =
         setIsLoading(true);
         setError("");
         setSuccess("");
-
         try {
             const response = await fetch("/api/member/profile", {
                 method: "DELETE",
             });
-
             const data = await response.json();
             if (!response.ok) {
                 throw new Error(data.error || "Failed to delete profile picture");
             }
-
             setProfileImage(null);
             setImagePreview(data.user.image || "/default-avatar.png");
             setSuccess("Profile picture removed!");
             setTimeout(() => setSuccess(""), 2500);
-
             await fetch("/api/auth/session", { credentials: "include" });
             window.postMessage({ type: "PROFILE_UPDATED" }, window.location.origin);
         } catch (err) {
@@ -303,14 +285,12 @@ export default function Profile({ setChatboxOpen = () => { }, setChatRecipient =
         setIsLoading(true);
         setError("");
         setSuccess("");
-
         if (!leaveRequest.startDate || !leaveRequest.endDate || !leaveRequest.reason) {
             setError("Please fill in all required fields");
             setTimeout(() => setError(""), 3000);
             setIsLoading(false);
             return;
         }
-
         try {
             const leaveData = new FormData();
             leaveData.append("startDate", leaveRequest.startDate);
@@ -322,17 +302,14 @@ export default function Profile({ setChatboxOpen = () => { }, setChatRecipient =
             if (session?.user?.role === "team_manager" && leaveRequest.transferTo) {
                 leaveData.append("transferTo", leaveRequest.transferTo);
             }
-
             const response = await fetch("/api/member/leave-request", {
                 method: "POST",
                 body: leaveData,
             });
-
             const data = await response.json().catch(() => ({}));
             if (!response.ok) {
                 throw new Error(data?.error || `Failed to submit leave request (HTTP ${response.status})`);
             }
-
             setSuccess("Leave request submitted successfully!");
             setLeaveRequest({
                 startDate: "",
@@ -363,30 +340,25 @@ export default function Profile({ setChatboxOpen = () => { }, setChatRecipient =
         setIsLoading(true);
         setError("");
         setSuccess("");
-
         const { recipientType, recipientId, customName, customWhatsappNumber, subject, message, note, contact } = messageData;
-
         if (recipientType === "existing" && (isNaN(parseInt(recipientId)) || !subject.trim() || !message.trim() || !contact.trim())) {
             setError("Please fill in all required fields for existing user");
             setTimeout(() => setError(""), 3000);
             setIsLoading(false);
             return;
         }
-
         if (recipientType === "custom" && (!customName.trim() || !customWhatsappNumber.trim() || !subject.trim() || !message.trim() || !contact.trim())) {
             setError("Please fill in all required fields for custom recipient");
             setTimeout(() => setError(""), 3000);
             setIsLoading(false);
             return;
         }
-
         if (recipientType === "custom" && !/^\+?[1-9]\d{1,14}$/.test(customWhatsappNumber.trim())) {
             setError("Invalid WhatsApp number format");
             setTimeout(() => setError(""), 3000);
             setIsLoading(false);
             return;
         }
-
         try {
             const response = await fetch("/api/managersCommon/direct-message", {
                 method: "POST",
@@ -401,12 +373,10 @@ export default function Profile({ setChatboxOpen = () => { }, setChatRecipient =
                     contact,
                 }),
             });
-
             const data = await response.json();
             if (!response.ok) {
                 throw new Error(data.error || "Failed to send message");
             }
-
             setSuccess("Message sent successfully!");
             setMessageData({
                 recipientType: "existing",
@@ -416,7 +386,7 @@ export default function Profile({ setChatboxOpen = () => { }, setChatRecipient =
                 subject: "",
                 message: "",
                 note: "",
-                contact: "",
+                contact: "admin@mymeedai.org", // Reset to default value
             });
             setShowMessageModal(false);
             setTimeout(() => setSuccess(""), 2500);
@@ -491,14 +461,12 @@ export default function Profile({ setChatboxOpen = () => { }, setChatRecipient =
                 >
                     <X className="w-5 h-5 text-gray-700 dark:text-gray-200" />
                 </motion.button>
-
                 <div className="flex flex-col md:flex-row gap-6">
                     <div className="flex-[2] min-w-[280px] flex flex-col">
                         <h1 className="text-lg md:text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2 mb-3">
                             <User className="w-4 h-4 md:w-5 md:h-5 text-teal-600" />
                             Profile Settings
                         </h1>
-
                         <AnimatePresence>
                             {success && (
                                 <motion.p
@@ -523,7 +491,6 @@ export default function Profile({ setChatboxOpen = () => { }, setChatRecipient =
                                 </motion.p>
                             )}
                         </AnimatePresence>
-
                         <form onSubmit={handleProfileUpdate} className="flex flex-col gap-4 mb-4">
                             <div className="flex flex-col sm:flex-row gap-4 items-start">
                                 <div className="flex flex-col items-center gap-3">
@@ -609,7 +576,6 @@ export default function Profile({ setChatboxOpen = () => { }, setChatRecipient =
                                 </motion.button>
                             </div>
                         </form>
-
                         <div className="mt-4 pt-4 border-t border-gray-200/50 dark:border-gray-700/50">
                             <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
                                 <BookOpen className="w-4 h-4 text-teal-600" />
@@ -671,24 +637,22 @@ export default function Profile({ setChatboxOpen = () => { }, setChatRecipient =
                                 )}
                             </div>
                         </div>
-                        {/* 
-            <div className="mt-4 pt-4 border-t border-gray-200/50 dark:border-gray-700/50">
-              <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
-                <FileText className="w-4 h-4 text-teal-600" />
-                Leave History
-              </h2>
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => setShowHistoryModal(true)}
-                className="w-full sm:w-auto px-4 py-2 bg-teal-600 text-white rounded-lg text-xs font-medium hover:bg-teal-700 shadow-md transition"
-                disabled={isLoading}
-              >
-                View Leave History
-              </motion.button>
-            </div> */}
+                        <div className="mt-4 pt-4 border-t border-gray-200/50 dark:border-gray-700/50">
+                            <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+                                <FileText className="w-4 h-4 text-teal-600" />
+                                Leave History
+                            </h2>
+                            <motion.button
+                                whileHover={{ scale: 1.05 }}
+                                whileTap={{ scale: 0.95 }}
+                                onClick={() => setShowHistoryModal(true)}
+                                className="w-full sm:w-auto px-4 py-2 bg-teal-600 text-white rounded-lg text-xs font-medium hover:bg-teal-700 shadow-md transition"
+                                disabled={isLoading}
+                            >
+                                View Leave History
+                            </motion.button>
+                        </div>
                     </div>
-
                     <div className="flex-[1] min-w-[260px] max-w-[400px] flex flex-col bg-gradient-to-br from-blue-50/60 to-slate-100/80 dark:from-slate-800/80 dark:to-slate-900/70 rounded-xl shadow-md border border-teal-100/70 dark:border-slate-700 p-4">
                         <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
                             <User className="w-4 h-4 text-teal-600" />
@@ -784,7 +748,6 @@ export default function Profile({ setChatboxOpen = () => { }, setChatRecipient =
                         </div>
                     </div>
                 </div>
-
                 <AnimatePresence>
                     {showLeaveModal && (
                         <motion.div
@@ -835,6 +798,15 @@ export default function Profile({ setChatboxOpen = () => { }, setChatRecipient =
                                             name="reason"
                                             value={leaveRequest.reason}
                                             onChange={handleLeaveChange}
+                                            onKeyDown={(e) => {
+                                                if (e.key === "Enter" && !e.shiftKey) {
+                                                    e.preventDefault();
+                                                    setLeaveRequest((prev) => ({
+                                                        ...prev,
+                                                        reason: prev.reason + "\n",
+                                                    }));
+                                                }
+                                            }}
                                             className="w-full px-3 py-1.5 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 focus:ring-2 focus:ring-teal-500 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
                                             rows={3}
                                             required
@@ -1031,6 +1003,15 @@ export default function Profile({ setChatboxOpen = () => { }, setChatRecipient =
                                                 name="message"
                                                 value={messageData.message}
                                                 onChange={handleMessageChange}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === "Enter" && !e.shiftKey) {
+                                                        e.preventDefault();
+                                                        setMessageData((prev) => ({
+                                                            ...prev,
+                                                            message: prev.message + "\n",
+                                                        }));
+                                                    }
+                                                }}
                                                 className="w-full px-3 py-1.5 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 focus:ring-2 focus:ring-teal-500 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
                                                 rows={3}
                                                 required
@@ -1047,6 +1028,15 @@ export default function Profile({ setChatboxOpen = () => { }, setChatRecipient =
                                                 name="note"
                                                 value={messageData.note}
                                                 onChange={handleMessageChange}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === "Enter" && !e.shiftKey) {
+                                                        e.preventDefault();
+                                                        setMessageData((prev) => ({
+                                                            ...prev,
+                                                            note: prev.note + "\n",
+                                                        }));
+                                                    }
+                                                }}
                                                 className="w-full px-3 py-1.5 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 focus:ring-2 focus:ring-teal-500 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
                                                 rows={3}
                                                 disabled={isLoading}
@@ -1172,32 +1162,31 @@ export default function Profile({ setChatboxOpen = () => { }, setChatRecipient =
                         </motion.div>
                     )}
                 </AnimatePresence>
-
                 <style jsx global>{`
-          .custom-scrollbar::-webkit-scrollbar {
-            width: 6px;
-            background: transparent;
-          }
-          .custom-scrollbar::-webkit-scrollbar-thumb {
-            background: #b6e0fe66;
-            border-radius: 6px;
-          }
-          .custom-scrollbar {
-            scrollbar-color: #60a5fa44 transparent;
-            scrollbar-width: thin;
-          }
-          html.dark .custom-scrollbar::-webkit-scrollbar-thumb {
-            background: #2563eb77;
-          }
-          .glassmorphism {
-            background: rgba(255, 255, 255, 0.9);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-          }
-          html.dark .glassmorphism {
-            background: rgba(30, 41, 59, 0.9);
-          }
-        `}</style>
+                    .custom-scrollbar::-webkit-scrollbar {
+                        width: 6px;
+                        background: transparent;
+                    }
+                    .custom-scrollbar::-webkit-scrollbar-thumb {
+                        background: #b6e0fe66;
+                        border-radius: 6px;
+                    }
+                    .custom-scrollbar {
+                        scrollbar-color: #60a5fa44 transparent;
+                        scrollbar-width: thin;
+                    }
+                    html.dark .custom-scrollbar::-webkit-scrollbar-thumb {
+                        background: #2563eb77;
+                    }
+                    .glassmorphism {
+                        background: rgba(255, 255, 255, 0.9);
+                        backdrop-filter: blur(10px);
+                        -webkit-backdrop-filter: blur(10px);
+                    }
+                    html.dark .glassmorphism {
+                        background: rgba(30, 41, 59, 0.9);
+                    }
+                `}</style>
             </div>
         </motion.div>
     );

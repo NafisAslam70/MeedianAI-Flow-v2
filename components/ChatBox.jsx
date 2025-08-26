@@ -1,3 +1,4 @@
+
 "use client";
 import { useEffect, useState, useRef, useMemo } from "react";
 import {
@@ -39,7 +40,6 @@ const getValidImageUrl = (url) => {
   if (!clean || clean.toLowerCase() === "null" || clean.toLowerCase() === "undefined") {
     return "/default-avatar.png";
   }
-  // Accepts Vercel Blob public URLs (https), regular https, and local paths (/)
   return clean;
 };
 
@@ -125,7 +125,11 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
     receiveAudioRef.current.play().catch(() => {});
   };
 
-  const scrollBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  const scrollBottom = () => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  };
 
   const closeAll = () => {
     setShowChatbox(false);
@@ -324,14 +328,24 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
     receiveAudioRef.current.preload = "auto";
   }, []);
 
+  // Scroll to bottom on open or recipient change
   useEffect(() => {
-    scrollBottom();
-    if (prevMessageCount.current === 0) {
-      prevMessageCount.current = messages.length;
-      return;
+    if (showChatbox && selectedRecipient) {
+      scrollBottom();
     }
-    if (messages.length > prevMessageCount.current) {
-      const newMessages = messages.slice(prevMessageCount.current);
+  }, [showChatbox, selectedRecipient]);
+
+  // Handle scrolling and sounds on messages change
+  useEffect(() => {
+    const chatRef = chatContainerRef.current;
+    if (!chatRef) return;
+
+    const newLength = messages.length;
+    const oldLength = prevMessageCount.current;
+
+    if (newLength > oldLength) {
+      // Play sounds for new messages
+      const newMessages = messages.slice(oldLength);
       newMessages.forEach((m) => {
         if (m.senderId === Number(userDetails.id)) {
           playSend();
@@ -339,8 +353,16 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
           playReceive();
         }
       });
+
+      // Scroll if was near bottom
+      const threshold = 50; // pixels
+      const isNearBottom = chatRef.scrollTop + chatRef.clientHeight >= chatRef.scrollHeight - threshold;
+      if (isNearBottom) {
+        scrollBottom();
+      }
     }
-    prevMessageCount.current = messages.length;
+
+    prevMessageCount.current = newLength;
   }, [messages, showChatbox, selectedRecipient, userDetails?.id]);
 
   useEffect(() => {
@@ -525,7 +547,6 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
                             (m.senderId === Number(selectedRecipient) &&
                               m.recipientId === Number(userDetails.id))
                         )
-                        .slice(-40)
                         .map((m) => {
                           const sender = users.find((u) => u.id === m.senderId) || {
                             name: "Unknown",
@@ -677,6 +698,7 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
 
               <div className="p-2 sm:p-3 space-y-2">
                 {(() => {
+                  // Get unique partner IDs
                   const partnerIds = new Set(
                     messages
                       .filter(
@@ -689,76 +711,79 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
                       )
                   );
 
-                  const partners = users
-                    .filter((u) => partnerIds.has(u.id))
-                    .sort((a, b) => {
-                      const lastTime = (id) =>
-                        messages
-                          .filter(
-                            (m) =>
-                              (m.senderId === id && m.recipientId === Number(userDetails.id)) ||
-                              (m.senderId === Number(userDetails.id) && m.recipientId === id)
-                          )
-                          .sort((x, y) => new Date(y.createdAt) - new Date(x.createdAt))[0]?.createdAt;
-                      return new Date(lastTime(b) || 0) - new Date(lastTime(a) || 0);
-                    });
-
-                  if (!partners.length)
-                    return <p className="text-gray-600 text-center text-xs sm:text-sm">No conversation history.</p>;
-
-                  return partners.map((u) => {
+                  // Map partners to their last message timestamp
+                  const partnerTimestamps = Array.from(partnerIds).map((partnerId) => {
                     const lastMsg = messages
                       .filter(
                         (m) =>
-                          (m.senderId === u.id && m.recipientId === Number(userDetails.id)) ||
-                          (m.senderId === Number(userDetails.id) && m.recipientId === u.id)
+                          (m.senderId === partnerId && m.recipientId === Number(userDetails.id)) ||
+                          (m.senderId === Number(userDetails.id) && m.recipientId === partnerId)
                       )
                       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+                    return {
+                      partnerId,
+                      lastMsgTime: lastMsg ? new Date(lastMsg.createdAt).getTime() : 0,
+                      lastMsg
+                    };
+                  });
 
-                    return (
-                      <div
-                        key={u.id}
-                        onClick={() => {
-                          setSelectedRecipient(String(u.id));
-                          closeAll();
-                          setShowChatbox(true);
-                          if (setIsOpen) setIsOpen(true);
+                  // Sort partners by last message timestamp (descending)
+                  partnerTimestamps.sort((a, b) => b.lastMsgTime - a.lastMsgTime);
+
+                  // Map sorted partners to user objects
+                  const sortedPartners = partnerTimestamps
+                    .map(({ partnerId, lastMsg }) => ({
+                      user: users.find((u) => u.id === partnerId),
+                      lastMsg
+                    }))
+                    .filter(({ user }) => user); // Filter out undefined users
+
+                  if (!sortedPartners.length)
+                    return <p className="text-gray-600 text-center text-xs sm:text-sm">No conversation history.</p>;
+
+                  return sortedPartners.map(({ user: u, lastMsg }) => (
+                    <div
+                      key={u.id}
+                      onClick={() => {
+                        setSelectedRecipient(String(u.id));
+                        closeAll();
+                        setShowChatbox(true);
+                        if (setIsOpen) setIsOpen(true);
+                      }}
+                      className="relative mb-2 p-2 sm:p-2.5 bg-gray-50 border rounded-lg cursor-pointer hover:bg-blue-50 flex items-center gap-2"
+                    >
+                      <img
+                        src={getValidImageUrl(u.image)}
+                        alt={`${u.name}'s profile`}
+                        className="w-8 h-8 sm:w-9 sm:h-9 rounded-full object-cover"
+                        onError={(e) => {
+                          console.error("History image failed to load:", {
+                            userId: u.id,
+                            userName: u.name,
+                            imageUrl: u.image,
+                          });
+                          e.currentTarget.src = "/default-avatar.png";
                         }}
-                        className="relative mb-2 p-2 sm:p-2.5 bg-gray-50 border rounded-lg cursor-pointer hover:bg-blue-50 flex items-center gap-2"
-                      >
-                        <img
-                          src={getValidImageUrl(u.image)}
-                          alt={`${u.name}'s profile`}
-                          className="w-8 h-8 sm:w-9 sm:h-9 rounded-full object-cover"
-                          onError={(e) => {
-                            console.error("History image failed to load:", {
-                              userId: u.id,
-                              userName: u.name,
-                              imageUrl: u.image,
-                            });
-                            e.currentTarget.src = "/default-avatar.png";
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold truncate text-xs sm:text-sm text-gray-900">
+                          {u.name} ({getRole(u)})
+                        </p>
+                        <p
+                          className="text-xs text-gray-600 break-words"
+                          style={{ wordBreak: "break-word", overflowWrap: "break-word" }}
+                          dangerouslySetInnerHTML={{
+                            __html: linkify(lastMsg?.content || "No messages yet"),
                           }}
                         />
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold truncate text-xs sm:text-sm text-gray-900">
-                            {u.name} ({getRole(u)})
-                          </p>
-                          <p
-                            className="text-xs text-gray-600 break-words"
-                            style={{ wordBreak: "break-word", overflowWrap: "break-word" }}
-                            dangerouslySetInnerHTML={{
-                              __html: linkify(lastMsg?.content || "No messages yet"),
-                            }}
-                          />
-                        </div>
-                        {unreadCounts[u.id] > 0 && (
-                          <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold rounded-full px-1.5 py-[1px] shadow">
-                            {unreadCounts[u.id]}
-                          </span>
-                        )}
                       </div>
-                    );
-                  });
+                      {unreadCounts[u.id] > 0 && (
+                        <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold rounded-full px-1.5 py-[1px] shadow">
+                          {unreadCounts[u.id]}
+                        </span>
+                      )}
+                    </div>
+                  ));
                 })()}
               </div>
             </motion.div>
