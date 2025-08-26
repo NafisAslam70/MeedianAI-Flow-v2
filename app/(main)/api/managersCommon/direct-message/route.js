@@ -26,7 +26,7 @@ async function sendWhatsappMessage(toNumber, content, recipient) {
       contentSid: "HX57c67bff3f94d904a0959d2ae00b061b", // Replace with actual Twilio content SID
       contentVariables: JSON.stringify({
         1: content.recipientName || "User",
-        2: content.senderName || "System",
+        2: content.senderName ? `${content.senderName} (from Meed Leadership Group)` : "System (from Meed Leadership Group)",
         3: content.subject || "No Subject",
         4: content.message || "No Message",
         5: content.note || "No Note",
@@ -115,7 +115,7 @@ export async function POST(req) {
     }
 
     const now = new Date();
-    const notification = `Hi ${recipientData.name}, ${sender.name} has sent you a new message. Subject: ${subject}. Message: ${message}${note.trim() ? `. Note: ${note.trim()}` : ""}. If you need assistance, please contact ${contact}. Sent on ${now.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}. Please kindly check the MeedianAI portal for more information [https://meedian-ai-flow.vercel.app/]`;
+    const notification = `Hi ${recipientData.name}, ${sender.name} (from Meed Leadership Group) has sent you a new message. Subject: ${subject}. Message: ${message}${note.trim() ? `. Note: ${note.trim()}` : ""}. If you need assistance, please contact ${contact}. Sent on ${now.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}. Please kindly check the MeedianAI portal for more information [https://meedian-ai-flow.vercel.app/]`;
 
     // Store message in database (only for existing users)
     if (isExistingUser) {
@@ -153,7 +153,7 @@ export async function POST(req) {
 
     return NextResponse.json({ ok: true, message: "Message sent successfully" }, { status: 200 });
   } catch (err) {
-    console.error("POST /member/direct-message error:", err);
+    console.error("POST /api/managersCommon/direct-message error:", err);
     return NextResponse.json({ error: err.message || "Internal error" }, { status: 500 });
   }
 }

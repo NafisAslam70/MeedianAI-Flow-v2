@@ -372,7 +372,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
 
     // Compile message in the same format as backend
     const now = new Date();
-    const compiled = `Hi ${recipientName}, ${session?.user?.name || "System"} has sent you a new message. Subject: ${subject}. Message: ${message}${note.trim() ? `. Note: ${note.trim()}` : ""}. If you need assistance, please contact ${contact}. Sent on ${now.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}. Please kindly check the MeedianAI portal for more information [https://meedian-ai-flow.vercel.app/]`;
+    const compiled = `Hi ${recipientName}, ${session?.user?.name || "System"} (from Meed Leadership Group) has sent you a new message. Subject: ${subject}. Message: ${message}${note.trim() ? `. Note: ${note.trim()}` : ""}. If you need assistance, please contact ${contact}. Sent on ${now.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}. Please kindly check the MeedianAI portal for more information [https://meedian-ai-flow.vercel.app/]`;
 
     // Set compiled message and show confirmation modal
     setCompiledMessage(compiled);
@@ -641,7 +641,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                   <p className="text-xs text-gray-500 dark:text-gray-400 text-center">Connect with the superintendent</p>
                 </motion.div>
                 <motion.div
-                  className="bg-white/90 dark:bg-slate-800/90 rounded-lg shadow-md p-4 flex flex-col items-center justify-between cursor-pointer min-w-[120px] min-h-[140px]"
+                  className="bg-white/90 dark:bg-slate-800/90 rounded-lg shadow-md p-4 flex flex-colacola items-center justify-between cursor-pointer min-w-[120px] min-h-[140px]"
                   whileHover={{ scale: 1.05, boxShadow: "0 6px 12px rgba(0, 128, 128, 0.2)" }}
                   whileTap={{ scale: 0.95 }}
                   onClick={() => window.open("https://www.nafisaslam.com/login", "_blank")}
@@ -778,6 +778,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
         <AnimatePresence>
           {showLeaveModal && (
             <motion.div
+              key="leave-modal"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -899,6 +900,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
           )}
           {showMessageModal && ["admin", "team_manager"].includes(session?.user?.role) && (
             <motion.div
+              key="message-modal"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -969,6 +971,22 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                       </div>
                     ) : (
                       <>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-700 dark:text-gray-200 flex items-center gap-1.5">
+                            <UserCircle className="w-3.5 h-3.5 text-teal-600" />
+                            Recipient Name
+                          </label>
+                          <input
+                            type="text"
+                            name="customName"
+                            value={messageData.customName}
+                            onChange={handleMessageChange}
+                            className="w-full px-3 py-1.5 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 focus:ring-2 focus:ring-teal-500 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
+                            required
+                            disabled={isLoading}
+                            placeholder="Enter recipient name"
+                          />
+                        </div>
                         <div>
                           <label className="block text-xs font-medium text-gray-700 dark:text-gray-200 flex items-center gap-1.5">
                             <UserCircle className="w-3.5 h-3.5 text-teal-600" />
@@ -1114,6 +1132,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
           )}
           {showConfirmMessageModal && (
             <motion.div
+              key="confirm-message-modal"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -1163,6 +1182,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
           )}
           {showHistoryModal && (
             <motion.div
+              key="history-modal"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
