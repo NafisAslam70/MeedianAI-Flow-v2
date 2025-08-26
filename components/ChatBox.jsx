@@ -1,4 +1,3 @@
-
 "use client";
 import { useEffect, useState, useRef, useMemo } from "react";
 import {
@@ -41,6 +40,17 @@ const getValidImageUrl = (url) => {
     return "/default-avatar.png";
   }
   return clean;
+};
+
+const formatDate = (dateStr) => {
+  const date = new Date(dateStr);
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+
+  if (date.toDateString() === today.toDateString()) return "Today";
+  if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
+  return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 };
 
 export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipientId }) {
@@ -159,7 +169,7 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
       const { users: fetchedUsers = [] } = await uRes.json();
       const { messages: fetchedMsgs = [] } = await mRes.json();
       setUsers(fetchedUsers);
-      setMessages(fetchedMsgs);
+      setMessages(fetchedMsgs.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))); // Sort ascending
 
       const unread = fetchedMsgs.filter(
         (m) =>
@@ -538,8 +548,8 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
                   ref={chatContainerRef}
                 >
                   {selectedRecipient ? (
-                    <ul className="space-y-2">
-                      {messages
+                    (() => {
+                      const filteredMessages = messages
                         .filter(
                           (m) =>
                             (m.senderId === Number(userDetails.id) &&
@@ -547,66 +557,102 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
                             (m.senderId === Number(selectedRecipient) &&
                               m.recipientId === Number(userDetails.id))
                         )
-                        .map((m) => {
-                          const sender = users.find((u) => u.id === m.senderId) || {
-                            name: "Unknown",
-                            image: "/default-avatar.png",
-                          };
-                          const isOwnMessage = m.senderId === Number(userDetails.id);
-                          return (
-                            <li
-                              key={m.id}
-                              className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}
-                            >
-                              <div
-                                className={`flex items-start gap-1.5 max-w-[85%] p-2 sm:p-2.5 rounded-xl border ${
-                                  isOwnMessage ? "bg-teal-100 ml-4 sm:ml-6" : "bg-gray-100 mr-4 sm:mr-6"
-                                }`}
+                        .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+                      const displayed = filteredMessages.reduce((acc, m, i) => {
+                        const prev = filteredMessages[i - 1];
+                        const date = new Date(m.createdAt).toDateString();
+                        const prevDate = prev ? new Date(prev.createdAt).toDateString() : null;
+                        if (date !== prevDate) {
+                          acc.push({ type: 'date', date });
+                        }
+                        acc.push(m);
+                        return acc;
+                      }, []);
+
+                      return (
+                        <ul className="space-y-2">
+                          {displayed.map((item, index) => {
+                            if (item.type === 'date') {
+                              return (
+                                <li key={`date-${index}`} className="text-center my-2">
+                                  <span className="bg-gray-200 px-2 py-1 rounded text-xs text-gray-600">
+                                    {formatDate(item.date)}
+                                  </span>
+                                </li>
+                              );
+                            }
+
+                            const m = item;
+                            const sender = users.find((u) => u.id === m.senderId) || {
+                              name: "Unknown",
+                              image: "/default-avatar.png",
+                            };
+                            const isOwnMessage = m.senderId === Number(userDetails.id);
+                            return (
+                              <li
+                                key={m.id}
+                                className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}
                               >
-                                {!isOwnMessage && (
-                                  <img
-                                    src={getValidImageUrl(sender.image)}
-                                    alt={`${sender.name}'s profile`}
-                                    className="w-6 h-6 sm:w-7 sm:h-7 rounded-full object-cover flex-shrink-0"
-                                    onError={(e) => {
-                                      console.error("Chatbox sender image failed to load:", {
-                                        senderId: m.senderId,
-                                        senderName: sender.name,
-                                        imageUrl: sender.image,
-                                      });
-                                      e.currentTarget.src = "/default-avatar.png";
-                                    }}
-                                  />
-                                )}
-                                <div className="min-w-0">
-                                  <p className="text-[10px] sm:text-xs text-gray-600">
-                                    {new Date(m.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                                  </p>
-                                  <p
-                                    className="text-xs sm:text-sm text-gray-900 break-words"
-                                    dangerouslySetInnerHTML={{ __html: linkify(m.content) }}
-                                  />
+                                <div
+                                  className={`flex items-start gap-1.5 max-w-[85%] p-2 sm:p-2.5 rounded-xl border ${
+                                    isOwnMessage ? "bg-teal-100 ml-4 sm:ml-6" : "bg-gray-100 mr-4 sm:mr-6"
+                                  }`}
+                                >
+                                  {!isOwnMessage && (
+                                    <img
+                                      src={getValidImageUrl(sender.image)}
+                                      alt={`${sender.name}'s profile`}
+                                      className="w-6 h-6 sm:w-7 sm:h-7 rounded-full object-cover flex-shrink-0"
+                                      onError={(e) => {
+                                        console.error("Chatbox sender image failed to load:", {
+                                          senderId: m.senderId,
+                                          senderName: sender.name,
+                                          imageUrl: sender.image,
+                                        });
+                                        e.currentTarget.src = "/default-avatar.png";
+                                      }}
+                                    />
+                                  )}
+                                  <div className="min-w-0 flex flex-col">
+                                    <p
+                                      className="text-xs sm:text-sm text-gray-900 break-words"
+                                      dangerouslySetInnerHTML={{ __html: linkify(m.content) }}
+                                      title={new Date(m.createdAt).toLocaleString()}
+                                    />
+                                    <div className="flex items-center justify-between mt-1">
+                                      <p className="text-[10px] sm:text-xs text-gray-600">
+                                        {new Date(m.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                      </p>
+                                      {isOwnMessage && (
+                                        <span className={`text-[10px] ${m.status === 'read' ? 'text-blue-500' : 'text-gray-500'}`}>
+                                          {m.status === 'read' ? '✓✓' : '✓'}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  {isOwnMessage && (
+                                    <img
+                                      src={myImage}
+                                      alt="Your profile"
+                                      className="w-6 h-6 sm:w-7 sm:h-7 rounded-full object-cover flex-shrink-0"
+                                      onError={(e) => {
+                                        console.error("Chatbox user image failed to load:", {
+                                          userId: userDetails?.id,
+                                          imageUrl: myImage,
+                                        });
+                                        e.currentTarget.src = "/default-avatar.png";
+                                      }}
+                                    />
+                                  )}
                                 </div>
-                                {isOwnMessage && (
-                                  <img
-                                    src={myImage}
-                                    alt="Your profile"
-                                    className="w-6 h-6 sm:w-7 sm:h-7 rounded-full object-cover flex-shrink-0"
-                                    onError={(e) => {
-                                      console.error("Chatbox user image failed to load:", {
-                                        userId: userDetails?.id,
-                                        imageUrl: myImage,
-                                      });
-                                      e.currentTarget.src = "/default-avatar.png";
-                                    }}
-                                  />
-                                )}
-                              </div>
-                            </li>
-                          );
-                        })}
-                      <div ref={messagesEndRef} />
-                    </ul>
+                              </li>
+                            );
+                          })}
+                          <div ref={messagesEndRef} />
+                        </ul>
+                      );
+                    })()
                   ) : (
                     <p className="text-gray-600 text-center mt-3 text-xs sm:text-sm">
                       Select a recipient to start chatting.
