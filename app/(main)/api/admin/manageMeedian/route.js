@@ -28,7 +28,6 @@ import { eq, or, inArray } from "drizzle-orm";
 import bcrypt from "bcrypt";
 
 /* ============================== GET ============================== */
-// GET Handler: Fetch data based on section parameter
 export async function GET(req) {
   const session = await auth();
   const { searchParams } = new URL(req.url);
@@ -76,6 +75,19 @@ export async function GET(req) {
         .from(openCloseTimes);
       console.log("Fetched times data:", times);
       return NextResponse.json({ times }, { status: 200 });
+    }
+
+    if (section === "userOpenCloseTimes") {
+      const rows = await db
+        .select({
+          userId: userOpenCloseTimes.userId,
+          dayOpenedAt: userOpenCloseTimes.dayOpenedAt,
+          dayClosedAt: userOpenCloseTimes.dayClosedAt,
+          useCustomTimes: userOpenCloseTimes.useCustomTimes,
+        })
+        .from(userOpenCloseTimes);
+      console.log("Fetched per-user open/close:", rows);
+      return NextResponse.json({ userOpenCloseTimes: rows }, { status: 200 });
     }
 
     if (section === "slots") {
@@ -151,7 +163,6 @@ export async function GET(req) {
 }
 
 /* ============================== POST ============================== */
-// POST Handler: Add new entries
 export async function POST(req) {
   const session = await auth();
   if (!session || !["admin", "team_manager"].includes(session.user?.role)) {
@@ -241,7 +252,6 @@ export async function POST(req) {
 }
 
 /* ============================== PATCH ============================== */
-// PATCH Handler: Update existing entries
 export async function PATCH(req) {
   const session = await auth();
   if (!session || !["admin", "team_manager"].includes(session.user?.role)) {
@@ -386,6 +396,68 @@ export async function PATCH(req) {
       return NextResponse.json({ message: "Times updated successfully" }, { status: 200 });
     }
 
+    if (section === "userOpenCloseTimes") {
+      const { updates } = body || {};
+      if (!Array.isArray(updates) || updates.length === 0) {
+        return NextResponse.json({ error: "Invalid or empty updates" }, { status: 400 });
+      }
+
+      const allUsers = await db.select({ id: users.id }).from(users);
+      const userIdSet = new Set(allUsers.map((u) => u.id));
+
+      const ensureSeconds = (t) => (t && /^\d{2}:\d{2}$/.test(t) ? `${t}:00` : t || null);
+
+      for (const u of updates) {
+        const userId = Number(u.userId);
+        const useCustomTimes = !!u.useCustomTimes;
+        const dayOpenedAt = ensureSeconds(u.dayOpenedAt);
+        const dayClosedAt = ensureSeconds(u.dayClosedAt);
+
+        if (!userIdSet.has(userId)) {
+          return NextResponse.json({ error: `Invalid userId: ${userId}` }, { status: 400 });
+        }
+
+        if (useCustomTimes && !dayOpenedAt) {
+          return NextResponse.json({ error: `dayOpenedAt is required when useCustomTimes is true for user ${userId}` }, { status: 400 });
+        }
+
+        const existing = await db
+          .select({ id: userOpenCloseTimes.id })
+          .from(userOpenCloseTimes)
+          .where(eq(userOpenCloseTimes.userId, userId));
+
+        if (useCustomTimes) {
+          if (existing.length) {
+            await db
+              .update(userOpenCloseTimes)
+              .set({
+                useCustomTimes: true,
+                dayOpenedAt,
+                dayClosedAt: dayClosedAt ?? null,
+              })
+              .where(eq(userOpenCloseTimes.userId, userId));
+          } else {
+            await db.insert(userOpenCloseTimes).values({
+              userId,
+              useCustomTimes: true,
+              dayOpenedAt,
+              dayClosedAt: dayClosedAt ?? null,
+            });
+          }
+        } else {
+          if (existing.length) {
+            await db
+              .update(userOpenCloseTimes)
+              .set({ useCustomTimes: false })
+              .where(eq(userOpenCloseTimes.userId, userId));
+          }
+        }
+      }
+
+      console.log("Per-user open/close times updated:", updates.length);
+      return NextResponse.json({ message: "Per-user open/close times updated" }, { status: 200 });
+    }
+
     if (section === "slots") {
       const { updates } = body;
       if (!Array.isArray(updates) || updates.length === 0) {
@@ -485,7 +557,6 @@ export async function PATCH(req) {
 }
 
 /* ============================== DELETE ============================== */
-// DELETE Handler: Delete a calendar entry, slot assignment, or user (no transactions; ordered cleanup)
 export async function DELETE(req) {
   const session = await auth();
   if (!session || !["admin", "team_manager"].includes(session.user?.role)) {

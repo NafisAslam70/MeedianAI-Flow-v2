@@ -538,5 +538,5 @@ const AssignedTaskDetails = ({
     </motion.div>
   );
 };
-
+ 
 export default AssignedTaskDetails;

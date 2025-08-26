@@ -12,16 +12,38 @@ const fetcher = (url) =>
     return res.json();
   });
 
+const toHHMM = (t) => {
+  if (!t) return "";
+  // accept "HH:MM" or "HH:MM:SS"
+  const parts = t.split(":");
+  return parts.length >= 2 ? `${parts[0].padStart(2, "0")}:${parts[1].padStart(2, "0")}` : "";
+};
+const ensureSeconds = (t) => (t && /^\d{2}:\d{2}$/.test(t) ? `${t}:00` : t || null);
+
 export default function ManageTeamPage() {
   const [users, setUsers] = useState([]);
   const [slots, setSlots] = useState([]);
   const [members, setMembers] = useState([]);
   const [calendar, setCalendar] = useState([]);
   const [students, setStudents] = useState([]);
-  const [loading, setLoading] = useState({ team: true, slots: true, calendar: true, students: true });
-  const [saving, setSaving] = useState({ team: false, slots: false, calendar: false });
+
+  const [loading, setLoading] = useState({
+    team: true,
+    slots: true,
+    calendar: true,
+    students: true,
+    userTimes: true,
+  });
+  const [saving, setSaving] = useState({
+    team: false,
+    slots: false,
+    calendar: false,
+    userTimes: false,
+  });
+
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+
   const [activeSection, setActiveSection] = useState(null);
   const [editSlot, setEditSlot] = useState(null);
   const [showBulkModal, setShowBulkModal] = useState(false);
@@ -32,8 +54,12 @@ export default function ManageTeamPage() {
   const [editTimingsSlot, setEditTimingsSlot] = useState(null);
   const [teamFilter, setTeamFilter] = useState("members");
   const [expandedCard, setExpandedCard] = useState(null);
-  const [confirmDeleteUser, setConfirmDeleteUser] = useState(null); // user object to delete
+  const [confirmDeleteUser, setConfirmDeleteUser] = useState(null);
   const [showPasswords, setShowPasswords] = useState({}); // { [userId]: boolean }
+
+  // NEW: per-user open/close times state
+  // shape: { [userId]: { dayOpenedAt: "HH:MM", dayClosedAt: "HH:MM", useCustomTimes: boolean } }
+  const [userTimes, setUserTimes] = useState({});
 
   const userTypes = ["residential", "non_residential", "semi_residential"];
   const roleTypes = ["member", "admin", "team_manager"];
@@ -47,6 +73,7 @@ export default function ManageTeamPage() {
     "principal",
   ];
 
+  /* ----------------------------- SWR ----------------------------- */
   const { data: userData, error: userError } = useSWR("/api/admin/manageMeedian?section=team", fetcher, {
     revalidateOnFocus: false,
     dedupingInterval: 60000,
@@ -75,6 +102,17 @@ export default function ManageTeamPage() {
 
   const { data: studentData, error: studentError } = useSWR(
     activeSection === "students" ? "/api/admin/manageMeedian?section=students" : null,
+    fetcher,
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 60000,
+      revalidateOnReconnect: false,
+    }
+  );
+
+  // NEW: per-user times (load for team screen)
+  const { data: userTimesData, error: userTimesError } = useSWR(
+    "/api/admin/manageMeedian?section=userOpenCloseTimes",
     fetcher,
     {
       revalidateOnFocus: false,
@@ -135,6 +173,31 @@ export default function ManageTeamPage() {
     }
   }, [studentData, studentError]);
 
+  // NEW: map userOpenCloseTimes to local state
+  useEffect(() => {
+    if (userTimesData) {
+      const list =
+        userTimesData.userOpenCloseTimes ||
+        userTimesData.times ||
+        userTimesData.items ||
+        [];
+      const mapped = {};
+      list.forEach((row) => {
+        mapped[row.userId] = {
+          dayOpenedAt: toHHMM(row.dayOpenedAt),
+          dayClosedAt: toHHMM(row.dayClosedAt),
+          useCustomTimes: !!row.useCustomTimes,
+        };
+      });
+      setUserTimes(mapped);
+      setLoading((p) => ({ ...p, userTimes: false }));
+    }
+    if (userTimesError) {
+      setError(`Failed to load per-user open/close times: ${userTimesError.message}`);
+      setLoading((p) => ({ ...p, userTimes: false }));
+    }
+  }, [userTimesData, userTimesError]);
+
   /* -------------------------- Team Handlers -------------------------- */
   const handleUserChange = (id, field, value) => {
     setUsers((prev) =>
@@ -147,6 +210,29 @@ export default function ManageTeamPage() {
           : u
       )
     );
+  };
+
+  // NEW: per-user time handlers
+  const handleUserTimeToggle = (userId, checked) => {
+    setUserTimes((prev) => ({
+      ...prev,
+      [userId]: {
+        dayOpenedAt: prev[userId]?.dayOpenedAt || "",
+        dayClosedAt: prev[userId]?.dayClosedAt || "",
+        useCustomTimes: !!checked,
+      },
+    }));
+  };
+
+  const handleUserTimeChange = (userId, field, value) => {
+    setUserTimes((prev) => ({
+      ...prev,
+      [userId]: {
+        dayOpenedAt: field === "dayOpenedAt" ? value : prev[userId]?.dayOpenedAt || "",
+        dayClosedAt: field === "dayClosedAt" ? value : prev[userId]?.dayClosedAt || "",
+        useCustomTimes: prev[userId]?.useCustomTimes ?? true,
+      },
+    }));
   };
 
   const saveTeamChanges = async () => {
@@ -172,6 +258,46 @@ export default function ManageTeamPage() {
     }
   };
 
+  // NEW: save per-user open/close times (batch)
+  const saveUserTimesChanges = async () => {
+    setSaving((p) => ({ ...p, userTimes: true }));
+    setError("");
+    setSuccess("");
+    try {
+      // Build updates for rows where toggle is true OR explicitly false (so backend can turn off custom flag)
+      const updates = Object.entries(userTimes).map(([userId, v]) => ({
+        userId: parseInt(userId, 10),
+        useCustomTimes: !!v.useCustomTimes,
+        // only send times if custom is ON; backend can ignore when false
+        dayOpenedAt: v.useCustomTimes ? ensureSeconds(v.dayOpenedAt) : null,
+        dayClosedAt: v.useCustomTimes ? ensureSeconds(v.dayClosedAt) : null,
+      }));
+
+      const res = await fetch("/api/admin/manageMeedian?section=userOpenCloseTimes", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ updates }),
+      });
+      const responseData = await res.json();
+      if (!res.ok) throw new Error(responseData.error || `Save failed: ${res.status}`);
+
+      setSuccess("Per-user open/close times saved!");
+      setTimeout(() => setSuccess(""), 3000);
+      await mutate("/api/admin/manageMeedian?section=userOpenCloseTimes", undefined, { revalidate: true });
+    } catch (err) {
+      setError(`Error saving per-user times: ${err.message}`);
+    } finally {
+      setSaving((p) => ({ ...p, userTimes: false }));
+    }
+  };
+
+  // Save both with a single CTA
+  const saveAllChanges = async () => {
+    // save team and userTimes sequentially to surface precise errors
+    await saveTeamChanges();
+    await saveUserTimesChanges();
+  };
+
   const requestDeleteUser = (user) => {
     setConfirmDeleteUser(user);
   };
@@ -192,9 +318,16 @@ export default function ManageTeamPage() {
       // Optimistic UI update
       setUsers((prev) => prev.filter((u) => u.id !== confirmDeleteUser.id));
       setMembers((prev) => prev.filter((u) => u.id !== confirmDeleteUser.id));
+      // remove times for that user if present
+      setUserTimes((prev) => {
+        const c = { ...prev };
+        delete c[confirmDeleteUser.id];
+        return c;
+      });
       setSuccess(`Deleted user: ${confirmDeleteUser.name}`);
       setTimeout(() => setSuccess(""), 3000);
       await mutate("/api/admin/manageMeedian?section=team");
+      await mutate("/api/admin/manageMeedian?section=userOpenCloseTimes");
     } catch (err) {
       setError(`Error deleting user: ${err.message}`);
     } finally {
@@ -296,7 +429,7 @@ export default function ManageTeamPage() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          updates: [{ slotId, startTime: startTime + ":00", endTime: endTime + ":00" }],
+          updates: [{ slotId, startTime: ensureSeconds(startTime), endTime: ensureSeconds(endTime) }],
         }),
       });
       const responseData = await res.json();
@@ -658,7 +791,7 @@ export default function ManageTeamPage() {
               {/* TEAM SECTION */}
               {activeSection === "team" && (
                 <div className="space-y-6">
-                  {loading.team ? (
+                  {loading.team || loading.userTimes ? (
                     <p className="text-gray-600 text-center text-lg">Loading team members...</p>
                   ) : (
                     <div>
@@ -686,216 +819,261 @@ export default function ManageTeamPage() {
                                 if (teamFilter === "managers") return user.role === "team_manager" || user.role === "admin";
                                 return true;
                               })
-                              .map((user) => (
-                                <motion.div
-                                  key={user.id}
-                                  initial={{ opacity: 0, y: 10 }}
-                                  animate={{ opacity: 1, y: 0 }}
-                                  transition={{ duration: 0.3 }}
-                                  className="bg-white rounded-lg shadow-md p-4 flex flex-col gap-2"
-                                >
-                                  <div className="flex justify-between items-start gap-2">
-                                    <div>
-                                      <h3 className="text-lg font-semibold text-gray-800">{user.name}</h3>
-                                      <p className="text-sm text-gray-500 capitalize">{user.role}</p>
-                                      <p className="text-sm text-gray-500">
-                                        Supervisor: {users.find((u) => u.id === user.immediate_supervisor)?.name || "None"}
-                                      </p>
+                              .map((user) => {
+                                const times = userTimes[user.id] || { dayOpenedAt: "", dayClosedAt: "", useCustomTimes: false };
+                                return (
+                                  <motion.div
+                                    key={user.id}
+                                    initial={{ opacity: 0, y: 10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ duration: 0.3 }}
+                                    className="bg-white rounded-lg shadow-md p-4 flex flex-col gap-2"
+                                  >
+                                    <div className="flex justify-between items-start gap-2">
+                                      <div>
+                                        <h3 className="text-lg font-semibold text-gray-800">{user.name}</h3>
+                                        <p className="text-sm text-gray-500 capitalize">{user.role}</p>
+                                        <p className="text-sm text-gray-500">
+                                          Supervisor: {users.find((u) => u.id === user.immediate_supervisor)?.name || "None"}
+                                        </p>
+                                      </div>
+
+                                      <div className="flex items-center gap-2">
+                                        {/* Expand / collapse */}
+                                        <motion.button
+                                          onClick={() => toggleCard(user.id)}
+                                          className="text-teal-600 hover:text-teal-700"
+                                          whileHover={{ scale: 1.1 }}
+                                          whileTap={{ scale: 0.9 }}
+                                          title={expandedCard === user.id ? "Collapse" : "Expand"}
+                                        >
+                                          <svg className={`w-5 h-5 transform ${expandedCard === user.id ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                                          </svg>
+                                        </motion.button>
+
+                                        {/* Delete user */}
+                                        <motion.button
+                                          onClick={() => requestDeleteUser(user)}
+                                          className="text-red-600 hover:text-red-700"
+                                          whileHover={{ scale: 1.1 }}
+                                          whileTap={{ scale: 0.9 }}
+                                          title="Remove user"
+                                        >
+                                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 7h12M9 7v10m6-10v10M4 7h16l-1 12a2 2 0 01-2 2H7a2 2 0 01-2-2L4 7zm5-3h6l1 3H8l1-3z" />
+                                          </svg>
+                                        </motion.button>
+                                      </div>
                                     </div>
 
-                                    <div className="flex items-center gap-2">
-                                      {/* Expand / collapse */}
-                                      <motion.button
-                                        onClick={() => toggleCard(user.id)}
-                                        className="text-teal-600 hover:text-teal-700"
-                                        whileHover={{ scale: 1.1 }}
-                                        whileTap={{ scale: 0.9 }}
-                                        title={expandedCard === user.id ? "Collapse" : "Expand"}
-                                      >
-                                        <svg className={`w-5 h-5 transform ${expandedCard === user.id ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                                        </svg>
-                                      </motion.button>
-
-                                      {/* Delete user */}
-                                      <motion.button
-                                        onClick={() => requestDeleteUser(user)}
-                                        className="text-red-600 hover:text-red-700"
-                                        whileHover={{ scale: 1.1 }}
-                                        whileTap={{ scale: 0.9 }}
-                                        title="Remove user"
-                                      >
-                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 7h12M9 7v10m6-10v10M4 7h16l-1 12a2 2 0 01-2 2H7a2 2 0 01-2-2L4 7zm5-3h6l1 3H8l1-3z" />
-                                        </svg>
-                                      </motion.button>
-                                    </div>
-                                  </div>
-
-                                  <AnimatePresence>
-                                    {expandedCard === user.id && (
-                                      <motion.div
-                                        initial={{ height: 0, opacity: 0 }}
-                                        animate={{ height: "auto", opacity: 1 }}
-                                        exit={{ height: 0, opacity: 0 }}
-                                        transition={{ duration: 0.2 }}
-                                        className="space-y-4 pt-4 border-t border-gray-200"
-                                      >
-                                        <div>
-                                          <label className="block text-sm font-medium text-gray-700">Name</label>
-                                          <input
-                                            type="text"
-                                            value={user.name || ""}
-                                            onChange={(e) => handleUserChange(user.id, "name", e.target.value)}
-                                            className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
-                                            placeholder="Enter name"
-                                          />
-                                        </div>
-
-                                        <div>
-                                          <label className="block text-sm font-medium text-gray-700">Email</label>
-                                          <input
-                                            type="email"
-                                            value={user.email || ""}
-                                            onChange={(e) => handleUserChange(user.id, "email", e.target.value)}
-                                            className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
-                                            placeholder="Enter email"
-                                          />
-                                        </div>
-
-                                        <div>
-                                          <label className="block text-sm font-medium text-gray-700">WhatsApp Number</label>
-                                          <input
-                                            type="text"
-                                            value={user.whatsapp_number || ""}
-                                            onChange={(e) => handleUserChange(user.id, "whatsapp_number", e.target.value)}
-                                            className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
-                                            placeholder="+1234567890"
-                                          />
-                                        </div>
-
-                                        {/* Password with show/hide */}
-                                        <div>
-                                          <label className="block text-sm font-medium text-gray-700">Password (optional)</label>
-                                          <div className="mt-1 flex gap-2">
-                                            <input
-                                              type={showPasswords[user.id] ? "text" : "password"}
-                                              value={user.password || ""}
-                                              onChange={(e) => handleUserChange(user.id, "password", e.target.value)}
-                                              className="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
-                                              placeholder="Enter new password"
-                                            />
-                                            <button
-                                              type="button"
-                                              onClick={() => toggleShowPassword(user.id)}
-                                              className="px-3 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50"
-                                              title={showPasswords[user.id] ? "Hide password" : "Show password"}
-                                            >
-                                              {showPasswords[user.id] ? "Hide" : "Show"}
-                                            </button>
-                                          </div>
-                                          <p className="text-xs text-gray-500 mt-1">
-                                            Leave blank to keep current password.
-                                          </p>
-                                        </div>
-
-                                        <div>
-                                          <label className="block text-sm font-medium text-gray-700">Role</label>
-                                          <select
-                                            value={user.role}
-                                            onChange={(e) => handleUserChange(user.id, "role", e.target.value)}
-                                            className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
-                                          >
-                                            {roleTypes.map((role) => (
-                                              <option key={role} value={role}>
-                                                {role.charAt(0).toUpperCase() + role.slice(1)}
-                                              </option>
-                                            ))}
-                                          </select>
-                                        </div>
-
-                                        {user.role === "team_manager" && (
+                                    <AnimatePresence>
+                                      {expandedCard === user.id && (
+                                        <motion.div
+                                          initial={{ height: 0, opacity: 0 }}
+                                          animate={{ height: "auto", opacity: 1 }}
+                                          exit={{ height: 0, opacity: 0 }}
+                                          transition={{ duration: 0.2 }}
+                                          className="space-y-4 pt-4 border-t border-gray-200"
+                                        >
                                           <div>
-                                            <label className="block text-sm font-medium text-gray-700">Team Manager Type</label>
+                                            <label className="block text-sm font-medium text-gray-700">Name</label>
+                                            <input
+                                              type="text"
+                                              value={user.name || ""}
+                                              onChange={(e) => handleUserChange(user.id, "name", e.target.value)}
+                                              className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
+                                              placeholder="Enter name"
+                                            />
+                                          </div>
+
+                                          <div>
+                                            <label className="block text-sm font-medium text-gray-700">Email</label>
+                                            <input
+                                              type="email"
+                                              value={user.email || ""}
+                                              onChange={(e) => handleUserChange(user.id, "email", e.target.value)}
+                                              className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
+                                              placeholder="Enter email"
+                                            />
+                                          </div>
+
+                                          <div>
+                                            <label className="block text-sm font-medium text-gray-700">WhatsApp Number</label>
+                                            <input
+                                              type="text"
+                                              value={user.whatsapp_number || ""}
+                                              onChange={(e) => handleUserChange(user.id, "whatsapp_number", e.target.value)}
+                                              className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
+                                              placeholder="+1234567890"
+                                            />
+                                          </div>
+
+                                          {/* Password with show/hide */}
+                                          <div>
+                                            <label className="block text-sm font-medium text-gray-700">Password (optional)</label>
+                                            <div className="mt-1 flex gap-2">
+                                              <input
+                                                type={showPasswords[user.id] ? "text" : "password"}
+                                                value={user.password || ""}
+                                                onChange={(e) => handleUserChange(user.id, "password", e.target.value)}
+                                                className="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
+                                                placeholder="Enter new password"
+                                              />
+                                              <button
+                                                type="button"
+                                                onClick={() => toggleShowPassword(user.id)}
+                                                className="px-3 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50"
+                                                title={showPasswords[user.id] ? "Hide password" : "Show password"}
+                                              >
+                                                {showPasswords[user.id] ? "Hide" : "Show"}
+                                              </button>
+                                            </div>
+                                            <p className="text-xs text-gray-500 mt-1">
+                                              Leave blank to keep current password.
+                                            </p>
+                                          </div>
+
+                                          <div>
+                                            <label className="block text-sm font-medium text-gray-700">Role</label>
                                             <select
-                                              value={user.team_manager_type || ""}
-                                              onChange={(e) => handleUserChange(user.id, "team_manager_type", e.target.value)}
+                                              value={user.role}
+                                              onChange={(e) => handleUserChange(user.id, "role", e.target.value)}
                                               className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
                                             >
-                                              <option value="">Select Type</option>
-                                              {teamManagerTypes.map((type) => (
+                                              {roleTypes.map((role) => (
+                                                <option key={role} value={role}>
+                                                  {role.charAt(0).toUpperCase() + role.slice(1)}
+                                                </option>
+                                              ))}
+                                            </select>
+                                          </div>
+
+                                          {user.role === "team_manager" && (
+                                            <div>
+                                              <label className="block text-sm font-medium text-gray-700">Team Manager Type</label>
+                                              <select
+                                                value={user.team_manager_type || ""}
+                                                onChange={(e) => handleUserChange(user.id, "team_manager_type", e.target.value)}
+                                                className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
+                                              >
+                                                <option value="">Select Type</option>
+                                                {teamManagerTypes.map((type) => (
+                                                  <option key={type} value={type}>
+                                                    {type.replace("_", " ").toUpperCase()}
+                                                  </option>
+                                                ))}
+                                              </select>
+                                            </div>
+                                          )}
+
+                                          <div>
+                                            <label className="block text-sm font-medium text-gray-700">Type</label>
+                                            <select
+                                              value={user.type}
+                                              onChange={(e) => handleUserChange(user.id, "type", e.target.value)}
+                                              className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
+                                            >
+                                              {userTypes.map((type) => (
                                                 <option key={type} value={type}>
                                                   {type.replace("_", " ").toUpperCase()}
                                                 </option>
                                               ))}
                                             </select>
                                           </div>
-                                        )}
 
-                                        <div>
-                                          <label className="block text-sm font-medium text-gray-700">Type</label>
-                                          <select
-                                            value={user.type}
-                                            onChange={(e) => handleUserChange(user.id, "type", e.target.value)}
-                                            className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
-                                          >
-                                            {userTypes.map((type) => (
-                                              <option key={type} value={type}>
-                                                {type.replace("_", " ").toUpperCase()}
-                                              </option>
-                                            ))}
-                                          </select>
-                                        </div>
-
-                                        <div>
-                                          <label className="block text-sm font-medium text-gray-700">Member Scope</label>
-                                          <select
-                                            value={user.member_scope || ""}
-                                            onChange={(e) => handleUserChange(user.id, "member_scope", e.target.value)}
-                                            className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
-                                          >
-                                            {memberScopes.map((scope) => (
-                                              <option key={scope} value={scope}>
-                                                {scope.replace("_", " ").toUpperCase()}
-                                              </option>
-                                            ))}
-                                          </select>
-                                        </div>
-
-                                        <div>
-                                          <label className="block text-sm font-medium text-gray-700">Immediate Supervisor</label>
-                                          <select
-                                            value={user.immediate_supervisor || ""}
-                                            onChange={(e) => handleUserChange(user.id, "immediate_supervisor", e.target.value)}
-                                            className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
-                                          >
-                                            <option value="">None</option>
-                                            {users
-                                              .filter((u) => u.id !== user.id && (u.role === "admin" || u.role === "team_manager"))
-                                              .map((supervisor) => (
-                                                <option key={supervisor.id} value={supervisor.id}>
-                                                  {supervisor.name} ({supervisor.role})
+                                          <div>
+                                            <label className="block text-sm font-medium text-gray-700">Member Scope</label>
+                                            <select
+                                              value={user.member_scope || ""}
+                                              onChange={(e) => handleUserChange(user.id, "member_scope", e.target.value)}
+                                              className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
+                                            >
+                                              {memberScopes.map((scope) => (
+                                                <option key={scope} value={scope}>
+                                                  {scope.replace("_", " ").toUpperCase()}
                                                 </option>
                                               ))}
-                                          </select>
-                                        </div>
-                                      </motion.div>
-                                    )}
-                                  </AnimatePresence>
-                                </motion.div>
-                              ))}
+                                            </select>
+                                          </div>
+
+                                          <div>
+                                            <label className="block text-sm font-medium text-gray-700">Immediate Supervisor</label>
+                                            <select
+                                              value={user.immediate_supervisor || ""}
+                                              onChange={(e) => handleUserChange(user.id, "immediate_supervisor", e.target.value)}
+                                              className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
+                                            >
+                                              <option value="">None</option>
+                                              {users
+                                                .filter((u) => u.id !== user.id && (u.role === "admin" || u.role === "team_manager"))
+                                                .map((supervisor) => (
+                                                  <option key={supervisor.id} value={supervisor.id}>
+                                                    {supervisor.name} ({supervisor.role})
+                                                  </option>
+                                                ))}
+                                            </select>
+                                          </div>
+
+                                          {/* NEW: Per-user Day Open / Day Close */}
+                                          <div className="rounded-lg border border-gray-200 p-3 bg-gray-50">
+                                            <div className="flex items-center justify-between">
+                                              <label className="text-sm font-semibold text-gray-700">
+                                                Use custom Day Open / Day Close for this user
+                                              </label>
+                                              <input
+                                                type="checkbox"
+                                                checked={!!times.useCustomTimes}
+                                                onChange={(e) => handleUserTimeToggle(user.id, e.target.checked)}
+                                                className="h-4 w-4"
+                                              />
+                                            </div>
+
+                                            <p className="text-xs text-gray-500 mt-1">
+                                              When off, this user follows the default <code>open_close_times</code> for their type.
+                                            </p>
+
+                                            <div className="grid grid-cols-2 gap-3 mt-3">
+                                              <div>
+                                                <label className="block text-sm text-gray-700">Day Open</label>
+                                                <input
+                                                  type="time"
+                                                  value={times.dayOpenedAt || ""}
+                                                  onChange={(e) => handleUserTimeChange(user.id, "dayOpenedAt", e.target.value)}
+                                                  className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base disabled:opacity-60"
+                                                  disabled={!times.useCustomTimes}
+                                                />
+                                              </div>
+                                              <div>
+                                                <label className="block text-sm text-gray-700">Day Close</label>
+                                                <input
+                                                  type="time"
+                                                  value={times.dayClosedAt || ""}
+                                                  onChange={(e) => handleUserTimeChange(user.id, "dayClosedAt", e.target.value)}
+                                                  className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base disabled:opacity-60"
+                                                  disabled={!times.useCustomTimes}
+                                                />
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </motion.div>
+                                      )}
+                                    </AnimatePresence>
+                                  </motion.div>
+                                );
+                              })}
                           </div>
 
                           <motion.button
-                            onClick={saveTeamChanges}
-                            disabled={saving.team || users.length === 0}
+                            onClick={saveAllChanges}
+                            disabled={saving.team || saving.userTimes || users.length === 0}
                             className={`w-full sm:w-auto mt-4 px-6 py-3 rounded-lg text-white font-semibold text-lg transition-all duration-200 bg-teal-600 hover:bg-teal-700 shadow-md ${
-                              saving.team || users.length === 0 ? "opacity-50 cursor-not-allowed" : ""
+                              saving.team || saving.userTimes || users.length === 0 ? "opacity-50 cursor-not-allowed" : ""
                             }`}
-                            whileHover={{ scale: saving.team || users.length === 0 ? 1 : 1.05 }}
-                            whileTap={{ scale: saving.team || users.length === 0 ? 1 : 0.95 }}
+                            whileHover={{ scale: saving.team || saving.userTimes || users.length === 0 ? 1 : 1.05 }}
+                            whileTap={{ scale: saving.team || saving.userTimes || users.length === 0 ? 1 : 0.95 }}
                           >
-                            {saving.team ? "Saving..." : "Save All Changes"}
+                            {saving.team || saving.userTimes ? "Saving..." : "Save All Changes"}
                           </motion.button>
                         </>
                       )}
