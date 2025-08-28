@@ -1,8 +1,7 @@
-// app/(main)/dashboard/managersCommon/approveCloseDay/page.jsx
 "use client";
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect } from "react";
-import { CheckCircle, XCircle, X, Loader2 } from "lucide-react";
+import { CheckCircle, XCircle, X, Loader2, AlertCircle } from "lucide-react";
 import useSWR, { mutate } from "swr";
 import MRIStepView from "./MRIStepView";
 import AssignedTasksStepView from "./AssignedTasksStepView";
@@ -18,9 +17,14 @@ const fetcher = (url) =>
 export default function ApproveCloseDay() {
   const [requests, setRequests] = useState([]);
   const [selectedRequest, setSelectedRequest] = useState(null);
-  const [currentViewStep, setCurrentViewStep] = useState(1); // 1: MRI, 2: Assigned Tasks, 3: Routine Tasks, 4: General Log
+  const [currentViewStep, setCurrentViewStep] = useState(1);
   const [isApproving, setIsApproving] = useState(false);
-  const [adminRoutineLog, setAdminRoutineLog] = useState("");
+  const [ISRoutineLog, setISRoutineLog] = useState("");
+  const [ISGeneralLog, setISGeneralLog] = useState("");
+  const [error, setError] = useState("");
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [confirmAction, setConfirmAction] = useState(null); // "approve" or "reject"
+  const [confirmRequestId, setConfirmRequestId] = useState(null);
 
   const { data: requestsData } = useSWR("/api/managersCommon/dayCloseRequests", fetcher);
 
@@ -31,14 +35,18 @@ export default function ApproveCloseDay() {
   }, [requestsData]);
 
   const handleOpenRequest = (req) => {
-    console.log("Opening request:", req); // Debug: Log the selected request
+    console.log("Opening request:", req);
     setSelectedRequest({
       ...req,
       assignedTasksUpdates: req.assignedTasksUpdates || [],
       routineTasksUpdates: req.routineTasksUpdates || [],
+      ISRoutineLog: req.ISRoutineLog || "",
+      ISGeneralLog: req.ISGeneralLog || "",
     });
     setCurrentViewStep(1);
-    setAdminRoutineLog("");
+    setISRoutineLog("");
+    setISGeneralLog("");
+    setShowConfirmModal(false);
   };
 
   const handleApprove = async (id) => {
@@ -47,11 +55,12 @@ export default function ApproveCloseDay() {
       const response = await fetch(`/api/managersCommon/dayCloseRequests/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "approved", adminRoutineLog }),
+        body: JSON.stringify({ status: "approved", ISRoutineLog, ISGeneralLog }),
       });
       if (response.ok) {
-        mutate("/api/managersCommon/dayCloseRequests"); // Refresh the list from API
+        mutate("/api/managersCommon/dayCloseRequests");
         setSelectedRequest(null);
+        setShowConfirmModal(false);
       } else {
         setError("Failed to approve day close");
       }
@@ -67,17 +76,24 @@ export default function ApproveCloseDay() {
       const response = await fetch(`/api/managersCommon/dayCloseRequests/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "rejected" }),
+        body: JSON.stringify({ status: "rejected", ISRoutineLog, ISGeneralLog }),
       });
       if (response.ok) {
-        mutate("/api/managersCommon/dayCloseRequests"); // Refresh the list from API
+        mutate("/api/managersCommon/dayCloseRequests");
         setSelectedRequest(null);
+        setShowConfirmModal(false);
       } else {
         setError("Failed to reject day close");
       }
     } catch (err) {
       setError(`Error rejecting day close: ${err.message}`);
     }
+  };
+
+  const handleConfirmAction = (action, id) => {
+    setConfirmAction(action);
+    setConfirmRequestId(id);
+    setShowConfirmModal(true);
   };
 
   const handleNextViewStep = () => {
@@ -91,32 +107,121 @@ export default function ApproveCloseDay() {
   return (
     <motion.div className="p-8">
       <h1 className="text-3xl font-bold mb-6">Approve Day Close Requests</h1>
+      <AnimatePresence>
+        {error && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="bg-red-50 text-red-600 p-4 rounded-xl shadow-md flex items-center gap-2 mb-6"
+            onClick={() => setError("")}
+          >
+            <AlertCircle size={20} />
+            <p className="text-sm font-medium">{error} (Click to dismiss)</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
       {requests.length === 0 ? (
         <p className="text-gray-600">There are no active day close requests</p>
       ) : (
         <div className="space-y-4">
-          {requests.map(req => (
-            <motion.div key={req.id} className="bg-white p-4 rounded-xl shadow-md flex justify-between items-center cursor-pointer" onClick={() => handleOpenRequest(req)}>
+          {requests.map((req) => (
+            <motion.div
+              key={req.id}
+              className="bg-white p-4 rounded-xl shadow-md flex justify-between items-center cursor-pointer"
+              onClick={() => handleOpenRequest(req)}
+            >
               <div>
                 <p className="font-semibold">{req.userName} - {req.date}</p>
                 <p className="text-sm text-gray-600">{req.status}</p>
               </div>
               {req.status === "pending" ? (
                 <div className="flex gap-2">
-                  <motion.button onClick={(e) => { e.stopPropagation(); handleApprove(req.id); }} className="bg-green-600 text-white p-2 rounded" whileHover={{ scale: 1.05 }}>
+                  <motion.button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleConfirmAction("approve", req.id);
+                    }}
+                    className="bg-green-600 text-white p-2 rounded"
+                    whileHover={{ scale: 1.05 }}
+                  >
                     <CheckCircle size={20} />
                   </motion.button>
-                  <motion.button onClick={(e) => { e.stopPropagation(); handleReject(req.id); }} className="bg-red-600 text-white p-2 rounded" whileHover={{ scale: 1.05 }}>
+                  <motion.button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleConfirmAction("reject", req.id);
+                    }}
+                    className="bg-red-600 text-white p-2 rounded"
+                    whileHover={{ scale: 1.05 }}
+                  >
                     <XCircle size={20} />
                   </motion.button>
                 </div>
               ) : (
-                <p className={`font-medium ${req.status === "approved" ? "text-green-600" : "text-red-600"}`}>{req.status.charAt(0).toUpperCase() + req.status.slice(1)}</p>
+                <p className={`font-medium ${req.status === "approved" ? "text-green-600" : "text-red-600"}`}>
+                  {req.status.charAt(0).toUpperCase() + req.status.slice(1)}
+                </p>
               )}
             </motion.div>
           ))}
         </div>
       )}
+
+      {/* Confirmation Modal */}
+      <AnimatePresence>
+        {showConfirmModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-70"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              transition={{ duration: 0.3 }}
+              className="bg-white/90 backdrop-blur-md rounded-3xl shadow-xl p-6 w-full max-w-md border border-teal-100/50 text-center"
+            >
+              <h2 className="text-xl font-bold text-gray-800 mb-2">Confirm {confirmAction === "approve" ? "Approval" : "Rejection"}</h2>
+              <p className="text-sm text-gray-600 mb-6">
+                Are you sure you want to {confirmAction} the day close request by{" "}
+                {requests.find((req) => req.id === confirmRequestId)?.userName} without reviewing the report?
+              </p>
+              <div className="flex gap-4">
+                <motion.button
+                  onClick={() => {
+                    if (confirmAction === "approve") handleApprove(confirmRequestId);
+                    else handleReject(confirmRequestId);
+                  }}
+                  className={`flex-1 ${confirmAction === "approve" ? "bg-green-600 hover:bg-green-700" : "bg-red-600 hover:bg-red-700"} text-white py-3 rounded-xl font-semibold transition-all duration-300 shadow-sm`}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  Yes
+                </motion.button>
+                <motion.button
+                  onClick={() => handleOpenRequest(requests.find((req) => req.id === confirmRequestId))}
+                  className="flex-1 bg-teal-600 text-white py-3 rounded-xl font-semibold hover:bg-teal-700 transition-all duration-300 shadow-sm"
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  No, View Report
+                </motion.button>
+                <motion.button
+                  onClick={() => setShowConfirmModal(false)}
+                  className="flex-1 bg-gray-600 text-white py-3 rounded-xl font-semibold hover:bg-gray-700 transition-all duration-300 shadow-sm"
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  Cancel
+                </motion.button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Details Modal */}
       <AnimatePresence>
@@ -125,53 +230,58 @@ export default function ApproveCloseDay() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50"
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-8 z-[1000]"
           >
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white/90 backdrop-blur-md rounded-3xl shadow-xl p-6 w-full max-w-4xl max-h-[80vh] overflow-y-auto border border-teal-100/50"
+              transition={{ duration: 0.3 }}
+              className="bg-white/90 backdrop-blur-md rounded-3xl shadow-xl p-8 w-full max-w-6xl min-h-[450px] border border-teal-100/50 flex flex-row items-center justify-center gap-12 sm:p-6"
             >
-              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-bold text-gray-800">Day Close Request - Step {currentViewStep}/4</h2>
-                <motion.button
-                  onClick={() => setSelectedRequest(null)}
-                  className="text-gray-500 hover:text-gray-700 p-2 rounded-full hover:bg-gray-100 transition-all duration-200"
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  <X size={24} />
-                </motion.button>
+              <div className="flex-1 flex flex-col gap-6">
+                <div className="flex justify-between items-center">
+                  <h2 className="text-xl font-bold text-gray-800">Day Close Request - Step {currentViewStep}/4</h2>
+                  <motion.button
+                    onClick={() => setSelectedRequest(null)}
+                    className="text-gray-500 hover:text-gray-700 p-2 rounded-full hover:bg-gray-100 transition-all duration-200"
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <X size={24} />
+                  </motion.button>
+                </div>
+                {currentViewStep === 1 && (
+                  <MRIStepView handlePrevViewStep={handlePrevViewStep} handleNextViewStep={handleNextViewStep} mriCleared={selectedRequest.mriCleared} />
+                )}
+                {currentViewStep === 2 && (
+                  <AssignedTasksStepView
+                    assignedTasks={selectedRequest.assignedTasksUpdates}
+                    handlePrevViewStep={handlePrevViewStep}
+                    handleNextViewStep={handleNextViewStep}
+                  />
+                )}
+                {currentViewStep === 3 && (
+                  <RoutineTasksStepView
+                    routineTasks={selectedRequest.routineTasksUpdates}
+                    routineLog={selectedRequest.routineLog}
+                    ISRoutineLog={ISRoutineLog}
+                    setISRoutineLog={setISRoutineLog}
+                    handlePrevViewStep={handlePrevViewStep}
+                    handleNextViewStep={handleNextViewStep}
+                  />
+                )}
+                {currentViewStep === 4 && (
+                  <GeneralLogView
+                    generalLog={selectedRequest.generalLog}
+                    ISGeneralLog={ISGeneralLog}
+                    setISGeneralLog={setISGeneralLog}
+                    handlePrevViewStep={handlePrevViewStep}
+                    handleApprove={() => handleApprove(selectedRequest.id)}
+                    isApproving={isApproving}
+                  />
+                )}
               </div>
-              {currentViewStep === 1 && (
-                <MRIStepView handlePrevViewStep={handlePrevViewStep} handleNextViewStep={handleNextViewStep} mriCleared={selectedRequest.mriCleared} />
-              )}
-              {currentViewStep === 2 && (
-                <AssignedTasksStepView
-                  assignedTasks={selectedRequest.assignedTasksUpdates}
-                  handlePrevViewStep={handlePrevViewStep}
-                  handleNextViewStep={handleNextViewStep}
-                />
-              )}
-              {currentViewStep === 3 && (
-                <RoutineTasksStepView
-                  routineTasks={selectedRequest.routineTasksUpdates}
-                  routineLog={selectedRequest.routineLog}
-                  handlePrevViewStep={handlePrevViewStep}
-                  handleNextViewStep={handleNextViewStep}
-                  adminRoutineLog={adminRoutineLog}
-                  setAdminRoutineLog={setAdminRoutineLog}
-                />
-              )}
-              {currentViewStep === 4 && (
-                <GeneralLogView
-                  generalLog={selectedRequest.generalLog}
-                  handlePrevViewStep={handlePrevViewStep}
-                  handleApprove={() => handleApprove(selectedRequest.id)}
-                  isApproving={isApproving}
-                />
-              )}
             </motion.div>
           </motion.div>
         )}

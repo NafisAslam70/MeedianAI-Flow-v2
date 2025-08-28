@@ -8,7 +8,8 @@ import useSWR from "swr";
 import MRIStep from "./MRIStep";
 import AssignedTasksStep from "./AssignedTasksStep";
 import RoutineTasksStep from "./RoutineTasksStep";
-import AssignedTaskDetails from "@/components/assignedTaskCardDetailForAll"; // Import directly
+import AssignedTaskDetails from "@/components/assignedTaskCardDetailForAll";
+import DayCloseWaitingModal from "./DayCloseWaitingModal";
 
 const fetcher = (url) =>
   fetch(url, { headers: { "Content-Type": "application/json" } }).then((res) => {
@@ -23,18 +24,21 @@ export default function CloseMyDay() {
   const userName = session?.user?.name || "User";
 
   const [timeLeft, setTimeLeft] = useState(null);
+  const [elapsedTime, setElapsedTime] = useState(0);
   const [isClosingWindow, setIsClosingWindow] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeView, setActiveView] = useState("main"); // main or process
+  const [activeView, setActiveView] = useState("main");
   const [showWaitingModal, setShowWaitingModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [showResultModal, setShowResultModal] = useState(false);
+  const [resultData, setResultData] = useState(null);
   const [selectedHistoryDate, setSelectedHistoryDate] = useState(null);
   const [isWaitingForApproval, setIsWaitingForApproval] = useState(false);
-  const [requestStatus, setRequestStatus] = useState("none"); // none, pending, approved, rejected
+  const [requestStatus, setRequestStatus] = useState("none");
   const [requestDate, setRequestDate] = useState(null);
   const [approvedByName, setApprovedByName] = useState(null);
-  const [currentStep, setCurrentStep] = useState(1); // 1: MRI, 2: Assigned Tasks, 3: Routine Tasks, 4: General Log
+  const [currentStep, setCurrentStep] = useState(1);
   const [mriCleared, setMriCleared] = useState(true);
   const [assignedTasksUpdates, setAssignedTasksUpdates] = useState([]);
   const [routineTasksStatuses, setRoutineTasksStatuses] = useState([]);
@@ -44,13 +48,22 @@ export default function CloseMyDay() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [isPortrait, setIsPortrait] = useState(false);
-  // TO BE REMOVED FOR PRODUCTION: Bypass state for testing
   const [isBypass, setIsBypass] = useState(false);
-
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [selectedTask, setSelectedTask] = useState(null);
   const [taskDetails, setTaskDetails] = useState(null);
   const [taskLogs, setTaskLogs] = useState([]);
+
+  // Timer for elapsed time since submission
+  useEffect(() => {
+    let interval;
+    if (showWaitingModal && isWaitingForApproval) {
+      interval = setInterval(() => {
+        setElapsedTime((prev) => prev + 1);
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [showWaitingModal, isWaitingForApproval]);
 
   const { data: timesData, error: timesError } = useSWR(
     status === "authenticated" ? "/api/member/openCloseTimes" : null,
@@ -79,7 +92,7 @@ export default function CloseMyDay() {
   );
 
   const filteredHistory = selectedHistoryDate
-    ? historyData?.requests?.filter(req => format(new Date(req.date), "yyyy-MM-dd") === selectedHistoryDate)
+    ? historyData?.requests?.filter((req) => format(new Date(req.date), "yyyy-MM-dd") === selectedHistoryDate)
     : historyData?.requests;
 
   useEffect(() => {
@@ -159,8 +172,18 @@ export default function CloseMyDay() {
       setIsWaitingForApproval(dayCloseStatus.status === "pending");
       if (dayCloseStatus.status === "pending") {
         setShowWaitingModal(true);
+        setShowResultModal(false);
       } else {
         setShowWaitingModal(false);
+        setShowResultModal(true);
+        setResultData({
+          status: dayCloseStatus.status,
+          ISRoutineLog: dayCloseStatus.ISRoutineLog || "",
+          ISGeneralLog: dayCloseStatus.ISGeneralLog || "",
+          approvedByName: dayCloseStatus.approvedByName || "Unknown",
+          date: dayCloseStatus.date,
+        });
+        setElapsedTime(0);
         if (dayCloseStatus.status === "approved") {
           setSuccess("Congratulations! Your day has been approved. Good night :)");
         } else if (dayCloseStatus.status === "rejected") {
@@ -171,10 +194,12 @@ export default function CloseMyDay() {
       setRequestStatus("none");
       setIsWaitingForApproval(false);
       setShowWaitingModal(false);
+      setShowResultModal(false);
+      setElapsedTime(0);
     }
   }, [dayCloseStatus]);
 
-  const formatTimeLeft = (seconds) => {
+  const formatElapsedTime = (seconds) => {
     const hrs = Math.floor(seconds / 3600);
     const mins = Math.floor((seconds % 3600) / 60);
     const secs = seconds % 60;
@@ -182,16 +207,15 @@ export default function CloseMyDay() {
   };
 
   const formatIST = (date) => {
-    return new Date(date).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+    return new Date(date).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
   };
 
   const handleStartClose = () => {
-    setIsBypass(false); // TO BE REMOVED FOR PRODUCTION
+    setIsBypass(false);
     setActiveView("process");
     setCurrentStep(1);
   };
 
-  // TO BE REMOVED FOR PRODUCTION: Bypass function for testing
   const handleBypassClose = () => {
     setIsBypass(true);
     setActiveView("process");
@@ -227,9 +251,9 @@ export default function CloseMyDay() {
     setIsSubmitting(true);
     setError("");
     setSuccess("");
+    setElapsedTime(0);
 
     try {
-      // Submit day close request with pending updates
       const dayCloseRes = await fetch("/api/member/dayClose/dayCloseRequest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -251,7 +275,7 @@ export default function CloseMyDay() {
           routineLog: routineLog || null,
           generalLog: generalLog || null,
           mriCleared,
-          bypass: isBypass, // TO BE REMOVED FOR PRODUCTION
+          bypass: isBypass,
         }),
       });
 
@@ -260,7 +284,6 @@ export default function CloseMyDay() {
         throw new Error(errorData.error || "Failed to submit day close request");
       }
 
-      // Send notification to admins and team managers
       const adminsAndManagersRes = await fetch("/api/member/dayClose/adminsAndManagers");
       if (!adminsAndManagersRes.ok) {
         throw new Error("Failed to fetch admins and team managers");
@@ -306,6 +329,39 @@ export default function CloseMyDay() {
     setTaskLogs([]);
   };
 
+  const handleDone = () => {
+    setShowResultModal(false);
+    setResultData(null);
+  };
+
+  const handleFollowUp = async () => {
+    try {
+      const incompleteTasks = routineTasksStatuses
+        .filter((task) => !task.done)
+        .map((task) => ({
+          taskType: "routine",
+          taskId: task.id,
+          userId,
+          date: new Date(new Date().setDate(new Date().getDate() + 1)).toISOString().split("T")[0],
+          details: JSON.stringify({ description: task.description }),
+        }));
+
+      if (incompleteTasks.length > 0) {
+        await fetch("/api/member/notCompletedTasks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tasks: incompleteTasks }),
+        });
+      }
+
+      setShowResultModal(false);
+      setResultData(null);
+      setSuccess("Follow-up tasks logged for tomorrow!");
+    } catch (err) {
+      setError(`Failed to log follow-up tasks: ${err.message}`);
+    }
+  };
+
   if (status === "loading") return <div>Loading...</div>;
   if (!["member", "team_manager"].includes(role)) {
     return <div>Access Denied</div>;
@@ -318,7 +374,10 @@ export default function CloseMyDay() {
       transition={{ duration: 0.5 }}
       className="fixed inset-0 bg-gradient-to-br from-teal-50 to-blue-50 p-8 flex items-center justify-center"
     >
-      <div className="w-full h-full bg-white/80 backdrop-blur-md rounded-3xl shadow-2xl p-8 flex flex-col gap-8 border border-teal-100/50" style={{ minHeight: "calc(100vh - 120px)" }}>
+      <div
+        className="w-full h-full bg-white/80 backdrop-blur-md rounded-3xl shadow-2xl p-8 flex flex-col gap-8 border border-teal-100/50"
+        style={{ minHeight: "calc(100vh - 120px)" }}
+      >
         {/* Error Message */}
         <AnimatePresence>
           {error && (
@@ -382,10 +441,10 @@ export default function CloseMyDay() {
                     </div>
                   ) : timeLeft !== null && (
                     <p className="text-lg font-bold text-teal-700">
-                      Time left to close day: {formatTimeLeft(timeLeft)}
+                      Time left to close day: {formatElapsedTime(timeLeft)}
                     </p>
                   )}
-                  {!isClosingWindow && !isBypass && ( // TO BE REMOVED FOR PRODUCTION: isBypass check
+                  {!isClosingWindow && !isBypass && (
                     <p className="text-sm text-red-500 mt-2">Closing window not active yet.</p>
                   )}
                   {requestStatus !== "none" && (
@@ -403,7 +462,6 @@ export default function CloseMyDay() {
                   )}
                 </div>
 
-                {/* Buttons or Status */}
                 <div className="space-y-3 mt-auto">
                   <motion.button
                     className="w-full bg-blue-600 text-white py-3 rounded-xl font-semibold hover:bg-blue-700 transition-all duration-300 flex items-center justify-center gap-2 shadow-md"
@@ -417,7 +475,8 @@ export default function CloseMyDay() {
                     <p className="text-center text-lg font-bold text-indigo-700">Pending Approval</p>
                   ) : requestStatus === "approved" ? (
                     <p className="text-center text-lg font-bold text-green-600">
-                      Day Approved for {requestDate ? format(new Date(requestDate), "d/M/yyyy") : format(new Date(), "d/M/yyyy")} by {approvedByName || "Unknown"}
+                      Day Approved for {requestDate ? format(new Date(requestDate), "d/M/yyyy") : format(new Date(), "d/M/yyyy")} by{" "}
+                      {approvedByName || "Unknown"}
                     </p>
                   ) : (
                     <>
@@ -426,13 +485,12 @@ export default function CloseMyDay() {
                         whileHover={{ scale: 1.02 }}
                         whileTap={{ scale: 0.98 }}
                         onClick={handleStartClose}
-                        disabled={isSubmitting || !isClosingWindow} // TO BE REMOVED FOR PRODUCTION: Remove !isBypass
+                        disabled={isSubmitting || !isClosingWindow}
                         title={!isClosingWindow ? "Closing window not open, try at the right time." : ""}
                       >
                         <Clock size={16} />
                         Close My Day
                       </motion.button>
-                      {/* TO BE REMOVED FOR PRODUCTION: Bypass button */}
                       <motion.button
                         className="w-full bg-orange-600 text-white py-3 rounded-xl font-semibold hover:bg-orange-700 transition-all duration-300 flex items-center justify-center gap-2 shadow-md"
                         whileHover={{ scale: 1.02 }}
@@ -448,7 +506,6 @@ export default function CloseMyDay() {
                 </div>
               </motion.div>
 
-              {/* Day Close Information */}
               <motion.div
                 className="bg-white/80 backdrop-blur-md rounded-3xl shadow-md p-6 border border-teal-100/50 flex flex-col lg:col-span-2 hover:shadow-xl transition-shadow duration-300"
                 initial={{ opacity: 0, x: 50 }}
@@ -525,7 +582,7 @@ export default function CloseMyDay() {
                   {[1, 2, 3, 4].map((step) => (
                     <motion.div
                       key={step}
-                      className={`w-8 h-2 rounded-full ${step <= currentStep ? 'bg-teal-600' : 'bg-gray-300'}`}
+                      className={`w-8 h-2 rounded-full ${step <= currentStep ? "bg-teal-600" : "bg-gray-300"}`}
                       animate={{ scale: step === currentStep ? 1.2 : 1 }}
                     />
                   ))}
@@ -613,7 +670,9 @@ export default function CloseMyDay() {
                         <motion.button
                           onClick={() => setShowConfirmModal(true)}
                           disabled={isSubmitting}
-                          className={`flex-1 bg-teal-600 text-white py-3 rounded-xl font-semibold transition-all duration-300 shadow-md ${isSubmitting ? "opacity-50 cursor-not-allowed" : "hover:bg-teal-700"}`}
+                          className={`flex-1 bg-teal-600 text-white py-3 rounded-xl font-semibold transition-all duration-300 shadow-md ${
+                            isSubmitting ? "opacity-50 cursor-not-allowed" : "hover:bg-teal-700"
+                          }`}
                           whileHover={{ scale: 1.02 }}
                           whileTap={{ scale: 0.98 }}
                         >
@@ -671,32 +730,70 @@ export default function CloseMyDay() {
         </AnimatePresence>
 
         {/* Waiting Modal */}
+        <DayCloseWaitingModal
+          showWaitingModal={showWaitingModal}
+          isWaitingForApproval={isWaitingForApproval}
+          elapsedTime={elapsedTime}
+          formatElapsedTime={formatElapsedTime}
+        />
+
+        {/* Result Modal */}
         <AnimatePresence>
-          {showWaitingModal && (
+          {showResultModal && resultData && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-70"
+              className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-8 z-[1000]"
             >
               <motion.div
                 initial={{ scale: 0.95, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.95, opacity: 0 }}
                 transition={{ duration: 0.3 }}
-                className="bg-white/90 backdrop-blur-md rounded-3xl shadow-xl p-6 w-full max-w-md border border-teal-100/50 text-center"
+                className="bg-white/90 backdrop-blur-md rounded-3xl shadow-xl p-8 w-full max-w-6xl min-h-[450px] border border-teal-100/50 flex flex-row items-center justify-center gap-12 sm:p-6"
               >
-                <div className="text-6xl mb-4">😊</div>
-                <h2 className="text-xl font-bold text-gray-800 mb-2">Waiting for Approval</h2>
-                <p className="text-sm text-gray-600 mb-6">Your day close request has been submitted. Please wait for admin/manager approval.</p>
-                <motion.button
-                  onClick={() => setShowWaitingModal(false)}
-                  className="w-full bg-gray-600 text-white py-3 rounded-xl font-semibold hover:bg-gray-700 transition-all duration-300 shadow-sm"
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  Close
-                </motion.button>
+                <div className="flex-1 flex flex-col gap-6">
+                  <h2 className="text-2xl font-bold text-teal-800">
+                    Day Close {resultData.status === "approved" ? "Approved" : "Rejected"}
+                  </h2>
+                  <p className="text-sm text-gray-600">
+                    Your day close request for {format(new Date(resultData.date), "d/M/yyyy")} has been{" "}
+                    {resultData.status === "approved" ? "approved" : "rejected"} by {resultData.approvedByName}.
+                  </p>
+                  {resultData.ISRoutineLog && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-800">Supervisor Routine Comment:</label>
+                      <p className="border p-2 rounded w-full text-sm bg-gray-50">{resultData.ISRoutineLog}</p>
+                    </div>
+                  )}
+                  {resultData.ISGeneralLog && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-800">Supervisor General Comment:</label>
+                      <p className="border p-2 rounded w-full text-sm bg-gray-50">{resultData.ISGeneralLog}</p>
+                    </div>
+                  )}
+                  <div className="flex justify-between gap-4">
+                    <motion.button
+                      onClick={handleDone}
+                      className="flex-1 bg-teal-600 text-white py-3 rounded-xl font-semibold hover:bg-teal-700 transition-all duration-300 shadow-sm"
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                    >
+                      Done
+                    </motion.button>
+                    {resultData.status === "rejected" && (
+                      <motion.button
+                        onClick={handleFollowUp}
+                        className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-semibold hover:bg-blue-700 transition-all duration-300 shadow-sm"
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                      >
+                        Follow Up for Next Day
+                      </motion.button>
+                    )}
+                  </div>
+                </div>
               </motion.div>
             </motion.div>
           )}
@@ -733,11 +830,37 @@ export default function CloseMyDay() {
                   <div className="space-y-4">
                     {filteredHistory.map((req) => (
                       <div key={req.id} className="bg-gray-50 p-4 rounded-xl shadow-sm border border-teal-100/50">
-                        <p><strong>Date:</strong> {format(new Date(req.date), "d/M/yyyy (EEEE)")}</p>
-                        <p><strong>Status:</strong> {req.status}</p>
-                        <p><strong>Requested At:</strong> {formatIST(req.createdAt)}</p>
-                        {req.approvedAt && <p><strong>{req.status === "approved" ? "Approved" : "Rejected"} By:</strong> {req.approvedByName || "Unknown"}</p>}
-                        {req.approvedAt && <p><strong>{req.status === "approved" ? "Approved" : "Rejected"} At:</strong> {formatIST(req.approvedAt)}</p>}
+                        <p>
+                          <strong>Date:</strong> {format(new Date(req.date), "d/M/yyyy (EEEE)")}
+                        </p>
+                        <p>
+                          <strong>Status:</strong> {req.status}
+                        </p>
+                        <p>
+                          <strong>Requested At:</strong> {formatIST(req.createdAt)}
+                        </p>
+                        {req.approvedAt && (
+                          <p>
+                            <strong>{req.status === "approved" ? "Approved" : "Rejected"} By:</strong>{" "}
+                            {req.approvedByName || "Unknown"}
+                          </p>
+                        )}
+                        {req.approvedAt && (
+                          <p>
+                            <strong>{req.status === "approved" ? "Approved" : "Rejected"} At:</strong>{" "}
+                            {formatIST(req.approvedAt)}
+                          </p>
+                        )}
+                        {req.ISRoutineLog && (
+                          <p>
+                            <strong>Supervisor Routine Comment:</strong> {req.ISRoutineLog}
+                          </p>
+                        )}
+                        {req.ISGeneralLog && (
+                          <p>
+                            <strong>Supervisor General Comment:</strong> {req.ISGeneralLog}
+                          </p>
+                        )}
                       </div>
                     ))}
                   </div>

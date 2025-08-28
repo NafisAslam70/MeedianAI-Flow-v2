@@ -1,9 +1,10 @@
-// app/(main)/dashboard/managersCommon/approveCloseDay/GeneralLogView.jsx
 import { motion } from "framer-motion";
 import { Loader2 } from "lucide-react";
 
 export default function GeneralLogView({
   generalLog,
+  ISGeneralLog,
+  setISGeneralLog,
   handlePrevViewStep,
   handleApprove,
   isApproving,
@@ -11,9 +12,16 @@ export default function GeneralLogView({
   return (
     <div>
       <h3 className="text-lg font-semibold text-gray-800 mb-3">General Log</h3>
-      <p className="text-sm text-gray-600 mb-4">
-        {generalLog || "No general log provided."}
-      </p>
+      <p className="text-sm text-gray-600 mb-4">{generalLog || "No general log provided."}</p>
+      <div className="mt-4">
+        <label className="block text-sm font-medium text-gray-800">Supervisor Comment:</label>
+        <textarea
+          value={ISGeneralLog}
+          onChange={(e) => setISGeneralLog(e.target.value)}
+          placeholder="Add your comments on the general log..."
+          className="border border-teal-200 p-3 rounded-xl w-full text-sm h-24 focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 bg-teal-50/50 resize-none"
+        />
+      </div>
       <div className="flex justify-between mt-6 gap-4">
         <motion.button
           onClick={handlePrevViewStep}

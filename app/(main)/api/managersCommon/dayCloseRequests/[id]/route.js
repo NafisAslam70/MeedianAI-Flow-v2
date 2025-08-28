@@ -1,8 +1,7 @@
-// app/(main)/api/managersCommon/dayCloseRequests/[id]/route.js
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
-import { dayCloseRequests, users, assignedTaskStatus, assignedTasks, assignedTaskLogs, routineTaskDailyStatuses, routineTaskLogs, messages } from "@/lib/schema";  // Added assignedTaskLogs
+import { dayCloseRequests, users, assignedTaskStatus, assignedTasks, assignedTaskLogs, routineTaskDailyStatuses, routineTaskLogs, messages } from "@/lib/schema";
 import { eq, and } from "drizzle-orm";
 import { format } from "date-fns";
 
@@ -14,7 +13,7 @@ export async function PATCH(req, { params }) {
 
   const awaitedParams = await params;
   const id = awaitedParams.id;
-  const { status, adminRoutineLog } = await req.json();
+  const { status, ISRoutineLog, ISGeneralLog } = await req.json();
   const userId = Number(session.user.id);
 
   try {
@@ -29,6 +28,7 @@ export async function PATCH(req, { params }) {
         assignedTasksUpdates: dayCloseRequests.assignedTasksUpdates,
         routineTasksUpdates: dayCloseRequests.routineTasksUpdates,
         routineLog: dayCloseRequests.routineLog,
+        generalLog: dayCloseRequests.generalLog,
       })
       .from(dayCloseRequests)
       .where(eq(dayCloseRequests.id, id))
@@ -123,32 +123,38 @@ export async function PATCH(req, { params }) {
         });
       }
 
-      // Insert admin routine comment if provided
-      if (adminRoutineLog) {
+      // Insert IS routine comment if provided
+      if (ISRoutineLog) {
         await db.insert(routineTaskLogs).values({
           routineTaskId: null,
           userId,
-          action: "admin_routine_comment",
-          details: adminRoutineLog,
+          action: "is_routine_comment",
+          details: ISRoutineLog,
           createdAt: new Date(),
         });
       }
     }
 
-    // Update request status
+    // Update request status and IS comments
     await db
       .update(dayCloseRequests)
       .set({
         status,
         approvedBy: status === "approved" ? userId : null,
         approvedAt: status === "approved" ? new Date() : null,
+        ISRoutineLog: ISRoutineLog || null,
+        ISGeneralLog: ISGeneralLog || null,
       })
       .where(eq(dayCloseRequests.id, id));
 
-    // Notify user of approval/rejection
+    // Notify user of approval/rejection with IS comments
     const message = status === "approved"
-      ? `Your day close request for ${format(new Date(request.date), "yyyy-MM-dd")} has been approved.`
-      : `Your day close request for ${format(new Date(request.date), "yyyy-MM-dd")} has been rejected.`;
+      ? `Your day close request for ${format(new Date(request.date), "yyyy-MM-dd")} has been approved.` +
+        (ISRoutineLog ? `\nSupervisor Routine Comment: ${ISRoutineLog}` : "") +
+        (ISGeneralLog ? `\nSupervisor General Comment: ${ISGeneralLog}` : "")
+      : `Your day close request for ${format(new Date(request.date), "yyyy-MM-dd")} has been rejected.` +
+        (ISRoutineLog ? `\nSupervisor Routine Comment: ${ISRoutineLog}` : "") +
+        (ISGeneralLog ? `\nSupervisor General Comment: ${ISGeneralLog}` : "");
     await db.insert(messages).values({
       senderId: userId,
       recipientId: request.userId,
