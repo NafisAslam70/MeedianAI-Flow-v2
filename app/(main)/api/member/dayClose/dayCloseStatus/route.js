@@ -3,8 +3,8 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { dayCloseRequests, users } from "@/lib/schema";
-import { eq, and, gte, lte } from "drizzle-orm";       // ⬅️ gte / lte added
-import { startOfToday, endOfToday } from "date-fns";   // ⬅️ helpers
+import { eq, and, gte, lte } from "drizzle-orm";
+import { startOfDay, endOfDay } from "date-fns";
 
 export async function GET() {
   const session = await auth();
@@ -12,17 +12,21 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const userId      = Number(session.user.id);
-  const dayStartUTC = startOfToday(new Date());  // 00:00 local → Date object
-  const dayEndUTC   = endOfToday(new Date());    // 23:59:59.999
+  const userId = Number(session.user.id);
+  const dayStartUTC = startOfDay(new Date());
+  const dayEndUTC = endOfDay(new Date());
 
   try {
     const [request] = await db
       .select({
-        status:         dayCloseRequests.status,
-        date:           dayCloseRequests.date,
-        approvedBy:     dayCloseRequests.approvedBy,
+        status: dayCloseRequests.status,
+        date: dayCloseRequests.date,
+        approvedBy: dayCloseRequests.approvedBy,
         approvedByName: users.name,
+        ISRoutineLog: dayCloseRequests.ISRoutineLog,
+        ISGeneralLog: dayCloseRequests.ISGeneralLog,
+        routineLog: dayCloseRequests.routineLog, // Added
+        generalLog: dayCloseRequests.generalLog, // Added
       })
       .from(dayCloseRequests)
       .leftJoin(users, eq(dayCloseRequests.approvedBy, users.id))

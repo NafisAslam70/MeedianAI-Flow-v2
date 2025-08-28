@@ -1,3 +1,4 @@
+
 "use client";
 import { useSession } from "next-auth/react";
 import { useState, useEffect } from "react";
@@ -31,8 +32,6 @@ export default function CloseMyDay() {
   const [showWaitingModal, setShowWaitingModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
-  const [showResultModal, setShowResultModal] = useState(false);
-  const [resultData, setResultData] = useState(null);
   const [selectedHistoryDate, setSelectedHistoryDate] = useState(null);
   const [isWaitingForApproval, setIsWaitingForApproval] = useState(false);
   const [requestStatus, setRequestStatus] = useState("none");
@@ -165,36 +164,24 @@ export default function CloseMyDay() {
   }, [routineTasksData]);
 
   useEffect(() => {
-    if (dayCloseStatus) {
-      setRequestStatus(dayCloseStatus.status || "none");
+    if (dayCloseStatus && ["pending", "approved", "rejected"].includes(dayCloseStatus.status)) {
+      setRequestStatus(dayCloseStatus.status);
       setRequestDate(dayCloseStatus.date || null);
       setApprovedByName(dayCloseStatus.approvedByName || null);
       setIsWaitingForApproval(dayCloseStatus.status === "pending");
-      if (dayCloseStatus.status === "pending") {
-        setShowWaitingModal(true);
-        setShowResultModal(false);
-      } else {
-        setShowWaitingModal(false);
-        setShowResultModal(true);
-        setResultData({
-          status: dayCloseStatus.status,
-          ISRoutineLog: dayCloseStatus.ISRoutineLog || "",
-          ISGeneralLog: dayCloseStatus.ISGeneralLog || "",
-          approvedByName: dayCloseStatus.approvedByName || "Unknown",
-          date: dayCloseStatus.date,
-        });
-        setElapsedTime(0);
-        if (dayCloseStatus.status === "approved") {
-          setSuccess("Congratulations! Your day has been approved. Good night :)");
-        } else if (dayCloseStatus.status === "rejected") {
-          setError("Your day close request was rejected. Please review and resubmit.");
-        }
+      setShowWaitingModal(true);
+      setElapsedTime(0);
+      if (dayCloseStatus.status === "approved") {
+        setSuccess("Congratulations! Your day has been approved. Good night :)");
+      } else if (dayCloseStatus.status === "rejected") {
+        setError("Your day close request was rejected. Please review and resubmit.");
       }
     } else {
       setRequestStatus("none");
       setIsWaitingForApproval(false);
       setShowWaitingModal(false);
-      setShowResultModal(false);
+      setRequestDate(null);
+      setApprovedByName(null);
       setElapsedTime(0);
     }
   }, [dayCloseStatus]);
@@ -207,7 +194,9 @@ export default function CloseMyDay() {
   };
 
   const formatIST = (date) => {
-    return new Date(date).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+    return date && !isNaN(new Date(date).getTime())
+      ? new Date(date).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })
+      : "Unknown date";
   };
 
   const handleStartClose = () => {
@@ -327,39 +316,6 @@ export default function CloseMyDay() {
     setSelectedTask(null);
     setTaskDetails(null);
     setTaskLogs([]);
-  };
-
-  const handleDone = () => {
-    setShowResultModal(false);
-    setResultData(null);
-  };
-
-  const handleFollowUp = async () => {
-    try {
-      const incompleteTasks = routineTasksStatuses
-        .filter((task) => !task.done)
-        .map((task) => ({
-          taskType: "routine",
-          taskId: task.id,
-          userId,
-          date: new Date(new Date().setDate(new Date().getDate() + 1)).toISOString().split("T")[0],
-          details: JSON.stringify({ description: task.description }),
-        }));
-
-      if (incompleteTasks.length > 0) {
-        await fetch("/api/member/notCompletedTasks", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ tasks: incompleteTasks }),
-        });
-      }
-
-      setShowResultModal(false);
-      setResultData(null);
-      setSuccess("Follow-up tasks logged for tomorrow!");
-    } catch (err) {
-      setError(`Failed to log follow-up tasks: ${err.message}`);
-    }
   };
 
   if (status === "loading") return <div>Loading...</div>;
@@ -735,69 +691,17 @@ export default function CloseMyDay() {
           isWaitingForApproval={isWaitingForApproval}
           elapsedTime={elapsedTime}
           formatElapsedTime={formatElapsedTime}
+          dayCloseStatus={dayCloseStatus}
+          routineTasksStatuses={routineTasksStatuses}
+          userId={userId}
+          setSuccess={setSuccess}
+          setError={setError}
+          onClose={() => {
+            setShowWaitingModal(false);
+            setActiveView("main");
+            mutateDayCloseStatus();
+          }}
         />
-
-        {/* Result Modal */}
-        <AnimatePresence>
-          {showResultModal && resultData && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-8 z-[1000]"
-            >
-              <motion.div
-                initial={{ scale: 0.95, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.95, opacity: 0 }}
-                transition={{ duration: 0.3 }}
-                className="bg-white/90 backdrop-blur-md rounded-3xl shadow-xl p-8 w-full max-w-6xl min-h-[450px] border border-teal-100/50 flex flex-row items-center justify-center gap-12 sm:p-6"
-              >
-                <div className="flex-1 flex flex-col gap-6">
-                  <h2 className="text-2xl font-bold text-teal-800">
-                    Day Close {resultData.status === "approved" ? "Approved" : "Rejected"}
-                  </h2>
-                  <p className="text-sm text-gray-600">
-                    Your day close request for {format(new Date(resultData.date), "d/M/yyyy")} has been{" "}
-                    {resultData.status === "approved" ? "approved" : "rejected"} by {resultData.approvedByName}.
-                  </p>
-                  {resultData.ISRoutineLog && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-800">Supervisor Routine Comment:</label>
-                      <p className="border p-2 rounded w-full text-sm bg-gray-50">{resultData.ISRoutineLog}</p>
-                    </div>
-                  )}
-                  {resultData.ISGeneralLog && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-800">Supervisor General Comment:</label>
-                      <p className="border p-2 rounded w-full text-sm bg-gray-50">{resultData.ISGeneralLog}</p>
-                    </div>
-                  )}
-                  <div className="flex justify-between gap-4">
-                    <motion.button
-                      onClick={handleDone}
-                      className="flex-1 bg-teal-600 text-white py-3 rounded-xl font-semibold hover:bg-teal-700 transition-all duration-300 shadow-sm"
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                    >
-                      Done
-                    </motion.button>
-                    {resultData.status === "rejected" && (
-                      <motion.button
-                        onClick={handleFollowUp}
-                        className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-semibold hover:bg-blue-700 transition-all duration-300 shadow-sm"
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                      >
-                        Follow Up for Next Day
-                      </motion.button>
-                    )}
-                  </div>
-                </div>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
 
         {/* History Modal */}
         <AnimatePresence>
@@ -831,7 +735,10 @@ export default function CloseMyDay() {
                     {filteredHistory.map((req) => (
                       <div key={req.id} className="bg-gray-50 p-4 rounded-xl shadow-sm border border-teal-100/50">
                         <p>
-                          <strong>Date:</strong> {format(new Date(req.date), "d/M/yyyy (EEEE)")}
+                          <strong>Date:</strong>{" "}
+                          {req.date && !isNaN(new Date(req.date).getTime())
+                            ? format(new Date(req.date), "d/M/yyyy (EEEE)")
+                            : "Unknown date"}
                         </p>
                         <p>
                           <strong>Status:</strong> {req.status}
