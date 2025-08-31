@@ -21,6 +21,9 @@ export async function GET() {
         createdAt: dayCloseRequests.createdAt,
         approvedAt: dayCloseRequests.approvedAt,
         approvedByName: users.name,
+        // 👇 include general logs for the thread component
+        generalLog: dayCloseRequests.generalLog,
+        ISGeneralLog: dayCloseRequests.ISGeneralLog,
       })
       .from(dayCloseRequests)
       .leftJoin(users, eq(dayCloseRequests.approvedBy, users.id))

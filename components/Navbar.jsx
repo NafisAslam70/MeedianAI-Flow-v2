@@ -485,6 +485,8 @@ export default function Navbar() {
                     <div className="nav-dropdown-menu" role="menu">
                       <Link href="/dashboard/managersCommon/routineTasks" className="nav-dropdown-item">Routine Tasks</Link>
                       <Link href="/dashboard/managersCommon/assignTask" className="nav-dropdown-item">Assign Task</Link>
+                      <Link href="/dashboard/managersCommon/approveCloseDay" className="nav-dropdown-item">Day Close Request</Link>
+                      <Link href="/dashboard/managersCommon/approveLeave" className="nav-dropdown-item">Leave Request</Link>
                       <a href="https://meed-recruitment.onrender.com/login" target="_blank" rel="noopener noreferrer" className="nav-dropdown-item">Recruit</a>
                     </div>
                   )}
@@ -510,6 +512,8 @@ export default function Navbar() {
                     <div className="nav-dropdown-menu" role="menu">
                       <Link href="/dashboard/managersCommon/routineTasks" className="nav-dropdown-item">Routine Tasks</Link>
                       <Link href="/dashboard/managersCommon/assignTask" className="nav-dropdown-item">Assign Task</Link>
+                      <Link href="/dashboard/managersCommon/approveCloseDay" className="nav-dropdown-item">Day Close Request</Link>
+                      <Link href="/dashboard/managersCommon/approveLeave" className="nav-dropdown-item">Leave Request</Link>
                       <a href="https://meed-recruitment.onrender.com/login" target="_blank" rel="noopener noreferrer" className="nav-dropdown-item">Recruit</a>
                     </div>
                   )}
@@ -606,6 +610,8 @@ export default function Navbar() {
                       <div className="pl-2">
                         <Link href="/dashboard/managersCommon/routineTasks" onClick={toggleMobileMenu} className="mobile-menu-item">Routine Tasks</Link>
                         <Link href="/dashboard/managersCommon/assignTask" onClick={toggleMobileMenu} className="mobile-menu-item">Assign Task</Link>
+                        <Link href="/dashboard/managersCommon/approveCloseDay" onClick={toggleMobileMenu} className="mobile-menu-item">Day Close Request</Link>
+                        <Link href="/dashboard/managersCommon/approveLeave" onClick={toggleMobileMenu} className="mobile-menu-item">Leave Request</Link>
                         <a href="https://meed-recruitment.onrender.com/login" target="_blank" rel="noopener noreferrer" onClick={toggleMobileMenu} className="mobile-menu-item">Recruit</a>
                       </div>
                     </details>
@@ -633,6 +639,8 @@ export default function Navbar() {
                       <div className="pl-2">
                         <Link href="/dashboard/managersCommon/routineTasks" onClick={toggleMobileMenu} className="mobile-menu-item">Routine Tasks</Link>
                         <Link href="/dashboard/managersCommon/assignTask" onClick={toggleMobileMenu} className="mobile-menu-item">Assign Task</Link>
+                        <Link href="/dashboard/managersCommon/approveCloseDay" onClick={toggleMobileMenu} className="mobile-menu-item">Day Close Request</Link>
+                        <Link href="/dashboard/managersCommon/approveLeave" onClick={toggleMobileMenu} className="mobile-menu-item">Leave Request</Link>
                         <a href="https://meed-recruitment.onrender.com/login" target="_blank" rel="noopener noreferrer" onClick={toggleMobileMenu} className="mobile-menu-item">Recruit</a>
                       </div>
                     </details>

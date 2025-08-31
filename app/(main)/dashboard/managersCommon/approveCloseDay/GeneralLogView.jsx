@@ -1,7 +1,12 @@
+"use client";
+
 import { motion } from "framer-motion";
-import { Loader2 } from "lucide-react";
+import { Loader2, MessageSquare, ChevronDown, ChevronUp } from "lucide-react";
+import GeneralConversationThread from "@/components/GeneralConversationThread";
+import { useState } from "react";
 
 export default function GeneralLogView({
+  memberId,
   generalLog,
   ISGeneralLog,
   setISGeneralLog,
@@ -9,19 +14,63 @@ export default function GeneralLogView({
   handleApprove,
   isApproving,
 }) {
+  const [showLogs, setShowLogs] = useState(true);
+
+  const toggleLogs = () => setShowLogs(!showLogs);
+
   return (
-    <div>
-      <h3 className="text-lg font-semibold text-gray-800 mb-3">General Log</h3>
-      <p className="text-sm text-gray-600 mb-4">{generalLog || "No general log provided."}</p>
-      <div className="mt-4">
-        <label className="block text-sm font-medium text-gray-800">Supervisor Comment:</label>
-        <textarea
-          value={ISGeneralLog}
-          onChange={(e) => setISGeneralLog(e.target.value)}
-          placeholder="Add your comments on the general log..."
-          className="border border-teal-200 p-3 rounded-xl w-full text-sm h-24 focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 bg-teal-50/50 resize-none"
-        />
+    <div className="flex flex-col h-full">
+      <h3 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
+        <MessageSquare size={18} className="text-teal-600" />
+        General Log
+      </h3>
+
+      {/* Two-column layout for Member Note and Supervisor Reply */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        {/* Member Note */}
+        <div>
+          <div className="text-[11px] font-semibold text-gray-600 mb-1">Member Note</div>
+          <div className="border border-teal-100 rounded-xl bg-teal-50/40 p-3 text-sm text-gray-800 whitespace-pre-wrap h-40 overflow-y-auto">
+            {generalLog?.trim() ? generalLog : "No general log provided."}
+          </div>
+        </div>
+
+        {/* Supervisor Reply */}
+        <div>
+          <div className="text-[11px] font-semibold text-gray-600 mb-1">Supervisor Reply</div>
+          <textarea
+            value={ISGeneralLog}
+            onChange={(e) => setISGeneralLog(e.target.value)}
+            placeholder="Add your reply to the member’s note…"
+            className="border border-teal-200 p-3 rounded-xl w-full text-sm h-40 focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 bg-teal-50/50 resize-none"
+          />
+        </div>
       </div>
+
+      {/* Toggle for Past Conversation Thread */}
+      <div className="mt-5">
+        <button
+          onClick={toggleLogs}
+          className="flex items-center gap-2 text-sm font-semibold text-teal-600 hover:text-teal-800 transition-colors"
+        >
+          {showLogs ? (
+            <>
+              <ChevronUp size={16} /> Hide Past Conversations
+            </>
+          ) : (
+            <>
+              <ChevronDown size={16} /> Show Past Conversations
+            </>
+          )}
+        </button>
+        {showLogs && (
+          <div className="mt-3 max-h-64 overflow-y-auto">
+            <GeneralConversationThread memberId={memberId} limitDays={14} />
+          </div>
+        )}
+      </div>
+
+      {/* Actions */}
       <div className="flex justify-between mt-6 gap-4">
         <motion.button
           onClick={handlePrevViewStep}
@@ -34,7 +83,9 @@ export default function GeneralLogView({
         <motion.button
           onClick={handleApprove}
           disabled={isApproving}
-          className={`flex-1 bg-green-600 text-white py-3 rounded-xl font-semibold transition-all duration-300 ${isApproving ? "opacity-50 cursor-not-allowed" : "hover:bg-green-700"}`}
+          className={`flex-1 bg-green-600 text-white py-3 rounded-xl font-semibold transition-all duration-300 ${
+            isApproving ? "opacity-50 cursor-not-allowed" : "hover:bg-green-700"
+          }`}
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
         >

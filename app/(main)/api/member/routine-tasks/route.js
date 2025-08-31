@@ -1,7 +1,13 @@
+// app/api/member/routine-tasks/route.js
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
-import { routineTasks, routineTaskDailyStatuses, users, openCloseTimes } from "@/lib/schema";
+import {
+  routineTasks,
+  routineTaskDailyStatuses,
+  users,
+  openCloseTimes,
+} from "@/lib/schema";
 import { eq, and, sql } from "drizzle-orm";
 
 export async function GET(req) {
@@ -37,10 +43,9 @@ export async function GET(req) {
         )
         .where(eq(routineTasks.memberId, parseInt(session.user.id)));
 
-      // Default status to "not_done" if no daily status exists
-      const tasksWithDefault = tasks.map((task) => ({
-        ...task,
-        status: task.status || "not_done",
+      const tasksWithDefault = tasks.map((t) => ({
+        ...t,
+        status: t.status || "not_done",
       }));
 
       return NextResponse.json({ tasks: tasksWithDefault }, { status: 200 });
@@ -50,7 +55,7 @@ export async function GET(req) {
     }
   }
 
-  // GET /api/member/routine-tasks?action=routineTasksAdmin (for RoutineTaskStatus)
+  // GET /api/member/routine-tasks?action=routineTasksAdmin&memberId=...
   if (action === "routineTasksAdmin") {
     if (session.user.role !== "admin") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -115,7 +120,7 @@ export async function POST(req) {
   const { searchParams } = new URL(req.url);
   const action = searchParams.get("action");
 
-  // POST /api/member/routine-tasks?action=routineTasksAdmin (for RoutineTaskStatus)
+  // POST /api/member/routine-tasks?action=routineTasksAdmin
   if (action === "routineTasksAdmin") {
     if (session.user.role !== "admin") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -139,7 +144,7 @@ export async function POST(req) {
       await db.insert(routineTaskDailyStatuses).values({
         routineTaskId: task.id,
         date: new Date(),
-        status: status || "not_done", // Default to "not_done" instead of "not_started"
+        status: status || "not_done",
         updatedAt: new Date(),
         isLocked: false,
       });
@@ -151,7 +156,7 @@ export async function POST(req) {
     }
   }
 
-  // POST /api/member/routine-tasks?action=closeDay (for MemberDashboard)
+  // POST /api/member/routine-tasks?action=closeDay  (kept as-is, defers to dayCloseRequest)
   if (action === "closeDay") {
     const { userId, date, tasks, comment } = await req.json();
     if (!userId || !date || !tasks) {
@@ -188,14 +193,12 @@ export async function POST(req) {
         return NextResponse.json({ error: "Not within closing window" }, { status: 400 });
       }
 
-      // Validate tasks
       for (const task of tasks) {
         if (!Number.isInteger(task.id) || typeof task.markAsCompleted !== "boolean") {
           return NextResponse.json({ error: "Invalid task data" }, { status: 400 });
         }
       }
 
-      // Defer updates to dayCloseRequests (handled in /api/member/dayCloseRequest)
       return NextResponse.json({ success: true }, { status: 200 });
     } catch (error) {
       console.error("POST /api/member/routine-tasks error:", error);
@@ -215,7 +218,8 @@ export async function PATCH(req) {
   const { searchParams } = new URL(req.url);
   const action = searchParams.get("action");
 
-  // PATCH /api/member/routine-tasks?action=routineTasksStatus (for MemberDashboard, RoutineTasks)
+  // PATCH /api/member/routine-tasks?action=routineTasksStatus
+  // Upsert today's status row for (taskId, date)
   if (action === "routineTasksStatus") {
     const { taskId, status, date, comment } = await req.json();
     if (!taskId || !status) {
@@ -223,20 +227,32 @@ export async function PATCH(req) {
     }
 
     try {
-      const [taskStatus] = await db
+      const targetDate = date || new Date().toISOString().split("T")[0];
+
+      const [existing] = await db
         .select()
         .from(routineTaskDailyStatuses)
         .where(
           and(
             eq(routineTaskDailyStatuses.routineTaskId, taskId),
-            eq(sql`DATE(${routineTaskDailyStatuses.date})`, date || new Date().toISOString().split("T")[0])
+            eq(sql`DATE(${routineTaskDailyStatuses.date})`, targetDate)
           )
         );
-      if (!taskStatus) {
-        return NextResponse.json({ error: "Task status not found" }, { status: 404 });
+
+      if (!existing) {
+        await db.insert(routineTaskDailyStatuses).values({
+          routineTaskId: taskId,
+          date: new Date(targetDate), // honor yyyy-MM-dd local day
+          status,
+          updatedAt: new Date(),
+          comment: comment ?? null,
+          isLocked: false,
+        });
+        return NextResponse.json({ message: "Task status created" }, { status: 201 });
       }
-      if (taskStatus.isLocked || taskStatus.status === "verified" || taskStatus.status === "done") {
-        return NextResponse.json({ error: "Cannot update locked, verified, or done task" }, { status: 400 });
+
+      if (existing.isLocked || existing.status === "verified") {
+        return NextResponse.json({ error: "Cannot update locked or verified task" }, { status: 400 });
       }
 
       await db
@@ -245,7 +261,7 @@ export async function PATCH(req) {
         .where(
           and(
             eq(routineTaskDailyStatuses.routineTaskId, taskId),
-            eq(sql`DATE(${routineTaskDailyStatuses.date})`, date || new Date().toISOString().split("T")[0])
+            eq(sql`DATE(${routineTaskDailyStatuses.date})`, targetDate)
           )
         );
 

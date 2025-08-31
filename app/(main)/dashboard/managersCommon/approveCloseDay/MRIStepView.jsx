@@ -1,4 +1,3 @@
-// app/(main)/dashboard/managersCommon/approveCloseDay/MRIStepView.jsx
 import { motion } from "framer-motion";
 import { CheckCircle } from "lucide-react";
 
@@ -12,9 +11,9 @@ export default function MRIStepView({ mri, handlePrevViewStep, handleNextViewSte
         <CheckCircle size={18} className="text-teal-600" />
         MRI Clearance
       </h3>
-      <p className="text-sm text-gray-600 mb-4">
+      <div className="border border-teal-100 rounded-xl bg-teal-50/40 p-3 text-sm text-gray-600 mb-4">
         {cleared ? "All MRIs cleared." : "MRIs not cleared yet."}
-      </p>
+      </div>
       <div className="flex justify-between mt-6 gap-4">
         <motion.button
           onClick={handlePrevViewStep}
@@ -26,7 +25,7 @@ export default function MRIStepView({ mri, handlePrevViewStep, handleNextViewSte
         </motion.button>
         <motion.button
           onClick={handleNextViewStep}
-          className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-semibold hover:bg-blue-700 transition-all duration-300"
+          className="flex-1 bg-green-600 text-white py-3 rounded-xl font-semibold hover:bg-green-700 transition-all duration-300"
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
         >

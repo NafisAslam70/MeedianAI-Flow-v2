@@ -1,7 +1,17 @@
+// app/api/managersCommon/dayCloseRequests/[id]/route.js
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { auth } from "@/lib/auth";
-import { dayCloseRequests, users, assignedTaskStatus, assignedTasks, assignedTaskLogs, routineTaskDailyStatuses, routineTaskLogs, messages } from "@/lib/schema";
+import { auth } from "@/lib/auth"; 
+import {
+  dayCloseRequests,
+  users,
+  assignedTaskStatus,
+  assignedTasks,
+  assignedTaskLogs,
+  routineTaskDailyStatuses,
+  routineTaskLogs,
+  messages,
+} from "@/lib/schema";
 import { eq, and } from "drizzle-orm";
 import { format } from "date-fns";
 
@@ -14,7 +24,7 @@ export async function PATCH(req, { params }) {
   const awaitedParams = await params;
   const id = awaitedParams.id;
   const { status, ISRoutineLog, ISGeneralLog } = await req.json();
-  const userId = Number(session.user.id);
+  const supervisorId = Number(session.user.id);
 
   try {
     if (!["approved", "rejected"].includes(status)) {
@@ -29,6 +39,7 @@ export async function PATCH(req, { params }) {
         routineTasksUpdates: dayCloseRequests.routineTasksUpdates,
         routineLog: dayCloseRequests.routineLog,
         generalLog: dayCloseRequests.generalLog,
+        currentStatus: dayCloseRequests.status,
       })
       .from(dayCloseRequests)
       .where(eq(dayCloseRequests.id, id))
@@ -37,82 +48,71 @@ export async function PATCH(req, { params }) {
     if (!request) {
       return NextResponse.json({ error: "Request not found" }, { status: 404 });
     }
+    if (request.currentStatus !== "pending") {
+      return NextResponse.json({ error: "Request is not pending" }, { status: 400 });
+    }
 
     if (status === "approved") {
-      // Apply assigned task updates
+      // 1) Assigned tasks updates
       for (const update of request.assignedTasksUpdates || []) {
-        const [taskStatus] = await db
+        const [row] = await db
           .select({ id: assignedTaskStatus.id })
           .from(assignedTaskStatus)
-          .where(
-            and(
-              eq(assignedTaskStatus.taskId, update.id),
-              eq(assignedTaskStatus.memberId, request.userId)
-            )
-          );
-        if (taskStatus) {
+          .where(and(eq(assignedTaskStatus.taskId, update.id), eq(assignedTaskStatus.memberId, request.userId)));
+
+        if (row) {
           await db
             .update(assignedTaskStatus)
             .set({
               status: update.statusUpdate,
               updatedAt: new Date(),
-              comment: update.comment,
-              verifiedBy: update.statusUpdate === "verified" ? userId : null,
+              comment: update.comment || null,
+              verifiedBy: update.statusUpdate === "verified" ? supervisorId : null,
               verifiedAt: update.statusUpdate === "verified" ? new Date() : null,
             })
-            .where(eq(assignedTaskStatus.id, taskStatus.id));
+            .where(eq(assignedTaskStatus.id, row.id));
 
           if (update.comment) {
             await db.insert(assignedTaskLogs).values({
               taskId: update.id,
-              userId,
+              userId: supervisorId,
               action: "status_update",
               details: update.comment,
               createdAt: new Date(),
             });
           }
-
           if (update.newDeadline) {
-            await db
-              .update(assignedTasks)
-              .set({ deadline: new Date(update.newDeadline) })
-              .where(eq(assignedTasks.id, update.id));
+            await db.update(assignedTasks).set({ deadline: new Date(update.newDeadline) }).where(eq(assignedTasks.id, update.id));
           }
         }
       }
 
-      // Apply routine task updates
-      for (const task of request.routineTasksUpdates || []) {
-        const [statusRow] = await db
+      // 2) Routine tasks daily statuses
+      for (const upd of request.routineTasksUpdates || []) {
+        const [daily] = await db
           .select({ id: routineTaskDailyStatuses.id })
           .from(routineTaskDailyStatuses)
-          .where(
-            and(
-              eq(routineTaskDailyStatuses.routineTaskId, task.id),
-              eq(routineTaskDailyStatuses.date, request.date)
-            )
-          );
-        if (statusRow) {
+          .where(and(eq(routineTaskDailyStatuses.routineTaskId, upd.id), eq(routineTaskDailyStatuses.date, request.date)));
+
+        const newStatus = upd.done ? "done" : "not_done"; // ✅ consistent
+
+        if (daily) {
           await db
             .update(routineTaskDailyStatuses)
-            .set({
-              status: task.done ? "done" : "not_started",
-              updatedAt: new Date(),
-              isLocked: true,
-            })
-            .where(eq(routineTaskDailyStatuses.id, statusRow.id));
+            .set({ status: newStatus, updatedAt: new Date(), isLocked: true })
+            .where(eq(routineTaskDailyStatuses.id, daily.id));
         } else {
           await db.insert(routineTaskDailyStatuses).values({
-            routineTaskId: task.id,
+            routineTaskId: upd.id,
             date: request.date,
-            status: task.done ? "done" : "not_started",
+            status: newStatus,
             updatedAt: new Date(),
             isLocked: true,
           });
         }
       }
 
-      // Insert routine log if provided
+      // 3) Member routine comment (optional)
       if (request.routineLog) {
         await db.insert(routineTaskLogs).values({
           routineTaskId: null,
@@ -123,11 +123,11 @@ export async function PATCH(req, { params }) {
         });
       }
 
-      // Insert IS routine comment if provided
+      // 4) Supervisor routine comment (optional)
       if (ISRoutineLog) {
         await db.insert(routineTaskLogs).values({
           routineTaskId: null,
-          userId,
+          userId: supervisorId,
           action: "is_routine_comment",
           details: ISRoutineLog,
           createdAt: new Date(),
@@ -135,30 +135,32 @@ export async function PATCH(req, { params }) {
       }
     }
 
-    // Update request status and IS comments
+    // Update request + IS comments
     await db
       .update(dayCloseRequests)
       .set({
         status,
-        approvedBy: status === "approved" ? userId : null,
+        approvedBy: status === "approved" ? supervisorId : null,
         approvedAt: status === "approved" ? new Date() : null,
         ISRoutineLog: ISRoutineLog || null,
         ISGeneralLog: ISGeneralLog || null,
       })
       .where(eq(dayCloseRequests.id, id));
 
-    // Notify user of approval/rejection with IS comments
-    const message = status === "approved"
-      ? `Your day close request for ${format(new Date(request.date), "yyyy-MM-dd")} has been approved.` +
-        (ISRoutineLog ? `\nSupervisor Routine Comment: ${ISRoutineLog}` : "") +
-        (ISGeneralLog ? `\nSupervisor General Comment: ${ISGeneralLog}` : "")
-      : `Your day close request for ${format(new Date(request.date), "yyyy-MM-dd")} has been rejected.` +
-        (ISRoutineLog ? `\nSupervisor Routine Comment: ${ISRoutineLog}` : "") +
-        (ISGeneralLog ? `\nSupervisor General Comment: ${ISGeneralLog}` : "");
+    // Notify member
+    const msg =
+      status === "approved"
+        ? `Your day close request for ${format(new Date(request.date), "yyyy-MM-dd")} has been approved.` +
+          (ISRoutineLog ? `\nSupervisor Routine Comment: ${ISRoutineLog}` : "") +
+          (ISGeneralLog ? `\nSupervisor General Comment: ${ISGeneralLog}` : "")
+        : `Your day close request for ${format(new Date(request.date), "yyyy-MM-dd")} has been rejected.` +
+          (ISRoutineLog ? `\nSupervisor Routine Comment: ${ISRoutineLog}` : "") +
+          (ISGeneralLog ? `\nSupervisor General Comment: ${ISGeneralLog}` : "");
+
     await db.insert(messages).values({
-      senderId: userId,
+      senderId: supervisorId,
       recipientId: request.userId,
-      content: message,
+      content: msg,
       createdAt: new Date(),
       status: "sent",
     });

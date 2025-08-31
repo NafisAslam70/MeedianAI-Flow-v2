@@ -1,9 +1,8 @@
-
 "use client";
 import { useSession } from "next-auth/react";
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Clock, Calendar, CheckCircle, AlertCircle, Loader2, ArrowLeft, ArrowRight } from "lucide-react";
+import { X, Clock, Calendar, CheckCircle, AlertCircle, Loader2, ArrowLeft } from "lucide-react";
 import { format } from "date-fns";
 import useSWR from "swr";
 import MRIStep from "./MRIStep";
@@ -11,6 +10,7 @@ import AssignedTasksStep from "./AssignedTasksStep";
 import RoutineTasksStep from "./RoutineTasksStep";
 import AssignedTaskDetails from "@/components/assignedTaskCardDetailForAll";
 import DayCloseWaitingModal from "./DayCloseWaitingModal";
+import GeneralConversationThread from "@/components/GeneralConversationThread";
 
 const fetcher = (url) =>
   fetch(url, { headers: { "Content-Type": "application/json" } }).then((res) => {
@@ -57,25 +57,27 @@ export default function CloseMyDay() {
   useEffect(() => {
     let interval;
     if (showWaitingModal && isWaitingForApproval) {
-      interval = setInterval(() => {
-        setElapsedTime((prev) => prev + 1);
-      }, 1000);
+      interval = setInterval(() => setElapsedTime((p) => p + 1), 1000);
     }
     return () => clearInterval(interval);
   }, [showWaitingModal, isWaitingForApproval]);
 
-  const { data: timesData, error: timesError } = useSWR(
+  const { data: timesData } = useSWR(
     status === "authenticated" ? "/api/member/openCloseTimes" : null,
     fetcher
   );
 
-  const { data: assignedTasksData, mutate: mutateAssigned } = useSWR(
-    status === "authenticated" ? `/api/member/assignedTasks?date=${format(new Date(), "yyyy-MM-dd")}&action=tasks` : null,
+  const { data: assignedTasksData } = useSWR(
+    status === "authenticated"
+      ? `/api/member/assignedTasks?date=${format(new Date(), "yyyy-MM-dd")}&action=tasks`
+      : null,
     fetcher
   );
 
-  const { data: routineTasksData, mutate: mutateRoutine } = useSWR(
-    status === "authenticated" ? `/api/member/routine-tasks?action=routineTasks&date=${format(new Date(), "yyyy-MM-dd")}` : null,
+  const { data: routineTasksData } = useSWR(
+    status === "authenticated"
+      ? `/api/member/routine-tasks?action=routineTasks&date=${format(new Date(), "yyyy-MM-dd")}`
+      : null,
     fetcher
   );
 
@@ -91,43 +93,43 @@ export default function CloseMyDay() {
   );
 
   const filteredHistory = selectedHistoryDate
-    ? historyData?.requests?.filter((req) => format(new Date(req.date), "yyyy-MM-dd") === selectedHistoryDate)
+    ? historyData?.requests?.filter(
+        (req) => format(new Date(req.date), "yyyy-MM-dd") === selectedHistoryDate
+      )
     : historyData?.requests;
 
   useEffect(() => {
-    if (timesData?.times) {
-      const now = new Date();
-      const closeTime = new Date();
-      const [closeH, closeM] = timesData.times.dayCloseTime.split(":").map(Number);
-      closeTime.setHours(closeH, closeM, 0, 0);
+    if (!timesData?.times) return;
+    const now = new Date();
+    const closeTime = new Date();
+    const [closeH, closeM] = timesData.times.dayCloseTime.split(":").map(Number);
+    closeTime.setHours(closeH, closeM, 0, 0);
 
-      const closingStart = new Date();
-      const [startH, startM] = timesData.times.closingWindowStart.split(":").map(Number);
-      closingStart.setHours(startH, startM, 0, 0);
+    const closingStart = new Date();
+    const [startH, startM] = timesData.times.closingWindowStart.split(":").map(Number);
+    closingStart.setHours(startH, startM, 0, 0);
 
-      const closingEnd = new Date();
-      const [endH, endM] = timesData.times.closingWindowEnd.split(":").map(Number);
-      closingEnd.setHours(endH, endM, 0, 0);
+    const closingEnd = new Date();
+    const [endH, endM] = timesData.times.closingWindowEnd.split(":").map(Number);
+    closingEnd.setHours(endH, endM, 0, 0);
 
-      setIsClosingWindow(now >= closingStart && now <= closingEnd);
+    setIsClosingWindow(now >= closingStart && now <= closingEnd);
 
-      const updateTimeLeft = () => {
-        const secondsLeft = Math.max(0, Math.floor((closeTime.getTime() - Date.now()) * 0.001));
-        setTimeLeft(secondsLeft);
-      };
+    const updateTimeLeft = () => {
+      const secondsLeft = Math.max(0, Math.floor((closeTime.getTime() - Date.now()) * 0.001));
+      setTimeLeft(secondsLeft);
+    };
 
-      updateTimeLeft();
-      const interval = setInterval(updateTimeLeft, 1000);
-      setIsLoading(false);
-      return () => clearInterval(interval);
-    }
+    updateTimeLeft();
+    const interval = setInterval(updateTimeLeft, 1000);
+    setIsLoading(false);
+    return () => clearInterval(interval);
   }, [timesData]);
 
   useEffect(() => {
     const checkOrientation = () => {
       setIsPortrait(window.matchMedia("(orientation: portrait)").matches);
     };
-
     checkOrientation();
     window.addEventListener("resize", checkOrientation);
     return () => window.removeEventListener("resize", checkOrientation);
@@ -154,7 +156,7 @@ export default function CloseMyDay() {
       setRoutineTasksStatuses(
         routineTasksData.tasks.map((task) => ({
           id: task.id,
-          done: task.status === "done",
+          done: task.status === "done", // local boolean always
           description: task.description || "No description",
         }))
       );
@@ -190,7 +192,9 @@ export default function CloseMyDay() {
     const hrs = Math.floor(seconds / 3600);
     const mins = Math.floor((seconds % 3600) / 60);
     const secs = seconds % 60;
-    return `${hrs.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+    return `${hrs.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs
+      .toString()
+      .padStart(2, "0")}`;
   };
 
   const formatIST = (date) => {
@@ -211,29 +215,21 @@ export default function CloseMyDay() {
     setCurrentStep(1);
   };
 
-  const handleNextStep = () => {
-    setCurrentStep((prev) => Math.min(prev + 1, 4));
-  };
-
-  const handlePrevStep = () => {
-    setCurrentStep((prev) => Math.max(prev - 1, 1));
-  };
-
+  const handleNextStep = () => setCurrentStep((p) => Math.min(p + 1, 4));
+  const handlePrevStep = () => setCurrentStep((p) => Math.max(p - 1, 1));
   const handleBackToMain = () => {
     setActiveView("main");
     setCurrentStep(1);
   };
 
   const handleUpdateAssignedTask = (taskId, field, value) => {
-    setAssignedTasksUpdates((prev) =>
-      prev.map((t) => (t.id === taskId ? { ...t, [field]: value } : t))
-    );
+    setAssignedTasksUpdates((prev) => prev.map((t) => (t.id === taskId ? { ...t, [field]: value } : t)));
   };
 
-  const handleUpdateRoutineStatus = (taskId, done) => {
-    setRoutineTasksStatuses((prev) =>
-      prev.map((t) => (t.id === taskId ? { ...t, done } : t))
-    );
+  // Accept "done" | "not_done" | boolean, store boolean
+  const handleUpdateRoutineStatus = (taskId, statusOrBool /* "done" | "not_done" | boolean */) => {
+    const done = typeof statusOrBool === "boolean" ? statusOrBool : statusOrBool === "done";
+    setRoutineTasksStatuses((prev) => prev.map((t) => (t.id === taskId ? { ...t, done } : t)));
   };
 
   const handleSubmitClose = async () => {
@@ -243,29 +239,31 @@ export default function CloseMyDay() {
     setElapsedTime(0);
 
     try {
+      const body = {
+        userId,
+        date: format(new Date(), "yyyy-MM-dd"),
+        assignedTasksUpdates: assignedTasksUpdates.map((u) => ({
+          id: Number(u.id),
+          title: u.title,
+          statusUpdate: u.statusUpdate,
+          comment: u.comment || null,
+          newDeadline: u.newDeadline ? new Date(u.newDeadline).toISOString() : null,
+        })),
+        routineTasksUpdates: routineTasksStatuses.map((t) => ({
+          id: Number(t.id),
+          description: t.description,
+          done: !!t.done, // ensure boolean
+        })),
+        routineLog: routineLog || null,
+        generalLog: generalLog || null,
+        mriCleared,
+        bypass: isBypass,
+      };
+
       const dayCloseRes = await fetch("/api/member/dayClose/dayCloseRequest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userId,
-          date: format(new Date(), "yyyy-MM-dd"),
-          assignedTasksUpdates: assignedTasksUpdates.map((update) => ({
-            id: update.id,
-            title: update.title,
-            statusUpdate: update.statusUpdate,
-            comment: update.comment || null,
-            newDeadline: update.newDeadline ? new Date(update.newDeadline).toISOString() : null,
-          })),
-          routineTasksUpdates: routineTasksStatuses.map((task) => ({
-            id: task.id,
-            description: task.description,
-            done: task.done,
-          })),
-          routineLog: routineLog || null,
-          generalLog: generalLog || null,
-          mriCleared,
-          bypass: isBypass,
-        }),
+        body: JSON.stringify(body),
       });
 
       if (!dayCloseRes.ok) {
@@ -273,22 +271,19 @@ export default function CloseMyDay() {
         throw new Error(errorData.error || "Failed to submit day close request");
       }
 
+      // Notify admins/managers
       const adminsAndManagersRes = await fetch("/api/member/dayClose/adminsAndManagers");
-      if (!adminsAndManagersRes.ok) {
-        throw new Error("Failed to fetch admins and team managers");
-      }
+      if (!adminsAndManagersRes.ok) throw new Error("Failed to fetch admins and team managers");
+
       const { users: adminsAndManagers } = await adminsAndManagersRes.json();
       const message = `Day close request submitted by ${userName} for ${format(new Date(), "yyyy-MM-dd")}. Please review.`;
+
       await Promise.all(
-        adminsAndManagers.map((user) =>
+        (adminsAndManagers || []).map((user) =>
           fetch("/api/others/chat", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              userId,
-              recipientId: user.id,
-              message,
-            }),
+            body: JSON.stringify({ userId, recipientId: user.id, message }),
           })
         )
       );
@@ -319,9 +314,7 @@ export default function CloseMyDay() {
   };
 
   if (status === "loading") return <div>Loading...</div>;
-  if (!["member", "team_manager"].includes(role)) {
-    return <div>Access Denied</div>;
-  }
+  if (!["member", "team_manager"].includes(role)) return <div>Access Denied</div>;
 
   return (
     <motion.div
@@ -334,7 +327,7 @@ export default function CloseMyDay() {
         className="w-full h-full bg-white/80 backdrop-blur-md rounded-3xl shadow-2xl p-8 flex flex-col gap-8 border border-teal-100/50"
         style={{ minHeight: "calc(100vh - 120px)" }}
       >
-        {/* Error Message */}
+        {/* Error/Success Toasts */}
         <AnimatePresence>
           {error && (
             <motion.div
@@ -373,7 +366,7 @@ export default function CloseMyDay() {
               transition={{ duration: 0.3 }}
               className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full"
             >
-              {/* Greeting and Time Left */}
+              {/* Left card */}
               <motion.div
                 className="bg-white/80 backdrop-blur-md rounded-3xl shadow-md p-6 border border-teal-100/50 flex flex-col lg:col-span-1 hover:shadow-xl transition-shadow duration-300"
                 initial={{ opacity: 0, x: -50 }}
@@ -395,10 +388,12 @@ export default function CloseMyDay() {
                     <div className="flex items-center justify-center py-6">
                       <Loader2 className="w-6 h-6 text-teal-600 animate-spin" />
                     </div>
-                  ) : timeLeft !== null && (
-                    <p className="text-lg font-bold text-teal-700">
-                      Time left to close day: {formatElapsedTime(timeLeft)}
-                    </p>
+                  ) : (
+                    timeLeft !== null && (
+                      <p className="text-lg font-bold text-teal-700">
+                        Time left to close day: {formatElapsedTime(timeLeft)}
+                      </p>
+                    )
                   )}
                   {!isClosingWindow && !isBypass && (
                     <p className="text-sm text-red-500 mt-2">Closing window not active yet.</p>
@@ -431,8 +426,11 @@ export default function CloseMyDay() {
                     <p className="text-center text-lg font-bold text-indigo-700">Pending Approval</p>
                   ) : requestStatus === "approved" ? (
                     <p className="text-center text-lg font-bold text-green-600">
-                      Day Approved for {requestDate ? format(new Date(requestDate), "d/M/yyyy") : format(new Date(), "d/M/yyyy")} by{" "}
-                      {approvedByName || "Unknown"}
+                      Day Approved for{" "}
+                      {requestDate
+                        ? format(new Date(requestDate), "d/M/yyyy")
+                        : format(new Date(), "d/M/yyyy")}{" "}
+                      by {approvedByName || "Unknown"}
                     </p>
                   ) : (
                     <>
@@ -462,6 +460,7 @@ export default function CloseMyDay() {
                 </div>
               </motion.div>
 
+              {/* Right card */}
               <motion.div
                 className="bg-white/80 backdrop-blur-md rounded-3xl shadow-md p-6 border border-teal-100/50 flex flex-col lg:col-span-2 hover:shadow-xl transition-shadow duration-300"
                 initial={{ opacity: 0, x: 50 }}
@@ -544,26 +543,16 @@ export default function CloseMyDay() {
                   ))}
                 </div>
               </div>
+
               <AnimatePresence mode="wait">
                 {currentStep === 1 && (
-                  <motion.div
-                    key="step1"
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    transition={{ duration: 0.3 }}
-                  >
+                  <motion.div key="step1" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.3 }}>
                     <MRIStep handleNextStep={handleNextStep} mriCleared={mriCleared} />
                   </motion.div>
                 )}
+
                 {currentStep === 2 && (
-                  <motion.div
-                    key="step2"
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    transition={{ duration: 0.3 }}
-                  >
+                  <motion.div key="step2" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.3 }}>
                     <AssignedTasksStep
                       assignedTasksData={assignedTasksData}
                       assignedTasksUpdates={assignedTasksUpdates}
@@ -576,14 +565,9 @@ export default function CloseMyDay() {
                     />
                   </motion.div>
                 )}
+
                 {currentStep === 3 && (
-                  <motion.div
-                    key="step3"
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    transition={{ duration: 0.3 }}
-                  >
+                  <motion.div key="step3" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.3 }}>
                     <RoutineTasksStep
                       routineTasksData={routineTasksData}
                       routineTasksStatuses={routineTasksStatuses}
@@ -595,46 +579,47 @@ export default function CloseMyDay() {
                     />
                   </motion.div>
                 )}
+
                 {currentStep === 4 && (
-                  <motion.div
-                    key="step4"
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    transition={{ duration: 0.3 }}
-                  >
-                    <div>
-                      <h3 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
-                        <CheckCircle size={18} className="text-teal-600" />
-                        General Log
-                      </h3>
-                      <textarea
-                        value={generalLog}
-                        onChange={(e) => setGeneralLog(e.target.value)}
-                        placeholder="Any message to the superintendent/admin?"
-                        className="border border-teal-200 p-3 rounded-xl w-full text-sm h-24 focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 bg-teal-50/50 resize-none"
-                      />
-                      <div className="flex justify-between mt-6 gap-4">
-                        <motion.button
-                          onClick={handlePrevStep}
-                          className="flex-1 bg-gray-200 text-gray-800 py-3 rounded-xl font-semibold hover:bg-gray-300 transition-all duration-300 shadow-sm"
-                          whileHover={{ scale: 1.02 }}
-                          whileTap={{ scale: 0.98 }}
-                        >
-                          Previous
-                        </motion.button>
-                        <motion.button
-                          onClick={() => setShowConfirmModal(true)}
-                          disabled={isSubmitting}
-                          className={`flex-1 bg-teal-600 text-white py-3 rounded-xl font-semibold transition-all duration-300 shadow-md ${
-                            isSubmitting ? "opacity-50 cursor-not-allowed" : "hover:bg-teal-700"
-                          }`}
-                          whileHover={{ scale: 1.02 }}
-                          whileTap={{ scale: 0.98 }}
-                        >
-                          {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Submit Close Day"}
-                        </motion.button>
-                      </div>
+                  <motion.div key="step4" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.3 }}>
+                    <h3 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                      <CheckCircle size={18} className="text-teal-600" />
+                      General Log
+                    </h3>
+
+                    {/* Today's note input */}
+                    <textarea
+                      value={generalLog}
+                      onChange={(e) => setGeneralLog(e.target.value)}
+                      placeholder="Any message to the superintendent/admin?"
+                      className="border border-teal-200 p-3 rounded-xl w-full text-sm h-24 focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 bg-teal-50/50 resize-none"
+                    />
+
+                    {/* Past-day conversation thread */}
+                    <div className="mt-5">
+                      <GeneralConversationThread limitDays={14} />
+                    </div>
+
+                    <div className="flex justify-between mt-6 gap-4">
+                      <motion.button
+                        onClick={handlePrevStep}
+                        className="flex-1 bg-gray-200 text-gray-800 py-3 rounded-xl font-semibold hover:bg-gray-300 transition-all duration-300 shadow-sm"
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                      >
+                        Previous
+                      </motion.button>
+                      <motion.button
+                        onClick={() => setShowConfirmModal(true)}
+                        disabled={isSubmitting}
+                        className={`flex-1 bg-teal-600 text-white py-3 rounded-xl font-semibold transition-all duration-300 shadow-md ${
+                          isSubmitting ? "opacity-50 cursor-not-allowed" : "hover:bg-teal-700"
+                        }`}
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                      >
+                        {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Submit Close Day"}
+                      </motion.button>
                     </div>
                   </motion.div>
                 )}
@@ -652,9 +637,7 @@ export default function CloseMyDay() {
               exit={{ opacity: 0 }}
               className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-70"
               onClick={(e) => {
-                if (e.target === e.currentTarget) {
-                  handleCloseDetails();
-                }
+                if (e.target === e.currentTarget) handleCloseDetails();
               }}
             >
               <motion.div
@@ -665,10 +648,7 @@ export default function CloseMyDay() {
                 className="bg-white/90 backdrop-blur-md rounded-3xl shadow-xl p-6 w-full max-w-md border border-teal-100/50 text-center overflow-y-auto max-h-[80vh]"
                 onClick={(e) => e.stopPropagation()}
               >
-                <button
-                  onClick={handleCloseDetails}
-                  className="absolute top-4 right-4 text-gray-500 hover:text-gray-700"
-                >
+                <button onClick={handleCloseDetails} className="absolute top-4 right-4 text-gray-500 hover:text-gray-700">
                   <X className="w-6 h-6" />
                 </button>
                 <h2 className="text-xl font-bold text-gray-800 mb-4">Task Details</h2>
@@ -706,12 +686,7 @@ export default function CloseMyDay() {
         {/* History Modal */}
         <AnimatePresence>
           {showHistoryModal && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-70"
-            >
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-70">
               <motion.div
                 initial={{ scale: 0.95, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
@@ -790,12 +765,7 @@ export default function CloseMyDay() {
         {/* Confirmation Modal */}
         <AnimatePresence>
           {showConfirmModal && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-70"
-            >
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-70">
               <motion.div
                 initial={{ scale: 0.95, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}

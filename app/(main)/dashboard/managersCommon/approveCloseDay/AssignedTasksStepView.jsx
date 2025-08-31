@@ -1,4 +1,3 @@
-// app/(main)/dashboard/managersCommon/approveCloseDay/AssignedTasksStepView.jsx
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect } from "react";
 import { CheckCircle, Calendar, X, Info } from "lucide-react";
@@ -65,7 +64,7 @@ export default function AssignedTasksStepView({
       case "not_started": return { bg: "bg-red-50", border: "border-red-100", text: "text-red-600" };
       case "in_progress": return { bg: "bg-amber-50", border: "border-amber-100", text: "text-amber-600" };
       case "pending_verification": return { bg: "bg-indigo-50", border: "border-indigo-100", text: "text-indigo-600" };
-      case "verified": case "done": return { bg: "bg-emerald-50", border: "border-emerald-100", text: "text-emerald-600" };
+      case "verified": case "done": return { bg: "bg-teal-50", border: "border-teal-100", text: "text-teal-600" };
       default: return { bg: "bg-gray-50", border: "border-gray-100", text: "text-gray-600" };
     }
   };
@@ -313,7 +312,7 @@ export default function AssignedTasksStepView({
           action: "moveToUndone",
           taskType: "assigned",
           taskId: task.id,
-          userId: session?.user?.id, // or the user who submitted
+          userId: session?.user?.id,
           date: new Date().toISOString(),
           details: task,
         }),
@@ -345,7 +344,7 @@ export default function AssignedTasksStepView({
         {/* Left Column: Day Shutdown Logs */}
         <div className="border border-teal-200 rounded-lg p-6 bg-white shadow-md">
           <div className="flex justify-between items-center mb-4">
-            <h4 className="text-xl font-bold text-teal-800">Day Shutdown Logs</h4>
+            <h4 className="text-xl font-bold text-gray-800">Day Shutdown Logs</h4>
           </div>
           <div className="space-y-4 overflow-y-auto max-h-[400px]">
             {pendingTasks.map((task) => {
@@ -355,11 +354,11 @@ export default function AssignedTasksStepView({
               return (
                 <motion.div
                   key={task.id}
-                  className={`bg-white rounded-3xl shadow-md p-4 border ${colors.border} hover:shadow-xl transition-all duration-200`}
+                  className={`bg-teal-50/40 rounded-3xl shadow-md p-4 border ${colors.border} hover:shadow-xl transition-all duration-200`}
                   whileHover={{ y: -4, scale: 1.01 }}
                 >
                   <div className="flex justify-between items-center mb-4">
-                    <p className="text-sm font-semibold text-gray-900 truncate pr-4">
+                    <p className="text-sm font-semibold text-gray-800 truncate pr-4">
                       {task.title || "Untitled"}
                     </p>
                     <span className={`text-xs px-2 py-1 rounded-full ${colors.bg} ${colors.text} font-medium capitalize`}>
@@ -367,8 +366,8 @@ export default function AssignedTasksStepView({
                     </span>
                   </div>
                   <div className="mb-4">
-                    <p className="text-xs font-semibold text-gray-700 mb-2">Pending Log:</p>
-                    <div className="p-2 bg-gray-50 rounded-lg text-xs text-gray-600">
+                    <p className="text-xs font-semibold text-gray-600 mb-2">Pending Log:</p>
+                    <div className="p-2 bg-teal-50/40 rounded-lg text-xs text-gray-600">
                       {pendingLog.userName}: {pendingLog.details} ({new Date(pendingLog.createdAt).toLocaleString()})
                     </div>
                   </div>
@@ -382,7 +381,7 @@ export default function AssignedTasksStepView({
                     </motion.button>
                     <motion.button
                       onClick={() => handleViewTaskDetails(task.id)}
-                      className="text-blue-600 text-xs font-medium hover:underline"
+                      className="text-green-600 text-xs font-medium hover:underline"
                     >
                       View Details
                     </motion.button>
@@ -392,14 +391,14 @@ export default function AssignedTasksStepView({
             })}
             {completedTasks.length > 0 && (
               <motion.div
-                className="bg-white rounded-3xl shadow-md p-4 border border-emerald-50 hover:shadow-xl transition-all duration-300"
+                className="bg-teal-50/40 rounded-3xl shadow-md p-4 border border-teal-100 hover:shadow-xl transition-all duration-300"
                 whileHover={{ y: -4, scale: 1.01 }}
               >
                 <div className="flex justify-between items-center mb-4">
-                  <p className="text-sm font-semibold text-gray-900">
+                  <p className="text-sm font-semibold text-gray-800">
                     Completed Tasks ({completedTasks.length})
                   </p>
-                  <span className="text-xs px-2 py-1 rounded-full bg-emerald-50 text-emerald-600 font-medium">
+                  <span className="text-xs px-2 py-1 rounded-full bg-teal-50 text-teal-600 font-medium">
                     Done
                   </span>
                 </div>
@@ -407,14 +406,14 @@ export default function AssignedTasksStepView({
                   {completedTasks.map((task, idx) => (
                     <motion.div
                       key={task.id}
-                      className="aspect-square bg-emerald-50 rounded-2xl p-2 cursor-pointer hover:bg-emerald-100 transition-all duration-200 flex flex-col justify-between shadow-sm"
+                      className="aspect-square bg-teal-50 rounded-2xl p-2 cursor-pointer hover:bg-teal-100 transition-all duration-200 flex flex-col justify-between shadow-sm"
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
                       onClick={() => handleViewTaskDetails(task.id)}
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1, transition: { delay: idx * 0.02 } }}
                     >
-                      <p className="text-xs font-medium text-gray-900 truncate">
+                      <p className="text-xs font-medium text-gray-800 truncate">
                         {task.title || "Untitled"}
                       </p>
                     </motion.div>
@@ -428,7 +427,7 @@ export default function AssignedTasksStepView({
         {/* Right Column: Deadline Extension Requests */}
         <div className="border border-teal-200 rounded-lg p-6 bg-white shadow-md">
           <div className="flex justify-between items-center mb-4">
-            <h4 className="text-xl font-bold text-teal-800">Deadline Extension Requests</h4>
+            <h4 className="text-xl font-bold text-gray-800">Deadline Extension Requests</h4>
           </div>
           <div className="space-y-4 overflow-y-auto max-h-[400px]">
             {extensionRequests.length > 0 ? (
@@ -440,11 +439,11 @@ export default function AssignedTasksStepView({
                 return (
                   <motion.div
                     key={task.id}
-                    className={`bg-white rounded-3xl shadow-md p-4 border ${colors.border} hover:shadow-xl transition-all duration-200`}
+                    className={`bg-teal-50/40 rounded-3xl shadow-md p-4 border ${colors.border} hover:shadow-xl transition-all duration-200`}
                     whileHover={{ y: -4, scale: 1.01 }}
                   >
                     <div className="flex justify-between items-center mb-4">
-                      <p className="text-sm font-semibold text-gray-900 truncate pr-4">
+                      <p className="text-sm font-semibold text-gray-800 truncate pr-4">
                         {task.title || "Untitled"}
                       </p>
                       <span className={`text-xs px-2 py-1 rounded-full ${colors.bg} ${colors.text} font-medium capitalize`}>
@@ -452,11 +451,11 @@ export default function AssignedTasksStepView({
                       </span>
                     </div>
                     <div className="mb-4">
-                      <p className="text-xs font-semibold text-gray-700 mb-2 flex items-center gap-1">
-                        <Calendar size={14} /> Original: {originalDeadline}
+                      <p className="text-xs font-semibold text-gray-600 mb-2 flex items-center gap-1">
+                        <Calendar size={14} className="text-teal-600" /> Original: {originalDeadline}
                       </p>
-                      <p className="text-xs font-semibold text-gray-700 mb-2 flex items-center gap-1">
-                        <Calendar size={14} /> Requested: {task.newDeadline ? new Date(task.newDeadline).toLocaleDateString() : "N/A"}
+                      <p className="text-xs font-semibold text-gray-600 mb-2 flex items-center gap-1">
+                        <Calendar size={14} className="text-teal-600" /> Requested: {task.newDeadline ? new Date(task.newDeadline).toLocaleDateString() : "N/A"}
                       </p>
                     </div>
                     <div className="flex gap-2 mb-2">
@@ -467,7 +466,7 @@ export default function AssignedTasksStepView({
                           await handleAcceptExtension(task.id, task.newDeadline);
                           mutateTask();
                         }}
-                        className="px-2 py-1 bg-green-600 text-white rounded text-xs"
+                        className="px-2 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700"
                         disabled={acceptedExtensions[task.id]}
                       >
                         {acceptedExtensions[task.id] ? "Accepted" : "Accept"}
@@ -476,7 +475,7 @@ export default function AssignedTasksStepView({
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                         onClick={() => handleMoveToUndone(task)}
-                        className="px-2 py-1 bg-orange-600 text-white rounded text-xs"
+                        className="px-2 py-1 bg-gray-600 text-white rounded text-xs hover:bg-gray-500"
                         disabled={undoneTasks[task.id]}
                       >
                         {undoneTasks[task.id] ? "Moved to Undone" : "Move to Undone"}
@@ -487,7 +486,7 @@ export default function AssignedTasksStepView({
                         type="date"
                         value={customDates[task.id] || ''}
                         onChange={(e) => setCustomDates({ ...customDates, [task.id]: e.target.value })}
-                        className="border p-1 rounded text-xs flex-1"
+                        className="border border-teal-200 p-1 rounded text-xs flex-1 bg-teal-50/50 focus:ring-2 focus:ring-teal-500"
                       />
                       <motion.button
                         whileHover={{ scale: 1.05 }}
@@ -497,13 +496,13 @@ export default function AssignedTasksStepView({
                           mutateTask();
                         }}
                         disabled={!customDates[task.id] || acceptedExtensions[task.id]}
-                        className="px-2 py-1 bg-blue-600 text-white rounded text-xs disabled:opacity-50"
+                        className="px-2 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700 disabled:opacity-50"
                       >
                         Set Custom
                       </motion.button>
                       <motion.button
                         onClick={() => handleViewTaskDetails(task.id)}
-                        className="text-blue-600 text-xs font-medium hover:underline"
+                        className="text-green-600 text-xs font-medium hover:underline"
                       >
                         View Details
                       </motion.button>
@@ -534,10 +533,10 @@ export default function AssignedTasksStepView({
               className="bg-white rounded-2xl p-8 w-full max-w-5xl overflow-y-auto max-h-[85vh] shadow-2xl border border-teal-200"
             >
               <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-bold text-teal-800">{taskDetails.title}</h2>
+                <h2 className="text-xl font-bold text-gray-800">{taskDetails.title}</h2>
                 <motion.button
                   onClick={() => setSelectedTaskId(null)}
-                  className="text-gray-500 hover:text-gray-700"
+                  className="text-gray-600 hover:text-gray-800"
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.95 }}
                 >
@@ -546,18 +545,18 @@ export default function AssignedTasksStepView({
               </div>
               <div className="flex flex-row gap-8 mb-6">
                 <div className="flex-1 space-y-5">
-                  <p className="text-base"><strong className="text-teal-700">Description:</strong> {taskDetails.description || "N/A"}</p>
+                  <p className="text-base"><strong className="text-gray-600">Description:</strong> {taskDetails.description || "N/A"}</p>
                   <div className="mt-6">
-                    <h3 className="text-lg font-semibold text-teal-700">Assignees</h3>
+                    <h3 className="text-lg font-semibold text-gray-800">Assignees</h3>
                     {taskDetails.assignees.map((assignee) => (
-                      <div key={assignee.id} className="mt-4 bg-teal-50 p-5 rounded-lg shadow-sm border border-teal-200">
-                        <p className="text-base"><strong className="text-teal-700">Name:</strong> {assignee.name}</p>
-                        <p className="text-base"><strong className="text-teal-700">Status:</strong> {assignee.status?.replace("_", " ") || "Unknown"}</p>
+                      <div key={assignee.id} className="mt-4 bg-teal-50/40 p-5 rounded-lg shadow-sm border border-teal-100">
+                        <p className="text-base"><strong className="text-gray-600">Name:</strong> {assignee.name}</p>
+                        <p className="text-base"><strong className="text-gray-600">Status:</strong> {assignee.status?.replace("_", " ") || "Unknown"}</p>
                         <div className="mt-3">
                           <select
                             value={newTaskStatuses[assignee.id] || assignee.status}
                             onChange={(e) => setNewTaskStatuses({ ...newTaskStatuses, [assignee.id]: e.target.value })}
-                            className="px-3 py-1 border border-teal-300 rounded-lg text-sm bg-white"
+                            className="px-3 py-1 border border-teal-200 rounded-lg text-sm bg-teal-50/50 focus:ring-2 focus:ring-teal-500"
                             disabled={(assignee.sprints && assignee.sprints.length > 0)}
                           >
                             <option value="not_started">Not Started</option>
@@ -572,7 +571,7 @@ export default function AssignedTasksStepView({
                               whileTap={{ scale: 0.95 }}
                               onClick={() => handleUpdateTaskStatus(assignee.id, newTaskStatuses[assignee.id])}
                               disabled={newTaskStatuses[assignee.id] === assignee.status || !newLogComment || isUpdating}
-                              className="ml-2 px-3 py-1 bg-teal-600 text-white rounded-lg text-sm"
+                              className="ml-2 px-3 py-1 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700"
                             >
                               Update Task Status
                             </motion.button>
@@ -580,16 +579,16 @@ export default function AssignedTasksStepView({
                         </div>
                         {(assignee.sprints && assignee.sprints.length > 0) && (
                           <div className="mt-2">
-                            <h4 className="text-base font-semibold text-teal-700">Sprints</h4>
+                            <h4 className="text-base font-semibold text-gray-600">Sprints</h4>
                             {assignee.sprints.map(sprint => (
-                              <div key={sprint.id} className="mt-2 bg-white p-3 rounded shadow-sm border border-teal-100">
+                              <div key={sprint.id} className="mt-2 bg-teal-50/40 p-3 rounded shadow-sm border border-teal-100">
                                 <p className="text-sm"><strong>{sprint.title || "Untitled Sprint"}:</strong> {sprint.description || "N/A"}</p>
                                 <p className="text-sm">Status: {sprint.status?.replace("_", " ") || "Unknown"}</p>
                                 <div className="mt-1">
                                   <select
                                     value={newSprintStatuses[`${assignee.id}-${sprint.id}`] || sprint.status}
                                     onChange={(e) => setNewSprintStatuses({ ...newSprintStatuses, [`${assignee.id}-${sprint.id}`]: e.target.value })}
-                                    className="px-3 py-1 border border-teal-300 rounded-lg text-sm bg-white"
+                                    className="px-3 py-1 border border-teal-200 rounded-lg text-sm bg-teal-50/50 focus:ring-2 focus:ring-teal-500"
                                   >
                                     <option value="not_started">Not Started</option>
                                     <option value="in_progress">In Progress</option>
@@ -601,7 +600,7 @@ export default function AssignedTasksStepView({
                                     whileTap={{ scale: 0.95 }}
                                     onClick={() => handleUpdateSprintStatus(assignee.id, sprint.id, newSprintStatuses[`${assignee.id}-${sprint.id}`])}
                                     disabled={newSprintStatuses[`${assignee.id}-${sprint.id}`] === sprint.status || !newLogComment || isUpdating}
-                                    className="ml-2 px-3 py-1 bg-teal-600 text-white rounded-lg text-sm"
+                                    className="ml-2 px-3 py-1 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700"
                                   >
                                     Update Sprint Status
                                   </motion.button>
@@ -613,11 +612,11 @@ export default function AssignedTasksStepView({
                       </div>
                     ))}
                   </div>
-                  <p className="text-base"><strong className="text-teal-700">Deadline:</strong> {taskDetails.deadline ? new Date(taskDetails.deadline).toLocaleString() : "N/A"}</p>
-                  <p className="text-base"><strong className="text-teal-700">Resources:</strong> {taskDetails.resources || "N/A"}</p>
+                  <p className="text-base"><strong className="text-gray-600">Deadline:</strong> {taskDetails.deadline ? new Date(taskDetails.deadline).toLocaleString() : "N/A"}</p>
+                  <p className="text-base"><strong className="text-gray-600">Resources:</strong> {taskDetails.resources || "N/A"}</p>
                 </div>
                 <div className="flex-1">
-                  <h3 className="text-lg font-semibold text-teal-700 mb-4">Logs</h3>
+                  <h3 className="text-lg font-semibold text-gray-800 mb-4">Logs</h3>
                   <div className="max-h-80 overflow-y-auto space-y-4 mb-6">
                     {taskLogs.length > 0 ? (
                       taskLogs.map((log) => {
@@ -630,29 +629,29 @@ export default function AssignedTasksStepView({
                         return (
                           <div
                             key={log.id}
-                            className="p-5 bg-teal-50 rounded-lg shadow-sm border border-teal-200 transition-all duration-200"
+                            className="p-5 bg-teal-50/40 rounded-lg shadow-sm border border-teal-100 transition-all duration-200"
                           >
-                            <p className="text-base text-teal-800">
+                            <p className="text-base text-gray-800">
                               {prefix}
                               {log.userName}: {log.details}
                             </p>
-                            <p className="text-sm text-gray-500 mt-2">
+                            <p className="text-sm text-gray-600 mt-2">
                               {new Date(log.createdAt).toLocaleString()}
                             </p>
                           </div>
                         );
                       })
                     ) : (
-                      <p className="text-base text-gray-500">No logs available.</p>
+                      <p className="text-base text-gray-600">No logs available.</p>
                     )}
                   </div>
                   <div className="mt-6">
-                    <h4 className="text-base font-semibold text-teal-700 mb-3">Add New Log</h4>
+                    <h4 className="text-base font-semibold text-gray-600 mb-3">Add New Log</h4>
                     {taskDetails.assignees.some(a => a.sprints && a.sprints.length > 0) && (
                       <select
                         value={selectedLogSprint}
                         onChange={(e) => setSelectedLogSprint(e.target.value)}
-                        className="w-full px-4 py-2 border border-teal-300 rounded-lg bg-teal-50 focus:ring-2 focus:ring-teal-500 text-sm font-medium text-gray-700 mb-3"
+                        className="w-full px-4 py-2 border border-teal-200 rounded-lg bg-teal-50/50 focus:ring-2 focus:ring-teal-500 text-sm font-medium text-gray-600 mb-3"
                       >
                         <option value="">Main Task</option>
                         {taskDetails.assignees.flatMap(a =>
@@ -668,13 +667,13 @@ export default function AssignedTasksStepView({
                       value={newLogComment}
                       onChange={(e) => setNewLogComment(e.target.value)}
                       placeholder="Add a comment to the task discussion..."
-                      className="w-full px-4 py-3 border border-teal-300 rounded-lg bg-teal-50 focus:ring-2 focus:ring-teal-500 text-sm font-medium text-gray-700 mb-4 transition-all duration-200"
+                      className="w-full px-4 py-3 border border-teal-200 rounded-lg bg-teal-50/50 focus:ring-2 focus:ring-teal-500 text-sm font-medium text-gray-600 mb-4 transition-all duration-200"
                     />
                     <motion.button
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
                       onClick={() => handleAddLog(taskDetails.id, true)}
-                      className="px-4 py-2 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-700 transition-all duration-200 relative"
+                      className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 transition-all duration-200 relative"
                       disabled={!newLogComment || isAddingLog}
                     >
                       {isAddingLog ? (
@@ -706,18 +705,18 @@ export default function AssignedTasksStepView({
               initial={{ scale: 0.95 }}
               animate={{ scale: 1 }}
               exit={{ scale: 0.95 }}
-              className="bg-white p-6 rounded-xl max-w-lg w-full"
+              className="bg-white p-6 rounded-xl max-w-lg w-full border border-teal-200"
             >
-              <h3 className="text-lg font-bold mb-4">Task Details</h3>
-              <p><strong>Title:</strong> {detailedTask.title}</p>
-              <p><strong>Description:</strong> {detailedTask.description}</p>
-              <p><strong>Status:</strong> {detailedTask.status}</p>
-              <p><strong>Deadline:</strong> {detailedTask.deadline ? format(new Date(detailedTask.deadline), "yyyy-MM-dd") : "None"}</p>
-              {detailedTask.sprints && <div><h4>Sprints:</h4><ul>{detailedTask.sprints.map(s => <li key={s.id}>{s.title} - {s.status}</li>)}</ul></div>}
-              {detailedTask.logs && <div><h4>Logs:</h4><ul>{detailedTask.logs.map(l => <li key={l.id}>{l.details} ({l.createdAt})</li>)}</ul></div>}
+              <h3 className="text-lg font-bold text-gray-800 mb-4">Task Details</h3>
+              <p><strong className="text-gray-600">Title:</strong> {detailedTask.title}</p>
+              <p><strong className="text-gray-600">Description:</strong> {detailedTask.description}</p>
+              <p><strong className="text-gray-600">Status:</strong> {detailedTask.status}</p>
+              <p><strong className="text-gray-600">Deadline:</strong> {detailedTask.deadline ? format(new Date(detailedTask.deadline), "yyyy-MM-dd") : "None"}</p>
+              {detailedTask.sprints && <div><h4 className="text-gray-600">Sprints:</h4><ul>{detailedTask.sprints.map(s => <li key={s.id}>{s.title} - {s.status}</li>)}</ul></div>}
+              {detailedTask.logs && <div><h4 className="text-gray-600">Logs:</h4><ul>{detailedTask.logs.map(l => <li key={l.id}>{l.details} ({l.createdAt})</li>)}</ul></div>}
               <motion.button
                 onClick={() => setShowDetailsModal(false)}
-                className="mt-4 bg-gray-600 text-white py-2 px-4 rounded"
+                className="mt-4 bg-gray-600 text-white py-2 px-4 rounded-xl hover:bg-gray-500"
                 whileHover={{ scale: 1.05 }}
               >
                 Close
@@ -738,7 +737,7 @@ export default function AssignedTasksStepView({
         </motion.button>
         <motion.button
           onClick={handleNextViewStep}
-          className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-semibold hover:bg-blue-700 transition-all duration-300"
+          className="flex-1 bg-green-600 text-white py-3 rounded-xl font-semibold hover:bg-green-700 transition-all duration-300"
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
         >
