@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useRef, useMemo } from "react";
+import { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import {
   ChatBubbleLeftRightIcon,
   PaperAirplaneIcon,
@@ -113,49 +113,52 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
     if (recipientId) setSelectedRecipient(String(recipientId));
   }, [recipientId]);
 
-  const playSound = () => {
+  const playSound = useCallback(() => {
     if (!audioRef.current) return;
     audioRef.current.loop = true;
     audioRef.current.currentTime = 0;
     audioRef.current.play().catch(() => {});
-  };
-  const stopSound = () => {
+  }, []);
+
+  const stopSound = useCallback(() => {
     if (!audioRef.current) return;
     audioRef.current.pause();
     audioRef.current.currentTime = 0;
-  };
-  const playSend = () => {
+  }, []);
+
+  const playSend = useCallback(() => {
     if (!sendAudioRef.current) return;
     sendAudioRef.current.currentTime = 0;
     sendAudioRef.current.play().catch(() => {});
-  };
-  const playReceive = () => {
+  }, []);
+
+  const playReceive = useCallback(() => {
     if (!receiveAudioRef.current) return;
     receiveAudioRef.current.currentTime = 0;
     receiveAudioRef.current.play().catch(() => {});
-  };
+  }, []);
 
-  const scrollBottom = () => {
+  const scrollBottom = useCallback(() => {
     if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+      messagesEndRef.current.scrollIntoView({ behavior: "auto" });
     }
-  };
+  }, []);
 
-  const closeAll = () => {
+  const closeAll = useCallback(() => {
     setShowChatbox(false);
     setShowHistory(false);
     if (setIsOpen) setIsOpen(false);
-  };
+  }, [setIsOpen]);
 
-  const getRole = (u) => {
+  const getRole = useCallback((u) => {
     if (!u) return "Unknown";
     if (u.role === "admin") return "Admin";
     if (u.role === "team_manager")
       return `Team Manager${u.team_manager_type ? ` (${toTitle(u.team_manager_type)})` : ""}`;
     return u.type ? toTitle(u.type) : "Member";
-  };
+  }, []);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     if (!userDetails?.id) {
       setError("User details missing.");
       console.error("No userDetails.id provided");
@@ -169,7 +172,7 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
       const { users: fetchedUsers = [] } = await uRes.json();
       const { messages: fetchedMsgs = [] } = await mRes.json();
       setUsers(fetchedUsers);
-      setMessages(fetchedMsgs.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))); // Sort ascending
+      setMessages(fetchedMsgs.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)));
 
       const unread = fetchedMsgs.filter(
         (m) =>
@@ -196,9 +199,9 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
       setError("Chat fetch error.");
       console.error("Fetch data error:", e);
     }
-  };
+  }, [userDetails?.id, showChatbox, showHistory, playSound, stopSound]);
 
-  const markReadForPartner = async (partnerId) => {
+  const markReadForPartner = useCallback(async (partnerId) => {
     const toMark = messages.filter(
       (m) =>
         m.senderId === partnerId &&
@@ -227,9 +230,9 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
         })
       )
     );
-  };
+  }, [messages, userDetails?.id, unreadCounts, stopSound]);
 
-  const sendMessage = async () => {
+  const sendMessage = useCallback(async () => {
     if (!selectedRecipient || !messageContent.trim()) {
       setError("Pick a recipient and write something.");
       return;
@@ -245,6 +248,7 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
     };
     setMessages((p) => [...p, optimistic]);
     setMessageContent("");
+    scrollBottom();
     try {
       const res = await fetch("/api/others/chat", {
         method: "POST",
@@ -257,33 +261,36 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
       });
       const { message: saved } = await res.json();
       setMessages((p) => p.map((m) => (m.id === tempId ? saved : m)));
+      playSend();
     } catch {
       setError("Send failed.");
     }
-  };
+  }, [selectedRecipient, messageContent, userDetails?.id, scrollBottom, playSend]);
 
-  const mouseDown = (e) => {
+  const mouseDown = useCallback((e) => {
     if (e.target.closest(".chatbox-header")) {
       setDragging(true);
       dragStart.current = { x: e.clientX - pos.x, y: e.clientY - pos.y };
     }
-  };
-  const mouseMove = (e) => {
+  }, [pos]);
+
+  const mouseMove = useCallback((e) => {
     if (dragging) {
       const newX = Math.max(0, Math.min(e.clientX - dragStart.current.x, window.innerWidth - 380));
       const newY = Math.max(-window.innerHeight + 72, Math.min(e.clientY - dragStart.current.y, -40));
       setPos({ x: newX, y: newY });
     }
-  };
-  const mouseUp = () => setDragging(false);
+  }, [dragging]);
 
-  const dispatchOpenTask = (taskId, sprintId) => {
+  const mouseUp = useCallback(() => setDragging(false), []);
+
+  const dispatchOpenTask = useCallback((taskId, sprintId) => {
     window.dispatchEvent(
       new CustomEvent("member-open-task", {
         detail: { taskId: Number(taskId), sprintId: sprintId ? Number(sprintId) : null },
       })
     );
-  };
+  }, []);
 
   useEffect(() => {
     const handleTaskClick = (e) => {
@@ -316,17 +323,17 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
       chatEl?.removeEventListener("click", handleTaskClick);
       historyEl?.removeEventListener("click", handleTaskClick);
     };
-  }, [showHistory, userDetails?.role, pathname, router]);
+  }, [showHistory, userDetails?.role, pathname, router, dispatchOpenTask, closeAll]);
 
   useEffect(() => {
     fetchData();
-    const id = setInterval(fetchData, 5000);
+    const id = setInterval(fetchData, 10000);
     return () => clearInterval(id);
-  }, [userDetails?.id, showChatbox, showHistory]);
+  }, [fetchData]);
 
   useEffect(() => {
     if (showChatbox && selectedRecipient) markReadForPartner(Number(selectedRecipient));
-  }, [showChatbox, selectedRecipient]);
+  }, [showChatbox, selectedRecipient, markReadForPartner]);
 
   useEffect(() => {
     audioRef.current = new Audio("/sms.mp3");
@@ -338,14 +345,12 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
     receiveAudioRef.current.preload = "auto";
   }, []);
 
-  // Scroll to bottom on open or recipient change
   useEffect(() => {
     if (showChatbox && selectedRecipient) {
       scrollBottom();
     }
-  }, [showChatbox, selectedRecipient]);
+  }, [showChatbox, selectedRecipient, scrollBottom]);
 
-  // Handle scrolling and sounds on messages change
   useEffect(() => {
     const chatRef = chatContainerRef.current;
     if (!chatRef) return;
@@ -354,7 +359,6 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
     const oldLength = prevMessageCount.current;
 
     if (newLength > oldLength) {
-      // Play sounds for new messages
       const newMessages = messages.slice(oldLength);
       newMessages.forEach((m) => {
         if (m.senderId === Number(userDetails.id)) {
@@ -363,17 +367,11 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
           playReceive();
         }
       });
-
-      // Scroll if was near bottom
-      const threshold = 50; // pixels
-      const isNearBottom = chatRef.scrollTop + chatRef.clientHeight >= chatRef.scrollHeight - threshold;
-      if (isNearBottom) {
-        scrollBottom();
-      }
+      scrollBottom();
     }
 
     prevMessageCount.current = newLength;
-  }, [messages, showChatbox, selectedRecipient, userDetails?.id]);
+  }, [messages, showChatbox, selectedRecipient, userDetails?.id, playSend, playReceive, scrollBottom]);
 
   useEffect(() => {
     window.addEventListener("mousemove", mouseMove);
@@ -382,21 +380,20 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
       window.removeEventListener("mousemove", mouseMove);
       window.removeEventListener("mouseup", mouseUp);
     };
-  }, [dragging]);
+  }, [mouseMove, mouseUp]);
 
-  // Sync with profile updates (image on Vercel Blob etc.)
   useEffect(() => {
     const handleProfileUpdate = () => {
-      fetchData(); // pulls fresh image urls from DB (including Vercel Blob public urls)
+      fetchData();
     };
     const onMessage = (event) => {
       if (event.data?.type === "PROFILE_UPDATED") handleProfileUpdate();
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, []);
+  }, [fetchData]);
 
-  const startVoiceRecording = () => {
+  const startVoiceRecording = useCallback(() => {
     if (!window.SpeechRecognition && !window.webkitSpeechRecognition) {
       setError("Speech recognition is not supported in this browser.");
       return;
@@ -418,9 +415,22 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
       setIsRecording(false);
     };
     recognition.onend = () => setIsRecording(false);
-  };
+  }, [recordLang]);
 
-  const handleTranslateMessage = () => setShowComingSoonModal(true);
+  const handleTranslateMessage = useCallback(() => setShowComingSoonModal(true), []);
+
+  const filteredMessages = useMemo(() => {
+    if (!selectedRecipient) return [];
+    return messages
+      .filter(
+        (m) =>
+          (m.senderId === Number(userDetails.id) &&
+            m.recipientId === Number(selectedRecipient)) ||
+          (m.senderId === Number(selectedRecipient) &&
+            m.recipientId === Number(userDetails.id))
+      )
+      .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  }, [messages, selectedRecipient, userDetails?.id]);
 
   return (
     <>
@@ -428,11 +438,11 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
         @media (max-width: 640px) {
           .chatbox-container {
             width: 95vw !important;
-            max-height: 80vh !important;
+            max-height: 85vh !important;
           }
           .history-container {
             width: 95vw !important;
-            max-height: 70vh !important;
+            max-height: 75vh !important;
           }
           .modal-container {
             max-width: 90vw !important;
@@ -459,7 +469,6 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
           </motion.p>
         )}
 
-        {/* Launcher + History + Quick actions */}
         <div className="flex gap-2 items-center flex-wrap">
           <motion.button
             whileTap={{ scale: 0.95 }}
@@ -504,7 +513,6 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
           <QuickCallInvite userDetails={userDetails} position={pos} closeAllModals={closeAll} />
         </div>
 
-        {/* CHATBOX */}
         <AnimatePresence>
           {showChatbox && (
             <motion.div
@@ -512,7 +520,7 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 20 }}
               transition={{ duration: 0.25 }}
-              className="bg-white rounded-2xl shadow-2xl border mt-2 flex flex-col z-50 w-[95vw] sm:w-[360px] max-h-[80vh] sm:max-h-[72vh] overflow-hidden"
+              className="bg-white rounded-2xl shadow-2xl border mt-2 flex flex-col z-50 w-[95vw] sm:w-[360px] max-h-[85vh] sm:max-h-[80vh] overflow-hidden"
             >
               <div className="chatbox-header flex justify-between items-center bg-gradient-to-r from-teal-500 to-cyan-600 text-white px-3 py-2 sm:px-4 sm:py-3">
                 <h3 className="text-sm sm:text-base font-semibold">Messages</h3>
@@ -549,16 +557,6 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
                 >
                   {selectedRecipient ? (
                     (() => {
-                      const filteredMessages = messages
-                        .filter(
-                          (m) =>
-                            (m.senderId === Number(userDetails.id) &&
-                              m.recipientId === Number(selectedRecipient)) ||
-                            (m.senderId === Number(selectedRecipient) &&
-                              m.recipientId === Number(userDetails.id))
-                        )
-                        .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-
                       const displayed = filteredMessages.reduce((acc, m, i) => {
                         const prev = filteredMessages[i - 1];
                         const date = new Date(m.createdAt).toDateString();
@@ -719,7 +717,6 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
           )}
         </AnimatePresence>
 
-        {/* HISTORY */}
         <AnimatePresence>
           {showHistory && (
             <motion.div
@@ -727,7 +724,7 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 20 }}
               transition={{ duration: 0.25 }}
-              className="fixed bg-white rounded-2xl shadow-2xl border z-50 w-[95vw] sm:w-[340px] max-h-[70vh] overflow-y-auto mt-2 history-container"
+              className="fixed bg-white rounded-2xl shadow-2xl border z-50 w-[95vw] sm:w-[340px] max-h-[75vh] overflow-y-auto mt-2 history-container"
               style={{ right: `${pos.x}px`, bottom: `${-pos.y + 96}px` }}
               ref={historyContainerRef}
             >
@@ -744,7 +741,6 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
 
               <div className="p-2 sm:p-3 space-y-2">
                 {(() => {
-                  // Get unique partner IDs
                   const partnerIds = new Set(
                     messages
                       .filter(
@@ -757,7 +753,6 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
                       )
                   );
 
-                  // Map partners to their last message timestamp
                   const partnerTimestamps = Array.from(partnerIds).map((partnerId) => {
                     const lastMsg = messages
                       .filter(
@@ -773,16 +768,14 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
                     };
                   });
 
-                  // Sort partners by last message timestamp (descending)
                   partnerTimestamps.sort((a, b) => b.lastMsgTime - a.lastMsgTime);
 
-                  // Map sorted partners to user objects
                   const sortedPartners = partnerTimestamps
                     .map(({ partnerId, lastMsg }) => ({
                       user: users.find((u) => u.id === partnerId),
                       lastMsg
                     }))
-                    .filter(({ user }) => user); // Filter out undefined users
+                    .filter(({ user }) => user);
 
                   if (!sortedPartners.length)
                     return <p className="text-gray-600 text-center text-xs sm:text-sm">No conversation history.</p>;
@@ -836,7 +829,6 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
           )}
         </AnimatePresence>
 
-        {/* Task Details Modal */}
         <AnimatePresence>
           {showTaskDetailsModal && (
             <motion.div
@@ -959,7 +951,6 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
           )}
         </AnimatePresence>
 
-        {/* Coming Soon Modal */}
         <AnimatePresence>
           {showComingSoonModal && (
             <motion.div

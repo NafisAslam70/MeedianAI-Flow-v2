@@ -1227,7 +1227,32 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
 
               {/* Three core cards */}
               <section className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-6 flex-grow">
-                {/* DeepCalendar Card */}
+                {/* Role-Based Tasks (R-MRIs) */}
+<TiltCard
+  className="cursor-pointer rounded-3xl border border-gray-100/30 dark:border-white/10 bg-white/80 dark:bg-slate-900/70 backdrop-blur-lg p-4 sm:p-6 shadow-lg transition-all duration-300"
+>
+  <div
+    onClick={() => {
+      // if accountant or admin => go to accountant page
+      const tmType = session?.user?.team_manager_type;
+      if (session?.user?.role === "admin" || tmType === "accountant") {
+        router.push("/dashboard/accountant");
+      } else {
+        // for other roles you’ll later route to their role pages
+        setShowComingSoonModal(true);
+      }
+    }}
+  >
+    <h3 className="text-base sm:text-xl font-bold text-gray-900 dark:text-white mb-4">
+      Role-Based Tasks (R-MRIs)
+    </h3>
+    <div className="text-sm text-gray-600 dark:text-gray-300">
+      Quick access to your role’s daily checklist and reports.
+    </div>
+  </div>
+</TiltCard>
+
+{/* DeepCalendar Card */}
                 <TiltCard className="rounded-3xl border border-gray-100/30 dark:border-white/10 bg-white/80 dark:bg-slate-900/70 backdrop-blur-lg p-4 sm:p-6 shadow-lg transition-all duration-300">
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-base sm:text-xl font-bold text-gray-900 dark:text-white">Your Calendar For Day</h3>

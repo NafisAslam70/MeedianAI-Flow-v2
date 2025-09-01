@@ -1,4 +1,3 @@
-// components/RoutineTasksStep.jsx
 "use client";
 
 import { useState, useEffect, useRef } from "react";
@@ -176,6 +175,17 @@ export default function RoutineTasksStep({
           <p className="text-sm text-gray-600 dark:text-gray-400 bg-teal-50/50 dark:bg-teal-900/50 p-3 rounded-xl border border-teal-200/50">
             Please tick off what you did in your routine today! Be sincere and honest, following principle #2 of MEED.
           </p>
+          {/* Add Routine Task Log Button */}
+          <motion.button
+            onClick={() => setShowRoutineLogModal(true)}
+            className="mt-3 bg-teal-600 text-white py-2 px-4 rounded-xl font-semibold hover:bg-teal-700 transition-all duration-300 shadow-sm"
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            data-tooltip-id="nav-tooltip"
+            data-tooltip-content="Add routine task log"
+          >
+            Add Routine Task Log
+          </motion.button>
         </motion.div>
 
         {/* Controls */}
@@ -196,7 +206,7 @@ export default function RoutineTasksStep({
         {/* Table */}
         <TiltCard
           className="flex-1 rounded-2xl border border-teal-100/50 dark:border-teal-900/50 bg-white/80 dark:bg-slate-900/70 backdrop-blur-md p-4 sm:p-6 shadow-md overflow-auto relative"
-          hover={true}
+          hover={false} // Disable tilt effect to prevent shaking
         >
           <table className="w-full text-sm text-gray-700 dark:text-gray-200 table-auto border-collapse">
             <thead className="sticky top-0 bg-teal-50/50 dark:bg-teal-900/50 z-10">
@@ -314,20 +324,6 @@ export default function RoutineTasksStep({
               })}
             </tbody>
           </table>
-
-          {/* Add Log Button */}
-          <div className="absolute bottom-4 right-4">
-            <motion.button
-              onClick={() => setShowRoutineLogModal(true)}
-              className="bg-teal-600 text-white py-2 px-4 rounded-xl font-semibold hover:bg-teal-700 transition-all duration-300 shadow-sm"
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              data-tooltip-id="nav-tooltip"
-              data-tooltip-content="Add routine task log"
-            >
-              Add Routine Task Log
-            </motion.button>
-          </div>
         </TiltCard>
 
         {/* Nav */}

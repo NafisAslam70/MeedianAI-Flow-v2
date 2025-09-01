@@ -1,3 +1,4 @@
+// app/(main)/dashboard/member/closeMyDay/page.jsx (or CloseMyDay.jsx)
 "use client";
 import { useSession } from "next-auth/react";
 import { useState, useEffect } from "react";
@@ -38,7 +39,11 @@ export default function CloseMyDay() {
   const [requestDate, setRequestDate] = useState(null);
   const [approvedByName, setApprovedByName] = useState(null);
   const [currentStep, setCurrentStep] = useState(1);
-  const [mriCleared, setMriCleared] = useState(true);
+
+  // 🔁 MRI: gate until saved (or prefilled)
+  const [mriCleared, setMriCleared] = useState(false);
+  const [mriPayload, setMriPayload] = useState(null);
+
   const [assignedTasksUpdates, setAssignedTasksUpdates] = useState([]);
   const [routineTasksStatuses, setRoutineTasksStatuses] = useState([]);
   const [routineLog, setRoutineLog] = useState("");
@@ -257,6 +262,8 @@ export default function CloseMyDay() {
         routineLog: routineLog || null,
         generalLog: generalLog || null,
         mriCleared,
+        // 🔁 include the MRI payload snapshot if available
+        mriReport: mriPayload || null,
         bypass: isBypass,
       };
 
@@ -547,7 +554,11 @@ export default function CloseMyDay() {
               <AnimatePresence mode="wait">
                 {currentStep === 1 && (
                   <motion.div key="step1" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.3 }}>
-                    <MRIStep handleNextStep={handleNextStep} mriCleared={mriCleared} />
+                    <MRIStep
+                      handleNextStep={handleNextStep}
+                      onMriClearedChange={setMriCleared}
+                      onMriPayloadChange={setMriPayload}
+                    />
                   </motion.div>
                 )}
 

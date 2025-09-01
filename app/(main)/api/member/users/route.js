@@ -1,9 +1,8 @@
-
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { users } from "@/lib/schema";
+import { users, userMriRoles } from "@/lib/schema";
 import { auth } from "@/lib/auth";
-import { ne, eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 
 export async function GET(req) {
   try {
@@ -20,8 +19,11 @@ export async function GET(req) {
       );
     }
 
+    console.log("Raw session.user.id:", session.user.id);
     const userId = parseInt(session.user.id);
+    console.log("Parsed userId:", userId);
 
+    // Fetch all users with their basic information
     const availableUsers = await db
       .select({
         id: users.id,
@@ -33,15 +35,30 @@ export async function GET(req) {
       })
       .from(users);
 
+    // Fetch MRI roles for the current user
+  const mriRoles = await db
+  .select({ role: userMriRoles.role })
+  .from(userMriRoles)
+  .where(
+    and(
+      eq(userMriRoles.userId, userId),
+      eq(userMriRoles.active, true)
+    )
+  );
+
+    // Log the fetched data for debugging
     console.log("Users fetched for messaging:", {
       count: availableUsers.length,
       userId,
-      currentUser: availableUsers.find(u => u.id === userId), // Log current user's data
+      currentUser: availableUsers.find((u) => u.id === userId),
+      mriRoles: mriRoles.map((r) => r.role),
     });
 
-    const formattedUsers = availableUsers.map(user => ({
+    // Format users and include MRI roles for the current user
+    const formattedUsers = availableUsers.map((user) => ({
       ...user,
-      image: user.image || '/default-avatar.png',
+      image: user.image || "/default-avatar.png",
+      mriRoles: user.id === userId ? mriRoles.map((r) => r.role) || [] : [],
     }));
 
     return NextResponse.json({ users: formattedUsers });

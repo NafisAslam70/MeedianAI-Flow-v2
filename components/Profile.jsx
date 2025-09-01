@@ -41,6 +41,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingUsers, setIsLoadingUsers] = useState(true);
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [showMessageModal, setShowMessageModal] = useState(false);
@@ -88,11 +89,19 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
       }
     };
     const fetchUsers = async () => {
+      setIsLoadingUsers(true);
       try {
         const response = await fetch("/api/member/users", { credentials: "include" });
         const data = await response.json();
         if (response.ok) {
-          console.log("Fetched users from /api/member/users:", data.users);
+          const currentUser = data.users.find((u) => u.id === parseInt(session?.user?.id));
+          console.log("Fetched users from /api/member/users:", {
+            users: data.users,
+            currentUserId: session?.user?.id,
+            parsedUserId: parseInt(session?.user?.id),
+            currentUser,
+            currentUserMriRoles: currentUser?.mriRoles || [],
+          });
           setUsers(data.users || []);
         } else {
           console.error("Failed to fetch users:", { status: response.status, error: data.error });
@@ -103,6 +112,8 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
         console.error("Fetch users error:", err);
         setError("Failed to fetch users. Please try again.");
         setTimeout(() => setError(""), 3000);
+      } finally {
+        setIsLoadingUsers(false);
       }
     };
     const fetchLeaveHistory = async () => {
@@ -441,6 +452,8 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
     }
   };
 
+  const toRoleLabel = (role) => role.replaceAll("_", " ").toUpperCase();
+
   if (status === "loading") {
     return (
       <motion.div
@@ -641,7 +654,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                   <p className="text-xs text-gray-500 dark:text-gray-400 text-center">Connect with the superintendent</p>
                 </motion.div>
                 <motion.div
-                  className="bg-white/90 dark:bg-slate-800/90 rounded-lg shadow-md p-4 flex flex-colacola items-center justify-between cursor-pointer min-w-[120px] min-h-[140px]"
+                  className="bg-white/90 dark:bg-slate-800/90 rounded-lg shadow-md p-4 flex flex-col items-center justify-between cursor-pointer min-w-[120px] min-h-[140px]"
                   whileHover={{ scale: 1.05, boxShadow: "0 6px 12px rgba(0, 128, 128, 0.2)" }}
                   whileTap={{ scale: 0.95 }}
                   onClick={() => window.open("https://www.nafisaslam.com/login", "_blank")}
@@ -680,7 +693,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
               </motion.button>
             </div>
           </div>
-          <div className="flex-[1] min-w-[260px] max-w-[400px] flex flex-col bg-gradient-to-br from-blue-50/60 to-slate-100/80 dark:from-slate-800/80 dark:to-slate-900/70 rounded-xl shadow-md border border-teal-100/70 dark:border-slate-700 p-4">
+          <div className="flex-[1] min-w-[260px] max-w-[400px] flex flex-col bg-gradient-to-br from-blue-50/60 to-blue-100/80 dark:from-slate-800/80 dark:to-slate-900/70 rounded-xl shadow-md border border-teal-100/70 dark:border-slate-700 p-4">
             <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
               <User className="w-4 h-4 text-teal-600" />
               User Information
@@ -707,6 +720,20 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                     </p>
                   </div>
                 )}
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-200">MRI Roles</label>
+                  <p className="w-full px-3 py-1.5 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700">
+                    {isLoadingUsers ? "Loading..." : 
+                      users
+                        .find((u) => u.id === parseInt(session?.user?.id))
+                        ?.mriRoles?.length > 0
+                        ? users
+                            .find((u) => u.id === parseInt(session?.user?.id))
+                            ?.mriRoles.map(toRoleLabel)
+                            .join(", ") 
+                        : "None"}
+                  </p>
+                </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-700 dark:text-gray-200">Reports To</label>
                   <p className="w-full px-3 py-1.5 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700">
@@ -864,7 +891,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                       >
                         <option value="">Select User</option>
                         {users
-                          .filter((u) => u.id !== session?.user?.id && (u.role === "admin" || u.role === "team_manager"))
+                          .filter((u) => u.id !== parseInt(session?.user?.id) && (u.role === "admin" || u.role === "team_manager"))
                           .map((user) => (
                             <option key={user.id} value={user.id}>
                               {user.name} ({user.role})
@@ -961,7 +988,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                         >
                           <option value="">Select User</option>
                           {users
-                            .filter((u) => u.id !== session?.user?.id)
+                            .filter((u) => u.id !== parseInt(session?.user?.id))
                             .map((user) => (
                               <option key={user.id} value={user.id}>
                                 {user.name} ({user.role})
@@ -971,22 +998,6 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                       </div>
                     ) : (
                       <>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-700 dark:text-gray-200 flex items-center gap-1.5">
-                            <UserCircle className="w-3.5 h-3.5 text-teal-600" />
-                            Recipient Name
-                          </label>
-                          <input
-                            type="text"
-                            name="customName"
-                            value={messageData.customName}
-                            onChange={handleMessageChange}
-                            className="w-full px-3 py-1.5 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 focus:ring-2 focus:ring-teal-500 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
-                            required
-                            disabled={isLoading}
-                            placeholder="Enter recipient name"
-                          />
-                        </div>
                         <div>
                           <label className="block text-xs font-medium text-gray-700 dark:text-gray-200 flex items-center gap-1.5">
                             <UserCircle className="w-3.5 h-3.5 text-teal-600" />
