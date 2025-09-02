@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Camera, Check, X, User, Calendar, MessageSquare, BookOpen, FileText, BarChart, Send, UserCircle, Phone } from "lucide-react";
 import Link from "next/link";
+import AllMessageHistory from "./AllMessageHistory";
 
 export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = () => {} }) {
   const { data: session, status } = useSession();
@@ -46,8 +47,10 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [showMessageModal, setShowMessageModal] = useState(false);
   const [showConfirmMessageModal, setShowConfirmMessageModal] = useState(false);
+  const [showSentMessageHistoryModal, setShowSentMessageHistoryModal] = useState(false);
   const [compiledMessage, setCompiledMessage] = useState("");
   const [leaveHistory, setLeaveHistory] = useState([]);
+  const [sentMessages, setSentMessages] = useState([]);
   const [users, setUsers] = useState([]);
   const [immediateSupervisor, setImmediateSupervisor] = useState(null);
 
@@ -131,12 +134,30 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
         setTimeout(() => setError(""), 3000);
       }
     };
+    const fetchSentMessages = async () => {
+      try {
+        const response = await fetch("/api/member/sent-messages", { credentials: "include" });
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(`Failed to fetch sent messages: ${response.statusText || "Unknown error"}`);
+        }
+        const data = await response.json();
+        setSentMessages(data.messages || []);
+      } catch (err) {
+        console.error("Fetch sent messages error:", err);
+        setError(`Failed to fetch sent messages: ${err.message}`);
+        setTimeout(() => setError(""), 3000);
+      }
+    };
     if (status === "authenticated") {
       fetchProfile();
       fetchUsers();
       fetchLeaveHistory();
+      if (showSentMessageHistoryModal) {
+        fetchSentMessages();
+      }
     }
-  }, [session, status]);
+  }, [session, status, showSentMessageHistoryModal]);
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -427,6 +448,12 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
       });
       setShowMessageModal(false);
       setShowConfirmMessageModal(false);
+      // Refetch sent messages to update the history
+      const historyResponse = await fetch("/api/member/sent-messages", { credentials: "include" });
+      if (historyResponse.ok) {
+        const historyData = await historyResponse.json();
+        setSentMessages(historyData.messages || []);
+      }
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
       setError(err.message);
@@ -673,6 +700,18 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                     <Send className="w-6 h-6 text-teal-600 mb-2" />
                     <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 text-center">Send Direct Message</h3>
                     <p className="text-xs text-gray-500 dark:text-gray-400 text-center">Send a WhatsApp message to any user</p>
+                  </motion.div>
+                )}
+                {["admin", "team_manager"].includes(session?.user?.role) && (
+                  <motion.div
+                    className="bg-white/90 dark:bg-slate-800/90 rounded-lg shadow-md p-4 flex flex-col items-center justify-between cursor-pointer min-w-[120px] min-h-[140px]"
+                    whileHover={{ scale: 1.05, boxShadow: "0 6px 12px rgba(0, 128, 128, 0.2)" }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => setShowSentMessageHistoryModal(true)}
+                  >
+                    <MessageSquare className="w-6 h-6 text-teal-600 mb-2" />
+                    <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 text-center">Sent Message History</h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 text-center">View your sent WhatsApp messages</p>
                   </motion.div>
                 )}
               </div>
@@ -1265,6 +1304,25 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                     Close
                   </motion.button>
                 </div>
+              </motion.div>
+            </motion.div>
+          )}
+          {showSentMessageHistoryModal && ["admin", "team_manager"].includes(session?.user?.role) && (
+            <motion.div
+              key="sent-message-history-modal"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/60 dark:bg-black/70 flex items-center justify-center p-3 z-50"
+            >
+              <motion.div
+                initial={{ scale: 0.8, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.8, opacity: 0 }}
+                transition={{ duration: 0.3 }}
+                className="bg-white/95 dark:bg-slate-900/95 rounded-xl shadow-md p-5 w-full max-w-4xl max-h-[70vh] overflow-y-auto border border-teal-200/70 dark:border-slate-700"
+              >
+                <AllMessageHistory sentMessages={sentMessages} onClose={() => setShowSentMessageHistoryModal(false)} />
               </motion.div>
             </motion.div>
           )}

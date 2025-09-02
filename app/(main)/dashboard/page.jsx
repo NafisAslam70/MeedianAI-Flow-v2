@@ -563,14 +563,14 @@ export default function GeneralDashboard() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
                   <iframe
                     className="rounded-2xl shadow-md w-full aspect-video"
-                    src="https://www.youtube.com/embed/dQw4w9WgXcQ"
+                    src="https://www.youtube.com/embed/564g6DZTEzM?si=32_1RhgoD7sFzwYG"
                     title="Tutorial 1"
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                     allowFullScreen
                   />
                   <iframe
                     className="rounded-2xl shadow-md w-full aspect-video"
-                    src="https://www.youtube.com/embed/3tmd-ClpJxA"
+                    src="https://www.youtube.com/embed/8mUFLqP5v04?si=_SrVZgC7UhGIVG_E"
                     title="Tutorial 2"
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                     allowFullScreen
