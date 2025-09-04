@@ -1,73 +1,64 @@
-
-import { getToken } from "next-auth/jwt";
 import { NextResponse } from "next/server";
+import { auth } from "@/lib/auth";
 
-export async function middleware(request) {
-  const token = await getToken({
-    req: request,
-    secret: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET,
-  });
+// IMPORTANT: wrap with auth(...) and read req.auth
+export default auth((req) => {
+  const { nextUrl } = req;
+  const pathname = nextUrl.pathname;
 
-  const { pathname } = request.nextUrl;
+  // Only guard dashboard
+  if (!pathname.startsWith("/dashboard")) return;
 
-  // Allow API routes to bypass middleware
-  if (pathname.startsWith("/api")) {
-    return NextResponse.next();
+  // Not signed in -> go to login
+  if (!req.auth) {
+    return NextResponse.redirect(new URL("/login", nextUrl));
   }
 
-  // Define protected routes
-  const isProtected = pathname.startsWith("/dashboard");
-  const isGeneralDashboard = pathname === "/dashboard"; // Allow general dashboard for all logged-in users
+  // Role-based routing
+  const role = req.auth.user?.role;
+
+  const isGeneralDashboard = pathname === "/dashboard";
   const isAdminRoute = pathname.startsWith("/dashboard/admin");
   const isTeamManagerRoute = pathname.startsWith("/dashboard/team_manager");
   const isMemberRoute = pathname.startsWith("/dashboard/member");
-  const isAdminOnlyRoute = pathname.startsWith("/dashboard/admin/addUser") || pathname.startsWith("/dashboard/admin/manageMeedian");
+  const isAdminOnlyRoute =
+    pathname.startsWith("/dashboard/admin/addUser") ||
+    pathname.startsWith("/dashboard/admin/manageMeedian");
   const isManagersCommonRoute = pathname.startsWith("/dashboard/managersCommon");
 
-  // If no token and trying to access protected routes, redirect to home
-  if (isProtected && !token) {
-    return NextResponse.redirect(new URL("/", request.url));
+  if (isGeneralDashboard) return; // everyone logged-in can view
+
+  if (role === "member" && !isMemberRoute) {
+    return NextResponse.redirect(new URL("/dashboard/member", nextUrl));
   }
 
-  // Allow general dashboard for all logged-in users
-  if (isGeneralDashboard && token) {
-    return NextResponse.next();
+  if (role === "admin") {
+    if (isTeamManagerRoute) {
+      return NextResponse.redirect(new URL("/dashboard/admin", nextUrl));
+    }
+    // Admin can access managersCommon and admin routes including admin-only
+    return;
   }
 
-  // If token exists, enforce role-based routing for other dashboard paths
-  if (token) {
-    const role = token.role;
-
-    // Members can only access /dashboard/member routes
-    if (role === "member" && !isMemberRoute && !isGeneralDashboard) {
-      return NextResponse.redirect(new URL("/dashboard/member", request.url));
+  if (role === "team_manager") {
+    if (
+      !isTeamManagerRoute &&
+      !isManagersCommonRoute &&
+      !isMemberRoute // allow shared pages if you have them
+    ) {
+      return NextResponse.redirect(new URL("/dashboard/team_manager", nextUrl));
     }
-
-    // Admins can access /dashboard/admin, /dashboard/managersCommon, and admin-only routes
-    if (role === "admin") {
-      if (isTeamManagerRoute) {
-        return NextResponse.redirect(new URL("/dashboard/admin", request.url));
-      }
+    if (isAdminOnlyRoute) {
+      return NextResponse.redirect(new URL("/dashboard/team_manager", nextUrl));
     }
-
-    // Team Managers can access /dashboard/team_manager, /dashboard/managersCommon, and /dashboard/member (shared pages)
-    if (role === "team_manager") {
-      if (!isTeamManagerRoute && !isManagersCommonRoute && !isMemberRoute && !isGeneralDashboard) {
-        return NextResponse.redirect(new URL("/dashboard/team_manager", request.url));
-      }
-      if (isAdminOnlyRoute) {
-        return NextResponse.redirect(new URL("/dashboard/team_manager", request.url));
-      }
-    }
-
-    // Admins and Team Managers can access /dashboard/managersCommon routes
-    if (isManagersCommonRoute && role !== "admin" && role !== "team_manager") {
-      return NextResponse.redirect(new URL("/dashboard/member", request.url));
-    }
+    return;
   }
 
-  return NextResponse.next();
-}
+  // Fallback: members only
+  if (!isMemberRoute) {
+    return NextResponse.redirect(new URL("/dashboard/member", nextUrl));
+  }
+});
 
 export const config = {
   matcher: ["/dashboard/:path*"],
