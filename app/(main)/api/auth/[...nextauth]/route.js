@@ -114,7 +114,8 @@ export const authOptions = {
     signIn: "/login",
     error: "/login",
   },
-  secret: process.env.NEXTAUTH_SECRET,
+  // Support Auth.js v5 env naming (AUTH_SECRET) and legacy NEXTAUTH_SECRET
+  secret: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET,
   debug: process.env.NODE_ENV === "development",
   error: async (error, req, res) => {
     if (error === "CredentialsSignin") {
