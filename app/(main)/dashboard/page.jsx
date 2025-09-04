@@ -1,6 +1,7 @@
 "use client";
 import { useSession } from "next-auth/react";
 import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -41,6 +42,9 @@ export default function GeneralDashboard() {
   const [showMSPRModal, setShowMSPRModal] = useState(false);
   const [showMHCPModal, setShowMHCPModal] = useState(false);
   const [showCalendarModal, setShowCalendarModal] = useState(false);
+  const [showMrnModal, setShowMrnModal] = useState(false);
+  const [mrrFeed, setMrrFeed] = useState([]);
+  const [hideSelf, setHideSelf] = useState(false);
   const [selectedAnnouncement, setSelectedAnnouncement] = useState(null);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
@@ -51,6 +55,8 @@ export default function GeneralDashboard() {
   const { data: userData, error: userError } = useSWR("/api/member/users", fetcher);
   const { data: calendarData, error: calendarError } = useSWR("/api/member/calendar", fetcher);
   const { data: announcementsData, error: announcementsError } = useSWR("/api/managersCommon/announcements", fetcher);
+  const { data: mrrData, error: mrrError } = useSWR("/api/member/meRightNow?action=feed", fetcher, { refreshInterval: showMrnModal ? 0 : 12000, revalidateOnFocus: false });
+  const searchParams = useSearchParams();
 
   useEffect(() => {
     if (slotData) {
@@ -87,7 +93,16 @@ export default function GeneralDashboard() {
       setError("Failed to load announcements.");
       setTimeout(() => setError(null), 3000);
     }
-  }, [slotData, slotError, userData, userError, calendarData, calendarError, announcementsData, announcementsError]);
+    if (mrrData) {
+      setMrrFeed(Array.isArray(mrrData.feed) ? mrrData.feed : []);
+    }
+  }, [slotData, slotError, userData, userError, calendarData, calendarError, announcementsData, announcementsError, mrrData]);
+
+  // Open MRN modal if requested via query param (?open=mrn)
+  useEffect(() => {
+    const open = searchParams?.get("open");
+    if (open === "mrn") setShowMrnModal(true);
+  }, [searchParams]);
 
   useEffect(() => {
     let intervalId = null;
@@ -296,8 +311,120 @@ export default function GeneralDashboard() {
             >
               <Calendar size={18} />
             </motion.button>
+            <motion.button
+              onClick={() => setShowMrnModal(true)}
+              className="p-2 bg-purple-600 text-white rounded-lg sm:rounded-full hover:bg-purple-700 shadow-md"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.97 }}
+              aria-label="Open All MRNs"
+            >
+              All MRNs
+            </motion.button>
           </motion.div>
         </div>
+
+        {/* All MRNs Modal: Meedians in Action */}
+        <AnimatePresence>
+          {showMrnModal && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-3"
+              onClick={() => setShowMrnModal(false)}
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.95, opacity: 0, y: 20 }}
+                transition={{ duration: 0.25 }}
+                className="w-full max-w-6xl max-h-[85vh] overflow-y-auto rounded-3xl bg-white/90 backdrop-blur-xl border border-white/50 shadow-2xl p-4 sm:p-6"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <svg className="w-6 h-6 text-purple-600" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10" opacity=".1"/><path d="M12 6v6l4 2" stroke="currentColor" strokeWidth="2" fill="none"/></svg>
+                    <h2 className="text-lg sm:text-2xl font-bold text-gray-900">Meedians in Action</h2>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {session?.user?.role === "admin" && (
+                      <label className="text-xs sm:text-sm text-gray-700 inline-flex items-center gap-2">
+                        <input type="checkbox" className="accent-teal-600" checked={hideSelf} onChange={(e) => setHideSelf(e.target.checked)} />
+                        Hide my card
+                      </label>
+                    )}
+                    <button onClick={() => setShowMrnModal(false)} className="px-3 py-1.5 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-800 text-sm">Close</button>
+                  </div>
+                </div>
+                {(() => {
+                  const activeMap = new Map((mrrFeed || []).map((x) => [String(x.userId), x]));
+                  const everyone = Array.isArray(members) ? members : [];
+                  const visible = everyone.filter((u) => !(hideSelf && String(u.id) === String(session?.user?.id)));
+                  const actives = visible.filter((u) => activeMap.has(String(u.id)));
+                  const inactives = visible.filter((u) => !activeMap.has(String(u.id)));
+
+                  const Card = ({ u, cur }) => {
+                    const status = cur?.itemTitle ? cur.itemTitle : "Rest and Recover";
+                    const since = cur?.startedAt ? new Date(cur.startedAt).toLocaleTimeString() : "";
+                    const avatar = u.image || "/default-avatar.png";
+                    const isActive = !!cur;
+                    return (
+                      <motion.div
+                        key={`mrr-${u.id}`}
+                        initial={false}
+                        animate={{ opacity: 1, y: 0 }}
+                        className={`rounded-2xl shadow p-4 border flex items-center gap-3 ${
+                          isActive
+                            ? "bg-gradient-to-br from-teal-50 to-emerald-50 border-teal-200"
+                            : "bg-gray-50 border-gray-200"
+                        }`}
+                      >
+                        <img src={avatar} alt={u.name} className="rounded-full border border-teal-200 object-cover w-10 h-10" />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-semibold text-gray-900 truncate">{u.name}</div>
+                          <div className="text-xs text-gray-600 truncate">{(u.role || "").replace("_", " ")}</div>
+                          <div className={`text-xs mt-1 font-medium ${isActive ? "text-teal-700" : "text-gray-500"}`}>
+                            {status} {isActive ? <span className="text-gray-500">· since {since}</span> : ""}
+                          </div>
+                        </div>
+                      </motion.div>
+                    );
+                  };
+
+                  return (
+                    <div className="space-y-5">
+                      <div>
+                        <h3 className="text-sm font-bold text-gray-800 mb-2">Active Now</h3>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                          {actives.length === 0 ? (
+                            <p className="text-xs text-gray-500">No one is active at the moment.</p>
+                          ) : (
+                            actives.map((u) => <Card key={u.id} u={u} cur={activeMap.get(String(u.id))} />)
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-gray-800 mb-2">Rest and Recover</h3>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                          {inactives.length === 0 ? (
+                            <p className="text-xs text-gray-500">Everyone is active right now.</p>
+                          ) : (
+                            inactives.map((u) => <Card key={u.id} u={u} cur={null} />)
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+                
+                {mrrError && (
+                  <p className="text-xs text-red-600 mt-2">Couldn’t load MRN feed.</p>
+                )}
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
 
         {/* MOBILE STACKED CARDS */}
         <div className="grid grid-cols-1 gap-3 sm:hidden">

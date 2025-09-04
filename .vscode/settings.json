@@ -1,0 +1,15 @@
+{
+  // Keep primary side bar on the left
+  "workbench.sideBar.location": "left",
+
+  // Default panel (Terminal/Problems/Output) to the right
+  "workbench.panel.defaultLocation": "right",
+
+  // Show the layout control in the title bar for quick rearrangement
+  "workbench.layoutControl.enabled": true,
+
+  // Editor ergonomics: keep files open instead of preview tabs
+  "workbench.editor.enablePreview": false,
+  "workbench.editor.showTabs": "multiple"
+}
+

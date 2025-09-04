@@ -23,6 +23,7 @@ import UpdateStatusForAll from "@/components/UpdateStatusForAll";
 import AssignedTasksView from "@/components/member/AssignedTasksView";
 import RoutineTasksView from "@/components/member/RoutineTasksView";
 import MyNotes from "@/components/MyNotes";
+import RoutineTrackerModal from "@/components/member/RoutineTrackerModal";
 import { DeepCalendarModal, ActiveBlockView, fromMinutes } from "@/components/DeepCalendar";
 
 /* ------------------------------------------------------------------ */
@@ -650,6 +651,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
   const [showComingSoonModal, setShowComingSoonModal] = useState(false);
   const [showDeepCalendarModal, setShowDeepCalendarModal] = useState(false);
   const [showNotesModal, setShowNotesModal] = useState(false);
+  const [showRoutineTrackerModal, setShowRoutineTrackerModal] = useState(false);
   const [newStatus, setNewStatus] = useState("");
   const [selectedSprint, setSelectedSprint] = useState("");
   const [sprints, setSprints] = useState([]);
@@ -1045,6 +1047,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
           if (k === "d") setActiveTab("dashboard");
           if (k === "a") setActiveTab("assigned");
           if (k === "r") setActiveTab("routine");
+          if (k === "l") setActiveTab("deepLife");
         };
         const handler = (ev) => {
           window.removeEventListener("keydown", handler, true);
@@ -1080,7 +1083,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
     <motion.div
       initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: "easeOut" }}
       /* BASE CONTAINER: DO NOT CHANGE sizing/padding signature */
-      className="fixed inset-0 bg-gradient-to-br from-indigo-50 to-blue-50 dark:from-slate-900 dark:to-slate-950 p-2 sm:p-6 flex flex-col overflow-hidden"
+      className="fixed inset-0 bg-gradient-to-br from-indigo-50 to-blue-50 dark:from-slate-900 dark:to-slate-950 p-2 sm:p-6 flex flex-col overflow-hidden min-w-0"
     >
       {/* Ambient gradient blobs (non-intrusive) */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -1098,7 +1101,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
 
       <div
         /* DO NOT CHANGE base size/padding */
-        className="w-full h-full bg-white/90 dark:bg-slate-900/80 backdrop-blur-xl rounded-3xl shadow-xl p-4 sm:p-6 flex flex-col relative overflow-y-auto border border-white/40 dark:border-white/10"
+        className="w-full h-full bg-white/90 dark:bg-slate-900/80 backdrop-blur-xl rounded-3xl shadow-xl p-4 sm:p-6 flex flex-col relative overflow-y-auto border border-white/40 dark:border-white/10 min-w-0"
       >
         {/* Top status/error/success toasts */}
         <AnimatePresence>
@@ -1124,16 +1127,16 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
 
         {/* Header */}
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}
-          className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 sm:mb-6 gap-4 relative z-[1]"
+          className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 sm:mb-6 gap-4 relative z-[1] min-w-0"
         >
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 min-w-0">
             <Sparkles className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-            <h1 className="text-lg sm:text-xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-700 to-blue-600 dark:from-indigo-300 dark:to-blue-300">
+            <h1 className="text-lg sm:text-xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-700 to-blue-600 dark:from-indigo-300 dark:to-blue-300 truncate">
               Hi {session?.user?.name || "User"}, welcome to MeedianAI-Flow!
             </h1>
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap min-w-0">
             {/* Date control (compact) */}
             <input
               type="date"
@@ -1157,6 +1160,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                 { key: "dashboard", label: "Dashboard", Icon: Calendar },
                 { key: "assigned", label: "Assigned", Icon: CheckSquare },
                 { key: "routine", label: "Routine", Icon: List },
+                { key: "deepLife", label: "DeepLife", Icon: FileText },
               ].map(({ key, label, Icon }) => (
                 <motion.button
                   key={key}
@@ -1194,18 +1198,56 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
               transition={{ duration: 0.5 }}
               className="flex flex-col space-y-6 flex-grow relative z-[1]"
             >
+              {/* Three core cards (Role-based moved to MyMRIs) */}
+              <section className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-6 flex-grow">
+                {/* Assigned Summary */}
+                <TiltCard
+                  className="cursor-pointer rounded-3xl border border-gray-100/30 dark:border-white/10 bg-white/80 dark:bg-slate-900/70 backdrop-blur-lg p-4 sm:p-6 shadow-lg transition-all duration-300"
+                >
+                  <div onClick={() => setActiveTab("assigned")}>
+                    <h3 className="text-base sm:text-xl font-bold text-gray-900 dark:text-white mb-4">Assigned Tasks</h3>
+                    {isLoadingAssignedTasks ? (
+                      <SkeletonStats />
+                    ) : (
+                      <StatGrid
+                        stats={[
+                          ["Total", state.assignedTaskSummary.total, "indigo"],
+                          ["Not Started", state.assignedTaskSummary.notStarted, "blue"],
+                          ["In Progress", state.assignedTaskSummary.inProgress, "yellow"],
+                          ["Pending", state.assignedTaskSummary.pendingVerification, "orange"],
+                          ["Completed", state.assignedTaskSummary.completed, "green"],
+                        ]}
+                      />
+                    )}
+                  </div>
+                </TiltCard>
+
+                {/* Routine summary card removed; use Routine tab for tracker only */}
+              </section>
+            </motion.div>
+          )}
+
+          {activeTab === "deepLife" && (
+            <motion.div
+              key="deeplife"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              transition={{ duration: 0.5 }}
+              className="flex flex-col space-y-6 flex-grow relative z-[1]"
+            >
+              {/* Intro text */}
+              <TiltCard className="rounded-3xl border border-gray-100/30 dark:border-white/10 bg-white/80 dark:bg-slate-900/70 backdrop-blur-lg p-4 sm:p-6 shadow-lg">
+                <h2 className="text-lg sm:text-2xl font-extrabold text-gray-900 dark:text-white mb-2">DeepLife</h2>
+                <p className="text-sm sm:text-base text-gray-600 dark:text-gray-300">
+                  Your personal life hub powered by DeepCalendar and DeepWork AI. More coming later…
+                </p>
+              </TiltCard>
+
               {/* Active Block / Routine Window */}
               <TiltCard className="rounded-3xl border border-gray-100/30 dark:border-white/10 bg-white/80 dark:bg-slate-900/70 backdrop-blur-lg p-4 sm:p-6 shadow-lg">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-lg sm:text-2xl font-extrabold text-gray-900 dark:text-white">Your Active Block</h2>
-                  {state.assignedTaskSummary.total > 0 && (
-                    <div className="flex items-center gap-3">
-                      <CompletionRing pct={compPct} />
-                      <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-300">
-                        {compPct}% completed
-                      </div>
-                    </div>
-                  )}
                 </div>
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 space-y-2 sm:space-y-0">
                   <div>
@@ -1225,34 +1267,8 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                 </div>
               </TiltCard>
 
-              {/* Three core cards */}
-              <section className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-6 flex-grow">
-                {/* Role-Based Tasks (R-MRIs) */}
-<TiltCard
-  className="cursor-pointer rounded-3xl border border-gray-100/30 dark:border-white/10 bg-white/80 dark:bg-slate-900/70 backdrop-blur-lg p-4 sm:p-6 shadow-lg transition-all duration-300"
->
-  <div
-    onClick={() => {
-      // if accountant or admin => go to accountant page
-      const tmType = session?.user?.team_manager_type;
-      if (session?.user?.role === "admin" || tmType === "accountant") {
-        router.push("/dashboard/accountant");
-      } else {
-        // for other roles you’ll later route to their role pages
-        setShowComingSoonModal(true);
-      }
-    }}
-  >
-    <h3 className="text-base sm:text-xl font-bold text-gray-900 dark:text-white mb-4">
-      Role-Based Tasks (R-MRIs)
-    </h3>
-    <div className="text-sm text-gray-600 dark:text-gray-300">
-      Quick access to your role’s daily checklist and reports.
-    </div>
-  </div>
-</TiltCard>
-
-{/* DeepCalendar Card */}
+              {/* DeepCalendar Card */}
+              <section className="grid grid-cols-1 gap-4 sm:gap-6 flex-grow">
                 <TiltCard className="rounded-3xl border border-gray-100/30 dark:border-white/10 bg-white/80 dark:bg-slate-900/70 backdrop-blur-lg p-4 sm:p-6 shadow-lg transition-all duration-300">
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-base sm:text-xl font-bold text-gray-900 dark:text-white">Your Calendar For Day</h3>
@@ -1303,50 +1319,6 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                     </a>
                   </div>
                 </TiltCard>
-
-                {/* Assigned Summary */}
-                <TiltCard
-                  className="cursor-pointer rounded-3xl border border-gray-100/30 dark:border-white/10 bg-white/80 dark:bg-slate-900/70 backdrop-blur-lg p-4 sm:p-6 shadow-lg transition-all duration-300"
-                >
-                  <div onClick={() => setActiveTab("assigned")}>
-                    <h3 className="text-base sm:text-xl font-bold text-gray-900 dark:text-white mb-4">Assigned Tasks</h3>
-                    {isLoadingAssignedTasks ? (
-                      <SkeletonStats />
-                    ) : (
-                      <StatGrid
-                        stats={[
-                          ["Total", state.assignedTaskSummary.total, "indigo"],
-                          ["Not Started", state.assignedTaskSummary.notStarted, "blue"],
-                          ["In Progress", state.assignedTaskSummary.inProgress, "yellow"],
-                          ["Pending", state.assignedTaskSummary.pendingVerification, "orange"],
-                          ["Completed", state.assignedTaskSummary.completed, "green"],
-                        ]}
-                      />
-                    )}
-                  </div>
-                </TiltCard>
-
-                {/* Routine Summary */}
-                <TiltCard
-                  className="cursor-pointer rounded-3xl border border-gray-100/30 dark:border-white/10 bg-white/80 dark:bg-slate-900/70 backdrop-blur-lg p-4 sm:p-6 shadow-lg transition-all duration-300"
-                >
-                  <div onClick={() => setActiveTab("routine")}>
-                    <h3 className="text-base sm:text-xl font-bold text-gray-900 dark:text-white mb-4">Routine Tasks</h3>
-                    {isLoadingRoutineTasks ? (
-                      <SkeletonStats />
-                    ) : (
-                      <StatGrid
-                        stats={[
-                          ["Total", state.routineTaskSummary.total, "indigo"],
-                          ["Not Started", state.routineTaskSummary.notStarted, "blue"],
-                          ["In Progress", state.routineTaskSummary.inProgress, "yellow"],
-                          ["Pending", state.routineTaskSummary.pendingVerification, "orange"],
-                          ["Completed", state.routineTaskSummary.completed, "green"],
-                        ]}
-                      />
-                    )}
-                  </div>
-                </TiltCard>
               </section>
             </motion.div>
           )}
@@ -1390,20 +1362,31 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
           )}
 
           {activeTab === "routine" && (
-            <RoutineTasksView
-              handleBack={() => setActiveTab("dashboard")}
-              routineTasks={state.routineTasks}
-              isLoadingRoutineTasks={isLoadingRoutineTasks}
-              selectedDate={selectedDate}
-              canCloseDay={canCloseDay}
-              closeDayTasks={state.closeDayTasks}
-              closeDayComment={closeDayComment}
-              setCloseDayTasks={(tasks) => dispatch({ type: "SET_CLOSE_DAY_TASKS", payload: tasks })}
-              setCloseDayComment={setCloseDayComment}
-              handleCloseDay={handleCloseDay}
-              setShowCloseDayModal={setShowCloseDayModal}
-              routineTaskSummary={state.routineTaskSummary}
-            />
+            <>
+              <div className="mb-3 flex items-center justify-between">
+                <span className="text-sm text-gray-600 dark:text-gray-300">Routine tasks for {selectedDate}</span>
+                <button
+                  onClick={() => setShowRoutineTrackerModal(true)}
+                  className="px-3 py-2 text-xs rounded-lg bg-teal-600 hover:bg-teal-700 text-white"
+                >
+                  Open Routine Tracker
+                </button>
+              </div>
+              <RoutineTasksView
+                handleBack={() => setActiveTab("dashboard")}
+                routineTasks={state.routineTasks}
+                isLoadingRoutineTasks={isLoadingRoutineTasks}
+                selectedDate={selectedDate}
+                canCloseDay={canCloseDay}
+                closeDayTasks={state.closeDayTasks}
+                closeDayComment={closeDayComment}
+                setCloseDayTasks={(tasks) => dispatch({ type: "SET_CLOSE_DAY_TASKS", payload: tasks })}
+                setCloseDayComment={setCloseDayComment}
+                handleCloseDay={handleCloseDay}
+                setShowCloseDayModal={setShowCloseDayModal}
+                routineTaskSummary={state.routineTaskSummary}
+              />
+            </>
           )}
         </AnimatePresence>
 
@@ -1504,6 +1487,11 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
             }}
           />
         </Modal>
+
+        {/* Routine Tracker Modal (full view, monthly grid) */}
+        {showRoutineTrackerModal && (
+          <RoutineTrackerModal open={true} onClose={() => setShowRoutineTrackerModal(false)} />
+        )}
 
         <DeepCalendarModal
           open={showDeepCalendarModal}

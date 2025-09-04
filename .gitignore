@@ -39,3 +39,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local planning/logs (keep out of repo)
+codex_chat*.txt
+DELU-GPT_NOTES.txt
+MEEDIANAI_FLOW_NOTES.txt

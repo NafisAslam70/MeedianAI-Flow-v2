@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Clock, Calendar, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
 import { format } from "date-fns";
@@ -14,6 +15,7 @@ const fetcher = (url) =>
 
 export default function MyMRIs() {
   const { data: session, status } = useSession();
+  const router = useRouter();
   const role = session?.user?.role;
 
   if (status === "loading") return <div>Loading...</div>;
@@ -31,6 +33,7 @@ export default function MyMRIs() {
   const [isMNPModalOpen, setIsMNPModalOpen] = useState(false);
   const [isMAPModalOpen, setIsMAPModalOpen] = useState(false);
   const [isMGHPModalOpen, setIsMGHPModalOpen] = useState(false);
+  const [isRMRIInfoOpen, setIsRMRIInfoOpen] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [error, setError] = useState(null);
   const [todayAMRIs, setTodayAMRIs] = useState([]);
@@ -283,6 +286,30 @@ export default function MyMRIs() {
               </div>
             </div>
 
+            {/* R-MRIs (Role-Based) */}
+            <div className="mb-6">
+              <h3 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                <CheckCircle size={18} className="text-rose-600" />
+                R-MRIs (Role-Based Tasks)
+              </h3>
+              <div className="grid grid-cols-1 gap-3">
+                <motion.button
+                  className="bg-rose-50/80 rounded-xl p-3 flex items-center justify-center text-rose-800 font-semibold text-sm hover:bg-rose-100 transition-all duration-300"
+                  whileHover={{ scale: 1.05 }}
+                  onClick={() => {
+                    const tmType = session?.user?.team_manager_type;
+                    if (session?.user?.role === "admin" || tmType === "accountant") {
+                      router.push("/dashboard/accountant");
+                    } else {
+                      setIsRMRIInfoOpen(true);
+                    }
+                  }}
+                >
+                  Open Role-Based Tasks
+                </motion.button>
+              </div>
+            </div>
+
             {/* N-MRIs */}
             <div className="mb-6 flex-1">
               <h3 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
@@ -397,6 +424,47 @@ export default function MyMRIs() {
         </div>
 
         {/* Modals */}
+        <AnimatePresence>
+          {isRMRIInfoOpen && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50"
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                transition={{ duration: 0.3 }}
+                className="bg-white/90 backdrop-blur-md rounded-3xl shadow-xl p-6 w-full max-w-md border border-rose-100/50"
+              >
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-lg font-bold text-gray-800">Role-Based Tasks</h2>
+                  <motion.button
+                    onClick={() => setIsRMRIInfoOpen(false)}
+                    className="text-gray-500 hover:text-gray-700 p-2 rounded-full hover:bg-gray-100 transition-all duration-200"
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <X size={20} />
+                  </motion.button>
+                </div>
+                <p className="text-sm text-gray-700">This section will open your role’s daily checklist. If you are Accountant/Admin it routes to Accountant dashboard. Other roles coming soon.</p>
+                <div className="flex justify-end mt-6">
+                  <motion.button
+                    onClick={() => setIsRMRIInfoOpen(false)}
+                    className="px-4 py-2 bg-gray-600 text-white rounded-xl text-sm font-semibold hover:bg-gray-500"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    Close
+                  </motion.button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
         <AnimatePresence>
           {isAssignedTasksModalOpen && (
             <motion.div

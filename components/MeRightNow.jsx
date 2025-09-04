@@ -141,6 +141,8 @@ export default function MeRightNow({ open, onClose }) {
   const [loadingCurrent, setLoadingCurrent] = useState(false);
   const [stopConfirm, setStopConfirm] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const [showAmriTimer, setShowAmriTimer] = useState(true);
+  const [elapsedText, setElapsedText] = useState("");
 
   /* ---- Success nudge ---- */
   const [justPushed, setJustPushed] = useState(false);
@@ -148,6 +150,7 @@ export default function MeRightNow({ open, onClose }) {
   /* ---- Slide-over state ---- */
   const [pushOpen, setPushOpen] = useState(false);
   const [mode, setMode] = useState("assigned"); // assigned | routine | mri | custom
+  const [mriTab, setMriTab] = useState("amri"); // amri | nmri | rmri | omri
   const [optsLoading, setOptsLoading] = useState(false);
   const [options, setOptions] = useState([]); // [{id,title}]
   const [selectedId, setSelectedId] = useState("");
@@ -172,11 +175,45 @@ export default function MeRightNow({ open, onClose }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  // AMRI runtime timer – recompute every second when an AMRI is active
   useEffect(() => {
-    if (pushOpen && (mode === "assigned" || mode === "routine")) {
-      loadOptions(mode);
+    let intervalId;
+    function computeElapsed() {
+      try {
+        if (!current || current.type !== "amri" || !current.startedAt) {
+          setElapsedText("");
+          return;
+        }
+        const startMs = new Date(current.startedAt).getTime();
+        const nowMs = Date.now();
+        const sec = Math.max(0, Math.floor((nowMs - startMs) / 1000));
+        const h = Math.floor(sec / 3600);
+        const m = Math.floor((sec % 3600) / 60);
+        const s = sec % 60;
+        const pad = (n) => String(n).padStart(2, "0");
+        setElapsedText(`${pad(h)}:${pad(m)}:${pad(s)}`);
+      } catch {
+        setElapsedText("");
+      }
     }
-  }, [pushOpen, mode]);
+    computeElapsed();
+    if (current && current.type === "amri") {
+      intervalId = setInterval(computeElapsed, 1000);
+    }
+    return () => intervalId && clearInterval(intervalId);
+  }, [current]);
+
+  useEffect(() => {
+    if (!pushOpen) return;
+    if (mode === "assigned" || mode === "routine") {
+      loadOptions(mode);
+    } else if (mode === "mri") {
+      loadOptions(mriTab);
+    } else {
+      // custom: no options
+      setOptions([]);
+    }
+  }, [pushOpen, mode, mriTab]);
 
   async function loadCurrent(silent = false) {
     try {
@@ -275,24 +312,21 @@ export default function MeRightNow({ open, onClose }) {
 
   async function handlePushNow() {
     try {
-      if (mode === "mri") {
-        setError("MRI selection is coming soon. Use Assigned / Routine / Custom for now.");
-        clearErrorSoon();
-        return;
-      }
+      // MRI legacy message removed; OMRI supported
 
       setPushing(true);
 
-      if (mode === "assigned" || mode === "routine") {
+      if (mode === "assigned" || mode === "routine" || mode === "mri") {
         if (!selectedId) {
-          setError(`Please choose a ${mode === "assigned" ? "task" : "routine"} first.`);
+          const label = mode === "assigned" ? "task" : mode === "routine" ? "routine" : `${mriTab.toUpperCase()} option`;
+          setError(`Please choose a ${label} first.`);
           clearErrorSoon();
           setPushing(false);
           return;
         }
 
         const body = {
-          type: mode,
+          type: mode === "mri" ? mriTab : mode,
           itemId: String(selectedId),
           note: note?.trim() || "",
         };
@@ -309,7 +343,7 @@ export default function MeRightNow({ open, onClose }) {
           userId: Number(uid),
           userName: session?.user?.name || "You",
           avatar: session?.user?.image || "",
-          itemTitle: chosen?.title || (mode === "assigned" ? "Assigned Task" : "Routine Task"),
+          itemTitle: chosen?.title || (mode === "assigned" ? "Assigned Task" : mode === "routine" ? "Routine Task" : `${mriTab.toUpperCase()}`),
           note: note?.trim() || "",
           startedAt: new Date().toISOString(),
         };
@@ -409,7 +443,7 @@ export default function MeRightNow({ open, onClose }) {
           animate={{ y: 0, opacity: 1, scale: 1 }}
           exit={{ y: 24, opacity: 0, scale: 0.98 }}
           transition={{ duration: 0.25 }}
-          className="w-full max-w-4xl rounded-3xl bg-[#0b1220] text-white border border-cyan-900/40 shadow-2xl overflow-hidden"
+          className="w-full max-w-4xl rounded-3xl bg-[#0b1220] text-white border border-cyan-900/40 shadow-2xl max-h-[92vh] overflow-y-auto"
         >
           {/* Header */}
           <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-cyan-900/40">
@@ -445,7 +479,7 @@ export default function MeRightNow({ open, onClose }) {
                 initial={{ opacity: 0, y: -6 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -6 }}
-                className="mx-4 sm:mx-6 mt-3 mb-1 rounded-xl bg-emerald-900/30 text-emerald-200 border border-emerald-800/60 p-3 flex items-center justify-between"
+                className="mx-4 sm:mx-6 mt-3 mb-1 rounded-xl bg-emerald-900/30 text-emerald-200 border border-emerald-800/60 p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2"
               >
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4" />
@@ -522,6 +556,32 @@ export default function MeRightNow({ open, onClose }) {
 
           {/* Body: stable feed */}
           <div className="px-4 sm:px-6 py-5">
+            {/* AMRI runtime banner */}
+            {current && current.type === "amri" && showAmriTimer && (
+              <div className="mb-4 p-3 rounded-xl border border-emerald-700/40 bg-emerald-900/30 text-emerald-100 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold truncate">Performing {current.itemTitle?.replace(/^AMRI\s*·\s*/, "") || "AMRI"}</div>
+                  <div className="text-xs opacity-80">Elapsed: {elapsedText || "--:--:--"}</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowAmriTimer(false)}
+                    className="text-xs px-2 py-1 rounded-lg bg-white/10 hover:bg-white/15"
+                    title="Hide timer"
+                  >
+                    Hide
+                  </button>
+                  <button
+                    onClick={() => setStopConfirm(true)}
+                    className="text-xs px-2 py-1 rounded-lg bg-rose-700 hover:bg-rose-800"
+                    title="Stop now"
+                  >
+                    Stop
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="flex items-center justify-between mb-3">
               <span className="text-xs text-gray-400">What everyone is on, right now.</span>
               <div className="flex items-center gap-2">
@@ -648,7 +708,7 @@ export default function MeRightNow({ open, onClose }) {
 
               <div className="p-4 space-y-4">
                 {/* Mode selector (fetch options immediately) */}
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
                   {[
                     { k: "assigned", label: "Assigned" },
                     { k: "routine", label: "Routine" },
@@ -660,11 +720,9 @@ export default function MeRightNow({ open, onClose }) {
                       onClick={() => {
                         setMode(o.k);
                         setSelectedId("");
-                        if (o.k === "assigned" || o.k === "routine") {
-                          loadOptions(o.k);
-                        } else {
-                          setOptions([]);
-                        }
+                        if (o.k === "assigned" || o.k === "routine") loadOptions(o.k);
+                        if (o.k === "mri") loadOptions(mriTab);
+                        if (o.k === "custom") setOptions([]);
                       }}
                       className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border ${
                         mode === o.k
@@ -677,13 +735,63 @@ export default function MeRightNow({ open, onClose }) {
                   ))}
                 </div>
 
+                {/* MRI tabs */}
+                {mode === "mri" && (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {["amri", "nmri", "rmri", "omri"].map((tab) => (
+                        <button
+                          key={tab}
+                          onClick={() => {
+                            setMriTab(tab);
+                            setSelectedId("")
+                            loadOptions(tab);
+                          }}
+                          className={`px-2 py-1.5 rounded-lg text-xs font-semibold border ${
+                            mriTab === tab ? "bg-cyan-600 border-cyan-500" : "bg-white/5 border-cyan-900/40 hover:bg-white/10"
+                          }`}
+                        >
+                          {tab.toUpperCase()}
+                        </button>
+                      ))}
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">
+                        {mriTab === "amri"
+                          ? "Choose category (MSP, MHCP1, MHCP2). Day Close is info-only."
+                          : mriTab === "nmri"
+                          ? "Choose an NMRI slot"
+                          : mriTab === "rmri"
+                          ? "Choose your role-based MRI"
+                          : "Choose an OMRI slot (MOP1/MOP2/MOP1L/MOP3)"}
+                      </label>
+                      <div className="relative">
+                        <select
+                          value={selectedId}
+                          onChange={(e) => setSelectedId(e.target.value)}
+                          className="w-full bg-white/5 border border-cyan-900/40 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-cyan-600"
+                          disabled={optsLoading}
+                        >
+                          <option value="">{optsLoading ? "Loading…" : "— Select —"}</option>
+                          {options.map((t) => (
+                            <option key={t.id} value={t.id} disabled={mriTab === "amri" && t.id === "DAY_CLOSE"}>
+                              {t.title}{mriTab === "amri" && t.id === "DAY_CLOSE" ? " (info only)" : ""}
+                            </option>
+                          ))}
+                        </select>
+                        {optsLoading && (
+                          <Loader2 className="w-4 h-4 animate-spin absolute right-3 top-2.5 text-cyan-400" />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Assigned/Routine options */}
                 {(mode === "assigned" || mode === "routine") && (
                   <div>
                     <label className="block text-xs text-gray-400 mb-1">
-                      {mode === "assigned"
-                        ? "Choose one of your assigned tasks"
-                        : "Choose one of your routine tasks"}
+                      {mode === "assigned" ? "Choose one of your assigned tasks" : "Choose one of your routine tasks"}
                     </label>
                     <div className="relative">
                       <select
@@ -708,11 +816,9 @@ export default function MeRightNow({ open, onClose }) {
                   </div>
                 )}
 
-                {/* MRI coming soon */}
-                {mode === "mri" && (
-                  <div className="text-xs text-amber-200/90 rounded-lg border border-amber-700/50 bg-amber-900/20 p-3">
-                    MRI selection is coming soon. For now, choose Assigned/Routine or use Custom note.
-                  </div>
+                {/* OMRI hint when under MRI */}
+                {mode === "mri" && mriTab === "omri" && (
+                  <div className="text-[11px] text-cyan-200/80">After choosing a slot, you may add a note like “Start Routine” or “Assign Task”.</div>
                 )}
 
                 {/* Note */}
@@ -737,27 +843,21 @@ export default function MeRightNow({ open, onClose }) {
               </div>
 
               <div className="px-4 py-3 border-t border-cyan-900/40 flex items-center justify-between">
-                <span className="text-xs text-gray-400">
-                  This will show up on “Meedians Right Now”.
-                </span>
+                <span className="text-xs text-gray-400">This will show up on “Meedians Right Now”.</span>
                 <button
                   onClick={handlePushNow}
-                  disabled={
-                    pushing ||
-                    mode === "mri" ||
-                    ((mode === "assigned" || mode === "routine") && !selectedId)
-                  }
+                  disabled={pushing || ((mode === "assigned" || mode === "routine") && !selectedId) || (mode === "mri" && !selectedId)}
                   className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-semibold disabled:opacity-60"
                 >
                   {pushing ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      Pushing…
+                      Entering…
                     </>
                   ) : (
                     <>
                       <Send className="w-4 h-4" />
-                      Push Now
+                      Enter Mission
                     </>
                   )}
                 </button>

@@ -565,7 +565,7 @@ export default function WorkTogether() {
             ) : feedErr ? (
               <div className="text-sm text-rose-300 py-6">{feedErr}</div>
             ) : feed.length === 0 ? (
-              <div className="text-sm text-cyan-300/80 py-6">No one has pushed their Me Right Now yet.</div>
+              <div className="text-sm text-cyan-300/80 py-6">No one has entered their Mission (MRN) yet.</div>
             ) : (
               <motion.ul layout className="space-y-3">
                 <AnimatePresence initial={false}>
@@ -608,9 +608,7 @@ export default function WorkTogether() {
               </motion.ul>
             )}
 
-            <div className="mt-4 text-xs text-cyan-300/80">
-              Tip: Push your MRN on the main dashboard, or use the join gate below.
-            </div>
+            <div className="mt-4 text-xs text-cyan-300/80">Tip: Enter your MRN on the main dashboard, or use the join gate below.</div>
           </div>
 
           {/* Center: Jitsi stage */}
@@ -794,7 +792,7 @@ export default function WorkTogether() {
                       : "bg-cyan-800/50 text-cyan-400 cursor-not-allowed"
                   } backdrop-blur-sm`}
                 >
-                  {mrrCurrent ? "Connect" : "Push MRN to continue"}
+                  {mrrCurrent ? "Connect" : "Enter MRN to continue"}
                 </button>
               </div>
             </motion.div>

@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation"; // Import usePathname
 import ChatBox from "@/components/ChatBox";
 import { useSocket } from "@/lib/useSocket";
+import DeluGPT from "@/components/DeluGPT";
 
 export default function MainLayout({ children }) {
   const { status, data: session } = useSession();
@@ -79,8 +80,10 @@ export default function MainLayout({ children }) {
         .animate-float div { animation: float linear infinite; }
       `}</style>
       <Navbar />
-      <main className="flex-1 p-4 bg-white/80 backdrop-blur-sm relative z-10 overflow-y-auto md:overflow-y-hidden">
-        {children}
+      <main className="flex-1 bg-white/80 backdrop-blur-sm relative z-10 overflow-y-auto md:overflow-y-hidden">
+        <div className="w-full max-w-screen-2xl mx-auto px-3 sm:px-4 lg:px-6 py-3 sm:py-4 lg:py-6">
+          {children}
+        </div>
       </main>
       <Footer className="h-10" />
       {userDetails.id && socket && !hideChatBoxRoutes.includes(pathname) && (
@@ -92,6 +95,7 @@ export default function MainLayout({ children }) {
           recipientId={chatRecipient}
         />
       )}
+      <DeluGPT />
     </div>
   );
 }

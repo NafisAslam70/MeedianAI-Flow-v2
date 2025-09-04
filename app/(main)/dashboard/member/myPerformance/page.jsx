@@ -95,6 +95,11 @@ export default function MyPerformance() {
   const [dayCloseHistory, setDayCloseHistory] = useState([]);
   const [dcDate, setDcDate] = useState("");
   const [streakDays, setStreakDays] = useState(0);
+  // Daily MRI Journal modal
+  const [showMriJournal, setShowMriJournal] = useState(false);
+  const [mriJournal, setMriJournal] = useState([]);
+  const [mriDate, setMriDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
+  const [mriLoading, setMriLoading] = useState(false);
 
   // leave stats (inside Leave card)
   const [leaveStats, setLeaveStats] = useState({
@@ -216,6 +221,20 @@ export default function MyPerformance() {
       console.error(e);
     } finally {
       setIsLoadingAssignedSummary(false);
+    }
+  };
+
+  const fetchMriJournal = async () => {
+    try {
+      setMriLoading(true);
+      const res = await fetch(`/api/member/meRightNow/journal?date=${mriDate}`, { credentials: "include" });
+      if (!res.ok) throw new Error(`MRI journal failed: ${res.statusText}`);
+      const data = await res.json();
+      setMriJournal(Array.isArray(data?.sessions) ? data.sessions : []);
+    } catch (e) {
+      setErr(e.message || "Failed to load MRI journal");
+    } finally {
+      setMriLoading(false);
     }
   };
 
@@ -501,6 +520,29 @@ export default function MyPerformance() {
                   Coming soon: charts and performance reviews.
                 </p>
                 <div className="text-xs text-gray-500">Stay tuned</div>
+              </motion.div>
+
+              {/* 4) Daily MRI Journal Report */}
+              <motion.div
+                className="bg-white rounded-xl shadow-md border border-indigo-100/70 p-5 flex flex-col justify-between"
+                style={{ minHeight: "11rem" }}
+                whileHover={{ scale: 1.02 }}
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <CheckSquare className="w-6 h-6 text-indigo-600" />
+                  <h2 className="text-lg font-semibold">Daily MRI Journal</h2>
+                </div>
+                <p className="text-[0.95rem] text-gray-600">See what you entered today and when.</p>
+                <div className="mt-3">
+                  <motion.button
+                    whileHover={{ scale: 1.03 }}
+                    whileTap={{ scale: 0.97 }}
+                    onClick={() => { setShowMriJournal(true); fetchMriJournal(); }}
+                    className="w-full px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-[0.95rem]"
+                  >
+                    Open
+                  </motion.button>
+                </div>
               </motion.div>
             </motion.div>
 
@@ -811,6 +853,68 @@ export default function MyPerformance() {
           )}
         </AnimatePresence>
       </div>
+
+      {/* Daily MRI Journal Modal */}
+      <AnimatePresence>
+        {showMriJournal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-3"
+            onClick={() => setShowMriJournal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              transition={{ duration: 0.25 }}
+              className="w-full max-w-3xl max-h-[85vh] overflow-y-auto rounded-2xl bg-white p-5 border border-gray-200"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <CheckSquare className="w-5 h-5 text-indigo-600" />
+                  <h2 className="text-lg font-semibold">Daily MRI Journal Report</h2>
+                </div>
+                <button onClick={() => setShowMriJournal(false)} className="px-3 py-1.5 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-800 text-sm">Close</button>
+              </div>
+              <div className="flex items-end gap-3 mb-3">
+                <div>
+                  <label className="block text-xs font-medium mb-1">Date</label>
+                  <input type="date" value={mriDate} onChange={(e) => setMriDate(e.target.value)} className="px-3 py-2 rounded-lg border bg-gray-50" />
+                </div>
+                <button onClick={fetchMriJournal} className="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Refresh</button>
+              </div>
+              {mriLoading ? (
+                <div className="flex items-center gap-2 text-gray-600"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>
+              ) : mriJournal.length === 0 ? (
+                <p className="text-sm text-gray-600">No MRN entries for the selected day.</p>
+              ) : (
+                <div className="space-y-3">
+                  {mriJournal.map((s) => {
+                    const start = new Date(s.startedAt);
+                    const end = s.endedAt ? new Date(s.endedAt) : null;
+                    const durMs = end ? end - start : Date.now() - start.getTime();
+                    const durMin = Math.max(1, Math.round(durMs / 60000));
+                    return (
+                      <div key={s.id} className="rounded-xl border p-3 bg-white">
+                        <div className="flex items-center justify-between">
+                          <div className="text-sm font-semibold text-gray-800 truncate">{s.itemTitle}</div>
+                          <span className="text-xs text-gray-500">{format(start, "HH:mm")} — {end ? format(end, "HH:mm") : "active"}</span>
+                        </div>
+                        <div className="text-xs text-gray-600 mt-1">Type: {String(s.type).toUpperCase()}</div>
+                        {s.note && <div className="text-xs text-gray-700 mt-1">Note: {s.note}</div>}
+                        <div className="text-[11px] text-gray-500 mt-1">Duration: {durMin} min</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }

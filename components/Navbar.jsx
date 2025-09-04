@@ -8,13 +8,20 @@ import {
   X,
   Users,
   Sparkles,
+  Mountain,
   ClipboardList,
   ClipboardCheck,
   CalendarCheck2,
   CalendarX2,
+  Calendar,
   UserPlus,
-  ArrowRight
+  ArrowRight,
+  User,
+  BarChart2,
+  MessageSquare,
+  Send
 } from "lucide-react";
+import AboutMeedModal from "@/components/AboutMeedModal";
 import { createPortal } from "react-dom";
 import MeRightNow from "@/components/MeRightNow";
 
@@ -45,6 +52,26 @@ export default function Navbar() {
   const [isMeNowOpen, setIsMeNowOpen] = useState(false);
   // NEW: Managerial side-sheet
   const [isManagerialOpen, setIsManagerialOpen] = useState(false);
+  // NEW: Profile side-sheet (widgets)
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  // NEW: MRIs side-sheet
+  const [isMRISheetOpen, setIsMRISheetOpen] = useState(false);
+  const [isAboutMeedOpen, setIsAboutMeedOpen] = useState(false);
+  // MRIs preview state
+  const [todayAMRIs, setTodayAMRIs] = useState([]);
+  const [todayNMRIs, setTodayNMRIs] = useState([]);
+  const [loadingMRIPreview, setLoadingMRIPreview] = useState(false);
+  const [mriPreviewErr, setMriPreviewErr] = useState("");
+  // Current MRN for Profile sheet quick status
+  const [currentMRN, setCurrentMRN] = useState(null);
+  const [loadingMRN, setLoadingMRN] = useState(false);
+  // All Meedians directory
+  const [isAllMeediansOpen, setIsAllMeediansOpen] = useState(false);
+  const [allUsers, setAllUsers] = useState([]);
+  const [loadingAllUsers, setLoadingAllUsers] = useState(false);
+  const [usersError, setUsersError] = useState("");
+  const [searchText, setSearchText] = useState("");
+  const [selectedMeedian, setSelectedMeedian] = useState(null);
 
   /* ======================= effects ======================= */
   // mount
@@ -144,7 +171,7 @@ export default function Navbar() {
 
   // Optional: prevent body scroll when any overlay is open
   useEffect(() => {
-    const anyOpen = isExecuteOpen || isManagerialOpen || isLogoutModalOpen;
+    const anyOpen = isExecuteOpen || isManagerialOpen || isLogoutModalOpen || isProfileOpen || isAllMeediansOpen;
     if (anyOpen) {
       const original = document.body.style.overflow;
       document.body.style.overflow = "hidden";
@@ -152,7 +179,74 @@ export default function Navbar() {
         document.body.style.overflow = original;
       };
     }
-  }, [isExecuteOpen, isManagerialOpen, isLogoutModalOpen]);
+  }, [isExecuteOpen, isManagerialOpen, isLogoutModalOpen, isProfileOpen, isAllMeediansOpen]);
+
+  // Load current MRN when the Profile sheet opens (and poll while open)
+  useEffect(() => {
+    if (!isProfileOpen || status !== "authenticated") return;
+    let intervalId;
+    const fetchCurrent = async () => {
+      try {
+        setLoadingMRN(true);
+        const res = await fetch("/api/member/meRightNow?action=current", { cache: "no-store" });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) setCurrentMRN(data.current || null);
+      } catch {
+        /* ignore */
+      } finally {
+        setLoadingMRN(false);
+      }
+    };
+    fetchCurrent();
+    intervalId = window.setInterval(fetchCurrent, 10000);
+    return () => intervalId && clearInterval(intervalId);
+  }, [isProfileOpen, status]);
+
+  // Load all members when All Meedians modal opens
+  useEffect(() => {
+    if (!isAllMeediansOpen || status !== "authenticated") return;
+    let aborted = false;
+    (async () => {
+      try {
+        setLoadingAllUsers(true);
+        setUsersError("");
+        const res = await fetch("/api/member/users", { cache: "no-store" });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+        if (!aborted) setAllUsers(Array.isArray(data.users) ? data.users : []);
+      } catch (e) {
+        if (!aborted) setUsersError(e.message || "Failed to load users");
+      } finally {
+        if (!aborted) setLoadingAllUsers(false);
+      }
+    })();
+    return () => { aborted = true; };
+  }, [isAllMeediansOpen, status]);
+
+  // Fetch today's MRIs when MRIs sheet opens
+  useEffect(() => {
+    if (!isMRISheetOpen || status !== "authenticated") return;
+    let aborted = false;
+    (async () => {
+      try {
+        setLoadingMRIPreview(true);
+        setMriPreviewErr("");
+        const res = await fetch("/api/member/myMRIs?section=today", { cache: "no-store" });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+        if (!aborted) {
+          setTodayAMRIs(Array.isArray(data.aMRIs) ? data.aMRIs.slice(0, 4) : []);
+          setTodayNMRIs(Array.isArray(data.nMRIs) ? data.nMRIs.slice(0, 4) : []);
+        }
+      } catch (e) {
+        if (!aborted) setMriPreviewErr(e.message || "Failed to load MRIs preview");
+      } finally {
+        if (!aborted) setLoadingMRIPreview(false);
+      }
+    })();
+    return () => { aborted = true; };
+  }, [isMRISheetOpen, status]);
+
 
   /* ======================= helpers ======================= */
   const role = session?.user?.role || "user";
@@ -172,6 +266,21 @@ export default function Navbar() {
     router.push("/");
   };
   const openMeRightNow = () => setIsMeNowOpen(true);
+
+  // pretty time since
+  const timeSince = (iso) => {
+    try {
+      const t = new Date(iso).getTime();
+      const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      if (h > 0) return `${h}h ${m}m`;
+      if (m > 0) return `${m}m`;
+      return `${s}s`;
+    } catch {
+      return "";
+    }
+  };
 
   /* ======================= components ======================= */
   const LogoutModal = () => (
@@ -202,8 +311,8 @@ export default function Navbar() {
       <div className="execute-modal animate-pop" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between">
           <div>
-            <h3 className="text-lg font-semibold text-cyan-300">Execute</h3>
-            <p className="text-sm text-gray-300/80 mt-1">Pick what you want to do—then jump right in.</p>
+            <h3 className="text-lg font-semibold text-cyan-300">Towards Greatness</h3>
+            <p className="text-sm text-gray-300/80 mt-1">Ritual over result. Begin with sincerity.</p>
           </div>
           <button onClick={() => setIsExecuteOpen(false)} className="nav-icon-button" aria-label="Close">
             <X size={18} />
@@ -219,11 +328,11 @@ export default function Navbar() {
             }}
           >
             <div className="action-icon">
-              <Sparkles size={20} />
+              <Mountain size={20} />
             </div>
             <div className="action-body">
-              <div className="action-title">Me Right Now</div>
-              <div className="action-sub">Pick the task you’re doing now and lock in.</div>
+              <div className="action-title">My Rituals Right Now</div>
+              <div className="action-sub">Let’s enter our mission today.</div>
             </div>
             <span className="action-go" aria-hidden><ArrowRight size={16} /></span>
           </button>
@@ -241,6 +350,23 @@ export default function Navbar() {
             <div className="action-body">
               <div className="action-title">Together</div>
               <div className="action-sub">Hop into a shared workspace with your team.</div>
+            </div>
+            <span className="action-go" aria-hidden><ArrowRight size={16} /></span>
+          </button>
+
+          <button
+            className="action-card group"
+            onClick={() => {
+              setIsExecuteOpen(false);
+              router.push("/dashboard?open=mrn");
+            }}
+          >
+            <div className="action-icon">
+              <Sparkles size={20} />
+            </div>
+            <div className="action-body">
+              <div className="action-title">Meedians in Action</div>
+              <div className="action-sub">See all MRNs (active + resting)</div>
             </div>
             <span className="action-go" aria-hidden><ArrowRight size={16} /></span>
           </button>
@@ -331,6 +457,242 @@ export default function Navbar() {
       </aside>
     </div>
   );
+
+  // NEW: Profile Widgets Side Sheet (same visual language as Managerial)
+  const ProfileSheet = () => (
+    <div className={`sheet-overlay ${isProfileOpen ? "open" : ""}`} aria-hidden={!isProfileOpen} onClick={() => setIsProfileOpen(false)}>
+      <aside className={`sheet-panel ${isProfileOpen ? "open" : ""}`} role="dialog" aria-modal="true" aria-label="Profile Widgets" onClick={(e) => e.stopPropagation()}>
+        <div className="sheet-header">
+          <h3 className="sheet-title">My Widgets</h3>
+          <button className="nav-icon-button" aria-label="Close" onClick={() => setIsProfileOpen(false)}>
+            <X size={18} />
+          </button>
+        </div>
+        <div className="sheet-content">
+          {/* Current MRN quick status (distinct design) */}
+          <button
+            className={`current-mrn-row ${currentMRN ? "active" : "rest"}`}
+            onClick={() => { setIsProfileOpen(false); setIsMeNowOpen(true); }}
+            title="View or update your current MRN"
+          >
+            <span className="mrn-icon">
+              <span className="icon-wrap"><Mountain size={18} /></span>
+              {currentMRN ? (
+                <span className="live-dot" aria-hidden />
+              ) : (
+                <span className="rest-dot" aria-hidden />
+              )}
+            </span>
+            <span className="mrn-main">
+              <span className="mrn-title">
+                {currentMRN ? (currentMRN.itemTitle || "Current MRN") : "Rest and Recover"}
+                {currentMRN && (
+                  <>
+                    <span className="live-badge">LIVE</span>
+                    <span className="spark-icon" aria-hidden><Sparkles size={14} /></span>
+                  </>
+                )}
+              </span>
+              <span className="mrn-sub">
+                {loadingMRN
+                  ? "Checking…"
+                  : currentMRN
+                    ? `since ${currentMRN.startedAt ? timeSince(currentMRN.startedAt) : "—"}`
+                    : "No active MRN"}
+              </span>
+            </span>
+            <ArrowRight size={16} className="mrn-go" />
+          </button>
+
+          <button
+            className="action-row"
+            onClick={() => { setIsProfileOpen(false); router.push(profilePath); }}
+          >
+            <span className="row-icon"><User size={18} /></span>
+            <span className="row-main">
+              <span className="row-title">Profile Settings</span>
+              <span className="row-sub">Update your info and preferences</span>
+            </span>
+            <ArrowRight size={16} className="row-go" />
+          </button>
+
+          <button
+            className="action-row"
+            onClick={() => { setIsProfileOpen(false); router.push(performancePath); }}
+          >
+            <span className="row-icon"><BarChart2 size={18} /></span>
+            <span className="row-main">
+              <span className="row-title">My Performance</span>
+              <span className="row-sub">See your metrics and progress</span>
+            </span>
+            <ArrowRight size={16} className="row-go" />
+          </button>
+
+          <button
+            className="action-row"
+            onClick={() => { setIsProfileOpen(false); router.push(`${profilePath}?open=leave`); }}
+          >
+            <span className="row-icon"><CalendarCheck2 size={18} /></span>
+            <span className="row-main">
+              <span className="row-title">Leave Request</span>
+              <span className="row-sub">Submit leave for approval</span>
+            </span>
+            <ArrowRight size={16} className="row-go" />
+          </button>
+
+          <button
+            className="action-row"
+            onClick={() => { setIsProfileOpen(false); router.push(`${profilePath}?open=talk`); }}
+          >
+            <span className="row-icon"><MessageSquare size={18} /></span>
+            <span className="row-main">
+              <span className="row-title">Talk to Superintendent</span>
+              <span className="row-sub">Start a direct chat</span>
+            </span>
+            <ArrowRight size={16} className="row-go" />
+          </button>
+
+          <button
+            className="action-row"
+            onClick={() => { setIsProfileOpen(false); router.push(`${profilePath}?open=direct`); }}
+          >
+            <span className="row-icon"><Send size={18} /></span>
+            <span className="row-main">
+              <span className="row-title">Send Direct Message</span>
+              <span className="row-sub">Compose a WhatsApp message</span>
+            </span>
+            <ArrowRight size={16} className="row-go" />
+          </button>
+
+          {(role === "admin" || role === "team_manager") && (
+            <button
+              className="action-row"
+              onClick={() => { setIsProfileOpen(false); router.push(`${profilePath}?open=sent`); }}
+            >
+              <span className="row-icon"><ClipboardCheck size={18} /></span>
+              <span className="row-main">
+                <span className="row-title">Sent Message History</span>
+                <span className="row-sub">Review your messages</span>
+              </span>
+              <ArrowRight size={16} className="row-go" />
+            </button>
+          )}
+
+          {/* All Meedians directory */}
+          <button
+            className="action-row"
+            onClick={() => { setIsAllMeediansOpen(true); }}
+          >
+            <span className="row-icon"><Users size={18} /></span>
+            <span className="row-main">
+              <span className="row-title">All Meedians</span>
+              <span className="row-sub">Names, roles and WhatsApp (admins’ numbers hidden)</span>
+            </span>
+            <ArrowRight size={16} className="row-go" />
+          </button>
+        </div>
+      </aside>
+    </div>
+  );
+
+  // NEW: MRIs Side Sheet
+  const MRISheet = () => (
+    <div className={`sheet-overlay ${isMRISheetOpen ? "open" : ""}`} aria-hidden={!isMRISheetOpen} onClick={() => setIsMRISheetOpen(false)}>
+      <aside className={`sheet-panel ${isMRISheetOpen ? "open" : ""}`} role="dialog" aria-modal="true" aria-label="MRIs" onClick={(e) => e.stopPropagation()}>
+        <div className="sheet-header">
+          <h3 className="sheet-title">MRIs</h3>
+          <button className="nav-icon-button" aria-label="Close" onClick={() => setIsMRISheetOpen(false)}>
+            <X size={18} />
+          </button>
+        </div>
+        <div className="sheet-content">
+          {/* Current MRN quick status (reuse design) */}
+          <button
+            className={`current-mrn-row ${currentMRN ? "active" : "rest"}`}
+            onClick={() => { setIsMeNowOpen(true); }}
+            title="View or update your current MRN"
+          >
+            <span className="mrn-icon">
+              <span className="icon-wrap"><Mountain size={18} /></span>
+              {currentMRN ? <span className="live-dot" aria-hidden /> : <span className="rest-dot" aria-hidden />}
+            </span>
+            <span className="mrn-main">
+              <span className="mrn-title">
+                {currentMRN ? (currentMRN.itemTitle || "Current MRN") : "Rest and Recover"}
+                {currentMRN && (<><span className="live-badge">LIVE</span><span className="spark-icon" aria-hidden><Sparkles size={14} /></span></>)}
+              </span>
+              <span className="mrn-sub">
+                {loadingMRN ? "Checking…" : currentMRN ? `since ${currentMRN.startedAt ? new Date(currentMRN.startedAt).toLocaleTimeString() : "—"}` : "No active MRN"}
+              </span>
+            </span>
+            <ArrowRight size={16} className="mrn-go" />
+          </button>
+
+          {/* Open full MyMRIs page */}
+          <button
+            className="action-row"
+            onClick={() => { setIsMRISheetOpen(false); router.push("/dashboard/member/myMeedRituals"); }}
+          >
+            <span className="row-icon"><Calendar size={18} /></span>
+            <span className="row-main">
+              <span className="row-title">MyMRIs</span>
+              <span className="row-sub">Open your MRIs page</span>
+            </span>
+            <ArrowRight size={16} className="row-go" />
+          </button>
+
+          <div className="rounded-xl border border-cyan-900/40 bg-white/5 p-3">
+            <div className="text-sm font-semibold text-cyan-200 mb-2">Today’s MRIs</div>
+            {loadingMRIPreview ? (
+              <div className="text-xs text-cyan-300/80">Loading…</div>
+            ) : mriPreviewErr ? (
+              <div className="text-xs text-rose-300">{mriPreviewErr}</div>
+            ) : (
+              <div className="grid grid-cols-1 gap-2">
+                <div>
+                  <div className="text-xs text-cyan-300/80 mb-1">A‑MRIs</div>
+                  {todayAMRIs.length === 0 ? (
+                    <div className="text-xs text-cyan-100/70">None</div>
+                  ) : (
+                    <ul className="text-xs text-cyan-100/90 list-disc ml-4">
+                      {todayAMRIs.map((t, i) => (
+                        <li key={`a-${i}`}>{t.title}{t.description ? ` — ${t.description}` : ""}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <div>
+                  <div className="text-xs text-cyan-300/80 mb-1">N‑MRIs</div>
+                  {todayNMRIs.length === 0 ? (
+                    <div className="text-xs text-cyan-100/70">None</div>
+                  ) : (
+                    <ul className="text-xs text-cyan-100/90 list-disc ml-4">
+                      {todayNMRIs.map((s, i) => (
+                        <li key={`n-${i}`}>{s.name || `Slot ${s.id}`}{s.time ? ` — ${s.time}` : ""}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <button className="action-row" onClick={() => setIsAboutMeedOpen(true)}>
+
+            <span className="row-icon"><Sparkles size={18} /></span>
+            <span className="row-main">
+              <span className="row-title">About MEED</span>
+              <span className="row-sub">Blueprint • Principles • Operations • Pledges</span>
+            </span>
+            <ArrowRight size={16} className="row-go" />
+          </button>
+
+
+        </div>
+      </aside>
+    </div>
+  );
+
 
   /* ======================= render ======================= */
   const showNavbar = !pathname.includes("/workTogether");
@@ -822,17 +1184,75 @@ export default function Navbar() {
             transform: none !important;
           }
         }
+        /* ====== Current MRN row (distinct look) ====== */
+        .current-mrn-row {
+          display: grid;
+          grid-template-columns: auto 1fr auto;
+          align-items: center;
+          gap: 10px;
+          width: 100%;
+          border-radius: 14px;
+          padding: 10px 12px;
+          border: 1px solid rgba(239,68,68,0.25);
+          background: linear-gradient(135deg, rgba(239,68,68,0.85), rgba(220,38,38,0.92));
+          position: relative;
+          text-align: left;
+          box-shadow: 0 8px 20px rgba(239,68,68,0.25), inset 0 0 30px rgba(255,255,255,0.06);
+          overflow: hidden;
+        }
+        .current-mrn-row:hover { filter: brightness(1.04); }
+        .current-mrn-row .mrn-icon { position: relative; display: flex; align-items: center; }
+        .current-mrn-row .icon-wrap {
+          width: 32px; height: 32px; display: grid; place-items: center;
+          border-radius: 10px;
+          background: radial-gradient(120px 120px at 30% 20%, rgba(248,113,113,0.45), transparent), rgba(255,255,255,0.10);
+          border: 1px solid rgba(248,113,113,0.35);
+          color: #fee2e2;
+        }
+        .current-mrn-row .live-dot,
+        .current-mrn-row .rest-dot {
+          position: absolute; right: -2px; bottom: -2px; width: 9px; height: 9px;
+          border-radius: 9999px; border: 1px solid rgba(0,0,0,0.2);
+        }
+        .current-mrn-row .live-dot { background: #ef4444; box-shadow: 0 0 0 6px rgba(239,68,68,0.25); animation: pulseDot 1.4s infinite; }
+        .current-mrn-row .rest-dot { background: #9ca3af; box-shadow: 0 0 0 6px rgba(156,163,175,0.18); }
+        @keyframes pulseDot { 0%{transform:scale(1)} 50%{transform:scale(1.2)} 100%{transform:scale(1)} }
+        .current-mrn-row .mrn-main { min-width: 0; }
+        .current-mrn-row .mrn-title { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; color: #fff5f5; text-shadow: 0 1px 0 rgba(0,0,0,0.1); }
+        .current-mrn-row .mrn-sub { display:block; font-size: 12px; color: rgba(255,255,255,0.9); margin-top: 2px; }
+        .current-mrn-row .live-badge {
+          font-size: 10px; font-weight: 800; letter-spacing: .3px; color: #7f1d1d;
+          background: linear-gradient(135deg, #fecaca, #fee2e2);
+          padding: 2px 6px; border-radius: 999px; border: 1px solid rgba(127,29,29,0.25);
+        }
+        .current-mrn-row.rest { border-color: rgba(148,163,184,0.15); background: linear-gradient(135deg, rgba(148,163,184,0.15), rgba(51,65,85,0.12)); box-shadow: none; }
+        .current-mrn-row .mrn-go { color: rgba(226,232,240,0.8); }
+
+        /* Sparkle overlay animation */
+        .current-mrn-row.active::after {
+          content: "";
+          position: absolute; inset: -20% -10% auto -10%; height: 140%;
+          background: radial-gradient(12px 8px at 20% 30%, rgba(255,255,255,0.35), transparent 60%),
+                      radial-gradient(10px 6px at 60% 20%, rgba(255,255,255,0.25), transparent 60%),
+                      radial-gradient(8px 5px at 80% 60%, rgba(255,255,255,0.2), transparent 60%);
+          animation: sweep 4.5s linear infinite;
+          pointer-events: none;
+        }
+        .spark-icon { color: #fff; opacity: .9; filter: drop-shadow(0 0 6px rgba(255,255,255,.5)); animation: twinkle 1.8s ease-in-out infinite; }
+        @keyframes sweep { 0%{ transform: translateX(-20%) translateY(-10%) rotate(8deg);} 100%{ transform: translateX(60%) translateY(-10%) rotate(8deg);} }
+        @keyframes twinkle { 0%,100%{ transform: scale(1); opacity: .75;} 50%{ transform: scale(1.15); opacity: 1; } }
+
       `}</style>
 
       {showNavbar && (
         <nav className="text-white px-3 py-2 w-full sticky top-0 z-40 shadow-lg border-b border-cyan-900/40">
-          <div className="flex items-center justify-between w-full px-2 sm:px-4 lg:px-6">
+          <div className="flex items-center justify-between w-full px-2 sm:px-4 lg:px-6 min-w-0">
             {/* left: logo */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 min-w-0">
               <img src="/flow1.png" alt="Logo" className="w-7 h-7 rounded-full border border-cyan-400 p-1" />
               <Link
                 href="/"
-                className={`text-lg sm:text-xl font-bold tracking-tight bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent hover:from-cyan-300 hover:to-blue-300 transition ${
+                className={`text-lg sm:text-xl font-bold tracking-tight bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent hover:from-cyan-300 hover:to-blue-300 transition truncate max-w-[40vw] sm:max-w-none ${
                   isActive("/") ? "drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]" : ""
                 }`}
               >
@@ -860,20 +1280,8 @@ export default function Navbar() {
                     Managerial
                   </button>
 
-                  {/* Execute launcher */}
-                  <button
-                    type="button"
-                    onClick={() => setIsExecuteOpen(true)}
-                    className="execute-launcher"
-                    aria-haspopup="dialog"
-                    aria-expanded={isExecuteOpen}
-                    aria-label="Open execute options"
-                    title="Execute"
-                  >
-                    <span className="spark"><Sparkles size={16} /></span>
-                    Execute
-                    <span className="dot" />
-                  </button>
+                  {/* Towards Greatness launcher */}
+                  {/* to-greatness moved next to My Dashboard */}
 
                   <button onClick={handleAddMember} className="nav-button bg-teal-600 hover:bg-teal-700 text-white">Add Member</button>
                   <button onClick={handleManageMeedian} className="nav-button bg-blue-600 hover:bg-blue-700 text-white">Manage Meedian</button>
@@ -885,7 +1293,8 @@ export default function Navbar() {
                 <>
                   <Link href="/dashboard" className={`nav-item ${isActive("/dashboard") ? "active" : ""}`}>General</Link>
                   <Link href="/dashboard/team_manager" className={`nav-item ${isActive("/dashboard/team_manager") ? "active" : ""}`}>My Dashboard</Link>
-                  <Link href="/dashboard/member/myMeedRituals" className={`nav-item ${isActive("/dashboard/member/myMeedRituals") ? "active" : ""}`}>MyMRIs</Link>
+                  <button type="button" onClick={() => setIsExecuteOpen(true)} className={`nav-item relative ${isExecuteOpen ? "active" : ""}`} aria-haspopup="dialog" aria-expanded={isExecuteOpen} aria-label="Open to-greatness" title="to-greatness"><span className="mr-1">to-greatness</span><span className="inline-block align-middle animate-bounce">👀</span></button>
+                  <button type="button" onClick={() => setIsMRISheetOpen(true)} className={`nav-item ${isMRISheetOpen ? "active" : ""}`}>MRIs</button>
                   <Link href="/dashboard/member/closeMyDay" className={`nav-item ${isActive("/dashboard/member/closeMyDay") ? "active" : ""}`}>CloseMyDay</Link>
                   <Link href={performancePath} className={`nav-item ${isActive(performancePath) ? "active" : ""}`}>MyPerformance</Link>
 
@@ -901,19 +1310,7 @@ export default function Navbar() {
                     Managerial
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={() => setIsExecuteOpen(true)}
-                    className="execute-launcher"
-                    aria-haspopup="dialog"
-                    aria-expanded={isExecuteOpen}
-                    aria-label="Open execute options"
-                    title="Execute"
-                  >
-                    <span className="spark"><Sparkles size={16} /></span>
-                    Execute
-                    <span className="dot" />
-                  </button>
+                  {/* to-greatness moved next to My Dashboard */}
                 </>
               )}
 
@@ -921,7 +1318,8 @@ export default function Navbar() {
                 <>
                   <Link href="/dashboard" className={`nav-item ${isActive("/dashboard") ? "active" : ""}`}>General</Link>
                   <Link href="/dashboard/member" className={`nav-item ${isActive("/dashboard/member") ? "active" : ""}`}>My Dashboard</Link>
-                  <Link href="/dashboard/member/myMeedRituals" className={`nav-item ${isActive("/dashboard/member/myMeedRituals") ? "active" : ""}`}>MyMRIs</Link>
+                  <button type="button" onClick={() => setIsExecuteOpen(true)} className={`nav-item relative ${isExecuteOpen ? "active" : ""}`} aria-haspopup="dialog" aria-expanded={isExecuteOpen} aria-label="Open to-greatness" title="to-greatness"><span className="mr-1">to-greatness</span><span className="inline-block align-middle animate-bounce">👀</span></button>
+                  <button type="button" onClick={() => setIsMRISheetOpen(true)} className={`nav-item ${isMRISheetOpen ? "active" : ""}`}>MRIs</button>
                   <Link href="/dashboard/member/closeMyDay" className={`nav-item ${isActive("/dashboard/member/closeMyDay") ? "active" : ""}`}>CloseMyDay</Link>
                   <Link href={performancePath} className={`nav-item ${isActive(performancePath) ? "active" : ""}`}>MyPerformance</Link>
 
@@ -937,19 +1335,7 @@ export default function Navbar() {
                     Managerial
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={() => setIsExecuteOpen(true)}
-                    className="execute-launcher"
-                    aria-haspopup="dialog"
-                    aria-expanded={isExecuteOpen}
-                    aria-label="Open execute options"
-                    title="Execute"
-                  >
-                    <span className="spark"><Sparkles size={16} /></span>
-                    Execute
-                    <span className="dot" />
-                  </button>
+                  {/* to-greatness moved next to My Dashboard */}
                 </>
               )}
 
@@ -963,10 +1349,18 @@ export default function Navbar() {
             </div>
 
             {/* right: profile + mobile burger */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-shrink-0">
               {(role === "admin" || role === "team_manager" || role === "member") && (
                 <>
-                  <Link href={profilePath} className={`user-info hidden md:flex ${isActive(profilePath) ? "active" : ""}`}>
+                  <button
+                    type="button"
+                    onClick={() => setIsProfileOpen(true)}
+                    className={`user-info hidden md:flex ${isActive(profilePath) ? "active" : ""}`}
+                    aria-haspopup="dialog"
+                    aria-expanded={isProfileOpen}
+                    aria-label="Open profile widgets"
+                    title="My Account"
+                  >
                     <img
                       src={userImage || "/default-avatar.png"}
                       alt="User Avatar"
@@ -976,7 +1370,7 @@ export default function Navbar() {
                       <span className="name">{userName || "Loading..."}</span>
                       <span className="account-label">My Account</span>
                     </div>
-                  </Link>
+                  </button>
                   <button onClick={openLogoutModal} className="hidden md:block nav-button bg-red-600 hover:bg-red-700 text-white">
                     Logout
                   </button>
@@ -1003,7 +1397,7 @@ export default function Navbar() {
                 </div>
 
                 {(role === "admin" || role === "team_manager" || role === "member") && (
-                  <Link href={profilePath} onClick={toggleMobileMenu} className={`mobile-user-info ${isActive(profilePath) ? "active" : ""}`}>
+                  <button onClick={() => { setIsProfileOpen(true); toggleMobileMenu(); }} className={`mobile-user-info ${isActive(profilePath) ? "active" : ""}`}>
                     <img
                       src={userImage || "/default-avatar.png"}
                       alt="User Avatar"
@@ -1013,7 +1407,7 @@ export default function Navbar() {
                       <span className="name">{userName || "Loading..."}</span>
                       <span className="account-label">My Account</span>
                     </div>
-                  </Link>
+                  </button>
                 )}
 
                 <div className="space-y-1">
@@ -1032,7 +1426,7 @@ export default function Navbar() {
 
                       {/* Mobile: open Execute modal */}
                       <button onClick={() => { setIsExecuteOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">
-                        Execute
+                        Towards Greatness
                       </button>
 
                       <button onClick={() => { handleAddMember(); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">Add Member</button>
@@ -1045,16 +1439,16 @@ export default function Navbar() {
                     <>
                       <Link href="/dashboard" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard") ? "active" : ""}`}>General</Link>
                       <Link href="/dashboard/team_manager" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/team_manager") ? "active" : ""}`}>My Dashboard</Link>
-                      <Link href="/dashboard/member/myMeedRituals" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member/myMeedRituals") ? "active" : ""}`}>MyMRIs</Link>
+                    <button onClick={() => { setIsMRISheetOpen(true); toggleMobileMenu(); }} className={`mobile-menu-item ${isMRISheetOpen ? "active" : ""}`}>MRIs</button>
                       <Link href="/dashboard/member/closeMyDay" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member/closeMyDay") ? "active" : ""}`}>CloseMyDay</Link>
                       <Link href={performancePath} onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive(performancePath) ? "active" : ""}`}>MyPerformance</Link>
 
                       <button onClick={() => { setIsManagerialOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">
                         Managerial
                       </button>
-                      <button onClick={() => { setIsExecuteOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">
-                        Execute
-                      </button>
+                  <button onClick={() => { setIsExecuteOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">
+                    Towards Greatness
+                  </button>
                     </>
                   )}
 
@@ -1069,9 +1463,9 @@ export default function Navbar() {
                       <button onClick={() => { setIsManagerialOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">
                         Managerial
                       </button>
-                      <button onClick={() => { setIsExecuteOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">
-                        Execute
-                      </button>
+                  <button onClick={() => { setIsExecuteOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">
+                    Towards Greatness
+                  </button>
                     </>
                   )}
 
@@ -1107,6 +1501,120 @@ export default function Navbar() {
 
       {mounted && typeof window !== "undefined" && isManagerialOpen && document?.body &&
         createPortal(<ManagerialSheet />, document.body)}
+
+      {mounted && typeof window !== "undefined" && isProfileOpen && document?.body &&
+        createPortal(<ProfileSheet />, document.body)}
+
+      {mounted && typeof window !== "undefined" && isAboutMeedOpen && document?.body &&
+        createPortal(
+          <AboutMeedModal open={isAboutMeedOpen} onClose={() => setIsAboutMeedOpen(false)} />,
+          document.body
+        )}
+
+      {mounted && typeof window !== "undefined" && isMRISheetOpen && document?.body &&
+        createPortal(<MRISheet />, document.body)}
+
+      {/* All Meedians directory modal */}
+      {mounted && typeof window !== "undefined" && isAllMeediansOpen && document?.body &&
+        createPortal(
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[10040]" role="dialog" aria-modal="true" aria-label="All Meedians" onClick={() => { setIsAllMeediansOpen(false); setSelectedMeedian(null); }}>
+            <div className="bg-slate-900/90 text-cyan-50 rounded-2xl border border-slate-500/40 shadow-2xl w-[92vw] max-w-5xl max-h-[86vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-500/30">
+                <div>
+                  <div className="text-cyan-300 font-semibold">All Meedians</div>
+                  <div className="text-xs text-slate-300/80">Names, roles and WhatsApp (admins’ numbers hidden)</div>
+                </div>
+                <button className="nav-icon-button" aria-label="Close" onClick={() => { setIsAllMeediansOpen(false); setSelectedMeedian(null); }}>
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="p-4">
+                <input
+                  className="w-full px-3 py-2 rounded-xl bg-white/10 border border-slate-500/30 text-cyan-50 placeholder:text-slate-300/70 outline-none focus:ring-2 focus:ring-cyan-500"
+                  placeholder="Search by name, role or number…"
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                />
+                {usersError && <div className="text-rose-300 text-sm mt-2">{usersError}</div>}
+                {!selectedMeedian ? (
+                <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[64vh] overflow-y-auto pr-1">
+                  {loadingAllUsers ? (
+                    Array.from({ length: 8 }).map((_, i) => (
+                      <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-slate-500/30 opacity-60">
+                        <div className="w-9 h-9 rounded-full bg-slate-600/50" />
+                        <div className="min-w-0">
+                          <div className="font-semibold">Loading…</div>
+                          <div className="text-xs text-slate-300/80">—</div>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    (allUsers || [])
+                      .filter(u => {
+                        const q = searchText.trim().toLowerCase();
+                        if (!q) return true;
+                        return (
+                          String(u.name||"").toLowerCase().includes(q) ||
+                          String(u.role||"").toLowerCase().includes(q) ||
+                          String(u.whatsapp_number||"").toLowerCase().includes(q)
+                        );
+                      })
+                      .map((u) => {
+                        const roleLabel = String(u.role||"").replaceAll("_"," ");
+                        return (
+                          <button key={u.id} className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-slate-500/30 hover:bg-white/10 text-left" onClick={() => setSelectedMeedian(u)}>
+                            <img src={getValidImageUrl(u.image)} alt={u.name} className="w-9 h-9 rounded-full border border-cyan-700/40 object-cover" />
+                            <div className="min-w-0">
+                              <div className="font-semibold truncate">{u.name || "—"}</div>
+                              <div className="text-xs text-slate-300/80 truncate">{roleLabel || "—"}{u.team_manager_type ? ` · ${String(u.team_manager_type).replaceAll("_"," ")}` : ""}</div>
+                            </div>
+                          </button>
+                        );
+                      })
+                  )}
+                </div>
+                ) : (
+                  <div className="mt-3 max-h-[64vh] overflow-y-auto pr-1">
+                    <div className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-slate-500/30">
+                      <img src={getValidImageUrl(selectedMeedian.image)} alt={selectedMeedian.name} className="w-12 h-12 rounded-full border border-cyan-700/40 object-cover" />
+                      <div className="min-w-0">
+                        <div className="font-semibold text-lg">{selectedMeedian.name || "—"}</div>
+                        <div className="text-sm text-slate-300/80">{String(selectedMeedian.role||"").replaceAll("_"," ")}{selectedMeedian.team_manager_type ? ` · ${String(selectedMeedian.team_manager_type).replaceAll("_"," ")}` : ""}</div>
+                      </div>
+                    </div>
+                    <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="p-3 rounded-xl bg-white/5 border border-slate-500/30">
+                        <div className="text-xs text-slate-300/80">WhatsApp</div>
+                        <div className="text-sm">{String(selectedMeedian.role) === "admin" ? "Hidden" : (selectedMeedian.whatsapp_number || "—")}</div>
+                      </div>
+                      <div className="p-3 rounded-xl bg-white/5 border border-slate-500/30">
+                        <div className="text-xs text-slate-300/80">Account Type</div>
+                        <div className="text-sm">{selectedMeedian.type || "—"}</div>
+                      </div>
+                      <div className="p-3 rounded-xl bg-white/5 border border-slate-500/30">
+                        <div className="text-xs text-slate-300/80">Member Scope</div>
+                        <div className="text-sm">{selectedMeedian.member_scope ? String(selectedMeedian.member_scope).replaceAll("_"," ") : "—"}</div>
+                      </div>
+                      {selectedMeedian.immediate_supervisor ? (
+                        <div className="p-3 rounded-xl bg-white/5 border border-slate-500/30">
+                          <div className="text-xs text-slate-300/80">Immediate Supervisor</div>
+                          <div className="text-sm">ID #{selectedMeedian.immediate_supervisor}</div>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="px-4 py-3 border-t border-slate-500/30 flex justify-between">
+                {selectedMeedian ? (
+                  <button className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-sm" onClick={() => setSelectedMeedian(null)}>Back</button>
+                ) : <span />}
+                <button className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-sm" onClick={() => { setIsAllMeediansOpen(false); setSelectedMeedian(null); }}>Close</button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
 
       <MeRightNow
         open={isMeNowOpen}

@@ -32,6 +32,10 @@ export async function GET(req) {
         type: users.type,
         team_manager_type: users.team_manager_type,
         image: users.image,
+        whatsapp_number: users.whatsapp_number,
+        whatsapp_enabled: users.whatsapp_enabled,
+        member_scope: users.member_scope,
+        immediate_supervisor: users.immediate_supervisor,
       })
       .from(users);
 

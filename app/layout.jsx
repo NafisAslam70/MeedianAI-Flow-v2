@@ -6,6 +6,9 @@ import { motion } from "framer-motion";
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+      </head>
       <body className="min-h-screen relative overflow-hidden bg-gradient-to-br from-gray-50 to-blue-100">
         <motion.div
           className="absolute inset-0 pointer-events-none" // Add pointer-events-none

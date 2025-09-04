@@ -1,5 +1,12 @@
 @import "tailwindcss";
 
+/* Responsive baseline */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { width: 100%; }
+img, video, canvas, svg { display: block; max-width: 100%; height: auto; }
+/* Prevent viewport jump on iOS safe-areas */
+:root { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+
 :root {
   --background: #ffffff;
   --foreground: #171717;

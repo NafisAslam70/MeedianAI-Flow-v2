@@ -7,6 +7,7 @@ import {
   routineTasks,
   userMriRoles,
   meRightNowSessions,
+  dailySlots,
 } from "@/lib/schema";
 import { auth } from "@/lib/auth";
 import { and, desc, eq, inArray } from "drizzle-orm";
@@ -84,7 +85,7 @@ export async function GET(req) {
       return NextResponse.json({ items: rows });
     }
 
-    if (type === "mri") {
+    if (type === "mri" || type === "rmri") {
       const rows = await db
         .select({ id: userMriRoles.role, raw: userMriRoles.role })
         .from(userMriRoles)
@@ -92,6 +93,37 @@ export async function GET(req) {
 
       const items = rows.map((r) => ({ id: r.id, title: pretty(r.raw) }));
       return NextResponse.json({ items });
+    }
+
+    if (type === "omri") {
+      // OMRI slots (external schedule): MOP1, MOP2, MOP1L, MOP3
+      const items = [
+        { id: "MOP1", title: "MOP1" },
+        { id: "MOP2", title: "MOP2" },
+        { id: "MOP1L", title: "MOP1L" },
+        { id: "MOP3", title: "MOP3" },
+      ];
+      return NextResponse.json({ items });
+    }
+
+    if (type === "amri") {
+      // Academic MRIs: categories. Day Close appears but is non-enter in UI.
+      const items = [
+        { id: "MSP", title: "MSP" },
+        { id: "MHCP1", title: "MHCP1" },
+        { id: "MHCP2", title: "MHCP2" },
+        { id: "DAY_CLOSE", title: "Day Close" },
+      ];
+      return NextResponse.json({ items });
+    }
+
+    if (type === "nmri") {
+      // Non-academic MRIs by dailySlots (simple list of all slots for now)
+      const rows = await db
+        .select({ id: dailySlots.id, title: dailySlots.name })
+        .from(dailySlots)
+        .orderBy(dailySlots.id);
+      return NextResponse.json({ items: rows });
     }
 
     return NextResponse.json({ items: [] });
@@ -184,7 +216,7 @@ export async function POST(req) {
         .limit(1);
       if (!row) return NextResponse.json({ error: "Routine not found" }, { status: 404 });
       itemTitle = row.title;
-    } else if (type === "mri") {
+    } else if (type === "mri" || type === "rmri") {
       const [row] = await db
         .select({ role: userMriRoles.role })
         .from(userMriRoles)
@@ -192,6 +224,29 @@ export async function POST(req) {
         .limit(1);
       if (!row) return NextResponse.json({ error: "MRI role not found" }, { status: 404 });
       itemTitle = pretty(row.role);
+    } else if (type === "amri") {
+      const ALLOWED = new Set(["MSP", "MHCP1", "MHCP2", "DAY_CLOSE"]);
+      if (!ALLOWED.has(itemId)) return NextResponse.json({ error: "Invalid AMRI category" }, { status: 400 });
+      if (itemId === "DAY_CLOSE") {
+        return NextResponse.json({ error: "Day Close does not require entry here" }, { status: 400 });
+      }
+      itemTitle = `AMRI · ${itemId}`;
+    } else if (type === "nmri") {
+      // Resolve daily slot name
+      const [row] = await db
+        .select({ title: dailySlots.name })
+        .from(dailySlots)
+        .where(eq(dailySlots.id, Number(itemId)))
+        .limit(1);
+      if (!row) return NextResponse.json({ error: "NMRI slot not found" }, { status: 404 });
+      itemTitle = `NMRI · ${row.title}`;
+    } else if (type === "omri") {
+      const ALLOWED = new Set(["MOP1", "MOP2", "MOP1L", "MOP3"]);
+      if (!ALLOWED.has(itemId)) return NextResponse.json({ error: "Invalid OMRI slot" }, { status: 400 });
+      itemTitle = itemId;
+    } else if (type === "custom") {
+      // Custom status: require note; store generic title
+      itemTitle = "Status";
     } else {
       return NextResponse.json({ error: "Invalid type" }, { status: 400 });
     }

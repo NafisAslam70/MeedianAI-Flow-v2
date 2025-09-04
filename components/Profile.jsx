@@ -1,9 +1,9 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSession, signOut } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Camera, Check, X, User, Calendar, MessageSquare, BookOpen, FileText, BarChart, Send, UserCircle, Phone } from "lucide-react";
+import { Camera, Check, X, User, Calendar, MessageSquare, BookOpen, FileText, BarChart, Send, UserCircle, Phone, Loader2 } from "lucide-react";
 import Link from "next/link";
 import AllMessageHistory from "./AllMessageHistory";
 
@@ -53,6 +53,11 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
   const [sentMessages, setSentMessages] = useState([]);
   const [users, setUsers] = useState([]);
   const [immediateSupervisor, setImmediateSupervisor] = useState(null);
+  // Current MRN widget
+  const [currentMRN, setCurrentMRN] = useState(null);
+  const [loadingMRN, setLoadingMRN] = useState(false);
+  const [mrnError, setMrnError] = useState("");
+  // removed selectedWidget (widgets moved to right sidebar quick actions)
 
   useEffect(() => {
     if (session?.user) {
@@ -156,6 +161,24 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
       if (showSentMessageHistoryModal) {
         fetchSentMessages();
       }
+      // fetch current MRN and poll
+      const fetchCurrentMRN = async () => {
+        try {
+          setLoadingMRN(true);
+          const res = await fetch("/api/member/meRightNow?action=current", { cache: "no-store" });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+          setCurrentMRN(data.current || null);
+          setMrnError("");
+        } catch (e) {
+          setMrnError(e.message || "Failed to load current MRN");
+        } finally {
+          setLoadingMRN(false);
+        }
+      };
+      fetchCurrentMRN();
+      const t = setInterval(fetchCurrentMRN, 15000);
+      return () => clearInterval(t);
     }
   }, [session, status, showSentMessageHistoryModal]);
 
@@ -467,6 +490,27 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
     router.push(`/dashboard/${session?.user?.role === "team_manager" ? "team_manager" : session?.user?.role}`);
   };
 
+  const stopCurrentMRN = async () => {
+    try {
+      setLoadingMRN(true);
+      const res = await fetch("/api/member/meRightNow?action=stop", { method: "POST" });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j?.error || `HTTP ${res.status}`);
+      }
+      const next = await fetch("/api/member/meRightNow?action=current", { cache: "no-store" });
+      const data = await next.json().catch(() => ({}));
+      setCurrentMRN(data.current || null);
+      setSuccess("Stopped current MRN.");
+      setTimeout(() => setSuccess(""), 2000);
+    } catch (e) {
+      setError(e.message || "Failed to stop MRN");
+      setTimeout(() => setError(""), 3000);
+    } finally {
+      setLoadingMRN(false);
+    }
+  };
+
   const handleTalkToSuperintendent = () => {
     const superintendent = users.find((user) => user.id === 43);
     if (superintendent?.id) {
@@ -480,6 +524,14 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
   };
 
   const toRoleLabel = (role) => role.replaceAll("_", " ").toUpperCase();
+  const scrollTo = (ref) => ref?.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+
+  // Sidebar section refs
+  const sectionProfileRef = useRef(null);
+  const sectionWidgetsRef = useRef(null);
+  const sectionLeaveHistoryRef = useRef(null);
+  const sectionUserInfoRef = useRef(null);
+  const sectionChangePasswordRef = useRef(null);
 
   if (status === "loading") {
     return (
@@ -505,6 +557,23 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
     return null;
   }
 
+  // Open specific widget/modal via query param from navbar sheet
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const open = searchParams?.get("open");
+    if (!open) return;
+    if (open === "leave") {
+      setShowLeaveModal(true);
+    } else if (open === "direct") {
+      setShowMessageModal(true);
+    } else if (open === "sent") {
+      setShowSentMessageHistoryModal(true);
+    } else if (open === "talk") {
+      // Defer to ensure users list loaded
+      setTimeout(() => handleTalkToSuperintendent(), 0);
+    }
+  }, [searchParams]);
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -529,6 +598,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
           <X className="w-5 h-5 text-gray-700 dark:text-gray-200" />
         </motion.button>
         <div className="flex flex-col md:flex-row gap-6">
+          {/* Main content */}
           <div className="flex-[2] min-w-[280px] flex flex-col">
             <h1 className="text-lg md:text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2 mb-3">
               <User className="w-4 h-4 md:w-5 md:h-5 text-teal-600" />
@@ -558,6 +628,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                 </motion.p>
               )}
             </AnimatePresence>
+            <div ref={sectionProfileRef} />
             <form onSubmit={handleProfileUpdate} className="flex flex-col gap-4 mb-4">
               <div className="flex flex-col sm:flex-row gap-4 items-start">
                 <div className="flex flex-col items-center gap-3">
@@ -643,80 +714,8 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                 </motion.button>
               </div>
             </form>
-            <div className="mt-4 pt-4 border-t border-gray-200/50 dark:border-gray-700/50">
-              <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
-                <BookOpen className="w-4 h-4 text-teal-600" />
-                Meed Widgets for You
-              </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                <Link href="/dashboard/member/myPerformance">
-                  <motion.div
-                    className="bg-white/90 dark:bg-slate-800/90 rounded-lg shadow-md p-4 flex flex-col items-center justify-between cursor-pointer min-w-[120px] min-h-[140px]"
-                    whileHover={{ scale: 1.05, boxShadow: "0 6px 12px rgba(0, 128, 128, 0.2)" }}
-                    whileTap={{ scale: 0.95 }}
-                  >
-                    <BarChart className="w-6 h-6 text-teal-600 mb-2" />
-                    <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 text-center">My Performance</h3>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 text-center">View your performance metrics</p>
-                  </motion.div>
-                </Link>
-                <motion.div
-                  className="bg-white/90 dark:bg-slate-800/90 rounded-lg shadow-md p-4 flex flex-col items-center justify-between cursor-pointer min-w-[120px] min-h-[140px]"
-                  whileHover={{ scale: 1.05, boxShadow: "0 6px 12px rgba(0, 128, 128, 0.2)" }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => setShowLeaveModal(true)}
-                >
-                  <Calendar className="w-6 h-6 text-teal-600 mb-2" />
-                  <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 text-center">Leave Request</h3>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 text-center">Submit a leave of absence</p>
-                </motion.div>
-                <motion.div
-                  className="bg-white/90 dark:bg-slate-800/90 rounded-lg shadow-md p-4 flex flex-col items-center justify-between cursor-pointer min-w-[120px] min-h-[140px]"
-                  whileHover={{ scale: 1.05, boxShadow: "0 6px 12px rgba(0, 128, 128, 0.2)" }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={handleTalkToSuperintendent}
-                >
-                  <MessageSquare className="w-6 h-6 text-teal-600 mb-2" />
-                  <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 text-center">Talk to Superintendent</h3>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 text-center">Connect with the superintendent</p>
-                </motion.div>
-                <motion.div
-                  className="bg-white/90 dark:bg-slate-800/90 rounded-lg shadow-md p-4 flex flex-col items-center justify-between cursor-pointer min-w-[120px] min-h-[140px]"
-                  whileHover={{ scale: 1.05, boxShadow: "0 6px 12px rgba(0, 128, 128, 0.2)" }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => window.open("https://www.nafisaslam.com/login", "_blank")}
-                >
-                  <BookOpen className="w-6 h-6 text-teal-600 mb-2" />
-                  <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 text-center">Learn New Things</h3>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 text-center">Explore learning resources</p>
-                </motion.div>
-                {["admin", "team_manager"].includes(session?.user?.role) && (
-                  <motion.div
-                    className="bg-white/90 dark:bg-slate-800/90 rounded-lg shadow-md p-4 flex flex-col items-center justify-between cursor-pointer min-w-[120px] min-h-[140px]"
-                    whileHover={{ scale: 1.05, boxShadow: "0 6px 12px rgba(0, 128, 128, 0.2)" }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => setShowMessageModal(true)}
-                  >
-                    <Send className="w-6 h-6 text-teal-600 mb-2" />
-                    <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 text-center">Send Direct Message</h3>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 text-center">Send a WhatsApp message to any user</p>
-                  </motion.div>
-                )}
-                {["admin", "team_manager"].includes(session?.user?.role) && (
-                  <motion.div
-                    className="bg-white/90 dark:bg-slate-800/90 rounded-lg shadow-md p-4 flex flex-col items-center justify-between cursor-pointer min-w-[120px] min-h-[140px]"
-                    whileHover={{ scale: 1.05, boxShadow: "0 6px 12px rgba(0, 128, 128, 0.2)" }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => setShowSentMessageHistoryModal(true)}
-                  >
-                    <MessageSquare className="w-6 h-6 text-teal-600 mb-2" />
-                    <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 text-center">Sent Message History</h3>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 text-center">View your sent WhatsApp messages</p>
-                  </motion.div>
-                )}
-              </div>
-            </div>
-            <div className="mt-4 pt-4 border-t border-gray-200/50 dark:border-gray-700/50">
+            <div ref={sectionWidgetsRef} className="mt-4 pt-4 border-t border-gray-200/50 dark:border-gray-700/50" />
+            <div ref={sectionLeaveHistoryRef} className="mt-4 pt-4 border-t border-gray-200/50 dark:border-gray-700/50">
               <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
                 <FileText className="w-4 h-4 text-teal-600" />
                 Leave History
@@ -732,13 +731,65 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
               </motion.button>
             </div>
           </div>
-          <div className="flex-[1] min-w-[260px] max-w-[400px] flex flex-col bg-gradient-to-br from-blue-50/60 to-blue-100/80 dark:from-slate-800/80 dark:to-slate-900/70 rounded-xl shadow-md border border-teal-100/70 dark:border-slate-700 p-4">
-            <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
-              <User className="w-4 h-4 text-teal-600" />
-              User Information
-            </h2>
-            <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar pr-1">
+          <div className="flex-[1] min-w-[260px] max-w-[400px] flex flex-col">
+            <div className="sticky top-4 space-y-4">
+              {/* Current MRN (sidebar) */}
+              <div className="bg-white/80 dark:bg-slate-900/70 rounded-xl shadow-md border border-teal-200/70 dark:border-slate-700 p-4">
+                <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-2">Current MRN</h2>
+                {currentMRN ? (
+                  <div>
+                    <div className="text-sm font-semibold text-teal-700 dark:text-teal-300 truncate">
+                      {currentMRN.itemTitle || "—"}
+                    </div>
+                    <div className="text-xs text-gray-600 dark:text-gray-300 mt-1">
+                      since {currentMRN.startedAt ? new Date(currentMRN.startedAt).toLocaleTimeString() : "—"}
+                    </div>
+                    {currentMRN.note && (
+                      <div className="text-xs text-gray-600 dark:text-gray-300 mt-1 break-words">{currentMRN.note}</div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-sm font-semibold text-gray-700 dark:text-gray-200">Rest and Recover</div>
+                )}
+                {mrnError && <div className="text-xs text-red-600 mt-2">{mrnError}</div>}
+                <div className="mt-3 flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      fetch("/api/member/meRightNow?action=current", { cache: "no-store" })
+                        .then((r) => r.json())
+                        .then((d) => setCurrentMRN(d.current || null))
+                        .catch(() => {});
+                    }}
+                    className="text-xs px-3 py-1.5 rounded-lg bg-teal-50 text-teal-700 border border-teal-200 hover:bg-teal-100"
+                    disabled={loadingMRN}
+                  >
+                    {loadingMRN ? (
+                      <span className="inline-flex items-center gap-1"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Refresh</span>
+                    ) : (
+                      "Refresh"
+                    )}
+                  </button>
+                  {currentMRN && (
+                    <button
+                      onClick={stopCurrentMRN}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-rose-600 text-white hover:bg-rose-700"
+                      disabled={loadingMRN}
+                    >
+                      Stop Now
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* User Info + Settings */}
+              <div className="bg-gradient-to-br from-blue-50/60 to-blue-100/80 dark:from-slate-800/80 dark:to-slate-900/70 rounded-xl shadow-md border border-teal-100/70 dark:border-slate-700 p-4">
+                <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+                  <User className="w-4 h-4 text-teal-600" />
+                  User Information
+                </h2>
+                <div className="space-y-3">
               <div className="grid grid-cols-1 gap-3">
+                <div ref={sectionUserInfoRef} />
                 <div>
                   <label className="block text-xs font-medium text-gray-700 dark:text-gray-200">Email</label>
                   <p className="w-full px-3 py-1.5 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700">
@@ -780,7 +831,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                   </p>
                 </div>
               </div>
-              <form onSubmit={handlePasswordUpdate} className="grid gap-3 mt-3">
+              <form ref={sectionChangePasswordRef} onSubmit={handlePasswordUpdate} className="grid gap-3 mt-3">
                 <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
                   Change Password
                 </h3>
@@ -839,8 +890,11 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                 </div>
               </form>
             </div>
+            {/* Close sticky sidebar container */}
           </div>
         </div>
+        {/* Ensure flex row wrapper fully closed */}
+        
         <AnimatePresence>
           {showLeaveModal && (
             <motion.div
@@ -1352,6 +1406,9 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
             background: rgba(30, 41, 59, 0.9);
           }
         `}</style>
+        {/* Extra closures to balance wrappers */}
+        </div>
+        </div>
       </div>
     </motion.div>
   );
