@@ -1,9 +1,9 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { useSession, signOut } from "next-auth/react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Camera, Check, X, User, Calendar, MessageSquare, BookOpen, FileText, BarChart, Send, UserCircle, Phone, Loader2 } from "lucide-react";
+import { Camera, Check, X, User, Calendar, MessageSquare, BookOpen, FileText, BarChart, Send, UserCircle, Phone } from "lucide-react";
 import Link from "next/link";
 import AllMessageHistory from "./AllMessageHistory";
 
@@ -53,10 +53,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
   const [sentMessages, setSentMessages] = useState([]);
   const [users, setUsers] = useState([]);
   const [immediateSupervisor, setImmediateSupervisor] = useState(null);
-  // Current MRN widget
-  const [currentMRN, setCurrentMRN] = useState(null);
-  const [loadingMRN, setLoadingMRN] = useState(false);
-  const [mrnError, setMrnError] = useState("");
+  // Current MRN widget removed from Profile
   // removed selectedWidget (widgets moved to right sidebar quick actions)
 
   useEffect(() => {
@@ -141,7 +138,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
     };
     const fetchSentMessages = async () => {
       try {
-        const response = await fetch("/api/member/sent-messages", { credentials: "include" });
+        const response = await fetch("/api/member/sent-messages?mode=custom", { credentials: "include" });
         if (!response.ok) {
           const text = await response.text();
           throw new Error(`Failed to fetch sent messages: ${response.statusText || "Unknown error"}`);
@@ -161,24 +158,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
       if (showSentMessageHistoryModal) {
         fetchSentMessages();
       }
-      // fetch current MRN and poll
-      const fetchCurrentMRN = async () => {
-        try {
-          setLoadingMRN(true);
-          const res = await fetch("/api/member/meRightNow?action=current", { cache: "no-store" });
-          const data = await res.json().catch(() => ({}));
-          if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
-          setCurrentMRN(data.current || null);
-          setMrnError("");
-        } catch (e) {
-          setMrnError(e.message || "Failed to load current MRN");
-        } finally {
-          setLoadingMRN(false);
-        }
-      };
-      fetchCurrentMRN();
-      const t = setInterval(fetchCurrentMRN, 15000);
-      return () => clearInterval(t);
+      // removed MRN polling in Profile view
     }
   }, [session, status, showSentMessageHistoryModal]);
 
@@ -472,7 +452,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
       setShowMessageModal(false);
       setShowConfirmMessageModal(false);
       // Refetch sent messages to update the history
-      const historyResponse = await fetch("/api/member/sent-messages", { credentials: "include" });
+      const historyResponse = await fetch("/api/member/sent-messages?mode=custom", { credentials: "include" });
       if (historyResponse.ok) {
         const historyData = await historyResponse.json();
         setSentMessages(historyData.messages || []);
@@ -490,26 +470,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
     router.push(`/dashboard/${session?.user?.role === "team_manager" ? "team_manager" : session?.user?.role}`);
   };
 
-  const stopCurrentMRN = async () => {
-    try {
-      setLoadingMRN(true);
-      const res = await fetch("/api/member/meRightNow?action=stop", { method: "POST" });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j?.error || `HTTP ${res.status}`);
-      }
-      const next = await fetch("/api/member/meRightNow?action=current", { cache: "no-store" });
-      const data = await next.json().catch(() => ({}));
-      setCurrentMRN(data.current || null);
-      setSuccess("Stopped current MRN.");
-      setTimeout(() => setSuccess(""), 2000);
-    } catch (e) {
-      setError(e.message || "Failed to stop MRN");
-      setTimeout(() => setError(""), 3000);
-    } finally {
-      setLoadingMRN(false);
-    }
-  };
+  // stopCurrentMRN removed (MRN not shown here)
 
   const handleTalkToSuperintendent = () => {
     const superintendent = users.find((user) => user.id === 43);
@@ -559,6 +520,15 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
 
   // Open specific widget/modal via query param from navbar sheet
   const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const clearOpenQueryParam = () => {
+    try {
+      const params = new URLSearchParams(searchParams?.toString?.() || "");
+      params.delete("open");
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    } catch {}
+  };
   useEffect(() => {
     const open = searchParams?.get("open");
     if (!open) return;
@@ -569,10 +539,31 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
     } else if (open === "sent") {
       setShowSentMessageHistoryModal(true);
     } else if (open === "talk") {
-      // Defer to ensure users list loaded
-      setTimeout(() => handleTalkToSuperintendent(), 0);
+      // Wait for users to load before attempting to open the chat
+      if (isLoadingUsers) return; // will rerun when loading completes
+      if (users && users.length > 0) {
+        handleTalkToSuperintendent();
+      } else {
+        // Fallback: refetch users once if empty
+        (async () => {
+          try {
+            const resp = await fetch("/api/member/users", { credentials: "include" });
+            const data = await resp.json().catch(() => ({}));
+            if (resp.ok && Array.isArray(data.users) && data.users.length) {
+              setUsers(data.users);
+              setTimeout(() => handleTalkToSuperintendent(), 0);
+            } else {
+              setError("Superintendent not found. Please contact an admin or try again later.");
+              setTimeout(() => setError(""), 5000);
+            }
+          } catch {
+            setError("Failed to load users for chat.");
+            setTimeout(() => setError(""), 5000);
+          }
+        })();
+      }
     }
-  }, [searchParams]);
+  }, [searchParams, isLoadingUsers, users]);
 
   return (
     <motion.div
@@ -583,7 +574,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
       className="fixed top-14 left-0 right-0 bottom-14 z-40 flex items-center justify-center bg-gradient-to-br from-teal-50 to-blue-50/80 dark:from-gray-800/80 dark:to-gray-900/80 p-3 md:p-6"
     >
       <div
-        className="relative w-full max-w-[94vw] max-h-[80vh] bg-white/80 dark:bg-slate-900/70 border border-teal-200/70 shadow-xl rounded-2xl px-2 md:px-6 py-4 flex flex-col overflow-y-auto backdrop-blur-xl transition-all custom-scrollbar"
+        className="relative w-full max-w-[98vw] max-h-[88vh] md:max-h-[86vh] bg-white/85 dark:bg-slate-900/75 border border-teal-200/70 shadow-xl rounded-2xl px-2 md:px-6 py-5 flex flex-col overflow-y-auto backdrop-blur-xl transition-all custom-scrollbar"
         style={{
           boxShadow: "0 8px 32px 0 rgba(16, 42, 67, 0.1), 0 2px 8px 0 rgba(16,42,67,0.08)",
         }}
@@ -629,20 +620,20 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
               )}
             </AnimatePresence>
             <div ref={sectionProfileRef} />
-            <form onSubmit={handleProfileUpdate} className="flex flex-col gap-4 mb-4">
-              <div className="flex flex-col sm:flex-row gap-4 items-start">
+            <form onSubmit={handleProfileUpdate} className="flex flex-col gap-5 mb-4">
+              <div className="flex flex-col sm:flex-row gap-6 items-start">
                 <div className="flex flex-col items-center gap-3">
                   <div className="relative">
                     <img
                       src={imagePreview}
                       alt="Profile"
-                      className="w-20 h-20 sm:w-24 sm:h-24 rounded-full border-2 border-teal-600 object-cover shadow-md"
+                      className="w-28 h-28 sm:w-36 sm:h-36 rounded-full object-cover shadow-xl ring-2 ring-teal-300/60 border border-teal-600/50"
                     />
                     <label
                       htmlFor="profile-image"
-                      className="absolute bottom-0 right-0 bg-teal-600 text-white p-1.5 rounded-full cursor-pointer hover:bg-teal-700 transition shadow-sm"
+                      className="absolute bottom-0 right-0 bg-teal-600 text-white p-2 rounded-full cursor-pointer hover:bg-teal-700 transition shadow-md border border-white/40"
                     >
-                      <Camera size={16} />
+                      <Camera size={18} />
                       <input
                         id="profile-image"
                         type="file"
@@ -663,7 +654,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                     Remove Profile Picture
                   </motion.button>
                 </div>
-                <div className="flex-1 flex flex-col gap-3">
+                <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-gray-700 dark:text-gray-200">Name</label>
                     <input
@@ -671,7 +662,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                       name="name"
                       value={formData.name}
                       onChange={handleInputChange}
-                      className="w-full px-3 py-1.5 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 focus:ring-2 focus:ring-teal-500 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
+                      className="w-full px-3 py-2 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 focus:ring-2 focus:ring-teal-500 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
                       required
                       disabled={isLoading}
                     />
@@ -683,7 +674,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                       name="whatsapp_number"
                       value={formData.whatsapp_number}
                       onChange={handleInputChange}
-                      className="w-full px-3 py-1.5 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 focus:ring-2 focus:ring-teal-500 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
+                      className="w-full px-3 py-2 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 focus:ring-2 focus:ring-teal-500 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
                       disabled={isLoading}
                     />
                   </div>
@@ -693,7 +684,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                       name="whatsapp_enabled"
                       checked={formData.whatsapp_enabled}
                       onChange={handleInputChange}
-                      className="h-3.5 w-3.5 text-teal-600 focus:ring-teal-500 border-gray-300 rounded"
+                      className="h-4 w-4 text-teal-600 focus:ring-teal-500 border-gray-300 rounded"
                       disabled={isLoading}
                     />
                     <label className="text-xs font-medium text-gray-700 dark:text-gray-200">
@@ -707,7 +698,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                   type="submit"
-                  className="px-4 py-2 bg-teal-600 text-white rounded-lg text-xs font-medium hover:bg-teal-700 shadow-md transition"
+                  className="px-5 py-2.5 bg-teal-600 text-white rounded-lg text-xs font-semibold hover:bg-teal-700 shadow-md transition"
                   disabled={isLoading}
                 >
                   {isLoading ? "Updating..." : "Update Profile"}
@@ -733,62 +724,14 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
           </div>
           <div className="flex-[1] min-w-[260px] max-w-[400px] flex flex-col">
             <div className="sticky top-4 space-y-4">
-              {/* Current MRN (sidebar) */}
-              <div className="bg-white/80 dark:bg-slate-900/70 rounded-xl shadow-md border border-teal-200/70 dark:border-slate-700 p-4">
-                <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-2">Current MRN</h2>
-                {currentMRN ? (
-                  <div>
-                    <div className="text-sm font-semibold text-teal-700 dark:text-teal-300 truncate">
-                      {currentMRN.itemTitle || "—"}
-                    </div>
-                    <div className="text-xs text-gray-600 dark:text-gray-300 mt-1">
-                      since {currentMRN.startedAt ? new Date(currentMRN.startedAt).toLocaleTimeString() : "—"}
-                    </div>
-                    {currentMRN.note && (
-                      <div className="text-xs text-gray-600 dark:text-gray-300 mt-1 break-words">{currentMRN.note}</div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="text-sm font-semibold text-gray-700 dark:text-gray-200">Rest and Recover</div>
-                )}
-                {mrnError && <div className="text-xs text-red-600 mt-2">{mrnError}</div>}
-                <div className="mt-3 flex items-center gap-2">
-                  <button
-                    onClick={() => {
-                      fetch("/api/member/meRightNow?action=current", { cache: "no-store" })
-                        .then((r) => r.json())
-                        .then((d) => setCurrentMRN(d.current || null))
-                        .catch(() => {});
-                    }}
-                    className="text-xs px-3 py-1.5 rounded-lg bg-teal-50 text-teal-700 border border-teal-200 hover:bg-teal-100"
-                    disabled={loadingMRN}
-                  >
-                    {loadingMRN ? (
-                      <span className="inline-flex items-center gap-1"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Refresh</span>
-                    ) : (
-                      "Refresh"
-                    )}
-                  </button>
-                  {currentMRN && (
-                    <button
-                      onClick={stopCurrentMRN}
-                      className="text-xs px-3 py-1.5 rounded-lg bg-rose-600 text-white hover:bg-rose-700"
-                      disabled={loadingMRN}
-                    >
-                      Stop Now
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* User Info + Settings */}
+{/* User Info + Settings */}
               <div className="bg-gradient-to-br from-blue-50/60 to-blue-100/80 dark:from-slate-800/80 dark:to-slate-900/70 rounded-xl shadow-md border border-teal-100/70 dark:border-slate-700 p-4">
                 <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
                   <User className="w-4 h-4 text-teal-600" />
                   User Information
                 </h2>
                 <div className="space-y-3">
-              <div className="grid grid-cols-1 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div ref={sectionUserInfoRef} />
                 <div>
                   <label className="block text-xs font-medium text-gray-700 dark:text-gray-200">Email</label>
@@ -1376,7 +1319,13 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                 transition={{ duration: 0.3 }}
                 className="bg-white/95 dark:bg-slate-900/95 rounded-xl shadow-md p-5 w-full max-w-4xl max-h-[70vh] overflow-y-auto border border-teal-200/70 dark:border-slate-700"
               >
-                <AllMessageHistory sentMessages={sentMessages} onClose={() => setShowSentMessageHistoryModal(false)} />
+                <AllMessageHistory
+                  sentMessages={sentMessages}
+                  onClose={() => {
+                    setShowSentMessageHistoryModal(false);
+                    clearOpenQueryParam();
+                  }}
+                />
               </motion.div>
             </motion.div>
           )}

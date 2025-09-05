@@ -1,0 +1,97 @@
+MeedianAI-Flow — Codex Chat 5 Notes
+
+Scope covered in this chat:
+
+- Navbar fixes and role-guarding
+  - Showed execution (“mountain” launcher) with creative icon, glow, and tooltip.
+  - Removed Managerial from members; limited to admin/team_manager (including keyboard shortcut).
+  - Added Managerial portal guard.
+  - Added/removed items for roles: highlighted MRIs; removed duplicate MyPerformance from center nav; added CloseMyDay in admin view.
+  - Branding: “MeedianAI‑Flow beta” with slogan: “A team towards Mastery”.
+
+- Walkthroughs
+  - Execution tooltip with 3 steps (open day → choose MRI → enter MRN and execute/MeedTogether).
+  - MRI Execution Walkthrough (modal) + Full App Walkthrough (modal), accessible from:
+    - Execute tooltip (Start Walkthrough)
+    - Profile sheet (“App Walkthrough” block above Active MRN)
+    - MRIs sheet (“App Walkthrough” block above Active MRN)
+
+- Profile sheet cleanups
+  - “Send Direct Message” visible only for admin/team_manager.
+  - Fixed “Talk to Superintendent” deep-link race: wait for users to load; fallback refetch if empty.
+
+- Theme (day/night) attempt
+  - Implemented a Sun/Moon toggle (class-based dark mode, Tailwind v4 @theme dark selector, layout/navbar background/text flips).
+  - On request, removed the toggle UI and related code for now. Left non-breaking CSS in place for future use.
+
+- Middleware and routing
+  - Dashboard routes role-guarded (existing logic verified).
+
+Outstanding/next
+  - If we reintroduce theme toggle later: tailwind config + @theme are already present; add back the navbar toggle.
+  - Sweep for any hardcoded text colors in specific pages if theme is reintroduced.
+  - Optional: rename Profile sheet title to “My Meed Widgets” for consistency if desired.
+
+Notes
+  - Files touched during this chat include: components/Navbar.jsx, components/Profile.jsx, app/(main)/layout.jsx, app/globals.css, app/(main)/api/member/users/route.js, tailwind.config.js.
+  - The theme toggle code has been removed from Navbar as requested; overall UI changes from theme may not apply until the feature is reintroduced.
+
+— Incremental updates —
+
+- Brand polish
+  - Replaced arm emoji with a sleek brain icon for “Mastery”, added subtle pulse, aligned cap height, and color‑tuned (amber with glow).
+  - Centering/position tweaks: slogan now sits directly under brand name, then aligned to start so it begins under the letter “M”.
+  - Brain icon serves as the “M” in “Mastery” within slogan.
+  - Sparkle effects: sweep highlight across logo + twinkling stars around brand.
+
+- Navbar tightening
+  - Reduced vertical padding, shrunk logo, tightened brand font sizes/leading to lower navbar height.
+  - Slogan hidden on small screens, shown on md+ to save height.
+
+- Footer redesign
+  - Restored centered base layout with a compact principles ribbon above.
+  - Then shifted to a 3‑column layout on md+: left=Founders, center=Principles, right=credits; improved vertical centering and spacing.
+  - Increased min height and nudged content slightly upward from absolute bottom.
+
+- Routine Tracker UI
+  - Matched CloseMyDay (light, teal‑accented) theme; full‑viewport modal width; tighter grid spacing.
+  - Added top‑right close icon in header; kept bottom Close for consistency.
+
+  - Performance → Routine Analysis
+    - Implemented RoutineAnalysis (month selector, totals, weekly breakdown, heatmap) and surfaced it via a card+modal instead of inline.
+
+- Direct WhatsApp messages
+  - Sending: POST /api/managersCommon/direct-message writes legacy rows (messages/non_meedian_messages) and a consolidated row in direct_whatsapp_messages; captures Twilio SID or failure into consolidated row.
+  - History (FIXED): GET /api/member/sent-messages now aggregates from direct_whatsapp_messages and also unions legacy tables (messages, non_meedian_messages). It tolerates missing tables (try/catch) and returns a normalized list categorized as “Meedian” (existing) vs “Non‑Meedian” (custom). This resolves the Profile sent history error and shows older records too.
+    · File: app/(main)/api/member/sent-messages/route.js
+    · Output fields: id, recipientId, recipientName, recipientRole, subject, message, note, contact, status, createdAt, type=direct, recipientCategory, customWhatsappNumber (for custom)
+  - Profile’s history modal (components/AllMessageHistory.jsx) already normalizes payloads and now shows the two categories correctly.
+  - Close (FIXED): X button now also clears the `?open=sent` query param to prevent the effect from reopening the modal. Implemented via `usePathname` + `router.replace` in `components/Profile.jsx`.
+  - Tabs/filters: Added Direct vs Non‑Direct tabs in history UI. Direct tab shows only consolidated rows (source=direct) with Meedian vs Non‑Meedian filters; Non‑Direct tab shows legacy rows with existing filters. API supports `?mode=direct|legacy|all` and includes `source` per row.
+  - Compliance tweak: Default view fetches `?mode=custom` and the UI defaults to Direct → Non‑Meedian (custom recipients) to focus auditing of external messaging by managers.
+
+- SharedDashboard
+  - Redesigned Dashboard layout to a modern, asymmetric grid:
+    · Spotlight gradient card (full width): shows Current MRN, Block chips, "Opened" time, MRN note, mini KPIs (Total/Pending/Done), and quick actions (Routine Tracker, View My Day).
+    · Block card (1 column) appears before Assigned Tasks as requested.
+    · Assigned Tasks card (2 columns) uses the existing StatGrid.
+    · Block card reproduces General Dashboard logic via `/api/admin/manageMeedian?section=slots` (BLOCK 1..6, time range, TOD, countdown).
+    · Quick Tools bar: buttons for Routine Tracker, My Notes, Close My Day.
+  - Also retained the "Opened" chip by the date picker (attendance placeholder → `6:53 am` fallback) and forced dark theme on this view.
+
+Next suggestions
+  - If you want the history to include older records that exist only in legacy tables, we can optionally union those with the consolidated set (kept simple for reliability now).
+  - Add date range filters to the history modal if needed.
+- General Dashboard — Meedians in Action
+  - Fixed overflow: modal now uses a full-height flex layout with a sticky header and a dedicated scroll area so content never gets clipped at the top/bottom.
+  - Grid improvements: switched to a responsive grid (1/2/3/4/5 columns) to reduce vertical stacking on wide screens.
+  - Overlay alignment: backdrop centers at the top with padding (`items-start` + `pt-6`) so on small screens it feels like a sheet and the list remains scrollable.
+- Profile page polish
+  - Expanded the modal canvas (max-w to 98vw, max-h to 86–88vh) to better utilize space.
+  - Enlarged avatar (28–36px square → 36–64px) with ring, shadow and improved upload affordance.
+  - Switched profile form to a two-column grid on md+ so fields use width efficiently; increased input padding for readability.
+  - Tweaked action button sizing and weights for a more premium feel.
+  - User Information section now uses a responsive two‑column grid.
+  - Removed the Current MRN card and all related polling from Profile to keep the page focused on settings (MRN still available elsewhere).
+- WorkTogether — Reverted
+  - Removed the full‑screen Notes/Notebook integration and restored the original Work Together layout as requested.

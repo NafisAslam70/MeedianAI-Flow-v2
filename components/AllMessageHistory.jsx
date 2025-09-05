@@ -58,6 +58,8 @@ function normalizeMessage(raw, idx) {
 }
 
 export default function AllMessageHistory({ sentMessages, onClose }) {
+  const [tab, setTab] = useState("direct"); // direct | non_direct
+  const [directRecipientFilter, setDirectRecipientFilter] = useState("non_meedian"); // default focus on custom
   const [messageTypeFilter, setMessageTypeFilter] = useState("all");
   const [recipientTypeFilter, setRecipientTypeFilter] = useState("all");
 
@@ -72,18 +74,33 @@ export default function AllMessageHistory({ sentMessages, onClose }) {
     [validMessages]
   );
 
-  // Apply filters
+  // Partition by source for tabs
+  const directList = useMemo(
+    () => normalized.filter((m) => m.source === "direct"),
+    [normalized]
+  );
+  const nonDirectList = useMemo(
+    () => normalized.filter((m) => m.source !== "direct"),
+    [normalized]
+  );
+
+  // Apply filters according to tab
   const filtered = useMemo(() => {
-    return normalized.filter((msg) => {
-      const typeOk =
-        messageTypeFilter === "all" ? true : msg.type === messageTypeFilter;
+    const base = tab === "direct" ? directList : nonDirectList;
+    // In Direct tab, use dedicated Meedian/Non-Meedian filter
+    if (tab === "direct") {
+      return base.filter((msg) =>
+        directRecipientFilter === "all" ? true : msg.recipientCategory === directRecipientFilter
+      );
+    }
+    // In Non-Direct tab, keep old dropdowns (type/recipient)
+    return base.filter((msg) => {
+      const typeOk = messageTypeFilter === "all" ? true : msg.type === messageTypeFilter;
       const recipientOk =
-        recipientTypeFilter === "all"
-          ? true
-          : msg.recipientCategory === recipientTypeFilter;
+        recipientTypeFilter === "all" ? true : msg.recipientCategory === recipientTypeFilter;
       return typeOk && recipientOk;
     });
-  }, [normalized, messageTypeFilter, recipientTypeFilter]);
+  }, [tab, directList, nonDirectList, directRecipientFilter, messageTypeFilter, recipientTypeFilter]);
 
   // Sort newest -> oldest
   const sorted = useMemo(
@@ -99,7 +116,7 @@ export default function AllMessageHistory({ sentMessages, onClose }) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-3">
         <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
           <MessageSquare className="w-5 h-5 text-teal-600" />
           Sent Message History
@@ -115,38 +132,103 @@ export default function AllMessageHistory({ sentMessages, onClose }) {
         </motion.button>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-4 mb-6">
-        <div className="flex-1">
-          <label className="block text-xs font-medium text-gray-700 dark:text-gray-200 mb-1 flex items-center gap-1.5">
-            <Filter className="w-3.5 h-3.5 text-teal-600" />
-            Message Type
-          </label>
-          <select
-            value={messageTypeFilter}
-            onChange={(e) => setMessageTypeFilter(e.target.value)}
-            className="w-full px-3 py-1.5 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 focus:ring-2 focus:ring-teal-500 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
-          >
-            <option value="all">All Messages</option>
-            <option value="direct">Direct Messages</option>
-            <option value="task_update">Task Update Messages</option>
-          </select>
-        </div>
-        <div className="flex-1">
-          <label className="block text-xs font-medium text-gray-700 dark:text-gray-200 mb-1 flex items-center gap-1.5">
-            <Filter className="w-3.5 h-3.5 text-teal-600" />
-            Recipient Type
-          </label>
-          <select
-            value={recipientTypeFilter}
-            onChange={(e) => setRecipientTypeFilter(e.target.value)}
-            className="w-full px-3 py-1.5 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 focus:ring-2 focus:ring-teal-500 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
-          >
-            <option value="all">All Recipients</option>
-            <option value="meedian_family">Meedian Family</option>
-            <option value="non_meedian">Non-Meedian</option>
-          </select>
-        </div>
+      {/* Tabs */}
+      <div className="flex items-center gap-2 mb-2">
+        <button
+          onClick={() => setTab("direct")}
+          className={`px-3 py-1.5 rounded-xl text-sm font-semibold border ${
+            tab === "direct"
+              ? "bg-teal-600 text-white border-teal-600"
+              : "bg-white/70 dark:bg-slate-800/70 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
+          }`}
+        >
+          Direct
+        </button>
+        <button
+          onClick={() => setTab("non_direct")}
+          className={`px-3 py-1.5 rounded-xl text-sm font-semibold border ${
+            tab === "non_direct"
+              ? "bg-teal-600 text-white border-teal-600"
+              : "bg-white/70 dark:bg-slate-800/70 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
+          }`}
+        >
+          Non‑Direct
+        </button>
       </div>
+
+      <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-3">
+        Direct = sent via the Direct WhatsApp flow. Meedian = existing members. Non‑Meedian = custom recipients (external).
+      </p>
+
+      {/* Filters */}
+      {tab === "direct" ? (
+        <div className="flex items-center gap-2 mb-5">
+          <span className="text-xs text-gray-600 dark:text-gray-300 flex items-center gap-1.5">
+            <Filter className="w-3.5 h-3.5 text-teal-600" /> Filter:
+          </span>
+          <button
+            onClick={() => setDirectRecipientFilter("all")}
+            className={`px-2.5 py-1 rounded-lg text-xs font-semibold border ${
+              directRecipientFilter === "all"
+                ? "bg-teal-600 text-white border-teal-600"
+                : "bg-white/70 dark:bg-slate-800/70 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
+            }`}
+          >
+            All
+          </button>
+          <button
+            onClick={() => setDirectRecipientFilter("meedian_family")}
+            className={`px-2.5 py-1 rounded-lg text-xs font-semibold border ${
+              directRecipientFilter === "meedian_family"
+                ? "bg-teal-600 text-white border-teal-600"
+                : "bg-white/70 dark:bg-slate-800/70 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
+            }`}
+          >
+            Meedian
+          </button>
+          <button
+            onClick={() => setDirectRecipientFilter("non_meedian")}
+            className={`px-2.5 py-1 rounded-lg text-xs font-semibold border ${
+              directRecipientFilter === "non_meedian"
+                ? "bg-teal-600 text-white border-teal-600"
+                : "bg-white/70 dark:bg-slate-800/70 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
+            }`}
+          >
+            Non‑Meedian
+          </button>
+        </div>
+      ) : (
+        <div className="flex flex-col sm:flex-row gap-4 mb-5">
+          <div className="flex-1">
+            <label className="block text-xs font-medium text-gray-700 dark:text-gray-200 mb-1 flex items-center gap-1.5">
+              <Filter className="w-3.5 h-3.5 text-teal-600" /> Message Type
+            </label>
+            <select
+              value={messageTypeFilter}
+              onChange={(e) => setMessageTypeFilter(e.target.value)}
+              className="w-full px-3 py-1.5 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 focus:ring-2 focus:ring-teal-500 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
+            >
+              <option value="all">All Messages</option>
+              <option value="direct">Direct Messages</option>
+              <option value="task_update">Task Update Messages</option>
+            </select>
+          </div>
+          <div className="flex-1">
+            <label className="block text-xs font-medium text-gray-700 dark:text-gray-200 mb-1 flex items-center gap-1.5">
+              <Filter className="w-3.5 h-3.5 text-teal-600" /> Recipient Type
+            </label>
+            <select
+              value={recipientTypeFilter}
+              onChange={(e) => setRecipientTypeFilter(e.target.value)}
+              className="w-full px-3 py-1.5 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 focus:ring-2 focus:ring-teal-500 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
+            >
+              <option value="all">All Recipients</option>
+              <option value="meedian_family">Meedian Family</option>
+              <option value="non_meedian">Non-Meedian</option>
+            </select>
+          </div>
+        </div>
+      )}
 
       {sorted.length === 0 ? (
         <motion.p

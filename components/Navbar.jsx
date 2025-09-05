@@ -19,7 +19,9 @@ import {
   User,
   BarChart2,
   MessageSquare,
-  Send
+  Send,
+  HelpCircle,
+  Brain
 } from "lucide-react";
 import AboutMeedModal from "@/components/AboutMeedModal";
 import { createPortal } from "react-dom";
@@ -39,6 +41,8 @@ export default function Navbar() {
   const { data: session, status, update } = useSession();
   const pathname = usePathname();
   const router = useRouter();
+  // role is needed by effects above the helpers section; define it early
+  const role = session?.user?.role || "user";
 
   /* ======================= state ======================= */
   const [mounted, setMounted] = useState(false);
@@ -50,6 +54,8 @@ export default function Navbar() {
   const [isExecuteOpen, setIsExecuteOpen] = useState(false);
   // MeRightNow component modal
   const [isMeNowOpen, setIsMeNowOpen] = useState(false);
+  // Tooltip control for execute launcher (in case :hover isn't reliable)
+  const [showExecTooltip, setShowExecTooltip] = useState(false);
   // NEW: Managerial side-sheet
   const [isManagerialOpen, setIsManagerialOpen] = useState(false);
   // NEW: Profile side-sheet (widgets)
@@ -72,6 +78,12 @@ export default function Navbar() {
   const [usersError, setUsersError] = useState("");
   const [searchText, setSearchText] = useState("");
   const [selectedMeedian, setSelectedMeedian] = useState(null);
+  
+  // Walkthrough state
+  const [showExecWalkthrough, setShowExecWalkthrough] = useState(false);
+  const [execStep, setExecStep] = useState(0);
+  const [showFullWalkthrough, setShowFullWalkthrough] = useState(false);
+  const [fullStep, setFullStep] = useState(0);
 
   /* ======================= effects ======================= */
   // mount
@@ -134,6 +146,8 @@ export default function Navbar() {
     };
   }, [status, pathname, update]);
 
+  
+
   // close overlays on route change
   useEffect(() => {
     setIsExecuteOpen(false);
@@ -151,7 +165,9 @@ export default function Navbar() {
       // Managerial: Ctrl/Cmd + M
       if ((e.key === "m" || e.key === "M") && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
-        setIsManagerialOpen(true);
+        if (role === "admin" || role === "team_manager") {
+          setIsManagerialOpen(true);
+        }
       }
       // quick-enter MeRightNow if Execute modal is open and user hits Enter
       if (e.key === "Enter" && isExecuteOpen) {
@@ -163,11 +179,13 @@ export default function Navbar() {
         setIsExecuteOpen(false);
         setIsManagerialOpen(false);
         setIsLogoutModalOpen(false);
+        setShowExecWalkthrough(false);
+        setShowFullWalkthrough(false);
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [isExecuteOpen]);
+  }, [isExecuteOpen, role]);
 
   // Optional: prevent body scroll when any overlay is open
   useEffect(() => {
@@ -249,7 +267,7 @@ export default function Navbar() {
 
 
   /* ======================= helpers ======================= */
-  const role = session?.user?.role || "user";
+  // role defined earlier for use in effects
   const profilePath = role ? `/dashboard/${role === "team_manager" ? "team_manager" : role}/profile` : "/";
   const performancePath = "/dashboard/member/myPerformance";
   const isActive = (href) => pathname.replace(/\/$/, "") === href.replace(/\/$/, "");
@@ -266,6 +284,60 @@ export default function Navbar() {
     router.push("/");
   };
   const openMeRightNow = () => setIsMeNowOpen(true);
+  const startExecWalkthrough = () => { setShowExecWalkthrough(true); setExecStep(0); };
+  const closeExecWalkthrough = () => setShowExecWalkthrough(false);
+  const nextExecStep = () => setExecStep((s) => Math.min(2, s + 1));
+  const prevExecStep = () => setExecStep((s) => Math.max(0, s - 1));
+  const startFullWalkthrough = () => { setShowFullWalkthrough(true); setFullStep(0); };
+  const closeFullWalkthrough = () => setShowFullWalkthrough(false);
+  const nextFullStep = () => setFullStep((s) => Math.min(2, s + 1));
+  const prevFullStep = () => setFullStep((s) => Math.max(0, s - 1));
+
+  // Execute launcher (icon-only with animated climber + hover tooltip)
+  const ExecuteLauncher = () => (
+    <div
+      className={`execute-wrap ${showExecTooltip ? "open" : ""}`}
+      onMouseEnter={() => setShowExecTooltip(true)}
+      onMouseLeave={() => setShowExecTooltip(false)}
+      onFocus={() => setShowExecTooltip(true)}
+      onBlur={() => setShowExecTooltip(false)}
+    >
+      <button
+        type="button"
+        onClick={() => setIsExecuteOpen(true)}
+        className={`execute-launcher ${isExecuteOpen ? "active" : ""}`}
+        aria-haspopup="dialog"
+        aria-expanded={isExecuteOpen}
+        aria-label="Open execution actions"
+        title="Execute"
+      >
+        <span className="spark"><Sparkles size={12} /></span>
+        <span className="climb">
+          <Mountain size={18} />
+          <span className="climber" aria-hidden>🧗</span>
+        </span>
+        <span className="dot" aria-hidden />
+      </button>
+      <div className="execute-tooltip" role="tooltip">
+        <div className="tooltip-title">Towards Greatness</div>
+        <div className="tooltip-sub">Ritual over result. Begin with sincerity.</div>
+        <ol className="tooltip-steps">
+          <li>Ensure your day is opened</li>
+          <li>Choose your MRI type</li>
+          <li>
+            If O‑MRI or N‑MRI: enter MRN and join MeedTogether if internet is fine. If A‑MRI: enter MRN and perform your ritual with students.
+          </li>
+        </ol>
+        <div className="tooltip-actions">
+          <button className="tooltip-btn" onClick={startExecWalkthrough}>
+            <HelpCircle size={14} />
+            <span>Start Walkthrough</span>
+          </button>
+        </div>
+      </div>
+      {/* Walkthrough moved to global portal below */}
+    </div>
+  );
 
   // pretty time since
   const timeSince = (iso) => {
@@ -391,6 +463,50 @@ export default function Navbar() {
         </div>
 
         <div className="sheet-content">
+          {/* App Walkthrough quick actions */}
+          <div className="rounded-xl border border-cyan-900/40 bg-white/5 p-3">
+            <div className="text-sm font-semibold text-cyan-200 mb-2">App Walkthrough</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button className="action-row" onClick={() => { setIsProfileOpen(false); startExecWalkthrough(); }}>
+                <span className="row-icon"><Mountain size={18} /></span>
+                <span className="row-main">
+                  <span className="row-title">MRI Execution Walkthrough</span>
+                  <span className="row-sub">Step-by-step guidance to execute</span>
+                </span>
+                <ArrowRight size={16} className="row-go" />
+              </button>
+              <button className="action-row" onClick={() => { setIsProfileOpen(false); startFullWalkthrough(); }}>
+                <span className="row-icon"><HelpCircle size={18} /></span>
+                <span className="row-main">
+                  <span className="row-title">Full App Walkthrough</span>
+                  <span className="row-sub">Tour the main features</span>
+                </span>
+                <ArrowRight size={16} className="row-go" />
+              </button>
+            </div>
+          </div>
+          {/* App Walkthrough quick actions */}
+          <div className="rounded-xl border border-cyan-900/40 bg-white/5 p-3">
+            <div className="text-sm font-semibold text-cyan-200 mb-2">App Walkthrough</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button className="action-row" onClick={() => { setIsProfileOpen(false); startExecWalkthrough(); }}>
+                <span className="row-icon"><Mountain size={18} /></span>
+                <span className="row-main">
+                  <span className="row-title">MRI Execution Walkthrough</span>
+                  <span className="row-sub">Step-by-step guidance to execute</span>
+                </span>
+                <ArrowRight size={16} className="row-go" />
+              </button>
+              <button className="action-row" onClick={() => { setIsProfileOpen(false); startFullWalkthrough(); }}>
+                <span className="row-icon"><HelpCircle size={18} /></span>
+                <span className="row-main">
+                  <span className="row-title">Full App Walkthrough</span>
+                  <span className="row-sub">Tour the main features</span>
+                </span>
+                <ArrowRight size={16} className="row-go" />
+              </button>
+            </div>
+          </div>
           <button
             className="action-row"
             onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/managersCommon/routineTasks"); }}
@@ -552,17 +668,19 @@ export default function Navbar() {
             <ArrowRight size={16} className="row-go" />
           </button>
 
-          <button
-            className="action-row"
-            onClick={() => { setIsProfileOpen(false); router.push(`${profilePath}?open=direct`); }}
-          >
-            <span className="row-icon"><Send size={18} /></span>
-            <span className="row-main">
-              <span className="row-title">Send Direct Message</span>
-              <span className="row-sub">Compose a WhatsApp message</span>
-            </span>
-            <ArrowRight size={16} className="row-go" />
-          </button>
+          {(role === "admin" || role === "team_manager") && (
+            <button
+              className="action-row"
+              onClick={() => { setIsProfileOpen(false); router.push(`${profilePath}?open=direct`); }}
+            >
+              <span className="row-icon"><Send size={18} /></span>
+              <span className="row-main">
+                <span className="row-title">Send Direct Message</span>
+                <span className="row-sub">Compose a WhatsApp message</span>
+              </span>
+              <ArrowRight size={16} className="row-go" />
+            </button>
+          )}
 
           {(role === "admin" || role === "team_manager") && (
             <button
@@ -606,6 +724,29 @@ export default function Navbar() {
           </button>
         </div>
         <div className="sheet-content">
+          {/* App Walkthrough quick actions (also visible in MRIs side sheet) */}
+          <div className="rounded-xl border border-cyan-900/40 bg-white/5 p-3">
+            <div className="text-sm font-semibold text-cyan-200 mb-2">App Walkthrough</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button className="action-row" onClick={() => { setIsMRISheetOpen(false); startExecWalkthrough(); }}>
+                <span className="row-icon"><Mountain size={18} /></span>
+                <span className="row-main">
+                  <span className="row-title">MRI Execution Walkthrough</span>
+                  <span className="row-sub">Step-by-step guidance to execute</span>
+                </span>
+                <ArrowRight size={16} className="row-go" />
+              </button>
+              <button className="action-row" onClick={() => { setIsMRISheetOpen(false); startFullWalkthrough(); }}>
+                <span className="row-icon"><HelpCircle size={18} /></span>
+                <span className="row-main">
+                  <span className="row-title">Full App Walkthrough</span>
+                  <span className="row-sub">Tour the main features</span>
+                </span>
+                <ArrowRight size={16} className="row-go" />
+              </button>
+            </div>
+          </div>
+
           {/* Current MRN quick status (reuse design) */}
           <button
             className={`current-mrn-row ${currentMRN ? "active" : "rest"}`}
@@ -898,39 +1039,127 @@ export default function Navbar() {
           text-align: center;
         }
 
-        nav {
-          background: linear-gradient(90deg, #0b1220, #111827 30%, #1f2937 70%, #0b1220);
+        /* Light nav background by default */
+        nav { background: linear-gradient(90deg, #f8fafc, #eef2ff 30%, #e2e8f0 70%, #f8fafc); }
+        /* Dark nav when .dark on html (kept for future) */
+        .dark nav { background: linear-gradient(90deg, #0b1220, #111827 30%, #1f2937 70%, #0b1220); }
+        .brand-text { background: linear-gradient(90deg,#67e8f9,#60a5fa); -webkit-background-clip: text; background-clip: text; color: transparent; }
+        .brand-text.glow { text-shadow: 0 0 8px rgba(34,211,238,0.6); }
+        .beta-badge { font-size: 10px; font-weight: 900; color: #0b1220; background: linear-gradient(90deg,#fef08a,#fca5a5); padding: 2px 6px; border-radius: 999px; margin-left: 6px; }
+        .slogan {
+          font-size: 11px;
+          color: #c7f9ff;
+          opacity: .95;
+          letter-spacing: .2px;
+          text-shadow: 0 0 6px rgba(34,211,238,.35);
+          display: inline-flex;
+          align-items: baseline;
+          gap: 4px;
+          align-self: flex-start; /* start directly under the brand text (below 'M') */
+          margin-top: 2px;
+          padding: 2px 8px;
+          border-radius: 9999px;
+          border: 1px solid rgba(34,211,238,.25);
+          background:
+            linear-gradient(180deg, rgba(34,211,238,.20), rgba(59,130,246,.14));
+          box-shadow: 0 6px 14px rgba(34,211,238,.18);
+          backdrop-filter: blur(2px);
+        }
+        .slogan-brain { display: inline-flex; align-items: center; justify-content: center; color: #facc15; /* amber */ margin-left: 2px; position: relative; top: .5px; filter: drop-shadow(0 0 6px rgba(250,204,21,.5)); animation: brainPulse 2.4s ease-in-out infinite; }
+        .slogan-brain svg { display: block; width: 14px; height: 14px; }
+        @keyframes brainPulse {
+          0%, 100% { transform: translateY(0) scale(1); opacity: .85; }
+          50% { transform: translateY(-1px) scale(1.12); opacity: 1; }
+        }
+
+        /* ====== Brand Sparkle (logo + text) ====== */
+        .brand-wrap { position: relative; }
+        .brand-wrap .brand-sweep {
+          position: absolute; inset: -20% auto -20% -30%; width: 60px;
+          background: linear-gradient(75deg, rgba(255,255,255,0), rgba(255,255,255,0.45), rgba(255,255,255,0));
+          filter: blur(6px);
+          transform: skewX(-10deg);
+          pointer-events: none;
+          animation: brandSweep 3.2s linear infinite;
+        }
+        @keyframes brandSweep { 0% { left: -30%; } 100% { left: 120%; } }
+        .brand-wrap .brand-star {
+          position: absolute; width: 6px; height: 6px; border-radius: 9999px; pointer-events: none;
+          background: radial-gradient(circle at 50% 50%, #fff 0 35%, rgba(255,255,255,0) 70%);
+          filter: drop-shadow(0 0 6px rgba(255,255,255,0.8));
+          animation: twinkleBrand 1.8s ease-in-out infinite;
+        }
+        .brand-wrap .brand-star.star1 { top: -4px; left: 32%; animation-delay: .15s; }
+        .brand-wrap .brand-star.star2 { top: 60%; left: 88%; animation-delay: .6s; }
+        .brand-wrap .brand-star.star3 { top: 90%; left: 8%; animation-delay: 1.05s; }
+        @keyframes twinkleBrand {
+          0%, 100% { opacity: 0.2; transform: scale(0.8); }
+          50% { opacity: 1; transform: scale(1.2); }
+        }
+
+        /* Highlight MRIs */
+        .mris-highlight {
+          color: #fef3c7;
+          border: 1px solid rgba(250,204,21,0.35);
+          background: linear-gradient(180deg, rgba(250,204,21,0.18), rgba(250,204,21,0.08));
+          box-shadow: 0 0 12px rgba(250,204,21,0.24);
+        }
+        .mris-highlight:hover {
+          filter: brightness(1.1);
+          box-shadow: 0 0 16px rgba(250,204,21,0.35);
         }
 
         /* ====== Execute launcher (small + creative) ====== */
+        .execute-wrap { position: relative; display: inline-block; }
         .execute-launcher {
           position: relative;
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          gap: 0.4rem;
-          padding: 0.35rem 0.6rem;
+          gap: 0.25rem;
+          padding: 0.35rem;
           border-radius: 9999px;
-          border: 1px solid #164e63;
-          background: radial-gradient(120px 60px at 20% 10%, rgba(6,182,212,0.15), rgba(0,0,0,0)) #0b1220;
-          color: #e6fbff;
-          font-weight: 700;
-          font-size: 0.8rem;
-          letter-spacing: 0.02em;
+          border: 1px solid rgba(239,68,68,0.6);
+          background:
+            radial-gradient(140px 70px at 20% 10%, rgba(239,68,68,0.18), rgba(0,0,0,0))
+            ,linear-gradient(180deg, #0b1220, #111827);
+          color: #ffe9ec;
           transition: all .2s ease;
-          box-shadow: inset 0 0 0 1px rgba(34,211,238,0.15), 0 0 0 0 rgba(34,211,238,0.4);
+          box-shadow: inset 0 0 0 1px rgba(239,68,68,0.25), 0 0 0 0 rgba(239,68,68,0.35);
         }
         .execute-launcher:hover {
           transform: translateY(-1px);
-          box-shadow: 0 8px 24px rgba(34,211,238,0.15);
-          color: #a5f3fc;
+          box-shadow: 0 8px 24px rgba(239,68,68,0.25);
+          color: #ffd6db;
+        }
+        .execute-launcher .climb {
+          position: relative;
+          display: inline-flex; align-items: center; justify-content: center;
+          width: 28px; height: 28px;
+          border-radius: 9999px;
+          background: rgba(239,68,68,0.10);
+          border: 1px solid rgba(239,68,68,0.45);
+          overflow: hidden;
+        }
+        .execute-launcher .climber {
+          position: absolute;
+          right: 2px; bottom: 0px;
+          font-size: 12px;
+          transform: translateY(1px);
+          animation: climb 2.8s ease-in-out infinite;
+          filter: drop-shadow(0 0 6px rgba(255,255,255,0.7));
+        }
+        @keyframes climb {
+          0% { transform: translate(2px, 6px) scale(1); opacity: .9; }
+          50% { transform: translate(-6px, -4px) scale(1.05); opacity: 1; }
+          100% { transform: translate(2px, 6px) scale(1); opacity: .9; }
         }
         .execute-launcher .spark {
           display: inline-flex;
           padding: 4px;
           border-radius: 9999px;
-          border: 1px solid rgba(34,211,238,0.35);
-          background: rgba(34,211,238,0.08);
+          border: 1px solid rgba(244,114,182,0.45);
+          background: rgba(244,114,182,0.12);
           animation: pulseGlow 2.2s ease-in-out infinite;
         }
         .execute-launcher .dot {
@@ -940,8 +1169,8 @@ export default function Navbar() {
           width: 8px;
           height: 8px;
           border-radius: 50%;
-          background: #22d3ee;
-          box-shadow: 0 0 8px #22d3ee, 0 0 16px rgba(34,211,238,0.6);
+          background: #ef4444;
+          box-shadow: 0 0 10px #ef4444, 0 0 22px rgba(239,68,68,0.65);
           opacity: 0.85;
           animation: breathe 3.2s ease-in-out infinite;
         }
@@ -953,6 +1182,67 @@ export default function Navbar() {
           0%, 100% { transform: scale(1); opacity: 0.85; }
           50%      { transform: scale(1.1); opacity: 1; }
         }
+        /* Hover tooltip for execution guidance */
+        .execute-tooltip {
+          position: absolute;
+          bottom: calc(100% + 10px);
+          left: 50%;
+          transform: translateX(-50%) translateY(6px);
+          width: max(260px, 36ch);
+          background: #0f172a;
+          border: 1px solid rgba(34,211,238,0.25);
+          box-shadow: 0 12px 30px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(255,255,255,0.02);
+          border-radius: 12px;
+          padding: 10px 12px;
+          color: #e2f5ff;
+          opacity: 0; pointer-events: none;
+          transition: opacity .12s ease, transform .12s ease;
+          z-index: 10021;
+        }
+        .execute-wrap:hover .execute-tooltip,
+        .execute-wrap.open .execute-tooltip,
+        .execute-launcher:focus + .execute-tooltip {
+          opacity: 1;
+          transform: translateX(-50%) translateY(0);
+          pointer-events: auto;
+        }
+        .execute-tooltip::after {
+          content: '';
+          position: absolute;
+          top: 100%; left: 50%; transform: translateX(-50%) rotate(45deg);
+          width: 12px; height: 12px;
+          background: #0f172a;
+          border-left: 1px solid rgba(34,211,238,0.25);
+          border-bottom: 1px solid rgba(34,211,238,0.25);
+          transform-origin: center;
+        }
+        .tooltip-title { font-weight: 800; font-size: 0.95rem; color: #bff7ff; }
+        .tooltip-sub { font-size: 0.8rem; color: #b1c8d6; margin-top: 2px; margin-bottom: 6px; }
+        .tooltip-steps { margin: 0; padding-left: 1.15rem; font-size: 0.82rem; color: #d9f4ff; display: grid; gap: 4px; }
+        .tooltip-steps li::marker { color: #22d3ee; font-weight: 700; }
+        .tooltip-actions { display: flex; justify-content: flex-end; margin-top: 8px; }
+        .tooltip-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 8px; background: rgba(6,182,212,0.12); border: 1px solid rgba(6,182,212,0.3); color: #c7f9ff; font-weight: 700; font-size: 12px; }
+        .tooltip-btn:hover { background: rgba(6,182,212,0.18); }
+
+        /* Walkthrough modal */
+        .walkthrough-overlay { position: fixed; inset: 0; background: rgba(2,8,20,0.65); backdrop-filter: blur(2px); z-index: 10030; display: grid; place-items: center; }
+        .walkthrough { position: relative; width: min(460px, 92vw); background: #0b1220; border: 1px solid rgba(239,68,68,0.35); border-radius: 12px; box-shadow: 0 16px 36px rgba(0,0,0,0.6); }
+        .walkthrough-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid rgba(148,163,184,0.1); }
+        .walkthrough-title { font-weight: 800; color: #ffd6db; }
+        .walkthrough-close { display: inline-flex; align-items: center; justify-content: center; padding: 4px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); }
+        .walkthrough-close:hover { background: rgba(255,255,255,0.06); }
+        .walkthrough-body { padding: 10px 12px; display: grid; gap: 8px; color: #f3f4f6; }
+        .w-step-title { font-weight: 800; color: #ffe9ec; }
+        .w-step-text { font-size: 0.9rem; color: #d9e6ff; }
+        .w-step-actions { display: flex; gap: 8px; margin-top: 6px; }
+        .w-btn { padding: 6px 10px; border-radius: 10px; background: rgba(34,197,94,0.12); color: #d1fae5; border: 1px solid rgba(34,197,94,0.35); font-weight: 700; font-size: 12px; }
+        .w-btn:hover { background: rgba(34,197,94,0.18); }
+        .w-btn.alt { background: rgba(59,130,246,0.12); color: #dbeafe; border: 1px solid rgba(59,130,246,0.35); }
+        .w-btn.alt:hover { background: rgba(59,130,246,0.18); }
+        .walkthrough-controls { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border-top: 1px solid rgba(148,163,184,0.1); }
+        .w-ctrl { padding: 6px 12px; border-radius: 10px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: #f3f4f6; font-weight: 700; font-size: 12px; }
+        .w-ctrl[disabled] { opacity: 0.5; cursor: not-allowed; }
+        .w-ctrl.primary { background: linear-gradient(180deg, rgba(239,68,68,0.25), rgba(239,68,68,0.18)); border-color: rgba(239,68,68,0.45); color: #ffe9ec; }
 
         /* ====== Execute modal ====== */
         .execute-overlay {
@@ -1245,19 +1535,26 @@ export default function Navbar() {
       `}</style>
 
       {showNavbar && (
-        <nav className="text-white px-3 py-2 w-full sticky top-0 z-40 shadow-lg border-b border-cyan-900/40">
+        <nav className="px-3 py-2 w-full sticky top-0 z-40 shadow-lg border-b border-cyan-900/40 text-slate-900 dark:text-white">
           <div className="flex items-center justify-between w-full px-2 sm:px-4 lg:px-6 min-w-0">
             {/* left: logo */}
-            <div className="flex items-center gap-2 min-w-0">
-              <img src="/flow1.png" alt="Logo" className="w-7 h-7 rounded-full border border-cyan-400 p-1" />
-              <Link
-                href="/"
-                className={`text-lg sm:text-xl font-bold tracking-tight bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent hover:from-cyan-300 hover:to-blue-300 transition truncate max-w-[40vw] sm:max-w-none ${
-                  isActive("/") ? "drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]" : ""
-                }`}
-              >
-                MeedianAI-Flow
-              </Link>
+            <div className="brand-wrap flex items-center gap-2 min-w-0">
+              <img src="/flow1.png" alt="Logo" className="logo-animation w-8 h-8 rounded-full border border-cyan-400 p-1 shadow-md" />
+              <div className="flex flex-col items-start leading-tight min-w-0">
+                <Link
+                  href="/"
+                  className={`text-lg sm:text-xl font-extrabold tracking-tight brand-text transition truncate max-w-[40vw] sm:max-w-none ${
+                    isActive("/") ? "glow" : ""
+                  }`}
+                >
+                  MeedianAI‑Flow <span className="beta-badge">beta</span>
+                </Link>
+                <span className="slogan hidden sm:block">A team towards Mastery <span className="slogan-brain" aria-hidden="true"><Brain size={14} strokeWidth={2.25} /></span></span>
+              </div>
+              <span className="brand-sweep" aria-hidden />
+              <span className="brand-star star1" aria-hidden />
+              <span className="brand-star star2" aria-hidden />
+              <span className="brand-star star3" aria-hidden />
             </div>
 
             {/* center: nav links */}
@@ -1266,6 +1563,13 @@ export default function Navbar() {
                 <>
                   <Link href="/dashboard" className={`nav-item ${isActive("/dashboard") ? "active" : ""}`}>General</Link>
                   <Link href="/dashboard/admin" className={`nav-item ${isActive("/dashboard/admin") ? "active" : ""}`}>Dashboard</Link>
+
+                  {/* Execution icon */}
+                  <ExecuteLauncher />
+                  {/* Highlighted MRIs */}
+                  <button type="button" onClick={() => setIsMRISheetOpen(true)} className={`nav-item mris-highlight ${isMRISheetOpen ? "active" : ""}`}>MRIs</button>
+                  {/* CloseMyDay for admins too */}
+                  <Link href="/dashboard/member/closeMyDay" className={`nav-item ${isActive("/dashboard/member/closeMyDay") ? "active" : ""}`}>CloseMyDay</Link>
 
                   {/* Managerial button -> opens side sheet */}
                   <button
@@ -1285,7 +1589,7 @@ export default function Navbar() {
 
                   <button onClick={handleAddMember} className="nav-button bg-teal-600 hover:bg-teal-700 text-white">Add Member</button>
                   <button onClick={handleManageMeedian} className="nav-button bg-blue-600 hover:bg-blue-700 text-white">Manage Meedian</button>
-                  <Link href={performancePath} className={`nav-item ${isActive(performancePath) ? "active" : ""}`}>MyPerformance</Link>
+                  {/* MyPerformance removed from center nav (available in Profile) */}
                 </>
               )}
 
@@ -1293,10 +1597,10 @@ export default function Navbar() {
                 <>
                   <Link href="/dashboard" className={`nav-item ${isActive("/dashboard") ? "active" : ""}`}>General</Link>
                   <Link href="/dashboard/team_manager" className={`nav-item ${isActive("/dashboard/team_manager") ? "active" : ""}`}>My Dashboard</Link>
-                  <button type="button" onClick={() => setIsExecuteOpen(true)} className={`nav-item relative ${isExecuteOpen ? "active" : ""}`} aria-haspopup="dialog" aria-expanded={isExecuteOpen} aria-label="Open to-greatness" title="to-greatness"><span className="mr-1">to-greatness</span><span className="inline-block align-middle animate-bounce">👀</span></button>
-                  <button type="button" onClick={() => setIsMRISheetOpen(true)} className={`nav-item ${isMRISheetOpen ? "active" : ""}`}>MRIs</button>
+                  <ExecuteLauncher />
+                  <button type="button" onClick={() => setIsMRISheetOpen(true)} className={`nav-item mris-highlight ${isMRISheetOpen ? "active" : ""}`}>MRIs</button>
                   <Link href="/dashboard/member/closeMyDay" className={`nav-item ${isActive("/dashboard/member/closeMyDay") ? "active" : ""}`}>CloseMyDay</Link>
-                  <Link href={performancePath} className={`nav-item ${isActive(performancePath) ? "active" : ""}`}>MyPerformance</Link>
+                  {/* MyPerformance removed from center nav (available in Profile) */}
 
                   <button
                     type="button"
@@ -1318,24 +1622,12 @@ export default function Navbar() {
                 <>
                   <Link href="/dashboard" className={`nav-item ${isActive("/dashboard") ? "active" : ""}`}>General</Link>
                   <Link href="/dashboard/member" className={`nav-item ${isActive("/dashboard/member") ? "active" : ""}`}>My Dashboard</Link>
-                  <button type="button" onClick={() => setIsExecuteOpen(true)} className={`nav-item relative ${isExecuteOpen ? "active" : ""}`} aria-haspopup="dialog" aria-expanded={isExecuteOpen} aria-label="Open to-greatness" title="to-greatness"><span className="mr-1">to-greatness</span><span className="inline-block align-middle animate-bounce">👀</span></button>
-                  <button type="button" onClick={() => setIsMRISheetOpen(true)} className={`nav-item ${isMRISheetOpen ? "active" : ""}`}>MRIs</button>
+                  <ExecuteLauncher />
+                  <button type="button" onClick={() => setIsMRISheetOpen(true)} className={`nav-item mris-highlight ${isMRISheetOpen ? "active" : ""}`}>MRIs</button>
                   <Link href="/dashboard/member/closeMyDay" className={`nav-item ${isActive("/dashboard/member/closeMyDay") ? "active" : ""}`}>CloseMyDay</Link>
-                  <Link href={performancePath} className={`nav-item ${isActive(performancePath) ? "active" : ""}`}>MyPerformance</Link>
+                  {/* MyPerformance removed from center nav (available in Profile) */}
 
-                  <button
-                    type="button"
-                    onClick={() => setIsManagerialOpen(true)}
-                    className="nav-button bg-slate-800 hover:bg-slate-700 text-cyan-200"
-                    aria-haspopup="dialog"
-                    aria-expanded={isManagerialOpen}
-                    aria-label="Open managerial actions"
-                    title="Managerial"
-                  >
-                    Managerial
-                  </button>
-
-                  {/* to-greatness moved next to My Dashboard */}
+                  {/* Members should not see Managerial */}
                 </>
               )}
 
@@ -1352,6 +1644,7 @@ export default function Navbar() {
             <div className="flex items-center gap-2 flex-shrink-0">
               {(role === "admin" || role === "team_manager" || role === "member") && (
                 <>
+                  
                   <button
                     type="button"
                     onClick={() => setIsProfileOpen(true)}
@@ -1431,7 +1724,7 @@ export default function Navbar() {
 
                       <button onClick={() => { handleAddMember(); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">Add Member</button>
                       <button onClick={() => { handleManageMeedian(); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">Manage Meedian</button>
-                      <Link href={performancePath} onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive(performancePath) ? "active" : ""}`}>MyPerformance</Link>
+                      {/* MyPerformance removed from mobile nav (in Profile) */}
                     </>
                   )}
 
@@ -1441,7 +1734,7 @@ export default function Navbar() {
                       <Link href="/dashboard/team_manager" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/team_manager") ? "active" : ""}`}>My Dashboard</Link>
                     <button onClick={() => { setIsMRISheetOpen(true); toggleMobileMenu(); }} className={`mobile-menu-item ${isMRISheetOpen ? "active" : ""}`}>MRIs</button>
                       <Link href="/dashboard/member/closeMyDay" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member/closeMyDay") ? "active" : ""}`}>CloseMyDay</Link>
-                      <Link href={performancePath} onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive(performancePath) ? "active" : ""}`}>MyPerformance</Link>
+                      {/* MyPerformance removed from mobile nav (in Profile) */}
 
                       <button onClick={() => { setIsManagerialOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">
                         Managerial
@@ -1458,14 +1751,11 @@ export default function Navbar() {
                       <Link href="/dashboard/member" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member") ? "active" : ""}`}>My Dashboard</Link>
                       <Link href="/dashboard/member/myMeedRituals" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member/myMeedRituals") ? "active" : ""}`}>MyMRIs</Link>
                       <Link href="/dashboard/member/closeMyDay" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member/closeMyDay") ? "active" : ""}`}>CloseMyDay</Link>
-                      <Link href={performancePath} onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive(performancePath) ? "active" : ""}`}>MyPerformance</Link>
+                      {/* MyPerformance removed from mobile nav (in Profile) */}
 
-                      <button onClick={() => { setIsManagerialOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">
-                        Managerial
+                      <button onClick={() => { setIsExecuteOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">
+                        Towards Greatness
                       </button>
-                  <button onClick={() => { setIsExecuteOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">
-                    Towards Greatness
-                  </button>
                     </>
                   )}
 
@@ -1499,8 +1789,111 @@ export default function Navbar() {
       {mounted && typeof window !== "undefined" && isExecuteOpen && document?.body &&
         createPortal(<ExecuteModal />, document.body)}
 
-      {mounted && typeof window !== "undefined" && isManagerialOpen && document?.body &&
+      {mounted && typeof window !== "undefined" && isManagerialOpen && (role === "admin" || role === "team_manager") && document?.body &&
         createPortal(<ManagerialSheet />, document.body)}
+
+      {mounted && typeof window !== "undefined" && showExecWalkthrough && document?.body && createPortal(
+        <div className="walkthrough-overlay" role="dialog" aria-modal="true" aria-label="Execution walkthrough" onClick={closeExecWalkthrough}>
+          <div className="walkthrough" onClick={(e) => e.stopPropagation()}>
+            <div className="walkthrough-header">
+              <span className="walkthrough-title">Execute Walkthrough</span>
+              <button className="walkthrough-close" aria-label="Close" onClick={closeExecWalkthrough}><X size={14} /></button>
+            </div>
+            <div className="walkthrough-body">
+              {execStep === 0 && (
+                <div>
+                  <div className="w-step-title">1) Open Your Day</div>
+                  <div className="w-step-text">Make sure today is started so your MRNs and rituals can be tracked properly.</div>
+                  <div className="w-step-actions">
+                    <button className="w-btn" onClick={openMeRightNow}>Open MRN</button>
+                  </div>
+                </div>
+              )}
+              {execStep === 1 && (
+                <div>
+                  <div className="w-step-title">2) Choose MRI Type</div>
+                  <div className="w-step-text">Pick A‑MRI, O‑MRI or N‑MRI based on what you’re about to do.</div>
+                  <div className="w-step-actions">
+                    <button className="w-btn" onClick={() => { setIsMRISheetOpen(true); }}>Open MRIs</button>
+                  </div>
+                </div>
+              )}
+              {execStep === 2 && (
+                <div>
+                  <div className="w-step-title">3) Enter MRN and Execute</div>
+                  <div className="w-step-text">
+                    O‑MRI / N‑MRI: enter your MRN and join MeedTogether if the internet is fine. A‑MRI: enter MRN and perform your ritual with students.
+                  </div>
+                  <div className="w-step-actions">
+                    <button className="w-btn" onClick={openMeRightNow}>Enter MRN</button>
+                    <button className="w-btn alt" onClick={openTogetherWorkspace}>MeedTogether</button>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="walkthrough-controls">
+              <button className="w-ctrl" onClick={prevExecStep} disabled={execStep === 0}>Back</button>
+              {execStep < 2 ? (
+                <button className="w-ctrl primary" onClick={nextExecStep}>Next</button>
+              ) : (
+                <button className="w-ctrl primary" onClick={closeExecWalkthrough}>Done</button>
+              )}
+            </div>
+          </div>
+        </div>,
+      document.body)}
+
+      {mounted && typeof window !== "undefined" && showFullWalkthrough && document?.body && createPortal(
+        <div className="walkthrough-overlay" role="dialog" aria-modal="true" aria-label="Full app walkthrough" onClick={closeFullWalkthrough}>
+          <div className="walkthrough" onClick={(e) => e.stopPropagation()}>
+            <div className="walkthrough-header">
+              <span className="walkthrough-title">Full App Walkthrough</span>
+              <button className="walkthrough-close" aria-label="Close" onClick={closeFullWalkthrough}><X size={14} /></button>
+            </div>
+            <div className="walkthrough-body">
+              {fullStep === 0 && (
+                <div>
+                  <div className="w-step-title">1) Explore Your Dashboard</div>
+                  <div className="w-step-text">Open your main dashboard to review your day and priorities.</div>
+                  <div className="w-step-actions">
+                    <button className="w-btn" onClick={() => router.push(`/dashboard/${role === 'team_manager' ? 'team_manager' : role}`)}>Open Dashboard</button>
+                  </div>
+                </div>
+              )}
+              {fullStep === 1 && (
+                <div>
+                  <div className="w-step-title">2) Widgets, MRIs and Profile</div>
+                  <div className="w-step-text">Use "My Meed Widgets" to access MRN, performance, leave and messaging in one place.</div>
+                  <div className="w-step-actions">
+                    <button className="w-btn" onClick={() => setIsProfileOpen(true)}>Open My Meed Widgets</button>
+                    <button className="w-btn alt" onClick={() => setIsMRISheetOpen(true)}>Open MRIs</button>
+                  </div>
+                </div>
+              )}
+              {fullStep === 2 && (
+                <div>
+                  <div className="w-step-title">3) Managerial & Day Close</div>
+                  <div className="w-step-text">If you are a manager, open Managerial actions. Members can close their day and submit updates.</div>
+                  <div className="w-step-actions">
+                    {(role === 'admin' || role === 'team_manager') && (
+                      <button className="w-btn" onClick={() => setIsManagerialOpen(true)}>Open Managerial</button>
+                    )}
+                    <button className="w-btn alt" onClick={() => router.push('/dashboard/member/closeMyDay')}>Open CloseMyDay</button>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="walkthrough-controls">
+              <button className="w-ctrl" onClick={() => setFullStep((s)=> Math.max(0, s-1))} disabled={fullStep === 0}>Back</button>
+              {fullStep < 2 ? (
+                <button className="w-ctrl primary" onClick={() => setFullStep((s)=> Math.min(2, s+1))}>Next</button>
+              ) : (
+                <button className="w-ctrl primary" onClick={closeFullWalkthrough}>Done</button>
+              )}
+            </div>
+          </div>
+        </div>,
+      document.body)}
 
       {mounted && typeof window !== "undefined" && isProfileOpen && document?.body &&
         createPortal(<ProfileSheet />, document.body)}

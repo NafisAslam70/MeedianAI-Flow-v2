@@ -330,7 +330,7 @@ export default function GeneralDashboard() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-3"
+              className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-start justify-center z-50 p-3 sm:p-6 pt-6 sm:pt-10"
               onClick={() => setShowMrnModal(false)}
             >
               <motion.div
@@ -338,24 +338,27 @@ export default function GeneralDashboard() {
                 animate={{ scale: 1, opacity: 1, y: 0 }}
                 exit={{ scale: 0.95, opacity: 0, y: 20 }}
                 transition={{ duration: 0.25 }}
-                className="w-full max-w-6xl max-h-[85vh] overflow-y-auto rounded-3xl bg-white/90 backdrop-blur-xl border border-white/50 shadow-2xl p-4 sm:p-6"
+                className="w-full max-w-6xl h-[90vh] max-h-[90vh] overflow-hidden rounded-3xl bg-white/90 backdrop-blur-xl border border-white/50 shadow-2xl flex flex-col"
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <svg className="w-6 h-6 text-purple-600" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10" opacity=".1"/><path d="M12 6v6l4 2" stroke="currentColor" strokeWidth="2" fill="none"/></svg>
-                    <h2 className="text-lg sm:text-2xl font-bold text-gray-900">Meedians in Action</h2>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    {session?.user?.role === "admin" && (
-                      <label className="text-xs sm:text-sm text-gray-700 inline-flex items-center gap-2">
-                        <input type="checkbox" className="accent-teal-600" checked={hideSelf} onChange={(e) => setHideSelf(e.target.checked)} />
-                        Hide my card
-                      </label>
-                    )}
-                    <button onClick={() => setShowMrnModal(false)} className="px-3 py-1.5 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-800 text-sm">Close</button>
+                <div className="sticky top-0 z-10 bg-white/90 backdrop-blur-xl border-b border-white/50 px-4 sm:px-6 py-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <svg className="w-6 h-6 text-purple-600" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10" opacity=".1"/><path d="M12 6v6l4 2" stroke="currentColor" strokeWidth="2" fill="none"/></svg>
+                      <h2 className="text-lg sm:text-2xl font-bold text-gray-900">Meedians in Action</h2>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {session?.user?.role === "admin" && (
+                        <label className="text-xs sm:text-sm text-gray-700 inline-flex items-center gap-2">
+                          <input type="checkbox" className="accent-teal-600" checked={hideSelf} onChange={(e) => setHideSelf(e.target.checked)} />
+                          Hide my card
+                        </label>
+                      )}
+                      <button onClick={() => setShowMrnModal(false)} className="px-3 py-1.5 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-800 text-sm">Close</button>
+                    </div>
                   </div>
                 </div>
+                <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4">
                 {(() => {
                   const activeMap = new Map((mrrFeed || []).map((x) => [String(x.userId), x]));
                   const everyone = Array.isArray(members) ? members : [];
@@ -395,7 +398,7 @@ export default function GeneralDashboard() {
                     <div className="space-y-5">
                       <div>
                         <h3 className="text-sm font-bold text-gray-800 mb-2">Active Now</h3>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
                           {actives.length === 0 ? (
                             <p className="text-xs text-gray-500">No one is active at the moment.</p>
                           ) : (
@@ -405,7 +408,7 @@ export default function GeneralDashboard() {
                       </div>
                       <div>
                         <h3 className="text-sm font-bold text-gray-800 mb-2">Rest and Recover</h3>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
                           {inactives.length === 0 ? (
                             <p className="text-xs text-gray-500">Everyone is active right now.</p>
                           ) : (
@@ -416,10 +419,10 @@ export default function GeneralDashboard() {
                     </div>
                   );
                 })()}
-                
                 {mrrError && (
-                  <p className="text-xs text-red-600 mt-2">Couldn’t load MRN feed.</p>
+                  <p className="text-xs text-red-600 mt-3">Couldn’t load MRN feed.</p>
                 )}
+                </div>
               </motion.div>
             </motion.div>
           )}

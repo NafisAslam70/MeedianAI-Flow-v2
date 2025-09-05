@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* Tell Tailwind v4 to use a class-based dark mode selector */
+@theme {
+  --dark: ".dark";
+}
+
 /* Responsive baseline */
 *, *::before, *::after { box-sizing: border-box; }
 html, body { width: 100%; }
@@ -16,6 +21,12 @@ img, video, canvas, svg { display: block; max-width: 100%; height: auto; }
   --color-foreground: var(--foreground);
 }
 
+/* Base theming so text/background adapt everywhere */
+html, body {
+  background: var(--color-background);
+  color: var(--color-foreground);
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;
@@ -23,6 +34,14 @@ img, video, canvas, svg { display: block; max-width: 100%; height: auto; }
     --color-background: var(--background);
     --color-foreground: var(--foreground);
   }
+}
+
+/* Explicit class-based theme overrides so JS toggle works regardless of OS */
+.dark {
+  --background: #0a0a0a;
+  --foreground: #ededed;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
 }
 
 /* Animations */

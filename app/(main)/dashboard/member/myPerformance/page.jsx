@@ -20,6 +20,7 @@ import {
   max as dateMax,
   min as dateMin,
 } from "date-fns";
+import RoutineAnalysis from "@/components/member/RoutineAnalysis";
 
 /* ----------------- helpers ----------------- */
 const clamp0 = (n) => Math.max(0, Number.isFinite(n) ? n : 0);
@@ -100,6 +101,7 @@ export default function MyPerformance() {
   const [mriJournal, setMriJournal] = useState([]);
   const [mriDate, setMriDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
   const [mriLoading, setMriLoading] = useState(false);
+  const [showRoutineAnalysis, setShowRoutineAnalysis] = useState(false);
 
   // leave stats (inside Leave card)
   const [leaveStats, setLeaveStats] = useState({
@@ -429,6 +431,29 @@ export default function MyPerformance() {
                 </div>
                 <div className="mt-3 text-right text-xs text-gray-500">
                   Tap to view Day Close →
+                </div>
+              </motion.div>
+
+              {/* Routine Analysis (card opens modal) */}
+              <motion.div
+                className="bg-white rounded-xl shadow-md border border-emerald-100/70 p-5 flex flex-col justify-between hover:shadow-lg transition-shadow"
+                style={{ minHeight: "11rem" }}
+                whileHover={{ scale: 1.02 }}
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <CheckSquare className="w-6 h-6 text-emerald-600" />
+                  <h2 className="text-lg font-semibold">Routine Analysis</h2>
+                </div>
+                <p className="text-sm text-gray-600">Month- and week-wise routine insights.</p>
+                <div className="mt-3">
+                  <motion.button
+                    whileHover={{ scale: 1.03 }}
+                    whileTap={{ scale: 0.97 }}
+                    onClick={() => setShowRoutineAnalysis(true)}
+                    className="w-full px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-[0.95rem]"
+                  >
+                    Open Analysis
+                  </motion.button>
                 </div>
               </motion.div>
 
@@ -911,6 +936,37 @@ export default function MyPerformance() {
                   })}
                 </div>
               )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Routine Analysis Modal */}
+      <AnimatePresence>
+        {showRoutineAnalysis && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-3"
+            onClick={() => setShowRoutineAnalysis(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              transition={{ duration: 0.25 }}
+              className="w-full max-w-4xl max-h-[85vh] overflow-y-auto rounded-2xl bg-white p-5 border border-gray-200"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <CheckSquare className="w-5 h-5 text-emerald-600" />
+                  <h2 className="text-lg font-semibold">Routine Analysis</h2>
+                </div>
+                <button onClick={() => setShowRoutineAnalysis(false)} className="px-3 py-1.5 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-800 text-sm">Close</button>
+              </div>
+              <RoutineAnalysis />
             </motion.div>
           </motion.div>
         )}

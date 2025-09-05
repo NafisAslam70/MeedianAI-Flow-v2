@@ -14,8 +14,8 @@ import {
   FilePlus,
   X,
   Sparkles,
-  Moon,
-  Sun,
+  Activity,
+  Clock,
 } from "lucide-react";
 
 import AssignedTaskDetails from "@/components/assignedTaskCardDetailForAll";
@@ -162,6 +162,13 @@ const useDashboardData = (session, selectedDate, role, router, viewUserId = null
       : null,
     fetcher,
     { refreshInterval: 30000 }
+  );
+
+  // Current MRN (for the viewing user). Refreshed every 10s.
+  const { data: currentMrnData } = useSWR(
+    session?.user ? "/api/member/meRightNow?action=current" : null,
+    fetcher,
+    { refreshInterval: 10000, revalidateOnFocus: false }
   );
 
   // DeepCalendar token
@@ -333,6 +340,7 @@ const useDashboardData = (session, selectedDate, role, router, viewUserId = null
     users,
     mriData,
     mriError,
+    currentMrn: currentMrnData?.current || null,
     openCloseTimes,
     canCloseDay,
     isLoadingAssignedTasks,
@@ -666,13 +674,12 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
   const [isRecording, setIsRecording] = useState(false);
   const [tokenInput, setTokenInput] = useState("");
 
-  // theme toggle
-  const [dark, setDark] = useState(false);
+  // force dark theme on this view
   useEffect(() => {
     const root = document.documentElement;
-    if (dark) root.classList.add("dark");
-    else root.classList.remove("dark");
-  }, [dark]);
+    root.classList.add("dark");
+    return () => {};
+  }, []);
 
   // data hook
   const {
@@ -682,6 +689,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
     users,
     mriData,
     mriError,
+    currentMrn,
     openCloseTimes,
     canCloseDay,
     isLoadingAssignedTasks,
@@ -700,6 +708,89 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
   } = useDashboardData(session, selectedDate, role, router, viewUserId);
 
   const { activeSlot, timeLeft } = useSlotTiming(mriData);
+
+  // General Dashboard-style current block (from slots)
+  const { data: slotData } = useSWR("/api/admin/manageMeedian?section=slots", fetcher);
+  const [slotsGD, setSlotsGD] = useState([]);
+  const [currentSlotGD, setCurrentSlotGD] = useState(null);
+  const [currentBlockGD, setCurrentBlockGD] = useState(null);
+  const [timeLeftGD, setTimeLeftGD] = useState(null);
+
+  useEffect(() => {
+    if (slotData && Array.isArray(slotData.slots)) setSlotsGD(slotData.slots);
+  }, [slotData]);
+
+  useEffect(() => {
+    let intervalId = null;
+    const now = new Date();
+    let foundSlot = null;
+    for (const slot of slotsGD) {
+      if (
+        !slot?.startTime ||
+        !slot?.endTime ||
+        !/^\d{2}:\d{2}:\d{2}$/.test(slot.startTime) ||
+        !/^\d{2}:\d{2}:\d{2}$/.test(slot.endTime)
+      ) continue;
+
+      const startHours = parseInt(slot.startTime.split(":")[0], 10);
+      const endHours = parseInt(slot.endTime.split(":")[0], 10);
+      const isMidnightSpanning = endHours < startHours;
+      let startDate = now.toDateString();
+      let endDate = now.toDateString();
+      if (isMidnightSpanning) {
+        const prevDay = new Date(now);
+        prevDay.setDate(now.getDate() - 1);
+        startDate = prevDay.toDateString();
+      }
+      const startTime = new Date(`${startDate} ${slot.startTime}`);
+      const endTime = new Date(`${endDate} ${slot.endTime}`);
+      if (isNaN(startTime) || isNaN(endTime)) continue;
+      if (now >= startTime && now <= endTime) {
+        foundSlot = slot;
+        break;
+      }
+    }
+
+    let foundBlock = null;
+    if (foundSlot) {
+      const id = Number(foundSlot.id);
+      if (id >= 1 && id <= 6) foundBlock = `BLOCK 1: ${foundSlot.name}`;
+      else if (id >= 7 && id <= 9) foundBlock = `BLOCK 2: ${foundSlot.name}`;
+      else if (id >= 10 && id <= 11) foundBlock = `BLOCK 3: ${foundSlot.name}`;
+      else if (id >= 12 && id <= 14) foundBlock = `BLOCK 4: ${foundSlot.name}`;
+      else if (id >= 15 && id <= 16) foundBlock = `BLOCK 5: ${foundSlot.name}`;
+      else if (id === 17) foundBlock = `BLOCK 6: ${foundSlot.name}`;
+
+      const endDate = now.toDateString();
+      const endTime = new Date(`${endDate} ${foundSlot.endTime}`);
+      if (endTime < now) endTime.setDate(endTime.getDate() + 1);
+      const secondsLeft = Math.max(0, Math.floor((endTime - now) / 1000));
+      setTimeLeftGD(secondsLeft);
+      const tick = () => {
+        const currentTime = new Date();
+        const newSecondsLeft = Math.max(0, Math.floor((endTime - currentTime) / 1000));
+        setTimeLeftGD(newSecondsLeft);
+        if (newSecondsLeft <= 0) {
+          clearInterval(intervalId);
+          setCurrentSlotGD(null);
+          setCurrentBlockGD(null);
+          setTimeLeftGD(null);
+        }
+      };
+      intervalId = setInterval(tick, 1000);
+    }
+
+    setCurrentSlotGD(foundSlot);
+    setCurrentBlockGD(foundBlock);
+    return () => intervalId && clearInterval(intervalId);
+  }, [slotsGD]);
+
+  const getTODName = (slot) => {
+    if (!slot || !slot.assignedMemberId) return "Unassigned";
+    if (String(slot.assignedMemberId) === String(session?.user?.id)) return `${session?.user?.name} (you)`;
+    const member = (users || []).find((m) => String(m.id) === String(slot.assignedMemberId));
+    return member?.name || "Unassigned";
+  };
 
   const nowMin = useMemo(() => {
     const n = new Date();
@@ -1036,11 +1127,10 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
     }
   };
 
-  // keyboard shortcuts: g d (dashboard), g a (assigned), g r (routine), n (notes), t (theme)
+  // keyboard shortcuts: g d (dashboard), g a (assigned), g r (routine), n (notes)
   useEffect(() => {
     const onKey = (e) => {
       if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
-      if (e.key.toLowerCase() === "t") setDark((d) => !d);
       if (e.key.toLowerCase() === "n") setShowNotesModal(true);
       if (e.key.toLowerCase() === "g") {
         const next = (k) => {
@@ -1137,25 +1227,8 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3 flex-wrap min-w-0">
-            {/* Date control (compact) */}
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="px-3 py-2 rounded-xl text-xs sm:text-sm bg-white/70 dark:bg-slate-800/60 border border-gray-200/40 dark:border-white/10 focus:ring-2 focus:ring-indigo-500 text-gray-700 dark:text-gray-200"
-            />
-
-            {/* Theme toggle */}
-            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-              onClick={() => setDark((d) => !d)}
-              className="p-2 rounded-xl bg-white/70 dark:bg-slate-800/60 border border-gray-200/40 dark:border-white/10 text-gray-800 dark:text-gray-100"
-              aria-label="Toggle Theme"
-            >
-              {dark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-            </motion.button>
-
-            {/* Segmented tabs */}
-            <div className="flex items-center bg-white/70 dark:bg-slate-800/60 border border-gray-200/40 dark:border-white/10 rounded-2xl p-1">
+            {/* Segmented tabs with date + opened inline */}
+            <div className="flex items-center bg-white/70 dark:bg-slate-800/60 border border-gray-200/40 dark:border-white/10 rounded-2xl p-1 flex-wrap">
               {[
                 { key: "dashboard", label: "Dashboard", Icon: Calendar },
                 { key: "assigned", label: "Assigned", Icon: CheckSquare },
@@ -1186,6 +1259,23 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                 <FilePlus className="w-4 h-4" />
                 <span className="hidden sm:inline">Notes</span>
               </motion.button>
+
+              {/* Divider */}
+              <div className="hidden sm:block w-px h-6 mx-2 bg-gray-200 dark:bg-white/10 rounded" />
+
+              {/* Date + Opened inline */}
+              <div className="flex items-center gap-2 px-1 py-1">
+                <input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="px-3 py-1.5 rounded-xl text-xs sm:text-[13px] bg-white/80 dark:bg-slate-800/70 border border-gray-200/50 dark:border-white/10 focus:ring-2 focus:ring-indigo-500 text-gray-700 dark:text-gray-200"
+                />
+                <div className="hidden sm:flex items-center gap-2 px-2 py-1 rounded-xl text-[11px] bg-white/80 dark:bg-slate-800/70 border border-gray-200/50 dark:border-white/10 text-gray-700 dark:text-gray-200">
+                  <Clock className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Opened: {dayPack?.openedAt ? fmtHM(dayPack.openedAt) : "6:53 am"}</span>
+                </div>
+              </div>
             </div>
           </div>
         </motion.div>
@@ -1199,11 +1289,93 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
               className="flex flex-col space-y-6 flex-grow relative z-[1]"
             >
               {/* Three core cards (Role-based moved to MyMRIs) */}
-              <section className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-6 flex-grow">
-                {/* Assigned Summary */}
-                <TiltCard
-                  className="cursor-pointer rounded-3xl border border-gray-100/30 dark:border-white/10 bg-white/80 dark:bg-slate-900/70 backdrop-blur-lg p-4 sm:p-6 shadow-lg transition-all duration-300"
-                >
+              <section className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6 flex-grow">
+                {/* Spotlight (bolder, asymmetric) */}
+                <TiltCard className="md:col-span-3 relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-indigo-600 via-blue-600 to-teal-500 text-white p-5 sm:p-7 shadow-xl">
+                  <div className="relative z-10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                    <div>
+                      <div className="text-xs uppercase tracking-wider opacity-90">Spotlight</div>
+                      <div className="mt-1 text-lg sm:text-2xl font-extrabold">
+                        {currentMrn ? (
+                          <>
+                            {(currentMrn.type || "").toUpperCase()} · {currentMrn.itemTitle || "Untitled"}
+                          </>
+                        ) : (
+                          "No active MRN"
+                        )}
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] sm:text-xs opacity-95">
+                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white/15 border border-white/20">
+                          <Clock className="w-3.5 h-3.5" />
+                          Opened: {dayPack?.openedAt ? fmtHM(dayPack.openedAt) : "6:53 am"}
+                        </span>
+                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white/15 border border-white/20">
+                          Now: {currentBlockGD || "—"}
+                        </span>
+                        {currentSlotGD && (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white/15 border border-white/20">
+                            {`${currentSlotGD.startTime?.slice(0, 5)}–${currentSlotGD.endTime?.slice(0, 5)}`} · {timeLeftGD !== null ? `${formatTimeLeft(timeLeftGD)} left` : "Ended"}
+                          </span>
+                        )}
+                      </div>
+                      {currentMrn?.note && (
+                        <div className="mt-2 text-xs sm:text-sm italic opacity-95">Note: {currentMrn.note}</div>
+                      )}
+                    </div>
+                    <div className="flex flex-col gap-2 min-w-[220px]">
+                      <div className="grid grid-cols-3 gap-2">
+                        {[
+                          ["Total", state.assignedTaskSummary.total],
+                          ["Pending", state.assignedTaskSummary.pendingVerification],
+                          ["Done", state.assignedTaskSummary.completed],
+                        ].map(([k, v]) => (
+                          <div key={k} className="rounded-2xl bg-white/15 border border-white/20 p-3 text-center">
+                            <div className="text-[11px] opacity-90">{k}</div>
+                            <div className="text-lg font-bold">{v}</div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex gap-2 pt-1">
+                        <button
+                          onClick={() => setShowRoutineTrackerModal(true)}
+                          className="flex-1 rounded-xl bg-white/20 hover:bg-white/25 border border-white/30 px-3 py-2 text-xs font-semibold"
+                        >
+                          Routine Tracker
+                        </button>
+                        <button
+                          onClick={() => setShowDeepCalendarModal(true)}
+                          className="flex-1 rounded-xl bg-white/20 hover:bg-white/25 border border-white/30 px-3 py-2 text-xs font-semibold"
+                        >
+                          View My Day
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  {/* decorative sweep */}
+                  <div className="absolute -top-24 -right-20 w-72 h-72 rounded-full bg-white/20 blur-3xl" />
+                  <div className="absolute -bottom-28 -left-24 w-80 h-80 rounded-full bg-cyan-300/20 blur-3xl" />
+                </TiltCard>
+
+                {/* Block (exact General Dashboard logic) */}
+                <TiltCard className="rounded-3xl border border-gray-100/30 dark:border-white/10 bg-white/80 dark:bg-slate-900/70 backdrop-blur-lg p-4 sm:p-6 shadow-lg transition-all duration-300">
+                  <div className="flex items-center gap-3 mb-2">
+                    <Clock className="w-5 h-5 text-teal-600" />
+                    <h3 className="text-base sm:text-xl font-bold text-gray-900 dark:text-white">Block</h3>
+                  </div>
+                  <div className="mt-1">
+                    <p className="text-sm sm:text-lg font-bold text-teal-700 dark:text-teal-400">{currentBlockGD || "No Block"}</p>
+                    {currentSlotGD && (
+                      <>
+                        <p className="text-xs sm:text-sm text-gray-700 dark:text-gray-300">{`${currentSlotGD.startTime?.slice(0, 5)} - ${currentSlotGD.endTime?.slice(0, 5)}`}</p>
+                        <p className="text-xs sm:text-sm text-gray-700 dark:text-gray-300">{getTODName(currentSlotGD)}</p>
+                        <p className="text-xs sm:text-sm text-teal-600 dark:text-teal-400 font-medium">{timeLeftGD !== null ? `${formatTimeLeft(timeLeftGD)} left` : "Ended"}</p>
+                      </>
+                    )}
+                  </div>
+                </TiltCard>
+
+                {/* Assigned Summary (wider) */}
+                <TiltCard className="md:col-span-2 cursor-pointer rounded-3xl border border-gray-100/30 dark:border-white/10 bg-white/80 dark:bg-slate-900/70 backdrop-blur-lg p-4 sm:p-6 shadow-lg transition-all duration-300">
                   <div onClick={() => setActiveTab("assigned")}>
                     <h3 className="text-base sm:text-xl font-bold text-gray-900 dark:text-white mb-4">Assigned Tasks</h3>
                     {isLoadingAssignedTasks ? (
@@ -1222,7 +1394,15 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                   </div>
                 </TiltCard>
 
-                {/* Routine summary card removed; use Routine tab for tracker only */}
+                {/* Quick tools */}
+                <TiltCard className="md:col-span-3 rounded-3xl border border-gray-100/30 dark:border-white/10 bg-white/70 dark:bg-slate-900/60 backdrop-blur-lg p-4 sm:p-6 shadow-lg transition-all duration-300">
+                  <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                    <span className="text-sm font-semibold text-gray-900 dark:text-white mr-2">Quick Tools:</span>
+                    <PrimaryButton onClick={() => setShowRoutineTrackerModal(true)}>Open Routine Tracker</PrimaryButton>
+                    <GhostButton onClick={() => setShowNotesModal(true)}>My Notes</GhostButton>
+                    <DangerGhostButton onClick={() => setShowCloseDayModal(true)}>Close My Day</DangerGhostButton>
+                  </div>
+                </TiltCard>
               </section>
             </motion.div>
           )}

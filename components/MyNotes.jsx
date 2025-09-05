@@ -4,7 +4,15 @@ import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AlertCircle, Clock, Edit, Trash2, CheckCircle, AlertTriangle, FileText, X } from "lucide-react";
 
-const MyNotes = ({ userId, setError = () => {}, setSuccess = () => {}, embedded = false }) => {
+const MyNotes = ({
+  userId,
+  setError = () => {},
+  setSuccess = () => {},
+  embedded = false,
+  fullScreen = false,
+  onClose = () => {},
+  initialMode = "view", // 'view' | 'add'
+}) => {
   const [notes, setNotes] = useState([]);
   const [newNote, setNewNote] = useState("");
   const [newCategory, setNewCategory] = useState("");
@@ -12,8 +20,8 @@ const MyNotes = ({ userId, setError = () => {}, setSuccess = () => {}, embedded 
   const [editingNoteContent, setEditingNoteContent] = useState("");
   const [editingNoteCategory, setEditingNoteCategory] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [showViewNotesModal, setShowViewNotesModal] = useState(true);
-  const [showAddNoteModal, setShowAddNoteModal] = useState(false);
+  const [showViewNotesModal, setShowViewNotesModal] = useState(initialMode !== "add");
+  const [showAddNoteModal, setShowAddNoteModal] = useState(initialMode === "add");
   const [localError, setLocalError] = useState("");
   const [localSuccess, setLocalSuccess] = useState("");
 
@@ -141,6 +149,108 @@ const MyNotes = ({ userId, setError = () => {}, setSuccess = () => {}, embedded 
   const colsClass = twoPane ? "sm:grid-cols-2 grid-cols-1" : "grid-cols-1";
 
   if (embedded) return null;
+
+  // Full‑screen writer overlay (uses same add-note state/actions)
+  if (fullScreen) {
+    const [toolbarHidden, setToolbarHidden] = useState(false);
+    useEffect(() => {
+      const onKey = (e) => {
+        if (e.key === "Escape") setToolbarHidden(false);
+      };
+      window.addEventListener("keydown", onKey);
+      return () => window.removeEventListener("keydown", onKey);
+    }, []);
+    const saveAsPDF = () => {
+      const esc = (s = "") => s
+        .replaceAll(/&/g, "&amp;")
+        .replaceAll(/</g, "&lt;")
+        .replaceAll(/>/g, "&gt;");
+      const title = `My Notes — ${new Date().toLocaleString()}`;
+      const w = window.open("", "_blank");
+      if (!w) return;
+      w.document.write(`<!doctype html><html><head><meta charset=\"utf-8\" />
+        <title>${title}</title>
+        <style>
+          @page { margin: 16mm; }
+          body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; color:#111; }
+          h1 { font-size: 16px; margin: 0 0 12px; }
+          .note { white-space: pre-wrap; font-size: 14px; line-height: 1.6; }
+        </style>
+      </head><body>
+        <h1>${esc(title)}</h1>
+        <div class=\"note\">${esc(newNote || "")}</div>
+      </body></html>`);
+      w.document.close();
+      w.focus();
+      w.print();
+    };
+
+    return (
+      <div className="fixed inset-0 z-[120] bg-black/70 backdrop-blur-sm flex items-center justify-center p-2 sm:p-6">
+        <div className="relative w-full h-full bg-white/95 dark:bg-slate-900/95 rounded-2xl shadow-2xl border border-white/40 overflow-hidden">
+          <div className={`absolute top-3 left-3 right-3 flex items-center justify-between gap-2 transition ${toolbarHidden ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+            <div className="flex items-center gap-2">
+              <button onClick={onClose} className="px-3 py-1.5 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-800 text-sm">
+                Close
+              </button>
+              <button onClick={() => setToolbarHidden(true)} className="px-3 py-1.5 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-800 text-sm" title="Hide UI">
+                Hide UI
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={saveAsPDF} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm">
+                Save as PDF
+              </button>
+              <button
+                onClick={() => {
+                  if (!newCategory) setNewCategory("Other");
+                  handleAddNote();
+                }}
+                disabled={isLoading}
+                className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 text-sm disabled:opacity-60"
+              >
+                {isLoading ? "Saving…" : "Save Note"}
+              </button>
+            </div>
+          </div>
+          {toolbarHidden && (
+            <button
+              onClick={() => setToolbarHidden(false)}
+              className="absolute top-2 right-2 px-2 py-1 rounded bg-gray-200/90 text-gray-700 text-xs shadow"
+              title="Show UI"
+            >
+              Show UI
+            </button>
+          )}
+          <div className="absolute inset-0 pt-14">
+            <div className="h-full overflow-y-auto p-4 sm:p-6 space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Category</label>
+                <select
+                  value={newCategory}
+                  onChange={(e) => setNewCategory(e.target.value)}
+                  className="w-full px-3 py-2 border rounded-lg bg-gray-50 focus:ring-2 focus:ring-teal-500 text-sm sm:text-base text-gray-700 dark:bg-slate-800 dark:border-slate-700 dark:text-gray-200"
+                >
+                  <option value="">Select Category</option>
+                  {["MSP", "MHCP", "MHP", "MOP", "Other", "Building Home"].map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="h-[calc(100%-120px)]">
+                <textarea
+                  value={newNote}
+                  onChange={(e) => setNewNote(e.target.value)}
+                  placeholder="Write your note in full-screen mode…"
+                  className="w-full h-full resize-none outline-none border rounded-lg bg-gray-50 focus:ring-2 focus:ring-teal-500 text-base sm:text-lg text-gray-800 dark:bg-slate-800 dark:border-slate-700 dark:text-gray-100 p-3"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full max-w-3xl">

@@ -126,6 +126,10 @@ export default function WorkTogether() {
   const [selectedMusic, setSelectedMusic] = useState(musicOptions[0].url);
   const audioRef = useRef(null);
 
+  // (Notes overlay removed) — keep original layout
+
+  // full-screen notes handled by MyNotes overlay; no local notebook state
+
   // MRN gate
   const [mrrChecking, setMrrChecking] = useState(false);
   const [mrrErr, setMrrErr] = useState("");
@@ -799,6 +803,9 @@ export default function WorkTogether() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* (Notes overlay removed) */}
+
 
       {/* Exit/Leave modal: Finished or Continue later */}
       <AnimatePresence>
