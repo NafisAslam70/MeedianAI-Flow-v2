@@ -902,6 +902,17 @@ export default function Navbar() {
           border-radius: 2px;
         }
 
+        /* Mobile CTA highlight */
+        .mobile-cta {
+          background: linear-gradient(135deg, rgba(34,211,238,0.18), rgba(59,130,246,0.18));
+          border: 1px solid rgba(34,211,238,0.35);
+          box-shadow: 0 6px 16px rgba(34,211,238,0.25);
+          font-weight: 800;
+          letter-spacing: .2px;
+          color: #e0f2fe;
+        }
+        .mobile-cta:hover { filter: brightness(1.1); }
+
         .nav-button {
           padding: 0.5rem 0.9rem;
           font-weight: 600;
@@ -1645,7 +1656,7 @@ export default function Navbar() {
                       alt="User Avatar"
                       onError={() => setUserImage("/default-avatar.png")}
                     />
-                    <div className="user-info-text">
+                    <div className="user-info-text hidden lg:flex">
                       <span className="name">{userName || "Loading..."}</span>
                       <span className="account-label">My Account</span>
                     </div>
@@ -1703,9 +1714,9 @@ export default function Navbar() {
                         Managerial
                       </button>
 
-                      {/* Mobile: open Execute modal */}
-                      <button onClick={() => { setIsExecuteOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">
-                        Towards Greatness
+                      {/* Mobile: open Execute modal (CTA) */}
+                      <button onClick={() => { setIsExecuteOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full mobile-cta">
+                        Execute Now
                       </button>
 
                       <button onClick={() => { handleAddMember(); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">Add Member</button>
@@ -1725,8 +1736,8 @@ export default function Navbar() {
                       <button onClick={() => { setIsManagerialOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">
                         Managerial
                       </button>
-                  <button onClick={() => { setIsExecuteOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">
-                    Towards Greatness
+                  <button onClick={() => { setIsExecuteOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full mobile-cta">
+                    Execute Now
                   </button>
                     </>
                   )}
@@ -1739,8 +1750,8 @@ export default function Navbar() {
                       <Link href="/dashboard/member/closeMyDay" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member/closeMyDay") ? "active" : ""}`}>CloseMyDay</Link>
                       {/* MyPerformance removed from mobile nav (in Profile) */}
 
-                      <button onClick={() => { setIsExecuteOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">
-                        Towards Greatness
+                      <button onClick={() => { setIsExecuteOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full mobile-cta">
+                        Execute Now
                       </button>
                     </>
                   )}
