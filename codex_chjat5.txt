@@ -86,6 +86,11 @@ Next suggestions
   - Fixed overflow: modal now uses a full-height flex layout with a sticky header and a dedicated scroll area so content never gets clipped at the top/bottom.
   - Grid improvements: switched to a responsive grid (1/2/3/4/5 columns) to reduce vertical stacking on wide screens.
   - Overlay alignment: backdrop centers at the top with padding (`items-start` + `pt-6`) so on small screens it feels like a sheet and the list remains scrollable.
+- Day Close Requests visibility
+  - Team Managers now only see requests from their immediate subordinates (users where `users.immediate_supervisor` equals the manager’s id), not from all members.
+  - Admins continue to see all requests. Implemented in GET `/api/managersCommon/dayCloseRequests`.
+  - Submission recipients: When a member submits a close-day request, the recipients list now includes their 
+  Immediate Supervisor and all Admins (not all team managers). Implemented in GET `/api/member/dayClose/adminsAndManagers` used by the submit flow.
 - Profile page polish
   - Expanded the modal canvas (max-w to 98vw, max-h to 86–88vh) to better utilize space.
   - Enlarged avatar (28–36px square → 36–64px) with ring, shadow and improved upload affordance.

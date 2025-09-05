@@ -5,7 +5,7 @@ import { Compass, Heart, Target, Star, Sparkles } from "lucide-react";
 export default function Footer({ className = "" }) {
   const principles = [
     { icon: <Compass size={12} />, label: "Vision" },
-    { icon: <Heart size={12} />, label: "Sincerity" },
+    { icon: <Heart size={12} />, label: "Sincerity & Objectivity" },
     { icon: <Target size={12} />, label: "Depth" },
     { icon: <Star size={12} />, label: "Discipline" },
     { icon: <Sparkles size={12} />, label: "Perseverance" },

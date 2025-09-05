@@ -56,6 +56,7 @@ export default function Navbar() {
   const [isMeNowOpen, setIsMeNowOpen] = useState(false);
   // Tooltip control for execute launcher (in case :hover isn't reliable)
   const [showExecTooltip, setShowExecTooltip] = useState(false);
+  const [suppressExecTooltip, setSuppressExecTooltip] = useState(false);
   // NEW: Managerial side-sheet
   const [isManagerialOpen, setIsManagerialOpen] = useState(false);
   // NEW: Profile side-sheet (widgets)
@@ -294,9 +295,30 @@ export default function Navbar() {
   const prevFullStep = () => setFullStep((s) => Math.max(0, s - 1));
 
   // Execute launcher (icon-only with animated climber + hover tooltip)
+  const hideExecTooltipQuick = () => {
+    setShowExecTooltip(false);
+    setSuppressExecTooltip(true);
+    setTimeout(() => setSuppressExecTooltip(false), 250);
+  };
+
+  const handleExecuteOpen = () => {
+    setIsExecuteOpen(true);
+    hideExecTooltipQuick();
+  };
+
+  const handleStartWalkthrough = () => {
+    startExecWalkthrough();
+    hideExecTooltipQuick();
+  };
+
+  const handleEnterMRN = () => {
+    openMeRightNow();
+    hideExecTooltipQuick();
+  };
+
   const ExecuteLauncher = () => (
     <div
-      className={`execute-wrap ${showExecTooltip ? "open" : ""}`}
+      className={`execute-wrap ${showExecTooltip ? "open" : ""} ${suppressExecTooltip ? "hide-tooltip" : ""}`}
       onMouseEnter={() => setShowExecTooltip(true)}
       onMouseLeave={() => setShowExecTooltip(false)}
       onFocus={() => setShowExecTooltip(true)}
@@ -304,7 +326,7 @@ export default function Navbar() {
     >
       <button
         type="button"
-        onClick={() => setIsExecuteOpen(true)}
+        onClick={handleExecuteOpen}
         className={`execute-launcher ${isExecuteOpen ? "active" : ""}`}
         aria-haspopup="dialog"
         aria-expanded={isExecuteOpen}
@@ -329,9 +351,13 @@ export default function Navbar() {
           </li>
         </ol>
         <div className="tooltip-actions">
-          <button className="tooltip-btn" onClick={startExecWalkthrough}>
+          <button className="tooltip-btn" onClick={handleStartWalkthrough}>
             <HelpCircle size={14} />
             <span>Start Walkthrough</span>
+          </button>
+          <button className="tooltip-btn" onClick={handleEnterMRN}>
+            <Mountain size={14} />
+            <span>Enter MRN</span>
           </button>
         </div>
       </div>
@@ -1139,9 +1165,9 @@ export default function Navbar() {
         /* Hover tooltip for execution guidance */
         .execute-tooltip {
           position: absolute;
-          bottom: calc(100% + 10px);
+          top: calc(100% + 10px);
           left: 50%;
-          transform: translateX(-50%) translateY(6px);
+          transform: translateX(-50%) translateY(-6px);
           width: max(260px, 36ch);
           background: #0f172a;
           border: 1px solid rgba(34,211,238,0.25);
@@ -1153,6 +1179,12 @@ export default function Navbar() {
           transition: opacity .12s ease, transform .12s ease;
           z-index: 10021;
         }
+        /* Actively suppress tooltip even if hover is true */
+        .execute-wrap.hide-tooltip .execute-tooltip {
+          opacity: 0 !important;
+          pointer-events: none !important;
+          transform: translateX(-50%) translateY(-6px) !important;
+        }
         .execute-wrap:hover .execute-tooltip,
         .execute-wrap.open .execute-tooltip,
         .execute-launcher:focus + .execute-tooltip {
@@ -1163,7 +1195,7 @@ export default function Navbar() {
         .execute-tooltip::after {
           content: '';
           position: absolute;
-          top: 100%; left: 50%; transform: translateX(-50%) rotate(45deg);
+          bottom: 100%; left: 50%; transform: translateX(-50%) rotate(45deg);
           width: 12px; height: 12px;
           background: #0f172a;
           border-left: 1px solid rgba(34,211,238,0.25);
@@ -1174,7 +1206,7 @@ export default function Navbar() {
         .tooltip-sub { font-size: 0.8rem; color: #b1c8d6; margin-top: 2px; margin-bottom: 6px; }
         .tooltip-steps { margin: 0; padding-left: 1.15rem; font-size: 0.82rem; color: #d9f4ff; display: grid; gap: 4px; }
         .tooltip-steps li::marker { color: #22d3ee; font-weight: 700; }
-        .tooltip-actions { display: flex; justify-content: flex-end; margin-top: 8px; }
+        .tooltip-actions { display: flex; justify-content: flex-end; margin-top: 8px; gap: 8px; }
         .tooltip-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 8px; background: rgba(6,182,212,0.12); border: 1px solid rgba(6,182,212,0.3); color: #c7f9ff; font-weight: 700; font-size: 12px; }
         .tooltip-btn:hover { background: rgba(6,182,212,0.18); }
 

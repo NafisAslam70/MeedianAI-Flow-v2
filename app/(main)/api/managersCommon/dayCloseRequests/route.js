@@ -90,6 +90,11 @@ export async function GET(req) {
       .innerJoin(users, eq(dayCloseRequests.userId, users.id))
       .orderBy(desc(historyParam === "true" ? dayCloseRequests.approvedAt : dayCloseRequests.createdAt));
 
+    // Restrict team managers to only see requests from their immediate subordinates
+    if (session.user.role === "team_manager") {
+      conditions.push(eq(users.immediate_supervisor, Number(session.user.id)));
+    }
+
     const requests = conditions.length
       ? await baseSelect.where(and(...conditions))
       : await baseSelect.where(eq(dayCloseRequests.status, "pending"));

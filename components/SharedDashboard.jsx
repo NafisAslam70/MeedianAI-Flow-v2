@@ -708,6 +708,10 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
   } = useDashboardData(session, selectedDate, role, router, viewUserId);
 
   const { activeSlot, timeLeft } = useSlotTiming(mriData);
+  const [showAllMrnsModal, setShowAllMrnsModal] = useState(false);
+  const [hideSelfInMrns, setHideSelfInMrns] = useState(false);
+  const { data: mrrFeedData } = useSWR("/api/member/meRightNow?action=feed", fetcher, { refreshInterval: 12000, revalidateOnFocus: false });
+  const mrrFeed = Array.isArray(mrrFeedData?.feed) ? mrrFeedData.feed : [];
 
   // General Dashboard-style current block (from slots)
   const { data: slotData } = useSWR("/api/admin/manageMeedian?section=slots", fetcher);
@@ -1228,7 +1232,24 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
 
           <div className="flex items-center gap-2 sm:gap-3 flex-wrap min-w-0">
             {/* Segmented tabs with date + opened inline */}
-            <div className="flex items-center bg-white/70 dark:bg-slate-800/60 border border-gray-200/40 dark:border-white/10 rounded-2xl p-1 flex-wrap">
+            <div className="flex items-center bg-white/70 dark:bg-slate-800/60 border border-gray-200/40 dark:border-white/10 rounded-2xl p-1 flex-nowrap whitespace-nowrap overflow-x-auto custom-scrollbar">
+              {/* Date + Opened inline (placed first) */}
+              <div className="flex items-center gap-2 px-1 py-1 mr-2">
+                <input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="px-3 py-1.5 rounded-xl text-xs sm:text-[13px] bg-white/80 dark:bg-slate-800/70 border border-gray-200/50 dark:border-white/10 focus:ring-2 focus:ring-indigo-500 text-gray-700 dark:text-gray-200"
+                />
+                <div className="hidden sm:flex items-center gap-2 px-2 py-1 rounded-xl text-[11px] bg-white/80 dark:bg-slate-800/70 border border-gray-200/50 dark:border-white/10 text-gray-700 dark:text-gray-200">
+                  <Clock className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Opened: {dayPack?.openedAt ? fmtHM(dayPack.openedAt) : "6:53 am"}</span>
+                </div>
+              </div>
+
+              {/* Divider */}
+              <div className="hidden sm:block w-px h-6 mx-2 bg-gray-200 dark:bg-white/10 rounded" />
+
               {[
                 { key: "dashboard", label: "Dashboard", Icon: Calendar },
                 { key: "assigned", label: "Assigned", Icon: CheckSquare },
@@ -1254,28 +1275,11 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={() => setShowNotesModal(true)}
-                className="ml-1 flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100/60 dark:hover:bg-slate-700/60"
+                className="ml-1 flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100/60 dark:hover:bg-slate-700/60 flex-shrink-0"
               >
                 <FilePlus className="w-4 h-4" />
                 <span className="hidden sm:inline">Notes</span>
               </motion.button>
-
-              {/* Divider */}
-              <div className="hidden sm:block w-px h-6 mx-2 bg-gray-200 dark:bg-white/10 rounded" />
-
-              {/* Date + Opened inline */}
-              <div className="flex items-center gap-2 px-1 py-1">
-                <input
-                  type="date"
-                  value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                  className="px-3 py-1.5 rounded-xl text-xs sm:text-[13px] bg-white/80 dark:bg-slate-800/70 border border-gray-200/50 dark:border-white/10 focus:ring-2 focus:ring-indigo-500 text-gray-700 dark:text-gray-200"
-                />
-                <div className="hidden sm:flex items-center gap-2 px-2 py-1 rounded-xl text-[11px] bg-white/80 dark:bg-slate-800/70 border border-gray-200/50 dark:border-white/10 text-gray-700 dark:text-gray-200">
-                  <Clock className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Opened: {dayPack?.openedAt ? fmtHM(dayPack.openedAt) : "6:53 am"}</span>
-                </div>
-              </div>
             </div>
           </div>
         </motion.div>
@@ -1322,7 +1326,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                         <div className="mt-2 text-xs sm:text-sm italic opacity-95">Note: {currentMrn.note}</div>
                       )}
                     </div>
-                    <div className="flex flex-col gap-2 min-w-[220px]">
+                    <div className="flex flex-col gap-2 min-w-[220px] items-stretch">
                       <div className="grid grid-cols-3 gap-2">
                         {[
                           ["Total", state.assignedTaskSummary.total],
@@ -1343,10 +1347,13 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                           Routine Tracker
                         </button>
                         <button
-                          onClick={() => setShowDeepCalendarModal(true)}
-                          className="flex-1 rounded-xl bg-white/20 hover:bg-white/25 border border-white/30 px-3 py-2 text-xs font-semibold"
-                        >
-                          View My Day
+                          onClick={() => setShowAllMrnsModal(true)}
+                          className="flex-1 rounded-xl px-3 py-2 text-xs font-extrabold tracking-wide
+                                     bg-gradient-to-r from-amber-400/30 via-yellow-300/30 to-rose-400/30
+                                     hover:from-amber-400/45 hover:via-yellow-300/45 hover:to-rose-400/45
+                                     border border-white/60 shadow-lg shadow-white/20 ring-1 ring-yellow-300/40 text-white"
+                          >
+                          My Team Mates Now
                         </button>
                       </div>
                     </div>
@@ -1355,6 +1362,8 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                   <div className="absolute -top-24 -right-20 w-72 h-72 rounded-full bg-white/20 blur-3xl" />
                   <div className="absolute -bottom-28 -left-24 w-80 h-80 rounded-full bg-cyan-300/20 blur-3xl" />
                 </TiltCard>
+
+                
 
                 {/* Block (exact General Dashboard logic) */}
                 <TiltCard className="rounded-3xl border border-gray-100/30 dark:border-white/10 bg-white/80 dark:bg-slate-900/70 backdrop-blur-lg p-4 sm:p-6 shadow-lg transition-all duration-300">
@@ -1630,6 +1639,107 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                 setShowStatusModal(true);
               }}
             />
+          )}
+        </AnimatePresence>
+
+        {/* All MRNs Modal: Meedians in Action (like General Dashboard) */}
+        <AnimatePresence>
+          {showAllMrnsModal && (
+            <motion.div
+              key="all-mrns"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[60] p-3"
+              onClick={() => setShowAllMrnsModal(false)}
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.95, opacity: 0, y: 20 }}
+                transition={{ duration: 0.25 }}
+                className="w-full max-w-6xl max-h-[85vh] overflow-y-auto rounded-3xl bg-white/90 backdrop-blur-xl border border-white/50 shadow-2xl p-4 sm:p-6"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <svg className="w-6 h-6 text-purple-600" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10" opacity=".1"/><path d="M12 6v6l4 2" stroke="currentColor" strokeWidth="2" fill="none"/></svg>
+                    <h2 className="text-lg sm:text-2xl font-bold text-gray-900">Meedians in Action</h2>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <label className="text-xs sm:text-sm text-gray-700 inline-flex items-center gap-2">
+                      <input type="checkbox" className="accent-teal-600" checked={hideSelfInMrns} onChange={(e) => setHideSelfInMrns(e.target.checked)} />
+                      Hide my card
+                    </label>
+                    <button onClick={() => setShowAllMrnsModal(false)} className="px-3 py-1.5 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-800 text-sm">Close</button>
+                  </div>
+                </div>
+
+                {(() => {
+                  const activeMap = new Map((mrrFeed || []).map((x) => [String(x.userId), x]));
+                  const everyone = Array.isArray(users) ? users : [];
+                  const visible = everyone.filter((u) => !(hideSelfInMrns && String(u.id) === String(session?.user?.id)));
+                  const actives = visible.filter((u) => activeMap.has(String(u.id)));
+                  const inactives = visible.filter((u) => !activeMap.has(String(u.id)));
+
+                  const Card = ({ u, cur }) => {
+                    const status = cur?.itemTitle ? cur.itemTitle : "Rest and Recover";
+                    const since = cur?.startedAt ? new Date(cur.startedAt).toLocaleTimeString() : "";
+                    const avatar = u.image || "/default-avatar.png";
+                    const isActive = !!cur;
+                    const titleWithNote = isActive && cur?.note ? `${status} - ${cur.note}` : status;
+                    return (
+                      <motion.div
+                        key={`mrr-${u.id}`}
+                        initial={false}
+                        animate={{ opacity: 1, y: 0 }}
+                        className={`rounded-2xl shadow ${isActive ? 'p-4' : 'p-2'} border flex items-center gap-3 ${
+                          isActive ? "bg-gradient-to-br from-teal-50 to-emerald-50 border-teal-200" : "bg-gray-50 border-gray-200"
+                        }`}
+                      >
+                        <img src={avatar} alt={u.name} className={`rounded-full border border-teal-200 object-cover ${isActive ? 'w-10 h-10' : 'w-8 h-8'}`} />
+                        <div className="min-w-0 flex-1">
+                          <div className={`${isActive ? 'text-sm' : 'text-[12px]'} font-semibold text-gray-900 truncate`}>{u.name}</div>
+                          {isActive ? (
+                            <>
+                              <div className="text-xs text-gray-600 truncate">{(u.role || "").replace("_", " ")}</div>
+                              <div className="text-xs mt-1 font-medium text-teal-700">
+                                {titleWithNote} <span className="text-gray-500">· since {since}</span>
+                              </div>
+                            </>
+                          ) : null}
+                        </div>
+                      </motion.div>
+                    );
+                  };
+
+                  return (
+                    <div className="space-y-5">
+                      <div>
+                        <h3 className="text-sm font-bold text-gray-800 mb-2">Active Now</h3>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
+                          {actives.length === 0 ? (
+                            <p className="text-xs text-gray-500">No one is active at the moment.</p>
+                          ) : (
+                            actives.map((u) => <Card key={u.id} u={u} cur={activeMap.get(String(u.id))} />)
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-gray-800 mb-2">Rest and Recover</h3>
+                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                          {inactives.length === 0 ? (
+                            <p className="text-xs text-gray-500">Everyone is active right now.</p>
+                          ) : (
+                            inactives.map((u) => <Card key={u.id} u={u} cur={null} />)
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </motion.div>
+            </motion.div>
           )}
         </AnimatePresence>
 

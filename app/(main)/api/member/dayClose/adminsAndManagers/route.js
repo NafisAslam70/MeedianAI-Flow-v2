@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { users } from "@/lib/schema";
-import { eq, or } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 export async function GET() {
   try {
@@ -11,22 +11,35 @@ export async function GET() {
     if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const adminsAndManagers = await db
-      .select({
-        id: users.id,
-        name: users.name,
-      })
-      .from(users)
-      .where(
-        or(
-          eq(users.role, "admin"),
-          eq(users.role, "team_manager")
-        )
-      );
 
-    return NextResponse.json({ users: adminsAndManagers }, { status: 200 });
+    const selfId = Number(session.user.id);
+    // fetch current user to get immediate supervisor
+    const [self] = await db
+      .select({ id: users.id, immediate_supervisor: users.immediate_supervisor })
+      .from(users)
+      .where(eq(users.id, selfId));
+
+    const admins = await db
+      .select({ id: users.id, name: users.name })
+      .from(users)
+      .where(eq(users.role, "admin"));
+
+    let supervisor = [];
+    if (self?.immediate_supervisor) {
+      supervisor = await db
+        .select({ id: users.id, name: users.name })
+        .from(users)
+        .where(eq(users.id, self.immediate_supervisor));
+    }
+
+    // de-duplicate by id (in case supervisor is also an admin)
+    const map = new Map();
+    [...admins, ...supervisor].forEach((u) => map.set(u.id, u));
+    const recipients = Array.from(map.values());
+
+    return NextResponse.json({ users: recipients }, { status: 200 });
   } catch (error) {
     console.error("GET /api/member/dayClose/adminsAndManagers error:", error);
-    return NextResponse.json({ error: `Failed to fetch admins and managers: ${error.message}` }, { status: 500 });
+    return NextResponse.json({ error: `Failed to fetch admins and IS: ${error.message}` }, { status: 500 });
   }
 }

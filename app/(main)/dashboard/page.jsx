@@ -330,7 +330,7 @@ export default function GeneralDashboard() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-start justify-center z-50 p-3 sm:p-6 pt-6 sm:pt-10"
+              className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-3 sm:p-4"
               onClick={() => setShowMrnModal(false)}
             >
               <motion.div
@@ -338,14 +338,14 @@ export default function GeneralDashboard() {
                 animate={{ scale: 1, opacity: 1, y: 0 }}
                 exit={{ scale: 0.95, opacity: 0, y: 20 }}
                 transition={{ duration: 0.25 }}
-                className="w-full max-w-6xl h-[90vh] max-h-[90vh] overflow-hidden rounded-3xl bg-white/90 backdrop-blur-xl border border-white/50 shadow-2xl flex flex-col"
+                className="w-full max-w-5xl h-[80vh] max-h-[80vh] overflow-hidden rounded-3xl bg-white/90 backdrop-blur-xl border border-white/50 shadow-2xl flex flex-col"
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className="sticky top-0 z-10 bg-white/90 backdrop-blur-xl border-b border-white/50 px-4 sm:px-6 py-3">
+                <div className="sticky top-0 z-10 bg-white/90 backdrop-blur-xl border-b border-white/50 px-3 sm:px-5 py-2.5">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <svg className="w-6 h-6 text-purple-600" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10" opacity=".1"/><path d="M12 6v6l4 2" stroke="currentColor" strokeWidth="2" fill="none"/></svg>
-                      <h2 className="text-lg sm:text-2xl font-bold text-gray-900">Meedians in Action</h2>
+                    <h2 className="text-lg sm:text-xl font-bold text-gray-900">Meedians in Action</h2>
                     </div>
                     <div className="flex items-center gap-3">
                       {session?.user?.role === "admin" && (
@@ -371,24 +371,29 @@ export default function GeneralDashboard() {
                     const since = cur?.startedAt ? new Date(cur.startedAt).toLocaleTimeString() : "";
                     const avatar = u.image || "/default-avatar.png";
                     const isActive = !!cur;
+                    const titleWithNote = isActive && cur?.note ? `${status} - ${cur.note}` : status;
                     return (
                       <motion.div
                         key={`mrr-${u.id}`}
                         initial={false}
                         animate={{ opacity: 1, y: 0 }}
-                        className={`rounded-2xl shadow p-4 border flex items-center gap-3 ${
+                        className={`rounded-2xl shadow ${isActive ? 'p-4' : 'p-2'} border flex items-center gap-3 ${
                           isActive
                             ? "bg-gradient-to-br from-teal-50 to-emerald-50 border-teal-200"
                             : "bg-gray-50 border-gray-200"
                         }`}
                       >
-                        <img src={avatar} alt={u.name} className="rounded-full border border-teal-200 object-cover w-10 h-10" />
+                        <img src={avatar} alt={u.name} className={`rounded-full border border-teal-200 object-cover ${isActive ? 'w-10 h-10' : 'w-8 h-8'}`} />
                         <div className="min-w-0 flex-1">
-                          <div className="text-sm font-semibold text-gray-900 truncate">{u.name}</div>
-                          <div className="text-xs text-gray-600 truncate">{(u.role || "").replace("_", " ")}</div>
-                          <div className={`text-xs mt-1 font-medium ${isActive ? "text-teal-700" : "text-gray-500"}`}>
-                            {status} {isActive ? <span className="text-gray-500">· since {since}</span> : ""}
-                          </div>
+                          <div className={`${isActive ? 'text-sm' : 'text-[12px]'} font-semibold text-gray-900 truncate`}>{u.name}</div>
+                          {isActive ? (
+                            <>
+                              <div className="text-xs text-gray-600 truncate">{(u.role || "").replace("_", " ")}</div>
+                              <div className="text-xs mt-1 font-medium text-teal-700">
+                                {titleWithNote} <span className="text-gray-500">· since {since}</span>
+                              </div>
+                            </>
+                          ) : null}
                         </div>
                       </motion.div>
                     );
@@ -408,7 +413,7 @@ export default function GeneralDashboard() {
                       </div>
                       <div>
                         <h3 className="text-sm font-bold text-gray-800 mb-2">Rest and Recover</h3>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
+                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                           {inactives.length === 0 ? (
                             <p className="text-xs text-gray-500">Everyone is active right now.</p>
                           ) : (
