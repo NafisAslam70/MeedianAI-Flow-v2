@@ -463,50 +463,6 @@ export default function Navbar() {
         </div>
 
         <div className="sheet-content">
-          {/* App Walkthrough quick actions */}
-          <div className="rounded-xl border border-cyan-900/40 bg-white/5 p-3">
-            <div className="text-sm font-semibold text-cyan-200 mb-2">App Walkthrough</div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <button className="action-row" onClick={() => { setIsProfileOpen(false); startExecWalkthrough(); }}>
-                <span className="row-icon"><Mountain size={18} /></span>
-                <span className="row-main">
-                  <span className="row-title">MRI Execution Walkthrough</span>
-                  <span className="row-sub">Step-by-step guidance to execute</span>
-                </span>
-                <ArrowRight size={16} className="row-go" />
-              </button>
-              <button className="action-row" onClick={() => { setIsProfileOpen(false); startFullWalkthrough(); }}>
-                <span className="row-icon"><HelpCircle size={18} /></span>
-                <span className="row-main">
-                  <span className="row-title">Full App Walkthrough</span>
-                  <span className="row-sub">Tour the main features</span>
-                </span>
-                <ArrowRight size={16} className="row-go" />
-              </button>
-            </div>
-          </div>
-          {/* App Walkthrough quick actions */}
-          <div className="rounded-xl border border-cyan-900/40 bg-white/5 p-3">
-            <div className="text-sm font-semibold text-cyan-200 mb-2">App Walkthrough</div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <button className="action-row" onClick={() => { setIsProfileOpen(false); startExecWalkthrough(); }}>
-                <span className="row-icon"><Mountain size={18} /></span>
-                <span className="row-main">
-                  <span className="row-title">MRI Execution Walkthrough</span>
-                  <span className="row-sub">Step-by-step guidance to execute</span>
-                </span>
-                <ArrowRight size={16} className="row-go" />
-              </button>
-              <button className="action-row" onClick={() => { setIsProfileOpen(false); startFullWalkthrough(); }}>
-                <span className="row-icon"><HelpCircle size={18} /></span>
-                <span className="row-main">
-                  <span className="row-title">Full App Walkthrough</span>
-                  <span className="row-sub">Tour the main features</span>
-                </span>
-                <ArrowRight size={16} className="row-go" />
-              </button>
-            </div>
-          </div>
           <button
             className="action-row"
             onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/managersCommon/routineTasks"); }}
@@ -1039,10 +995,8 @@ export default function Navbar() {
           text-align: center;
         }
 
-        /* Light nav background by default */
-        nav { background: linear-gradient(90deg, #f8fafc, #eef2ff 30%, #e2e8f0 70%, #f8fafc); }
-        /* Dark nav when .dark on html (kept for future) */
-        .dark nav { background: linear-gradient(90deg, #0b1220, #111827 30%, #1f2937 70%, #0b1220); }
+        /* Force dark navbar background (toggle can be reintroduced later) */
+        nav { background: linear-gradient(90deg, #0b1220, #111827 30%, #1f2937 70%, #0b1220) !important; }
         .brand-text { background: linear-gradient(90deg,#67e8f9,#60a5fa); -webkit-background-clip: text; background-clip: text; color: transparent; }
         .brand-text.glow { text-shadow: 0 0 8px rgba(34,211,238,0.6); }
         .beta-badge { font-size: 10px; font-weight: 900; color: #0b1220; background: linear-gradient(90deg,#fef08a,#fca5a5); padding: 2px 6px; border-radius: 999px; margin-left: 6px; }
@@ -1535,7 +1489,7 @@ export default function Navbar() {
       `}</style>
 
       {showNavbar && (
-        <nav className="px-3 py-2 w-full sticky top-0 z-40 shadow-lg border-b border-cyan-900/40 text-slate-900 dark:text-white">
+        <nav className="px-3 py-2 w-full sticky top-0 z-40 shadow-lg border-b border-cyan-900/40 text-white">
           <div className="flex items-center justify-between w-full px-2 sm:px-4 lg:px-6 min-w-0">
             {/* left: logo */}
             <div className="brand-wrap flex items-center gap-2 min-w-0">
