@@ -902,17 +902,6 @@ export default function Navbar() {
           border-radius: 2px;
         }
 
-        /* Mobile CTA highlight */
-        .mobile-cta {
-          background: linear-gradient(135deg, rgba(34,211,238,0.18), rgba(59,130,246,0.18));
-          border: 1px solid rgba(34,211,238,0.35);
-          box-shadow: 0 6px 16px rgba(34,211,238,0.25);
-          font-weight: 800;
-          letter-spacing: .2px;
-          color: #e0f2fe;
-        }
-        .mobile-cta:hover { filter: brightness(1.1); }
-
         .nav-button {
           padding: 0.5rem 0.9rem;
           font-weight: 600;
@@ -942,7 +931,7 @@ export default function Navbar() {
         }
 
         .user-info {
-          display: flex;
+          /* flex applied via Tailwind (md:flex); do not force display here so 'hidden' works on mobile */
           align-items: center;
           gap: 0.5rem;
           padding: 0.4rem 0.8rem;
@@ -1037,6 +1026,9 @@ export default function Navbar() {
         .brand-text { background: linear-gradient(90deg,#67e8f9,#60a5fa); -webkit-background-clip: text; background-clip: text; color: transparent; }
         .brand-text.glow { text-shadow: 0 0 8px rgba(34,211,238,0.6); }
         .beta-badge { font-size: 10px; font-weight: 900; color: #0b1220; background: linear-gradient(90deg,#fef08a,#fca5a5); padding: 2px 6px; border-radius: 999px; margin-left: 6px; }
+        @media (max-width: 640px) {
+          .beta-badge { font-size: 9px; padding: 1px 5px; }
+        }
         .slogan {
           font-size: 11px;
           color: #c7f9ff;
@@ -1055,6 +1047,10 @@ export default function Navbar() {
             linear-gradient(180deg, rgba(34,211,238,.20), rgba(59,130,246,.14));
           box-shadow: 0 6px 14px rgba(34,211,238,.18);
           backdrop-filter: blur(2px);
+        }
+        @media (max-width: 768px) {
+          .slogan { font-size: 10px; padding: 1px 6px; gap: 3px; }
+          .slogan-brain svg { width: 12px; height: 12px; }
         }
         .slogan-brain { display: inline-flex; align-items: center; justify-content: center; color: #facc15; /* amber */ margin-left: 2px; position: relative; top: .5px; filter: drop-shadow(0 0 6px rgba(250,204,21,.5)); animation: brainPulse 2.4s ease-in-out infinite; }
         .slogan-brain svg { display: block; width: 14px; height: 14px; }
@@ -1535,12 +1531,12 @@ export default function Navbar() {
         <nav className="px-3 py-2 w-full sticky top-0 z-40 shadow-lg border-b border-cyan-900/40 text-white">
           <div className="flex items-center justify-between w-full px-2 sm:px-4 lg:px-6 min-w-0">
             {/* left: logo */}
-            <div className="brand-wrap flex items-center gap-2 min-w-0">
-              <img src="/flow1.png" alt="Logo" className="logo-animation w-8 h-8 rounded-full border border-cyan-400 p-1 shadow-md" />
+            <div className="brand-wrap flex items-center gap-1.5 sm:gap-2 min-w-0">
+              <img src="/flow1.png" alt="Logo" className="logo-animation w-6 h-6 sm:w-8 sm:h-8 rounded-full border border-cyan-400 p-0.5 sm:p-1 shadow-md" />
               <div className="flex flex-col items-start leading-tight min-w-0">
                 <Link
                   href="/"
-                  className={`text-lg sm:text-xl font-extrabold tracking-tight brand-text transition truncate max-w-[40vw] sm:max-w-none ${
+                  className={`text-base sm:text-xl font-extrabold tracking-tight brand-text transition truncate max-w-[40vw] sm:max-w-none ${
                     isActive("/") ? "glow" : ""
                   }`}
                 >
@@ -1637,15 +1633,14 @@ export default function Navbar() {
               )}
             </div>
 
-            {/* right: profile + mobile burger */}
-            <div className="flex items-center gap-2 flex-shrink-0">
+            {/* right: (md+) profile/logout • (sm) hamburger only */}
+            <div className="hidden md:flex items-center gap-2 flex-shrink-0">
               {(role === "admin" || role === "team_manager" || role === "member") && (
                 <>
-                  
                   <button
                     type="button"
                     onClick={() => setIsProfileOpen(true)}
-                    className={`user-info hidden md:flex ${isActive(profilePath) ? "active" : ""}`}
+                    className={`user-info ${isActive(profilePath) ? "active" : ""}`}
                     aria-haspopup="dialog"
                     aria-expanded={isProfileOpen}
                     aria-label="Open profile widgets"
@@ -1661,16 +1656,24 @@ export default function Navbar() {
                       <span className="account-label">My Account</span>
                     </div>
                   </button>
-                  <button onClick={openLogoutModal} className="hidden md:block nav-button bg-red-600 hover:bg-red-700 text-white">
+                  <button
+                    onClick={openLogoutModal}
+                    className="nav-button bg-red-600 hover:bg-red-700 text-white"
+                  >
                     Logout
                   </button>
                 </>
               )}
-              <div className="md:hidden">
-                <button onClick={toggleMobileMenu} className="text-white p-2 rounded-full hover:bg-gray-700 transition min-h-[44px] min-w-[44px]">
-                  {isMobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
-                </button>
-              </div>
+            </div>
+            {/* mobile: hamburger only */}
+            <div className="md:hidden flex items-center gap-2 flex-shrink-0">
+              <button
+                onClick={toggleMobileMenu}
+                className="text-white p-2 rounded-full hover:bg-gray-700 transition min-h-[44px] min-w-[44px]"
+                aria-label="Open menu"
+              >
+                {isMobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
+              </button>
             </div>
           </div>
 
@@ -1714,9 +1717,9 @@ export default function Navbar() {
                         Managerial
                       </button>
 
-                      {/* Mobile: open Execute modal (CTA) */}
-                      <button onClick={() => { setIsExecuteOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full mobile-cta">
-                        Execute Now
+                      {/* Mobile: open Execute modal */}
+                      <button onClick={() => { setIsExecuteOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">
+                        Towards Greatness
                       </button>
 
                       <button onClick={() => { handleAddMember(); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">Add Member</button>
@@ -1736,8 +1739,8 @@ export default function Navbar() {
                       <button onClick={() => { setIsManagerialOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">
                         Managerial
                       </button>
-                  <button onClick={() => { setIsExecuteOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full mobile-cta">
-                    Execute Now
+                  <button onClick={() => { setIsExecuteOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">
+                    Towards Greatness
                   </button>
                     </>
                   )}
@@ -1750,8 +1753,8 @@ export default function Navbar() {
                       <Link href="/dashboard/member/closeMyDay" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member/closeMyDay") ? "active" : ""}`}>CloseMyDay</Link>
                       {/* MyPerformance removed from mobile nav (in Profile) */}
 
-                      <button onClick={() => { setIsExecuteOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full mobile-cta">
-                        Execute Now
+                      <button onClick={() => { setIsExecuteOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">
+                        Towards Greatness
                       </button>
                     </>
                   )}
