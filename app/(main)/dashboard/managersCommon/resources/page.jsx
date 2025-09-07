@@ -66,7 +66,7 @@ export default function ResourceManagementPage() {
       const defaultPurchase = "2025-01-01";
       const payload = {
         name: form.name.trim(),
-        assetTag: simpleMode ? undefined : (form.assetTag.trim() || undefined),
+        assetTag: (form.assetTag && form.assetTag.trim()) || undefined,
         categoryId,
         type: simpleMode ? undefined : (form.type.trim() || undefined),
         serialNo: simpleMode ? undefined : (form.serialNo.trim() || undefined),
@@ -180,27 +180,36 @@ export default function ResourceManagementPage() {
       </Card>
     </div>
     {createOpen && (
-      <div className="fixed inset-0 z-[1000] bg-black/50 flex items-start justify-center" onClick={() => !busy && setCreateOpen(false)}>
-        <div className="mt-8 w-[96vw] max-w-3xl" onClick={(e) => e.stopPropagation()}>
-          <Card>
+      <div className="fixed inset-0 z-[1000] bg-black/50 flex items-center justify-center p-4 sm:p-6" onClick={() => !busy && setCreateOpen(false)}>
+        <div
+          className="w-[96vw] max-w-5xl my-6 sm:my-8"
+          style={{ maxHeight: "calc(100vh - 96px)" }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Card className="overflow-hidden">
             <CardHeader className="flex items-center justify-between">
               <div className="font-semibold text-gray-900">Add Resource</div>
               <div className="flex items-center gap-2">
                 <Button size="sm" variant="light" onClick={() => setCreateOpen(false)} disabled={busy}>Close</Button>
               </div>
             </CardHeader>
-            <CardBody>
+            <CardBody className="overflow-y-auto" style={{ maxHeight: "calc(100vh - 180px)" }}>
               <div className="mb-3 flex items-center gap-2 text-xs">
                 <span className="text-gray-600">Mode:</span>
                 <button type="button" className={`px-2 py-1 rounded border ${simpleMode ? 'bg-teal-50 border-teal-200 text-teal-700' : 'bg-white border-gray-200 text-gray-700'}`} onClick={() => setSimpleMode(true)}>Quick Add</button>
                 <button type="button" className={`px-2 py-1 rounded border ${!simpleMode ? 'bg-teal-50 border-teal-200 text-teal-700' : 'bg-white border-gray-200 text-gray-700'}`} onClick={() => setSimpleMode(false)}>Full Form</button>
               </div>
-              <form className="grid grid-cols-1 md:grid-cols-2 gap-3" onSubmit={submit}>
+              <form className="grid grid-cols-1 md:grid-cols-3 gap-4" onSubmit={submit}>
                 <div>
                   <label className="block text-xs text-gray-700 mb-1">Name</label>
                   <input name="name" value={form.name} onChange={onChange} className="w-full px-3 py-2 border rounded" required />
                 </div>
-                {!simpleMode && (
+                {simpleMode ? (
+                  <div>
+                    <label className="block text-xs text-gray-700 mb-1">Desk</label>
+                    <input name="assetTag" value={form.assetTag} onChange={onChange} className="w-full px-3 py-2 border rounded" />
+                  </div>
+                ) : (
                   <div>
                     <label className="block text-xs text-gray-700 mb-1">Assign Tag</label>
                     <input name="assetTag" value={form.assetTag} onChange={onChange} className="w-full px-3 py-2 border rounded" />
@@ -227,38 +236,40 @@ export default function ResourceManagementPage() {
                   </div>
                 )}
                 {!simpleMode && (
+                  <div>
+                    <label className="block text-xs text-gray-700 mb-1">Purchase Date</label>
+                    <input type="date" name="purchaseDate" value={form.purchaseDate} onChange={onChange} className="w-full px-3 py-2 border rounded" />
+                  </div>
+                )}
+                {!simpleMode && (
                   <>
                     <div>
-                      <label className="block text-xs text-gray-700 mb-1">Purchase Date</label>
-                      <input type="date" name="purchaseDate" value={form.purchaseDate} onChange={onChange} className="w-full px-3 py-2 border rounded" />
+                      <label className="block text-xs text-gray-700 mb-1">Type</label>
+                      <input name="type" value={form.type} onChange={onChange} className="w-full px-3 py-2 border rounded" />
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-700 mb-1">Cost</label>
-                      <input type="number" name="cost" value={form.cost} onChange={onChange} className="w-full px-3 py-2 border rounded" />
+                      <label className="block text-xs text-gray-700 mb-1">Serial No</label>
+                      <input name="serialNo" value={form.serialNo} onChange={onChange} className="w-full px-3 py-2 border rounded" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-700 mb-1">Vendor</label>
+                      <input name="vendor" value={form.vendor} onChange={onChange} className="w-full px-3 py-2 border rounded" />
                     </div>
                   </>
                 )}
-                <div>
-                  <label className="block text-xs text-gray-700 mb-1">Type</label>
-                  <input name="type" value={form.type} onChange={onChange} className="w-full px-3 py-2 border rounded" />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-700 mb-1">Serial No</label>
-                  <input name="serialNo" value={form.serialNo} onChange={onChange} className="w-full px-3 py-2 border rounded" />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-700 mb-1">Vendor</label>
-                  <input name="vendor" value={form.vendor} onChange={onChange} className="w-full px-3 py-2 border rounded" />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-700 mb-1">Purchase Date</label>
-                  <input type="date" name="purchaseDate" value={form.purchaseDate} onChange={onChange} className="w-full px-3 py-2 border rounded" />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-700 mb-1">Warranty End</label>
-                  <input type="date" name="warrantyEnd" value={form.warrantyEnd} onChange={onChange} className="w-full px-3 py-2 border rounded" />
-                </div>
-                <div>
+                {!simpleMode && (
+                  <>
+                    <div className="md:col-span-1">
+                      <label className="block text-xs text-gray-700 mb-1">Purchase Date</label>
+                      <input type="date" name="purchaseDate" value={form.purchaseDate} onChange={onChange} className="w-full px-3 py-2 border rounded" />
+                    </div>
+                    <div className="md:col-span-1">
+                      <label className="block text-xs text-gray-700 mb-1">Warranty End</label>
+                      <input type="date" name="warrantyEnd" value={form.warrantyEnd} onChange={onChange} className="w-full px-3 py-2 border rounded" />
+                    </div>
+                  </>
+                )}
+                <div className="md:col-span-1">
                   <label className="block text-xs text-gray-700 mb-1">Cost</label>
                   <input type="number" name="cost" value={form.cost} onChange={onChange} className="w-full px-3 py-2 border rounded" />
                 </div>
@@ -279,25 +290,29 @@ export default function ResourceManagementPage() {
                     <option value="retired">Retired</option>
                   </select>
                 </div>
-                <div className="md:col-span-2">
-                  <label className="block text-xs text-gray-700 mb-1">Assigned To</label>
-                  <select name="assignedTo" value={form.assignedTo} onChange={onChange} className="w-full px-3 py-2 border rounded">
-                    <option value="">(none)</option>
-                    {(teamData?.users || []).filter((u) => u.role === 'member' || u.role === 'team_manager').map((u) => (
-                      <option key={u.id} value={u.id}>{u.name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="md:col-span-2">
-                  <label className="block text-xs text-gray-700 mb-1">Notes</label>
-                  <textarea name="notes" value={form.notes} onChange={onChange} className="w-full px-3 py-2 border rounded" rows={3} />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="inline-flex items-center gap-2 text-xs text-gray-700">
-                    <input type="checkbox" checked={issueNow} onChange={(e) => setIssueNow(e.target.checked)} /> Issue now (create assign log)
-                  </label>
-                </div>
-                <div className="md:col-span-2 flex justify-end gap-2">
+                {!simpleMode && (
+                  <>
+                    <div className="md:col-span-3">
+                      <label className="block text-xs text-gray-700 mb-1">Assigned To</label>
+                      <select name="assignedTo" value={form.assignedTo} onChange={onChange} className="w-full px-3 py-2 border rounded">
+                        <option value="">(none)</option>
+                        {(teamData?.users || []).filter((u) => u.role === 'member' || u.role === 'team_manager').map((u) => (
+                          <option key={u.id} value={u.id}>{u.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="md:col-span-3">
+                      <label className="block text-xs text-gray-700 mb-1">Notes</label>
+                      <textarea name="notes" value={form.notes} onChange={onChange} className="w-full px-3 py-2 border rounded" rows={3} />
+                    </div>
+                    <div className="md:col-span-3">
+                      <label className="inline-flex items-center gap-2 text-xs text-gray-700">
+                        <input type="checkbox" checked={issueNow} onChange={(e) => setIssueNow(e.target.checked)} /> Issue now (create assign log)
+                      </label>
+                    </div>
+                  </>
+                )}
+                <div className="md:col-span-3 flex justify-end gap-2">
                   <Button type="button" variant="light" onClick={() => setCreateOpen(false)} disabled={busy}>Cancel</Button>
                   <Button disabled={busy}>{busy ? "Saving…" : "Create Resource"}</Button>
                 </div>

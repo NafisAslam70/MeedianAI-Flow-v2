@@ -13,7 +13,6 @@ export default function MeedCommunityPage() {
   const users = Array.isArray(usersData?.users) ? usersData.users : [];
   const usersById = useMemo(() => users.reduce((acc, u) => { acc[Number(u.id)] = u; return acc; }, {}), [users]);
   const [openComments, setOpenComments] = useState({}); // {postId: true}
-  const [commentText, setCommentText] = useState("");
 
   const [showModal, setShowModal] = useState(false);
   const [title, setTitle] = useState("");
@@ -104,6 +103,7 @@ export default function MeedCommunityPage() {
   ];
 
   const Card = ({ p }) => {
+    const commentRef = useRef(null);
     const a = (p.attachments && p.attachments[0]) || null;
     const isImg = a && String(a.mimeType||"").startsWith("image/");
     const isPdf = a && String(a.mimeType||"").includes("pdf");
@@ -155,8 +155,8 @@ export default function MeedCommunityPage() {
                 ))}
               </div>
               <div className="flex items-center gap-2">
-                <input className="flex-1 border rounded-lg px-3 py-1.5 text-sm" placeholder="Write a comment" value={commentText} onChange={(e)=>setCommentText(e.target.value)} />
-                <button className="px-3 py-1.5 rounded-lg bg-gray-900 text-white text-xs" onClick={async ()=>{ if(!commentText.trim()) return; const res = await fetch('/api/community/comments',{method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ postId: p.id, content: commentText.trim() })}); if(res.ok){ setCommentText(''); const r = await fetch(`/api/community/comments?postId=${p.id}`); const j = await r.json(); setOpenComments((prev)=>({...prev, [String(p.id)]: j.comments || []})); mutate(); } }}>
+                <input ref={commentRef} className="flex-1 border rounded-lg px-3 py-1.5 text-sm" placeholder="Write a comment" />
+                <button className="px-3 py-1.5 rounded-lg bg-gray-900 text-white text-xs" onClick={async ()=>{ const txt = commentRef.current?.value?.trim(); if(!txt) return; const res = await fetch('/api/community/comments',{method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ postId: p.id, content: txt })}); if(res.ok){ if(commentRef.current) commentRef.current.value=''; const r = await fetch(`/api/community/comments?postId=${p.id}`); const j = await r.json(); setOpenComments((prev)=>({...prev, [String(p.id)]: j.comments || []})); mutate(); } }}>
                   Post
                 </button>
               </div>
