@@ -79,6 +79,8 @@ export default function SlotsPage() {
   const [tab, setTab] = useState("full"); // full | nmri | amri | onmri
   const [showMeta, setShowMeta] = useState(false);
   const [draft, setDraft] = useState([]);
+  const [metaBlock, setMetaBlock] = useState("all"); // all | 0..6
+  const [metaQuery, setMetaQuery] = useState("");
   const [showBulk, setShowBulk] = useState(false);
   const [bulkAssignments, setBulkAssignments] = useState({});
   const slotTemplateByNo = useMemo(() => new Map(TEMPLATE.map((t) => [t.no, t])), []);
@@ -225,8 +227,27 @@ export default function SlotsPage() {
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setShowMeta(false)}>
           <div className="w-full max-w-7xl max-h-[90vh] bg-white rounded-2xl border shadow-xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
             {/* Sticky header */}
-            <div className="sticky top-0 z-10 bg-white border-b px-4 py-3 flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-gray-900">Slots Meta</h3>
+            <div className="sticky top-0 z-10 bg-white border-b px-4 py-3 flex items-center gap-2">
+              <h3 className="text-lg font-semibold text-gray-900 mr-auto">Slots Meta</h3>
+              {/* Filters (match Bulk UI) */}
+              <div className="hidden md:flex items-center gap-2 mr-2">
+                <div className="text-xs text-gray-600">Block:</div>
+                {["all",0,1,2,3,4,5,6].map((b) => (
+                  <button
+                    key={String(b)}
+                    className={`px-2 py-1 rounded-lg border text-xs ${metaBlock===String(b)?"bg-teal-600 text-white border-teal-600":"bg-white border-gray-200 text-gray-800"}`}
+                    onClick={() => setMetaBlock(String(b))}
+                  >
+                    {b==="all"?"All":`B${b}`}
+                  </button>
+                ))}
+                <input
+                  placeholder="Search name/time"
+                  className="ml-2 border rounded-lg px-2 py-1 text-sm w-52"
+                  value={metaQuery}
+                  onChange={(e)=>setMetaQuery(e.target.value)}
+                />
+              </div>
               <div className="flex items-center gap-2">
                 <button
                   className="px-3 py-1.5 rounded-lg border text-sm bg-white border-gray-200 text-gray-800 hover:bg-gray-50"
@@ -277,10 +298,12 @@ export default function SlotsPage() {
               </div>
             </div>
             <div className="px-4 pb-4 overflow-auto max-h-[80vh]">
-              <div className="min-w-[840px]">
+              <div className="min-w-[1040px]">
                 <table className="min-w-full table-fixed border-collapse text-sm">
                   <colgroup>
+                    <col className="w-[80px]" />
                     <col className="w-[90px]" />
+                    <col className="w-[100px]" />
                     <col />
                     <col className="w-[140px]" />
                     <col className="w-[140px]" />
@@ -288,7 +311,9 @@ export default function SlotsPage() {
                   </colgroup>
                   <thead>
                     <tr className="bg-gray-50 border-b">
-                      <th className="text-left px-3 py-2">ID</th>
+                      <th className="text-left px-3 py-2">Slot</th>
+                      <th className="text-left px-3 py-2">Block</th>
+                      <th className="text-left px-3 py-2">Type</th>
                       <th className="text-left px-3 py-2">Name</th>
                       <th className="text-left px-3 py-2">Start</th>
                       <th className="text-left px-3 py-2">End</th>
@@ -296,47 +321,68 @@ export default function SlotsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {draft.map((s, idx) => (
-                      <tr key={String(s.id)} className="border-b last:border-0">
-                        <td className="px-3 py-2 text-gray-600">{String(s.id).startsWith("new-") ? "new" : s.id}</td>
-                        <td className="px-3 py-2">
-                          <input className="border rounded px-2 py-1 w-full" value={s.name || ""} onChange={(e) => setDraft((d) => d.map((r, i) => i===idx ? { ...r, name: e.target.value } : r))} />
-                        </td>
-                        <td className="px-3 py-2">
-                          <input type="time" className="border rounded px-2 py-1 w-full" value={String(s.startTime || "07:00:00").slice(0,5)} onChange={(e) => setDraft((d) => d.map((r, i) => i===idx ? { ...r, startTime: `${e.target.value}:00` } : r))} />
-                        </td>
-                        <td className="px-3 py-2">
-                          <input type="time" className="border rounded px-2 py-1 w-full" value={String(s.endTime || "08:00:00").slice(0,5)} onChange={(e) => setDraft((d) => d.map((r, i) => i===idx ? { ...r, endTime: `${e.target.value}:00` } : r))} />
-                        </td>
-                        <td className="px-3 py-2">
-                          <button
-                            className="px-2 py-1 text-xs rounded bg-red-50 text-red-700 border border-red-200 hover:bg-red-100"
-                            onClick={async () => {
-                              if (String(s.id).startsWith("new-")) {
-                                setDraft((d) => d.filter((_, i) => i !== idx));
-                              } else {
-                                if (!confirm("Delete this slot? Assignments will be cleared.")) return;
-                                try {
-                                  const res = await fetch("/api/admin/manageMeedian?section=slots", {
-                                    method: "DELETE",
-                                    headers: { "Content-Type": "application/json" },
-                                    body: JSON.stringify({ slotId: Number(s.id), deleteSlot: true }),
-                                  });
-                                  if (!res.ok) throw new Error("Failed to delete slot");
-                                  setDraft((d) => d.filter((_, i) => i !== idx));
-                                  setSlots((prev) => prev.filter((r) => r.id !== s.id));
-                                } catch (e) {
-                                  console.error(e);
-                                  alert(e.message || "Failed to delete slot");
-                                }
-                              }
-                            }}
-                          >
-                            Delete
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {draft
+                      .filter((s) => {
+                        const idNum = Number(String(s.id).startsWith("new-") ? NaN : s.id);
+                        const t = slotTemplateByNo.get(idNum);
+                        if (metaBlock !== 'all') {
+                          if (!t || String(t.block) !== String(metaBlock)) return false;
+                        }
+                        if (metaQuery) {
+                          const q = metaQuery.toLowerCase();
+                          const time = `${String(s.startTime || '').slice(0,5)}-${String(s.endTime || '').slice(0,5)}`;
+                          if (!String(s.name || '').toLowerCase().includes(q) && !time.includes(q)) return false;
+                        }
+                        return true;
+                      })
+                      .map((s, idx) => {
+                        const idStr = String(s.id);
+                        const idNum = Number(idStr);
+                        const t = slotTemplateByNo.get(idNum);
+                        return (
+                          <tr key={idStr} className="border-b last:border-0">
+                            <td className="px-3 py-2 text-gray-600">{idStr.startsWith("new-") ? "new" : idStr}</td>
+                            <td className="px-3 py-2 text-xs text-gray-700">{t ? `B${t.block}` : "—"}</td>
+                            <td className="px-3 py-2 text-xs text-gray-700">{t ? t.type : "—"}</td>
+                            <td className="px-3 py-2">
+                              <input className="border rounded px-2 py-1 w-full" value={s.name || ""} onChange={(e) => setDraft((d) => d.map((r) => r===s ? { ...r, name: e.target.value } : r))} />
+                            </td>
+                            <td className="px-3 py-2">
+                              <input type="time" className="border rounded px-2 py-1 w-full" value={String(s.startTime || "07:00:00").slice(0,5)} onChange={(e) => setDraft((d) => d.map((r) => r===s ? { ...r, startTime: `${e.target.value}:00` } : r))} />
+                            </td>
+                            <td className="px-3 py-2">
+                              <input type="time" className="border rounded px-2 py-1 w-full" value={String(s.endTime || "08:00:00").slice(0,5)} onChange={(e) => setDraft((d) => d.map((r) => r===s ? { ...r, endTime: `${e.target.value}:00` } : r))} />
+                            </td>
+                            <td className="px-3 py-2">
+                              <button
+                                className="px-2 py-1 text-xs rounded bg-red-50 text-red-700 border border-red-200 hover:bg-red-100"
+                                onClick={async () => {
+                                  if (idStr.startsWith("new-")) {
+                                    setDraft((d) => d.filter((r) => r !== s));
+                                  } else {
+                                    if (!confirm("Delete this slot? Assignments will be cleared.")) return;
+                                    try {
+                                      const res = await fetch("/api/admin/manageMeedian?section=slots", {
+                                        method: "DELETE",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({ slotId: Number(s.id), deleteSlot: true }),
+                                      });
+                                      if (!res.ok) throw new Error("Failed to delete slot");
+                                      setDraft((d) => d.filter((r) => r !== s));
+                                      setSlots((prev) => prev.filter((r) => r.id !== s.id));
+                                    } catch (e) {
+                                      console.error(e);
+                                      alert(e.message || "Failed to delete slot");
+                                    }
+                                  }
+                                }}
+                              >
+                                Delete
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                   </tbody>
                 </table>
               </div>

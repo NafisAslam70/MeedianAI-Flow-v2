@@ -232,9 +232,9 @@ export default function GeneralDashboard() {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.6, ease: "easeOut" }}
-      className="fixed inset-0 bg-gradient-to-br from-teal-100/50 to-purple-100/50 backdrop-blur-md p-3 sm:p-6 flex items-center justify-center overflow-hidden"
+      className="bg-gradient-to-br from-teal-100/50 to-purple-100/50 backdrop-blur-md p-3 sm:p-6 overflow-x-hidden overflow-y-auto sm:overflow-hidden sm:fixed sm:inset-0 sm:flex sm:items-center sm:justify-center"
     >
-      <div className="w-full h-full bg-white/80 backdrop-blur-lg rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-8 flex flex-col gap-4 sm:gap-6 relative border border-white/50">
+      <div className="w-full sm:h-full bg-white/80 backdrop-blur-lg rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-8 flex flex-col gap-4 sm:gap-6 relative border border-white/50">
         <AnimatePresence>
           {error && (
             <motion.p
@@ -1092,6 +1092,8 @@ export default function GeneralDashboard() {
             </motion.div>
           )}
         </AnimatePresence>
+        {/* Floating chat dock (mobile-only) */}
+        <ChatDock />
       </div>
     </motion.div>
   );
@@ -1615,6 +1617,38 @@ function NMRIPlanView({ slots, members, slotData }) {
             ))}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+// Floating chat dock: DELU GPT and Chat (collapsible)
+function ChatDock() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="fixed bottom-4 right-4 z-40 flex flex-col items-end gap-2 sm:hidden">
+      {open && (
+        <div className="mb-2 w-56 rounded-2xl border bg-white/95 shadow-lg p-3 space-y-2 text-sm">
+          <div className="font-semibold text-gray-900">Quick Chats</div>
+          <button className="w-full text-left px-3 py-2 rounded-lg border bg-white hover:bg-gray-50 text-gray-800">General Chat</button>
+          <button className="w-full text-left px-3 py-2 rounded-lg border bg-white hover:bg-gray-50 text-gray-800">Team Chat</button>
+          <button className="w-full text-left px-3 py-2 rounded-lg border bg-white hover:bg-gray-50 text-gray-800">Support</button>
+        </div>
+      )}
+      <div className="flex items-center gap-2">
+        <button
+          title="DELU GPT"
+          className="w-12 h-12 rounded-full shadow-md border bg-purple-600 text-white flex items-center justify-center hover:bg-purple-700"
+        >
+          AI
+        </button>
+        <button
+          title="Chat Dock"
+          onClick={() => setOpen((v) => !v)}
+          className="w-12 h-12 rounded-full shadow-md border bg-white text-gray-800 flex items-center justify-center hover:bg-gray-50"
+        >
+          💬
+        </button>
       </div>
     </div>
   );
