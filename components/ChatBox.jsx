@@ -84,6 +84,8 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
   const chatContainerRef = useRef(null);
   const historyContainerRef = useRef(null);
   const [jumpKey, setJumpKey] = useState(0);
+  // Collapsible dock for bottom chat tools
+  const [dockExpanded, setDockExpanded] = useState(false);
 
   // position + drag
   const [pos, setPos] = useState({ x: 16, y: -16 });
@@ -470,6 +472,19 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
         )}
 
         <div className="flex gap-2 items-center flex-wrap">
+          {/* Dock toggle (always visible) */}
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={() => setDockExpanded((v) => !v)}
+            className={`p-2.5 sm:p-3 rounded-full shadow-lg transition-transform min-w-[44px] min-h-[44px] border ${dockExpanded ? 'bg-gray-900 text-white border-gray-800' : 'bg-white text-gray-900 border-gray-200 hover:bg-gray-50'}`}
+            title={dockExpanded ? 'Hide chat tools' : 'Show chat tools'}
+            aria-label={dockExpanded ? 'Hide chat tools' : 'Show chat tools'}
+          >
+            {dockExpanded ? '×' : '⋯'}
+          </motion.button>
+
+          {dockExpanded && (
+            <>
           <motion.button
             whileTap={{ scale: 0.95 }}
             onClick={() => {
@@ -511,6 +526,8 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
 
           <ScheduleMeet userDetails={userDetails} position={pos} closeAllModals={closeAll} />
           <QuickCallInvite userDetails={userDetails} position={pos} closeAllModals={closeAll} />
+            </>
+          )}
         </div>
 
         <AnimatePresence>

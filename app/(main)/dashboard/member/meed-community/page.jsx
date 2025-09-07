@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo } from "react";
 import useSWR from "swr";
 import { useSession } from "next-auth/react";
 
@@ -8,7 +8,10 @@ const fetcher = (u) => fetch(u, { headers: { "Content-Type": "application/json" 
 export default function MeedCommunityPage() {
   const { data: session } = useSession();
   const { data, mutate } = useSWR("/api/community/posts", fetcher);
+  const { data: usersData } = useSWR("/api/member/users", fetcher);
   const posts = data?.posts || [];
+  const users = Array.isArray(usersData?.users) ? usersData.users : [];
+  const usersById = useMemo(() => users.reduce((acc, u) => { acc[Number(u.id)] = u; return acc; }, {}), [users]);
   const [openComments, setOpenComments] = useState({}); // {postId: true}
   const [commentText, setCommentText] = useState("");
 
@@ -89,9 +92,9 @@ export default function MeedCommunityPage() {
     return (
       <div className="rounded-2xl border bg-white overflow-hidden shadow hover:shadow-md transition">
         <div className="flex items-center gap-2 p-3">
-          <img src={session?.user?.image || "/default-avatar.png"} alt="avatar" className="w-7 h-7 rounded-full border" />
+          <img src={(usersById[p.userId]?.image) || "/default-avatar.png"} alt="avatar" className="w-7 h-7 rounded-full border object-cover" />
           <div className="min-w-0">
-            <div className="text-[13px] font-semibold text-gray-900 truncate">{session?.user?.name || "Meedian"}</div>
+            <div className="text-[13px] font-semibold text-gray-900 truncate">{usersById[p.userId]?.name || "Meedian"}</div>
             <div className="text-[11px] text-gray-500">{fmtRel(p.createdAt)}</div>
           </div>
         </div>

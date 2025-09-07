@@ -944,6 +944,31 @@ export default function Navbar() {
           transform: translateY(-2px);
         }
 
+        /* Playful sparkle highlight for Community (non‑formal) */
+        .community-sparkle { position: relative; }
+        .community-sparkle::after {
+          content: '';
+          position: absolute;
+          inset: -6px;
+          border-radius: 9999px;
+          pointer-events: none;
+          box-shadow: 0 0 14px rgba(244,114,182,0.18), 0 0 22px rgba(34,211,238,0.16);
+          animation: shimmerRing 2.8s linear infinite;
+        }
+        .community-sparkle .sparkle-emoji {
+          position: absolute;
+          top: -4px; right: -4px;
+          font-size: 12px;
+          filter: drop-shadow(0 0 6px rgba(255,255,255,0.6));
+          animation: bounceSpark 2s ease-in-out infinite;
+        }
+        @keyframes bounceSpark { 0%,100%{ transform: translateY(0); opacity: .9; } 50%{ transform: translateY(-3px); opacity: 1; } }
+        @keyframes shimmerRing {
+          0%   { box-shadow: 0 0 10px rgba(34,211,238,0.12), 0 0 18px rgba(244,114,182,0.10); }
+          50%  { box-shadow: 0 0 20px rgba(244,114,182,0.22), 0 0 30px rgba(34,211,238,0.18); }
+          100% { box-shadow: 0 0 10px rgba(34,211,238,0.12), 0 0 18px rgba(244,114,182,0.10); }
+        }
+
         .user-info {
           /* flex applied via Tailwind (md:flex); do not force display here so 'hidden' works on mobile */
           align-items: center;
@@ -1222,6 +1247,19 @@ export default function Navbar() {
           border-left: 1px solid rgba(34,211,238,0.25);
           border-bottom: 1px solid rgba(34,211,238,0.25);
           transform-origin: center;
+        }
+        /* Formal accent for Execute Now (crisp, neutral) */
+        .formal-label {
+          display: inline-flex; align-items: center; gap: 8px;
+          padding: 2px 10px; border-radius: 9999px;
+          border: 1px solid rgba(148,163,184,0.35);
+          background: rgba(255,255,255,0.04);
+          font-weight: 800; letter-spacing: .2px;
+        }
+        .formal-accent {
+          display: inline-block; width: 6px; height: 6px; border-radius: 9999px;
+          background: linear-gradient(180deg, #22d3ee, #3b82f6);
+          box-shadow: 0 0 0 4px rgba(34,211,238,0.12);
         }
         .tooltip-title { font-weight: 800; font-size: 0.95rem; color: #bff7ff; }
         .tooltip-sub { font-size: 0.8rem; color: #b1c8d6; margin-top: 2px; margin-bottom: 6px; }
@@ -1579,8 +1617,9 @@ export default function Navbar() {
                   <Link href="/dashboard/member/closeMyDay" className={`nav-item ${isActive("/dashboard/member/closeMyDay") ? "active" : ""}`}>CloseMyDay</Link>
                   {/* Community (social icon) */}
                   <Link href="/dashboard/member/meed-community" title="Community" aria-label="Community"
-                    className={`nav-icon-button ${isActive("/dashboard/member/meed-community") ? "active" : ""}`}>
+                    className={`nav-icon-button community-sparkle ${isActive("/dashboard/member/meed-community") ? "active" : ""}`}>
                     <Instagram className="w-4 h-4" />
+                    <span className="sparkle-emoji" aria-hidden>✨</span>
                   </Link>
 
                   {/* Managerial button -> opens side sheet */}
@@ -1614,8 +1653,9 @@ export default function Navbar() {
                   <Link href="/dashboard/member/closeMyDay" className={`nav-item ${isActive("/dashboard/member/closeMyDay") ? "active" : ""}`}>CloseMyDay</Link>
                   {/* Community (social icon) */}
                   <Link href="/dashboard/member/meed-community" title="Community" aria-label="Community"
-                    className={`nav-icon-button ${isActive("/dashboard/member/meed-community") ? "active" : ""}`}>
+                    className={`nav-icon-button community-sparkle ${isActive("/dashboard/member/meed-community") ? "active" : ""}`}>
                     <Instagram className="w-4 h-4" />
+                    <span className="sparkle-emoji" aria-hidden>✨</span>
                   </Link>
                   {/* MyPerformance removed from center nav (available in Profile) */}
 
@@ -1645,8 +1685,9 @@ export default function Navbar() {
                   <Link href="/dashboard/member/meed-repo" className={`nav-item ${isActive("/dashboard/member/meed-repo") ? "active" : ""}`}>Meed Repo</Link>
                   {/* Community (social icon) */}
                   <Link href="/dashboard/member/meed-community" title="Community" aria-label="Community"
-                    className={`nav-icon-button ${isActive("/dashboard/member/meed-community") ? "active" : ""}`}>
+                    className={`nav-icon-button community-sparkle ${isActive("/dashboard/member/meed-community") ? "active" : ""}`}>
                     <Instagram className="w-4 h-4" />
+                    <span className="sparkle-emoji" aria-hidden>✨</span>
                   </Link>
                   {/* MyPerformance removed from center nav (available in Profile) */}
 
@@ -1749,12 +1790,15 @@ export default function Navbar() {
 
                       {/* Mobile: open Execute modal */}
                       <button onClick={() => { setIsExecuteOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">
-                        Towards Greatness
+                        <span className="formal-accent" aria-hidden />
+                        <span className="formal-label">Execute Now</span>
                       </button>
 
                       <button onClick={() => { handleAddMember(); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">Add Member</button>
                       <button onClick={() => { handleManageMeedian(); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">Manage Meedian</button>
-                      <Link href="/dashboard/member/meed-community" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member/meed-community") ? "active" : ""}`}>Community</Link>
+                      <Link href="/dashboard/member/meed-community" onClick={toggleMobileMenu} className={`mobile-menu-item community-sparkle ${isActive("/dashboard/member/meed-community") ? "active" : ""}`}>
+                        Community <span className="sparkle-emoji" aria-hidden>✨</span>
+                      </Link>
                       {/* MyPerformance removed from mobile nav (in Profile) */}
                     </>
                   )}
@@ -1771,9 +1815,12 @@ export default function Navbar() {
                     Managerial
                   </button>
                   <button onClick={() => { setIsExecuteOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">
-                    Towards Greatness
+                    <span className="formal-accent" aria-hidden />
+                    <span className="formal-label">Execute Now</span>
                   </button>
-                  <Link href="/dashboard/member/meed-community" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member/meed-community") ? "active" : ""}`}>Community</Link>
+                  <Link href="/dashboard/member/meed-community" onClick={toggleMobileMenu} className={`mobile-menu-item community-sparkle ${isActive("/dashboard/member/meed-community") ? "active" : ""}`}>
+                    Community <span className="sparkle-emoji" aria-hidden>✨</span>
+                  </Link>
                     </>
                   )}
 
@@ -1784,11 +1831,14 @@ export default function Navbar() {
                       <Link href="/dashboard/member/myMeedRituals" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member/myMeedRituals") ? "active" : ""}`}>MyMRIs</Link>
                       <Link href="/dashboard/member/closeMyDay" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member/closeMyDay") ? "active" : ""}`}>CloseMyDay</Link>
                       <Link href="/dashboard/member/meed-repo" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member/meed-repo") ? "active" : ""}`}>Meed Repo</Link>
-                      <Link href="/dashboard/member/meed-community" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member/meed-community") ? "active" : ""}`}>Community</Link>
+                      <Link href="/dashboard/member/meed-community" onClick={toggleMobileMenu} className={`mobile-menu-item community-sparkle ${isActive("/dashboard/member/meed-community") ? "active" : ""}`}>
+                        Community <span className="sparkle-emoji" aria-hidden>✨</span>
+                      </Link>
                       {/* MyPerformance removed from mobile nav (in Profile) */}
 
                       <button onClick={() => { setIsExecuteOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">
-                        Towards Greatness
+                        <span className="formal-accent" aria-hidden />
+                        <span className="formal-label">Execute Now</span>
                       </button>
                     </>
                   )}
