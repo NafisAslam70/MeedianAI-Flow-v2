@@ -21,7 +21,8 @@ import {
   MessageSquare,
   Send,
   HelpCircle,
-  Brain
+  Brain,
+  Boxes
 } from "lucide-react";
 import AboutMeedModal from "@/components/AboutMeedModal";
 import { createPortal } from "react-dom";
@@ -551,6 +552,18 @@ export default function Navbar() {
             </span>
             <ArrowRight size={16} className="row-go" />
           </a>
+
+          <button
+            className="action-row"
+            onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/managersCommon/resources"); }}
+          >
+            <span className="row-icon"><Boxes size={18} /></span>
+            <span className="row-main">
+              <span className="row-title">Resource Management</span>
+              <span className="row-sub">Track equipment, rooms, and assets</span>
+            </span>
+            <ArrowRight size={16} className="row-go" />
+          </button>
         </div>
       </aside>
     </div>

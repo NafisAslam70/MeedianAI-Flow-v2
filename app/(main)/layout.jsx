@@ -54,7 +54,7 @@ export default function MainLayout({ children }) {
   }
 
   return (
-    <div className="flex flex-col min-h-screen bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 dark:from-slate-900 dark:via-slate-900/90 dark:to-slate-950 text-slate-900 dark:text-slate-100 relative overflow-hidden">
+    <div className="flex flex-col h-screen bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 dark:from-slate-900 dark:via-slate-900/90 dark:to-slate-950 text-slate-900 dark:text-slate-100 relative overflow-hidden">
       <div className="absolute inset-0 pointer-events-none">
         <div className="animate-float">
           {positions.map((pos, i) => (
@@ -80,7 +80,7 @@ export default function MainLayout({ children }) {
         .animate-float div { animation: float linear infinite; }
       `}</style>
       <Navbar />
-      <main className="flex-1 bg-white/80 dark:bg-slate-900/70 backdrop-blur-sm relative z-10 overflow-y-auto md:overflow-y-hidden text-slate-900 dark:text-slate-100">
+      <main className="flex-1 bg-white/80 dark:bg-slate-900/70 backdrop-blur-sm relative z-10 overflow-y-auto text-slate-900 dark:text-slate-100">
         <div className="w-full max-w-screen-2xl mx-auto px-3 sm:px-4 lg:px-6 py-3 sm:py-4 lg:py-6 text-slate-900 dark:text-slate-100">
           {children}
         </div>

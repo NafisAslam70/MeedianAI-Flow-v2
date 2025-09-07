@@ -1,0 +1,36 @@
+Median AI Flow — Taxonomy & Change Log (chat8)
+
+Scope
+- Admin console polish: truly fixed (sticky) left sidebar for ManageMeedian, content-only scroll on the right, and light, consistent surface across the panel.
+- Keep Navbar/Footer always visible; ensure no double-scroll traps. Build on chat6 + chat7 foundations.
+
+What changed (this chat)
+- Sidebar fixation (ManageMeedian):
+  - app/(main)/dashboard/admin/manageMeedian/layout.jsx: switched the left <aside> to `sticky top-0 self-start max-h-screen overflow-y-auto`, so it stays visible while the right pane scrolls.
+  - Right pane remains the only scroll area (`overflow-y-auto`), preserving the SPA feel and keeping the footer visible.
+- General admin look (light, stable):
+  - Layout maintains the light theme, rounded panel, and border per chat6 guidance.
+  - The ManageMeedian landing stays clean and instructive; future cards/CTAs can be added without breaking the fixed shell.
+
+Context carryover
+- From chat6:
+  - Admin-first foundation, light theme; content-only scroll; footer consistency.
+  - ManageMeedian two-column grid introduced; this chat makes the left column truly fixed.
+- From chat7:
+  - Manage Meta UI plans (MRI Families, Programs, Role Definitions) with CRUD modals.
+  - MSP Codes usability (search/sort/export, seeding, coverage matrix) targeted; shell remains consistent.
+
+Acceptance snapshot (chat8)
+- Navigating within any ManageMeedian pages keeps the left sidebar fixed and visible.
+- Only the right content area scrolls; Navbar/Footer remain in place.
+- No overflow conflicts on common viewports; long sidebars scroll independently inside the fixed rail.
+
+Next (suggested for chat9)
+- Wire remaining Manage Meta CRUD modals and toasts (families/programs/roles) using the fixed shell.
+- MSP Codes UX: add search/sort/export and one-click seed; render coverage matrix.
+- Begin schedules matrix editor (classes × periods) with collision/leisure validators.
+
+Notes
+- If more height tuning is needed across device sizes, consider measuring Navbar/Footer heights and setting an explicit calc() height for the sticky rail. Current approach works with the main app’s scroll container.
+
+— End of chat8 (frozen). Continue in taxonomy_codex_chat9.txt —

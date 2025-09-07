@@ -75,7 +75,7 @@ export default function Bulk({
   return (
     <div className="w-full h-full flex flex-col gap-4">
       <div className="flex gap-4 flex-wrap">
-        {["n-mris", "mspr", "mhcp", "calendar", "times"].map((section) => (
+        {["n-mris", "mspr", "mhcp", "times"].map((section) => (
           <motion.div
             key={section}
             onClick={() => setActiveSubSection(section)}
@@ -99,7 +99,7 @@ export default function Bulk({
             transition={{ duration: 0.3 }}
             className="flex flex-col gap-4"
           >
-            <p className="text-gray-600 text-center text-lg">Select a section to manage slots, calendar, or day-close times.</p>
+            <p className="text-gray-600 text-center text-lg">Select a section to manage slots or day-close times.</p>
           </motion.div>
         ) : (
           <motion.div
@@ -249,21 +249,7 @@ export default function Bulk({
                 </div>
               </div>
             )}
-            {activeSubSection === "calendar" && (
-              <ManageCalendar
-                calendar={calendar}
-                loading={loading.calendar}
-                saving={saving.calendar}
-                onCalendarChange={handleCalendarChange}
-                onSaveCalendar={saveCalendarChanges}
-                onAddEntry={addCalendarEntry}
-                onDeleteEntry={deleteCalendarEntry}
-                error={error}
-                success={success}
-                setError={setError}
-                setSuccess={setSuccess}
-              />
-            )}
+            {/* Calendar moved to dedicated Admin > Calendar page */}
           </motion.div>
         )}
       </AnimatePresence>

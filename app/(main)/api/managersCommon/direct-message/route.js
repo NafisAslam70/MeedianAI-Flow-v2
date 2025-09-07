@@ -62,7 +62,7 @@ export async function POST(req) {
     }
 
     const userId = Number(session.user.id);
-    const { recipientId, customName, customWhatsappNumber, subject, message, note = "", contact } = await req.json();
+    const { recipientId, customName, customWhatsappNumber, subject, message, note = "", contact, includeFooter = true } = await req.json();
 
     // Validate input: either recipientId or (customName and customWhatsappNumber) must be provided
     const isCustomRecipient = !recipientId && customName?.trim() && customWhatsappNumber?.trim();
@@ -127,7 +127,8 @@ export async function POST(req) {
     }
 
     const now = new Date();
-    const compiled = `Hi ${recipientData.name}, ${sender.name} (from Meed Leadership Group) has sent you a new message. Subject: ${subject}. Message: ${message}${note.trim() ? `. Note: ${note.trim()}` : ""}. If you need assistance, please contact ${contact}. Sent on ${now.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}. Please kindly check the MeedianAI portal for more information [https://meedian-ai-flow.vercel.app/]`;
+    const footer = `Sent on ${now.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}. Please kindly check the MeedianAI portal for more information [https://meedian-ai-flow.vercel.app/]`;
+    const compiled = `Hi ${recipientData.name}, ${sender.name} (from Meed Leadership Group) has sent you a new message. Subject: ${subject}. Message: ${message}${note.trim() ? `. Note: ${note.trim()}` : ""}. If you need assistance, please contact ${contact}. ${includeFooter ? footer : ""}`.trim();
 
     // ------------------------------------------------------------------
     // Legacy writes (KEEP — so nothing interferes with existing features)

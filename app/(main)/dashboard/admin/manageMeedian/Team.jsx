@@ -26,6 +26,7 @@ export default function Team({
   handleUserMriRoleChange,
 }) {
   const [teamFilter, setTeamFilter] = useState("members");
+  const [search, setSearch] = useState("");
   const [expandedCard, setExpandedCard] = useState(null);
   const [showPasswords, setShowPasswords] = useState({});
 
@@ -56,17 +57,41 @@ export default function Team({
         <p className="text-gray-600 text-center text-lg">Loading team members...</p>
       ) : (
         <div>
-          <div className="flex justify-between items-center mb-6">
+          <div className="flex flex-wrap gap-3 items-center justify-between mb-6">
             <h2 className="text-xl font-semibold text-gray-800">Manage Team</h2>
-            <select
-              value={teamFilter}
-              onChange={(e) => setTeamFilter(e.target.value)}
-              className="mt-1 w-full sm:w-auto p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base bg-white"
-            >
-              <option value="members">Normal Team Members</option>
-              <option value="managers">Team Managers</option>
-              <option value="all">All Users</option>
-            </select>
+            <div className="flex gap-2 items-center">
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search name/email/WhatsApp"
+                className="p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base bg-white w-64"
+              />
+              <select
+                value={teamFilter}
+                onChange={(e) => setTeamFilter(e.target.value)}
+                className="p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base bg-white"
+              >
+                <option value="members">Normal Team Members</option>
+                <option value="managers">Team Managers</option>
+                <option value="all">All Users</option>
+              </select>
+              <button
+                type="button"
+                onClick={() => {
+                  const headers = ["id","name","email","role","type","member_scope","whatsapp_number","immediate_supervisor"]; 
+                  const rows = users.map((u) => headers.map((h) => u[h] ?? ""));
+                  const csv = [headers.join(","), ...rows.map((r) => r.map((v) => String(v).replaceAll('"','""')).join(","))].join("\n");
+                  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url; a.download = "team.csv"; a.click(); URL.revokeObjectURL(url);
+                }}
+                className="p-2 border border-gray-200 rounded-lg bg-white hover:bg-gray-50"
+              >
+                Export CSV
+              </button>
+            </div>
           </div>
           {users.length === 0 ? (
             <p className="text-gray-600 text-center text-lg">
@@ -80,6 +105,12 @@ export default function Team({
                     if (teamFilter === "members") return user.role === "member";
                     if (teamFilter === "managers") return user.role === "team_manager" || user.role === "admin";
                     return true;
+                  })
+                  .filter((user) => {
+                    const q = search.trim().toLowerCase();
+                    if (!q) return true;
+                    const hay = `${user.name || ""} ${user.email || ""} ${user.whatsapp_number || ""}`.toLowerCase();
+                    return hay.includes(q);
                   })
                   .map((user) => {
                     const times = userTimes?.[user.id] || {

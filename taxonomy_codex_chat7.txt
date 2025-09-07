@@ -1,0 +1,52 @@
+Median AI Flow — Taxonomy & Change Log (chat7)
+
+Starting Point (carried from chat6)
+- Admin console: fixed left sidebar (light), content-only scroll, footer visible.
+- Team governance: MSP Codes + dated assignments unified under /admin/manageMeedian/msp-codes.
+- PT model: class_parent_teachers + pt_moderator role wired.
+- Manage Meta foundations: mri_families, mri_programs, mri_program_roles, mri_role_defs + admin API sections.
+- Calendar: light theme page under Admin > Calendar; save flows working.
+
+Objectives (chat7)
+- Ship Manage Meta UIs (MRI Families, Programs, Role Definitions) with CRUD modals.
+- Improve MSP Codes usability (search/sort/export + seed standard codes + coverage matrix).
+- Prepare schedule matrices (MSP Pre/Ele) editor and validators.
+- Keep Admin console consistent: modal-driven actions; no page bounce; smooth SPA feel.
+
+Plan of Record
+1) Manage Meta UIs
+   - MRI Families: list/create/toggle/delete with validation (unique key).
+   - Programs: list/create/edit; attach to family; edit Aims/SOP; manage program roles (open/close/substitute/approve/check).
+   - Role Definitions: list/create/toggle; show usage hints; (no refactor of user_mri_roles yet).
+2) MSP Codes UX
+   - Add search/sort and CSV export on Status/Assignments.
+   - Add “Seed Standard Codes” for EMS/ESLC/EUA/EHO/PGL/PRL.
+   - Add Coverage matrix (vacant/filled/upcoming expiries by family/track).
+3) Schedules (spec + UI draft)
+   - MSP period grids (Pre/Ele) + matrix editor (class × period → { msp_code, subject }).
+   - Validate collisions and leisure cap (Elementary 7/8) before save.
+4) Member API unlockers (spec only this chat)
+   - /api/member/mris/{classes,timetable,amri} contracts for MRIStep.jsx.
+
+API/Schema (expected deltas in chat7)
+- None required for Meta basics (endpoints already exist); add minor indices if needed.
+- No schema for schedules in chat7 unless we decide to persist matrices now (tbd during implementation).
+
+Acceptance Criteria (chat7)
+- MRI Families: create/rename/toggle/delete works; duplicates prevented.
+- Programs: can create under a family, edit Aims/SOP, and manage program role grants.
+- Role Definitions: can add/toggle keys for future use.
+- MSP Codes: can search/sort/export; can one-click seed standard codes; coverage matrix renders correctly.
+- All admin actions occur in modals; layout remains fixed; footer remains visible.
+
+Risks/Notes
+- Role defs vs. enum: user_mri_roles still backed by static enum; role defs are meta for now.
+- Schedule matrices scope: we may defer persistence to chat8 if UI grows.
+
+Changelog (chat7)
+- [done] Role Definitions UI: list built-ins (from enum), CRUD custom role defs with AMRI/RMRI/NMRI categories, modal create, inline update/delete; API extended to include category.
+- [pending] Wire MRI Families UI (CRUD modals).
+- [pending] Wire Programs UI (Aims/SOP + program roles).
+- [pending] MSP Codes search/sort/export + seed + coverage matrix.
+ - [done] MSP Codes edit: inline Edit opens modal, PATCH updates code/program/family/track/title/slice/active.
+ - [pending] MSP Codes search/sort/export + seed + coverage matrix.

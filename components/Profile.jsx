@@ -37,6 +37,57 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
     note: "",
     contact: "admin@mymeedai.org",
   });
+  const [includeFooter, setIncludeFooter] = useState(true);
+  const [selectedTemplate, setSelectedTemplate] = useState("welcome");
+  const messageTemplates = [
+    {
+      key: "welcome",
+      label: "Welcome",
+      subject: "Welcome to MeedianAI",
+      body: "Hi {name}, welcome to MeedianAI. If you need anything, contact {contact}. — {sender}",
+    },
+    {
+      key: "reminder",
+      label: "Gentle Reminder",
+      subject: "Gentle Reminder",
+      body: "Hi {name}, this is a friendly reminder about your pending item. Please review at your convenience. — {sender}",
+    },
+    {
+      key: "update",
+      label: "Important Update",
+      subject: "Important Update",
+      body: "Hi {name}, here's an important update for you. Please check the portal for details. — {sender}",
+    },
+    {
+      key: "appreciation",
+      label: "Appreciation",
+      subject: "Thank You",
+      body: "Hi {name}, thank you for your great work and dedication. — {sender}",
+    },
+  ];
+  const getRecipientName = () => {
+    try {
+      if (messageData.recipientType === "existing") {
+        const u = users.find((x) => x.id === parseInt(messageData.recipientId));
+        return u?.name || "there";
+      }
+      return messageData.customName?.trim() || "there";
+    } catch {
+      return "there";
+    }
+  };
+  const applyTemplate = (key) => {
+    const t = messageTemplates.find((x) => x.key === key);
+    const sender = session?.user?.name || "Admin";
+    const name = getRecipientName();
+    const contact = messageData.contact || "";
+    if (!t) return;
+    setMessageData((prev) => ({
+      ...prev,
+      subject: t.subject,
+      message: t.body.replaceAll("{name}", name).replaceAll("{sender}", sender).replaceAll("{contact}", contact),
+    }));
+  };
   const [profileImage, setProfileImage] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [error, setError] = useState("");
@@ -192,6 +243,10 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
       ...prev,
       [name]: name === "recipientId" ? parseInt(value) || "" : value,
     }));
+    // Re-apply template on recipient or contact changes for convenience
+    if (name === "recipientId" || name === "customName" || name === "contact") {
+      if (selectedTemplate) applyTemplate(selectedTemplate);
+    }
   };
 
   const handleImageChange = (e) => {
@@ -407,7 +462,8 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
 
     // Compile message in the same format as backend
     const now = new Date();
-    const compiled = `Hi ${recipientName}, ${session?.user?.name || "System"} (from Meed Leadership Group) has sent you a new message. Subject: ${subject}. Message: ${message}${note.trim() ? `. Note: ${note.trim()}` : ""}. If you need assistance, please contact ${contact}. Sent on ${now.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}. Please kindly check the MeedianAI portal for more information [https://meedian-ai-flow.vercel.app/]`;
+    const footer = `Sent on ${now.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}. Please kindly check the MeedianAI portal for more information [https://meedian-ai-flow.vercel.app/]`;
+    const compiled = `Hi ${recipientName}, ${session?.user?.name || "System"} (from Meed Leadership Group) has sent you a new message. Subject: ${subject}. Message: ${message}${note.trim() ? `. Note: ${note.trim()}` : ""}. If you need assistance, please contact ${contact}. ${includeFooter ? footer : ""}`.trim();
 
     // Set compiled message and show confirmation modal
     setCompiledMessage(compiled);
@@ -432,6 +488,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
           message,
           note: note ?? "",
           contact,
+          includeFooter,
         }),
       });
       const data = await response.json();
@@ -451,6 +508,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
       });
       setShowMessageModal(false);
       setShowConfirmMessageModal(false);
+      setIncludeFooter(true);
       // Refetch sent messages to update the history
       const historyResponse = await fetch("/api/member/sent-messages?mode=custom", { credentials: "include" });
       if (historyResponse.ok) {
@@ -536,6 +594,12 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
       setShowLeaveModal(true);
     } else if (open === "direct") {
       setShowMessageModal(true);
+      // Prefill with Welcome template if fields are empty
+      setTimeout(() => {
+        if (!messageData.subject && !messageData.message) {
+          applyTemplate("welcome");
+        }
+      }, 0);
     } else if (open === "sent") {
       setShowSentMessageHistoryModal(true);
     } else if (open === "talk") {
@@ -564,6 +628,13 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
       }
     }
   }, [searchParams, isLoadingUsers, users]);
+
+  useEffect(() => {
+    if (showMessageModal && !messageData.subject && !messageData.message) {
+      applyTemplate(selectedTemplate || "welcome");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showMessageModal]);
 
   return (
     <motion.div
@@ -1070,6 +1141,32 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                     )}
                   </div>
                   <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 dark:text-gray-200">Template</label>
+                      <select
+                        value={selectedTemplate}
+                        onChange={(e) => { setSelectedTemplate(e.target.value); applyTemplate(e.target.value); }}
+                        className="w-full px-3 py-1.5 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 focus:ring-2 focus:ring-teal-500 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
+                        disabled={isLoading}
+                      >
+                        {messageTemplates.map((t) => (
+                          <option key={t.key} value={t.key}>{t.label}</option>
+                        ))}
+                        <option value="">Custom (no template)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="flex items-center gap-2 text-xs font-medium text-gray-700 dark:text-gray-200">
+                        <input
+                          type="checkbox"
+                          checked={includeFooter}
+                          onChange={(e) => setIncludeFooter(e.target.checked)}
+                          className="h-3.5 w-3.5 text-teal-600 focus:ring-teal-500 border-gray-300"
+                          disabled={isLoading}
+                        />
+                        Include default footer (timestamp + portal link)
+                      </label>
+                    </div>
                     <div>
                       <label className="block text-xs font-medium text-gray-700 dark:text-gray-200 flex items-center gap-1.5">
                         <FileText className="w-3.5 h-3.5 text-teal-600" />

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+export const dynamic = "force-dynamic";
 import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import {
@@ -24,6 +25,16 @@ import {
   dayCloseRequests,
   leaveRequests,
   MRI_ROLE_OPTIONS, // ✅ expose enum options via API
+  classParentTeachers,
+  Classes,
+  mspCodes,
+  mspCodeAssignments,
+  mriFamilies,
+  mriPrograms,
+  mriProgramRoles,
+  mriRoleDefs,
+  programPeriods,
+  programScheduleCells,
 } from "@/lib/schema";
 import { eq, or, inArray, and } from "drizzle-orm";
 import bcrypt from "bcrypt";
@@ -32,7 +43,9 @@ import bcrypt from "bcrypt";
 export async function GET(req) {
   const session = await auth();
   const { searchParams } = new URL(req.url);
-  const section = searchParams.get("section");
+  const rawSection = searchParams.get("section") || "";
+  const section = String(rawSection).trim();
+  const sectionLc = section.toLowerCase();
 
   if (section === "slots") {
     if (!session || !["admin", "team_manager", "member"].includes(session.user?.role)) {
@@ -167,6 +180,140 @@ export async function GET(req) {
       return NextResponse.json({ mriRoles: MRI_ROLE_OPTIONS }, { status: 200 });
     }
 
+    if (section === "posts") {
+      return NextResponse.json({ error: "Removed: use mspCodes" }, { status: 410 });
+    }
+
+    if (section === "postAssignments") {
+      return NextResponse.json({ error: "Removed: use mspCodeAssignments" }, { status: 410 });
+    }
+
+    if (section === "classTeachers") {
+      const rows = await db
+        .select({
+          id: classParentTeachers.id,
+          classId: classParentTeachers.classId,
+          userId: classParentTeachers.userId,
+          startDate: classParentTeachers.startDate,
+          endDate: classParentTeachers.endDate,
+          active: classParentTeachers.active,
+          createdAt: classParentTeachers.createdAt,
+        })
+        .from(classParentTeachers);
+      return NextResponse.json({ classTeachers: rows }, { status: 200 });
+    }
+
+    if (section === "mspCodes") {
+      const rows = await db
+        .select({
+          id: mspCodes.id,
+          code: mspCodes.code,
+          program: mspCodes.program,
+          familyKey: mspCodes.familyKey,
+          track: mspCodes.track,
+          title: mspCodes.title,
+          parentSlice: mspCodes.parentSlice,
+          active: mspCodes.active,
+          createdAt: mspCodes.createdAt,
+        })
+        .from(mspCodes);
+      return NextResponse.json({ codes: rows }, { status: 200 });
+    }
+
+    if (section === "mspCodeAssignments") {
+      const rows = await db
+        .select({
+          id: mspCodeAssignments.id,
+          mspCodeId: mspCodeAssignments.mspCodeId,
+          userId: mspCodeAssignments.userId,
+          startDate: mspCodeAssignments.startDate,
+          endDate: mspCodeAssignments.endDate,
+          isPrimary: mspCodeAssignments.isPrimary,
+          active: mspCodeAssignments.active,
+          createdAt: mspCodeAssignments.createdAt,
+        })
+        .from(mspCodeAssignments);
+      return NextResponse.json({ assignments: rows }, { status: 200 });
+    }
+    if (section === "metaRoleDefsList") {
+      const rows = await db.select().from(mriRoleDefs);
+      return NextResponse.json({ roleDefs: rows }, { status: 200 });
+    }
+    // Note: metaFamilies updates are handled under PATCH below.
+    // Note: Updates for metaPrograms, metaProgramRoles, metaRoleDefs are handled under PATCH below.
+
+    if (section === "metaFamilies") {
+      const rows = await db.select().from(mriFamilies);
+      return NextResponse.json({ families: rows }, { status: 200 });
+    }
+    if (section === "metaPrograms") {
+      const rows = await db.select().from(mriPrograms);
+      return NextResponse.json({ programs: rows }, { status: 200 });
+    }
+    if (section === "metaProgramRoles") {
+      const rows = await db.select().from(mriProgramRoles);
+      return NextResponse.json({ programRoles: rows }, { status: 200 });
+    }
+    if (section === "metaRoleDefs") {
+      const rows = await db.select().from(mriRoleDefs);
+      return NextResponse.json({ roleDefs: rows }, { status: 200 });
+    }
+
+    // Program periods (GET)
+    if (section === "programPeriods") {
+      const programId = Number(searchParams.get("programId"));
+      const track = searchParams.get("track");
+      if (!programId) {
+        return NextResponse.json({ error: "Missing required param: programId" }, { status: 400 });
+      }
+      let q = db
+        .select({
+          id: programPeriods.id,
+          programId: programPeriods.programId,
+          track: programPeriods.track,
+          periodKey: programPeriods.periodKey,
+          startTime: programPeriods.startTime,
+          endTime: programPeriods.endTime,
+        })
+        .from(programPeriods);
+      q = q.where(
+        track
+          ? and(eq(programPeriods.programId, programId), eq(programPeriods.track, track))
+          : eq(programPeriods.programId, programId)
+      );
+      const rows = await q;
+      return NextResponse.json({ periods: rows }, { status: 200 });
+    }
+
+    // Program schedule cells (GET)
+    if (section === "programScheduleCells") {
+      const programId = Number(searchParams.get("programId"));
+      const track = String(searchParams.get("track") || "").trim();
+      if (!programId || !track) {
+        return NextResponse.json({ error: "Missing required params: programId and track" }, { status: 400 });
+      }
+      // Join classes and msp_codes for friendly names
+      const rows = await db
+        .select({
+          id: programScheduleCells.id,
+          programId: programScheduleCells.programId,
+          track: programScheduleCells.track,
+          classId: programScheduleCells.classId,
+          className: Classes.name,
+          periodKey: programScheduleCells.periodKey,
+          mspCodeId: programScheduleCells.mspCodeId,
+          mspCode: mspCodes.code,
+          subject: programScheduleCells.subject,
+        })
+        .from(programScheduleCells)
+        .leftJoin(Classes, eq(Classes.id, programScheduleCells.classId))
+        .leftJoin(mspCodes, eq(mspCodes.id, programScheduleCells.mspCodeId))
+        .where(and(eq(programScheduleCells.programId, programId), eq(programScheduleCells.track, track)));
+      return NextResponse.json({ cells: rows }, { status: 200 });
+    }
+
+    // Note: DELETE handlers for mspCodes and mspCodeAssignments are implemented under DELETE, not GET.
+
     return NextResponse.json({ error: "Invalid section" }, { status: 400 });
   } catch (error) {
     console.error(`Error fetching ${section}:`, error);
@@ -216,6 +363,355 @@ export async function POST(req) {
         });
 
       return NextResponse.json({ entry, message: "Calendar entry added successfully" }, { status: 201 });
+    }
+
+    if (section === "programPeriods") {
+      const { programId, periods } = body || {};
+      if (!programId || !Array.isArray(periods)) return NextResponse.json({ error: "programId and periods[] required" }, { status: 400 });
+      // Replace existing rows for the programId + track keys provided
+      const tracks = Array.from(new Set(periods.map((p) => p.track)));
+      for (const tr of tracks) {
+        await db.delete(programPeriods).where(and(eq(programPeriods.programId, Number(programId)), eq(programPeriods.track, tr)));
+      }
+      for (const p of periods) {
+        const { track, periodKey, startTime, endTime } = p || {};
+        if (!track || !periodKey || !startTime || !endTime) return NextResponse.json({ error: `Invalid period row for ${periodKey}` }, { status: 400 });
+        await db.insert(programPeriods).values({ programId: Number(programId), track, periodKey, startTime, endTime });
+      }
+      return NextResponse.json({ message: "Program periods saved" }, { status: 200 });
+    }
+
+    if (section === "programScheduleCells") {
+      const { programId, track, cells } = body || {};
+      if (!programId || !track || !Array.isArray(cells)) return NextResponse.json({ error: "programId, track, cells[] required" }, { status: 400 });
+      // Clear existing for programId+track
+      await db.delete(programScheduleCells).where(and(eq(programScheduleCells.programId, Number(programId)), eq(programScheduleCells.track, track)));
+      // Insert cells
+      for (const c of cells) {
+        const { classId, periodKey, mspCodeId, subject } = c || {};
+        if (!classId || !periodKey) return NextResponse.json({ error: `Invalid cell row for period ${periodKey}` }, { status: 400 });
+        await db.insert(programScheduleCells).values({ programId: Number(programId), track, classId: Number(classId), periodKey, mspCodeId: mspCodeId ? Number(mspCodeId) : null, subject: subject || null });
+      }
+      return NextResponse.json({ message: "Program schedule cells saved" }, { status: 200 });
+    }
+
+    // Seed helper for MSP (requires existing MSP codes and Classes rows)
+    if (section === "seedMSPSchedule") {
+      const { programId, track, customPeriods, customMatrix } = body || {};
+      if (!programId || !track) return NextResponse.json({ error: "programId and track required" }, { status: 400 });
+      // Period templates
+      const prePeriods = [
+        ["P1", "07:25", "08:00"], ["P2", "08:00", "08:30"], ["P3", "08:30", "09:00"], ["P4", "09:00", "09:30"],
+        ["P5", "10:00", "10:30"], ["P6", "10:30", "11:00"], ["P7", "11:00", "11:30"], ["P8", "11:30", "12:00"],
+      ];
+      const elePeriods = [
+        ["P1", "07:35", "08:10"], ["P2", "08:10", "08:40"], ["P3", "08:40", "09:10"], ["P4", "09:10", "09:40"],
+        ["P5", "10:00", "10:30"], ["P6", "10:30", "11:00"], ["P7", "11:00", "11:30"], ["P8", "11:30", "12:00"],
+      ];
+      let periodTriples = track === "pre_primary" ? prePeriods : elePeriods;
+      if (Array.isArray(customPeriods) && customPeriods.length) {
+        // Accept [[key,start,end]] or [{periodKey,startTime,endTime}]
+        if (Array.isArray(customPeriods[0])) {
+          periodTriples = customPeriods;
+        } else if (typeof customPeriods[0] === "object") {
+          periodTriples = customPeriods.map((p) => [p.periodKey, (p.startTime || "").slice(0,5), (p.endTime || "").slice(0,5)]);
+        }
+      }
+      const periods = periodTriples.map(([k, s, e]) => ({ track, periodKey: k, startTime: String(s).includes(":") ? s + (String(s).length === 5 ? ":00" : "") : `${s}:00`, endTime: String(e).includes(":") ? e + (String(e).length === 5 ? ":00" : "") : `${e}:00` }));
+      await db.delete(programPeriods).where(and(eq(programPeriods.programId, Number(programId)), eq(programPeriods.track, track)));
+      for (const p of periods) await db.insert(programPeriods).values({ programId: Number(programId), ...p });
+
+      // Class names map to ids; ensure classes exist
+      const classNames = track === "pre_primary" ? ["Nursery", "LKG", "UKG"] : ["1", "2", "3", "4", "5", "6", "7"];
+      const classRows = await db.select().from(Classes);
+      const nameToId = new Map(classRows.map((c) => [String(c.name), c.id]));
+      for (const name of classNames) {
+        if (!nameToId.has(name)) {
+          const [row] = await db.insert(Classes).values({ name }).returning();
+          nameToId.set(name, row.id);
+        }
+      }
+
+      // Helper to resolve msp_codes by code
+      const codeRows = await db.select().from(mspCodes);
+      const codeToId = new Map(codeRows.map((r) => [String(r.code), r.id]));
+      const get = (code) => (code && codeToId.get(code)) || null;
+
+      // Build cells from provided matrices (subjects inline)
+      const cells = [];
+      if (track === "pre_primary") {
+        const matrix = customMatrix || {
+          Nursery: {
+            P1: ["PGL1", "English"], P2: ["PGL1", "Eng-Writing"], P3: ["PGL1", "GK"], P4: ["PRL1", "Hindi"],
+            P5: ["PRL2", "Hindi-Writing"], P6: ["PRL1", "Urdu"], P7: ["PGL3", "Math"], P8: ["PGL1", "Table Math"],
+          },
+          LKG: {
+            P1: ["PRL1", "Hindi"], P2: ["PRL1", "Hindi"], P3: ["PGL2", "GK"], P4: ["PGL2", "Math"],
+            P5: ["PGL2", "Math"], P6: ["PGL1", "English"], P7: ["PRL1", "Urdu"], P8: [null, null],
+          },
+          UKG: {
+            P1: ["PGL2", "Math"], P2: ["PGL2", "Math"], P3: ["PGL3", "GK"], P4: ["PGL3", "English"],
+            P5: ["PGL3", "English"], P6: ["PRL2", "Hindi"], P7: ["PRL2", "Hindi"], P8: ["PRL2", "Urdu"],
+          },
+        };
+        for (const [className, row] of Object.entries(matrix)) {
+          const classId = nameToId.get(className);
+          for (const [periodKey, [code, subject]] of Object.entries(row)) {
+            cells.push({ programId: Number(programId), track, classId, periodKey, mspCodeId: get(code), subject });
+          }
+        }
+      } else {
+        // Elementary matrix (finalized): ESLC1=English; S.St split ESLC2(1)/(2); EHO2(1)=Computer; EHO2(2)=GK
+        const matrix = customMatrix || {
+          "1": { P1: ["EHO1","Hin"], P2: ["EMS1","Sci"], P3: ["EUA1","Arb"], P4: ["ESLC1","English"],
+                 P5: ["EHO2(2)","GK"], P6: ["EUA1","U/QT"], P7: ["EMS1","Math"], P8: ["ESLC2(1)","S.St"] },
+
+          "2": { P1: ["ESLC2(2)","S.St"], P2: ["EHO1","Hin"], P3: ["EMS1","Sci"], P4: ["EUA2","Arb"],
+                 P5: ["ESLC1","English"], P6: ["EHO2(1)","Computer"], P7: ["EUA1","U/QT"], P8: ["EMS2","Math"] },
+
+          "3": { P1: ["EMS2","Math"], P2: ["ESLC2(1)","S.St"], P3: ["EHO1","Hin"], P4: ["EHO2(2)","GK"],
+                 P5: ["EMS2","Sci"], P6: ["ESLC1","English"], P7: ["EUA2","Arb"], P8: ["EUA1","U/QT"] },
+
+          "4": { P1: ["EUA1","U/QT"], P2: ["EMS2","Math"], P3: ["ESLC2(2)","S.St"], P4: ["EHO1","Hin"],
+                 P5: ["EUA2","Arb"], P6: ["EMS1","Sci"], P7: ["ESLC1","English"], P8: ["EHO2(1)","Computer"] },
+
+          "5": { P1: ["EMS1","Sci"], P2: ["EUA1","U/QT"], P3: ["EMS2","Math"], P4: ["ESLC2(1)","S.St"],
+                 P5: ["EHO1","Hin"], P6: ["EUA2","Arb"], P7: ["EHO2(2)","GK"], P8: ["ESLC1","English"] },
+
+          "6": { P1: ["ESLC1","English"], P2: ["EHO2(1)","Computer"], P3: ["EUA2","U/QT"], P4: ["EMS2","Math"],
+                 P5: ["ESLC2(2)","S.St"], P6: ["EHO1","Hin"], P7: ["EMS2","Sci"], P8: ["EUA2","Arb"] },
+
+          "7": { P1: ["EUA2","Arb"], P2: ["ESLC1","English"], P3: ["EHO2(2)","GK"], P4: ["EUA1","U/QT"],
+                 P5: ["EMS1","Math"], P6: ["ESLC2(1)","S.St"], P7: ["EHO1","Hin"], P8: ["EMS1","Sci"] },
+        };
+        for (const [className, row] of Object.entries(matrix)) {
+          const classId = nameToId.get(className);
+          for (const [periodKey, val] of Object.entries(row)) {
+            let code = null, subject = null;
+            if (Array.isArray(val)) {
+              [code, subject] = val;
+            } else if (typeof val === "string" || val === null) {
+              code = val;
+            } else if (typeof val === "object" && val) {
+              code = val.code ?? null;
+              subject = val.subject ?? null;
+            }
+            cells.push({ programId: Number(programId), track, classId, periodKey, mspCodeId: get(code), subject });
+          }
+        }
+      }
+
+      await db.delete(programScheduleCells).where(and(eq(programScheduleCells.programId, Number(programId)), eq(programScheduleCells.track, track)));
+      for (const c of cells) await db.insert(programScheduleCells).values(c);
+
+      return NextResponse.json({ message: "MSP schedule seeded", periods: periods.length, cells: cells.length }, { status: 200 });
+    }
+    if (section === "posts") {
+      return NextResponse.json({ error: "Removed: use mspCodes" }, { status: 410 });
+    }
+
+    if (section === "postAssignments") {
+      return NextResponse.json({ error: "Removed: use mspCodeAssignments" }, { status: 410 });
+    }
+
+    if (section === "mspCodes") {
+      const { code, program = "MSP", familyKey, track, title, parentSlice, active = true } = body || {};
+      if (!code || !familyKey || !track || !title) {
+        return NextResponse.json({ error: "Missing required fields: code, familyKey, track, title" }, { status: 400 });
+      }
+      const [row] = await db
+        .insert(mspCodes)
+        .values({ code: String(code).trim(), program, familyKey, track, title, parentSlice: parentSlice || null, active: !!active })
+        .returning({
+          id: mspCodes.id,
+          code: mspCodes.code,
+          program: mspCodes.program,
+          familyKey: mspCodes.familyKey,
+          track: mspCodes.track,
+          title: mspCodes.title,
+          parentSlice: mspCodes.parentSlice,
+          active: mspCodes.active,
+          createdAt: mspCodes.createdAt,
+        });
+      return NextResponse.json({ code: row, message: "MSP code created" }, { status: 201 });
+    }
+
+    if (section === "seedMSPCodes") {
+      // Idempotent seeding for standard MSP role codes
+      const standard = [
+        // Pre-Primary (unchanged)
+        { code: "PGL1", familyKey: "PGL", track: "pre_primary", title: "Pre-Primary General 1" },
+        { code: "PGL2", familyKey: "PGL", track: "pre_primary", title: "Pre-Primary General 2" },
+        { code: "PGL3", familyKey: "PGL", track: "pre_primary", title: "Pre-Primary General 3" },
+        { code: "PRL1", familyKey: "PRL", track: "pre_primary", title: "Pre-Primary Regional 1" },
+        { code: "PRL2", familyKey: "PRL", track: "pre_primary", title: "Pre-Primary Regional 2" },
+        // Elementary (finalized)
+        { code: "EMS1", familyKey: "EMS", track: "elementary", title: "Elementary Science" },
+        { code: "EMS2", familyKey: "EMS", track: "elementary", title: "Elementary Math" },
+
+        { code: "ESLC1", familyKey: "ESLC", track: "elementary", title: "Elementary English" },
+        // Social Studies split
+        { code: "ESLC2(1)", familyKey: "ESLC", track: "elementary", title: "Social Studies slice 1", parentSlice: "SST" },
+        { code: "ESLC2(2)", familyKey: "ESLC", track: "elementary", title: "Social Studies slice 2", parentSlice: "SST" },
+
+        { code: "EUA1", familyKey: "EUA", track: "elementary", title: "Elementary Urdu / QT" },
+        { code: "EUA2", familyKey: "EUA", track: "elementary", title: "Elementary Arabic" },
+
+        { code: "EHO1", familyKey: "EHO", track: "elementary", title: "Elementary Hindi" },
+        // GK / Computer split
+        { code: "EHO2(1)", familyKey: "EHO", track: "elementary", title: "Computer", parentSlice: "Computer" },
+        { code: "EHO2(2)", familyKey: "EHO", track: "elementary", title: "General Knowledge", parentSlice: "GK" },
+      ];
+
+      const existing = await db.select({ id: mspCodes.id, code: mspCodes.code }).from(mspCodes);
+      const have = new Set(existing.map((r) => String(r.code)));
+      let created = 0;
+      for (const s of standard) {
+        if (!have.has(s.code)) {
+          await db.insert(mspCodes).values({ program: "MSP", ...s, active: true });
+          created += 1;
+        }
+      }
+
+      // Deactivate legacy base codes if present
+      try {
+        await db.update(mspCodes).set({ active: false }).where(inArray(mspCodes.code, ["ESLC2", "EHO2"]));
+      } catch (_) {}
+
+      return NextResponse.json({ message: `Seeded MSP codes (${created} new, ${standard.length - created} existing)` }, { status: 200 });
+    }
+
+    if (section === "mspCodeAssignments") {
+      const { mspCodeId, userId, startDate, endDate, isPrimary = true, active = true } = body || {};
+      if (!mspCodeId || !userId || !startDate) {
+        return NextResponse.json({ error: "Missing required fields: mspCodeId, userId, startDate" }, { status: 400 });
+      }
+      const [row] = await db
+        .insert(mspCodeAssignments)
+        .values({
+          mspCodeId: Number(mspCodeId),
+          userId: Number(userId),
+          startDate: new Date(startDate),
+          endDate: endDate ? new Date(endDate) : null,
+          isPrimary: !!isPrimary,
+          active: !!active,
+        })
+        .returning({
+          id: mspCodeAssignments.id,
+           mspCodeId: mspCodeAssignments.mspCodeId,
+          userId: mspCodeAssignments.userId,
+          startDate: mspCodeAssignments.startDate,
+          endDate: mspCodeAssignments.endDate,
+          isPrimary: mspCodeAssignments.isPrimary,
+          active: mspCodeAssignments.active,
+          createdAt: mspCodeAssignments.createdAt,
+        });
+      return NextResponse.json({ assignment: row, message: "MSP code assignment created" }, { status: 201 });
+    }
+    if (section === "metaFamilies") {
+      const { key, name, active = true } = body || {};
+      if (!key || !name) return NextResponse.json({ error: "key and name required" }, { status: 400 });
+      const [row] = await db.insert(mriFamilies).values({ key, name, active: !!active }).returning();
+      return NextResponse.json({ family: row }, { status: 201 });
+    }
+    if (section === "metaPrograms") {
+      let { familyId, programKey, name, scope = "both", aims, sop, active = true } = body || {};
+      if (!familyId || !programKey || !name) return NextResponse.json({ error: "familyId, programKey, name required" }, { status: 400 });
+      // Normalize
+      familyId = Number(familyId);
+      programKey = String(programKey).trim().toUpperCase();
+
+      // Guard: family exists
+      const [fam] = await db.select({ id: mriFamilies.id }).from(mriFamilies).where(eq(mriFamilies.id, familyId));
+      if (!fam) return NextResponse.json({ error: `Family ${familyId} not found` }, { status: 400 });
+
+      // Upsert-friendly behavior: if programKey exists, return 409 with existing row
+      const existing = await db.select().from(mriPrograms).where(eq(mriPrograms.programKey, programKey));
+      if (existing.length) {
+        return NextResponse.json({ error: `Program ${programKey} already exists`, program: existing[0] }, { status: 409 });
+      }
+
+      const [row] = await db
+        .insert(mriPrograms)
+        .values({ familyId, programKey, name, scope, aims: aims || null, sop: sop || null, active: !!active })
+        .returning();
+      return NextResponse.json({ program: row }, { status: 201 });
+    }
+    if (section === "metaProgramRoles") {
+      const { programId, action, roleKey } = body || {};
+      if (!programId || !action || !roleKey) return NextResponse.json({ error: "programId, action, roleKey required" }, { status: 400 });
+      const res = await db
+        .insert(mriProgramRoles)
+        .values({ programId: Number(programId), action, roleKey })
+        .onConflictDoNothing({ target: [mriProgramRoles.programId, mriProgramRoles.action, mriProgramRoles.roleKey] })
+        .returning();
+      return NextResponse.json({ programRole: res?.[0] || null, deduped: !res?.length }, { status: 201 });
+    }
+
+    if (section === "dedupeProgramRoles") {
+      // Remove duplicate program role grants leaving the lowest id per (programId, action, roleKey)
+      const rows = await db.select().from(mriProgramRoles);
+      const seen = new Set();
+      const dupIds = [];
+      for (const r of rows.sort((a, b) => a.id - b.id)) {
+        const key = `${r.programId}|${r.action}|${r.roleKey}`;
+        if (seen.has(key)) dupIds.push(r.id); else seen.add(key);
+      }
+      if (dupIds.length) {
+        await db.delete(mriProgramRoles).where(inArray(mriProgramRoles.id, dupIds));
+      }
+      return NextResponse.json({ message: `Removed ${dupIds.length} duplicate grants` }, { status: 200 });
+    }
+    if (section === "metaRoleDefs") {
+      const { roleKey, name, category = "rmri", active = true } = body || {};
+      if (!roleKey || !name) return NextResponse.json({ error: "roleKey and name required" }, { status: 400 });
+      const [row] = await db
+        .insert(mriRoleDefs)
+        .values({ roleKey, name, category, active: !!active })
+        .returning();
+      return NextResponse.json({ roleDef: row }, { status: 201 });
+    }
+
+    if (section === "classTeachers") {
+      const { classId, userId, startDate, endDate, active = true } = body || {};
+      if (!classId || !userId) {
+        return NextResponse.json({ error: "Missing required fields: classId, userId" }, { status: 400 });
+      }
+
+      // deactivate previous active teacher for this class
+      await db
+        .update(classParentTeachers)
+        .set({ active: false, endDate: endDate ? new Date(endDate) : new Date() })
+        .where(eq(classParentTeachers.classId, Number(classId)));
+
+      const [row] = await db
+        .insert(classParentTeachers)
+        .values({
+          classId: Number(classId),
+          userId: Number(userId),
+          startDate: startDate ? new Date(startDate) : new Date(),
+          endDate: endDate ? new Date(endDate) : null,
+          active: !!active,
+        })
+        .returning({
+          id: classParentTeachers.id,
+          classId: classParentTeachers.classId,
+          userId: classParentTeachers.userId,
+          startDate: classParentTeachers.startDate,
+          endDate: classParentTeachers.endDate,
+          active: classParentTeachers.active,
+          createdAt: classParentTeachers.createdAt,
+        });
+
+      // ensure pt_moderator role exists for the teacher
+      try {
+        await db
+          .insert(userMriRoles)
+          .values({ userId: Number(userId), role: "pt_moderator", active: true })
+          .onConflictDoNothing();
+      } catch (_) {}
+
+      return NextResponse.json({ classTeacher: row, message: "Class teacher assigned" }, { status: 201 });
     }
 
     if (section === "slots") {
@@ -480,7 +976,7 @@ export async function PATCH(req) {
 
       return NextResponse.json({ message: "Slot assignments updated successfully", assignments: updatedAssignments }, { status: 200 });
     }
-
+    
     if (section === "schoolCalendar") {
       const { updates } = body;
       if (!Array.isArray(updates) || updates.length === 0) {
@@ -510,6 +1006,192 @@ export async function PATCH(req) {
       return NextResponse.json({ message: "Calendar updated successfully" }, { status: 200 });
     }
 
+    if (section === "metaFamilies") {
+      const { id } = body || {};
+      if (!id) return NextResponse.json({ error: "Missing required field: id" }, { status: 400 });
+      await db.delete(mriFamilies).where(eq(mriFamilies.id, Number(id)));
+      return NextResponse.json({ message: "Family deleted" }, { status: 200 });
+    }
+    if (section === "metaPrograms") {
+      const idParam = new URL(req.url).searchParams.get("id");
+      const { id: idBody } = body || {};
+      const id = idBody ?? (idParam ? Number(idParam) : undefined);
+      if (!id) return NextResponse.json({ error: "Missing required field: id" }, { status: 400 });
+      await db.delete(mriPrograms).where(eq(mriPrograms.id, Number(id)));
+      return NextResponse.json({ message: "Program deleted" }, { status: 200 });
+    }
+    if (
+      section === "metaProgramRoles" ||
+      section === "programRoles" ||
+      section === "mriProgramRoles" ||
+      /programroles/i.test(section)
+    ) {
+      const idParam = new URL(req.url).searchParams.get("id");
+      const { id: idBody } = body || {};
+      const id = idBody ?? (idParam ? Number(idParam) : undefined);
+      if (!id) return NextResponse.json({ error: "Missing required field: id" }, { status: 400 });
+      await db.delete(mriProgramRoles).where(eq(mriProgramRoles.id, Number(id)));
+      return NextResponse.json({ message: "Program role deleted" }, { status: 200 });
+    }
+    if (section === "metaRoleDefs") {
+      const { id } = body || {};
+      if (!id) return NextResponse.json({ error: "Missing required field: id" }, { status: 400 });
+      await db.delete(mriRoleDefs).where(eq(mriRoleDefs.id, Number(id)));
+      return NextResponse.json({ message: "Role def deleted" }, { status: 200 });
+    }
+
+    if (section === "mspCodes") {
+      const { updates } = body || {};
+      if (!Array.isArray(updates) || updates.length === 0) {
+        return NextResponse.json({ error: "Invalid or empty updates" }, { status: 400 });
+      }
+      for (const u of updates) {
+        const { id, code, program, familyKey, track, title, parentSlice, active } = u || {};
+        if (!id) return NextResponse.json({ error: "Missing id in updates" }, { status: 400 });
+        await db.update(mspCodes).set({
+          ...(code ? { code: String(code).trim() } : {}),
+          ...(program ? { program } : {}),
+          ...(familyKey ? { familyKey } : {}),
+          ...(track ? { track } : {}),
+          ...(title ? { title } : {}),
+          ...(parentSlice !== undefined ? { parentSlice: parentSlice || null } : {}),
+          ...(active !== undefined ? { active: !!active } : {}),
+        }).where(eq(mspCodes.id, Number(id)));
+      }
+      return NextResponse.json({ message: "MSP codes updated" }, { status: 200 });
+    }
+
+    if (section === "mspCodeAssignments") {
+      const { updates } = body || {};
+      if (!Array.isArray(updates) || updates.length === 0) {
+        return NextResponse.json({ error: "Invalid or empty updates" }, { status: 400 });
+      }
+      for (const u of updates) {
+        const { id, endDate, isPrimary, active } = u || {};
+        if (!id) return NextResponse.json({ error: "Missing id in updates" }, { status: 400 });
+        await db.update(mspCodeAssignments).set({
+          ...(endDate !== undefined ? { endDate: endDate ? new Date(endDate) : null } : {}),
+          ...(isPrimary !== undefined ? { isPrimary: !!isPrimary } : {}),
+          ...(active !== undefined ? { active: !!active } : {}),
+        }).where(eq(mspCodeAssignments.id, Number(id)));
+      }
+      return NextResponse.json({ message: "MSP code assignments updated" }, { status: 200 });
+    }
+
+    if (section === "metaFamilies") {
+      const { updates } = body || {};
+      if (!Array.isArray(updates) || updates.length === 0) return NextResponse.json({ error: "Invalid or empty updates" }, { status: 400 });
+      for (const u of updates) {
+        const { id, key, name, active } = u || {};
+        if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
+        await db
+          .update(mriFamilies)
+          .set({ ...(key ? { key } : {}), ...(name ? { name } : {}), ...(active !== undefined ? { active: !!active } : {}) })
+          .where(eq(mriFamilies.id, Number(id)));
+      }
+      return NextResponse.json({ message: "Families updated" }, { status: 200 });
+    }
+
+    if (section === "metaPrograms") {
+      const { updates } = body || {};
+      if (!Array.isArray(updates) || updates.length === 0) return NextResponse.json({ error: "Invalid or empty updates" }, { status: 400 });
+      for (const u of updates) {
+        const { id, familyId, programKey, name, scope, aims, sop, active } = u || {};
+        if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
+        await db
+          .update(mriPrograms)
+          .set({
+            ...(familyId ? { familyId: Number(familyId) } : {}),
+            ...(programKey ? { programKey } : {}),
+            ...(name ? { name } : {}),
+            ...(scope ? { scope } : {}),
+            ...(aims !== undefined ? { aims } : {}),
+            ...(sop !== undefined ? { sop } : {}),
+            ...(active !== undefined ? { active: !!active } : {}),
+          })
+          .where(eq(mriPrograms.id, Number(id)));
+      }
+      return NextResponse.json({ message: "Programs updated" }, { status: 200 });
+    }
+
+    if (section === "metaProgramRoles") {
+      const { updates } = body || {};
+      if (!Array.isArray(updates) || updates.length === 0) return NextResponse.json({ error: "Invalid or empty updates" }, { status: 400 });
+      for (const u of updates) {
+        const { id, action, roleKey } = u || {};
+        if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
+        await db
+          .update(mriProgramRoles)
+          .set({ ...(action ? { action } : {}), ...(roleKey ? { roleKey } : {}) })
+          .where(eq(mriProgramRoles.id, Number(id)));
+      }
+      return NextResponse.json({ message: "Program roles updated" }, { status: 200 });
+    }
+
+    if (section === "metaRoleDefs") {
+      const { updates } = body || {};
+      if (!Array.isArray(updates) || updates.length === 0) return NextResponse.json({ error: "Invalid or empty updates" }, { status: 400 });
+      for (const u of updates) {
+        const { id, roleKey, name, category, active } = u || {};
+        if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
+        await db
+          .update(mriRoleDefs)
+          .set({
+            ...(roleKey ? { roleKey } : {}),
+            ...(name ? { name } : {}),
+            ...(category ? { category } : {}),
+            ...(active !== undefined ? { active: !!active } : {}),
+          })
+          .where(eq(mriRoleDefs.id, Number(id)));
+      }
+      return NextResponse.json({ message: "Role defs updated" }, { status: 200 });
+    }
+
+    if (section === "posts") {
+      const { updates } = body || {};
+      if (!Array.isArray(updates) || updates.length === 0) {
+        return NextResponse.json({ error: "Invalid or empty updates" }, { status: 400 });
+      }
+      for (const u of updates) {
+        const { id, code, title, family, notes, active } = u || {};
+        if (!id) return NextResponse.json({ error: "Missing id in updates" }, { status: 400 });
+        await db
+          .update(postCodes)
+          .set({
+            ...(code ? { code: String(code).trim() } : {}),
+            ...(title ? { title: String(title).trim() } : {}),
+            ...(family !== undefined ? { family: family ? String(family).trim() : null } : {}),
+            ...(notes !== undefined ? { notes } : {}),
+            ...(active !== undefined ? { active: !!active } : {}),
+          })
+          .where(eq(postCodes.id, Number(id)));
+      }
+      return NextResponse.json({ message: "Posts updated" }, { status: 200 });
+    }
+
+    if (section === "postAssignments") {
+      return NextResponse.json({ error: "Removed: use mspCodeAssignments" }, { status: 410 });
+    }
+
+    if (section === "classTeachers") {
+      const { updates } = body || {};
+      if (!Array.isArray(updates) || updates.length === 0) {
+        return NextResponse.json({ error: "Invalid or empty updates" }, { status: 400 });
+      }
+      for (const u of updates) {
+        const { id, endDate, active } = u || {};
+        if (!id) return NextResponse.json({ error: "Missing id in updates" }, { status: 400 });
+        await db
+          .update(classParentTeachers)
+          .set({
+            ...(endDate !== undefined ? { endDate: endDate ? new Date(endDate) : null } : {}),
+            ...(active !== undefined ? { active: !!active } : {}),
+          })
+          .where(eq(classParentTeachers.id, Number(id)));
+      }
+      return NextResponse.json({ message: "Class teacher assignments updated" }, { status: 200 });
+    }
+
     return NextResponse.json({ error: "Invalid section" }, { status: 400 });
   } catch (error) {
     console.error(`Error updating ${section}:`, error);
@@ -528,7 +1210,13 @@ export async function DELETE(req) {
   const section = searchParams.get("section");
 
   try {
-    const body = await req.json();
+    // DELETE requests may not include a body; parse defensively
+    let body = {};
+    try {
+      body = await req.json();
+    } catch (_) {
+      body = {};
+    }
 
     if (section === "schoolCalendar") {
       const { id } = body || {};
@@ -597,6 +1285,21 @@ export async function DELETE(req) {
       await db.delete(users).where(eq(users.id, userId));
 
       return NextResponse.json({ message: "User deleted successfully" }, { status: 200 });
+    }
+
+    if (section === "posts") {
+      return NextResponse.json({ error: "Removed: use mspCodes" }, { status: 410 });
+    }
+
+    if (section === "postAssignments") {
+      return NextResponse.json({ error: "Removed: use mspCodeAssignments" }, { status: 410 });
+    }
+
+    if (section === "classTeachers") {
+      const { id } = body || {};
+      if (!id) return NextResponse.json({ error: "Missing required field: id" }, { status: 400 });
+      await db.delete(classParentTeachers).where(eq(classParentTeachers.id, Number(id)));
+      return NextResponse.json({ message: "Class teacher assignment deleted" }, { status: 200 });
     }
 
     return NextResponse.json({ error: "Invalid section" }, { status: 400 });

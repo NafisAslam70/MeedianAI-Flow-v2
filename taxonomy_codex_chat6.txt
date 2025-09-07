@@ -1,0 +1,76 @@
+Median AI Flow — Taxonomy & Change Log (chat6)
+
+Scope
+- Admin-first foundation and UI revamp: fixed sidebar console, light theme, and scroll-safe layout.
+- Core “Team” governance via churn‑proof MSP Codes + dated assignments; Parent Teacher (PT) role; Manage Meta foundations.
+- This file captures all changes completed up to the end of chat6.
+
+Completed (Admin Shell & UX)
+- Fixed left sidebar: modern, light, active highlight; grouped sections (Manage Meta, Team, Academics, Ops).
+- Content-only scroll: viewport fixed; Navbar/Footer always visible; inner panes scroll.
+- Footer consistency: removed view-height traps and inner overflow conflicts; all pages show footer reliably.
+- Calendar moved under Admin > Calendar; light theme; navigation and save wired.
+
+Completed (Team: MSP Codes & Assignments)
+- Tables (lib/schema.js):
+  - msp_codes: id, code (unique), program (MSP), familyKey (EMS/ESLC/EUA/EHO/PGL/PRL), track (pre_primary/elementary/both), title, parentSlice, active, created_at
+  - msp_code_assignments: id, mspCodeId → msp_codes, userId → users, start_date, end_date, isPrimary, active, created_at
+- Admin API (app/(main)/api/admin/manageMeedian/route.js):
+  - ?section=mspCodes → GET/POST/PATCH/DELETE
+  - ?section=mspCodeAssignments → GET/POST/PATCH/DELETE
+- Admin UI (unified page):
+  - /dashboard/admin/manageMeedian/msp-codes
+    - Top actions: Current Status, Modify Assignment, Create MSP Code
+    - Family cards (EMS/ESLC/EUA/EHO/PGL/PRL) with Assigned/Total, quick Assign/Create
+    - Inline “End” for active assignments; toggle code active
+- Legacy cleanup:
+  - Removed Posts/Post Assignments UI and tables; API sections return 410 or removed.
+
+Completed (Class Parent Teacher / PT)
+- Role: pt_moderator added to MRI roles (enum) for Parent Teacher identity.
+- Table: class_parent_teachers (classId, userId, start_date, end_date, active, created_at).
+- Admin API:
+  - ?section=classTeachers → GET list; POST assign (auto‑deactivate previous; ensure user_mri_roles pt_moderator); PATCH end/toggle; DELETE remove.
+
+Completed (Manage Meta foundations)
+- Tables (lib/schema.js):
+  - mri_families: id, key (amri|nmri|rmri|omri|custom), name, active, created_at
+  - mri_programs: id, familyId → mri_families, programKey (e.g., MSP), name, scope (pre_primary|elementary|both), aims, sop, active, created_at
+  - mri_program_roles: id, programId, action (open|close|substitute|approve|check), roleKey (e.g., MSP-MOD)
+  - mri_role_defs: id, roleKey, name, active, created_at (author new role keys; future path off static enum)
+- Admin API:
+  - ?section=metaFamilies, metaPrograms, metaProgramRoles, metaRoleDefs → GET/POST/PATCH/DELETE
+- Admin UI:
+  - Stubs added under Manage Meta → MRI Families, Programs (CRUD UIs to be wired in chat7).
+
+Completed (Hygiene & Fixes)
+- Fixed duplicate import (userMriRoles) build error in admin route.
+- Fixed “Body is unusable: Body has already been read” by reading req.json() exactly once per request.
+- Normalized calendar component to light theme (no white text on white) and removed min-h-screen.
+- Global layout:
+  - app/(main)/layout.jsx uses h-screen + overflow-hidden on wrapper, overflow-y-auto on main (SPA feel).
+  - ManageMeedian layout set to two‑column grid with a fixed, scrollable sidebar and independent content scroll.
+
+Outstanding (to be executed in chat7)
+- Manage Meta UIs:
+  - MRI Families: list/create/toggle/delete.
+  - Programs: list/create/edit; attach to family; Aims/SOP; program roles (grant open/close/substitute/approve/check).
+  - Role Definitions: list/create/toggle; prepare future refactor off static enum.
+- MSP Codes UX:
+  - Search/sort + CSV export; “Seed Standard MSP Codes” one‑click.
+  - Coverage matrix: vacant/filled/upcoming expiries.
+- Schedules:
+  - Program schedule matrices (MSP Pre/Ele) grid editor; validator for collisions and leisure cap (7/8).
+- Member endpoints:
+  - /api/member/mris/{classes,timetable,amri} to unlock MRIStep.
+- Attendance MVP:
+  - scanner_sessions + attendance_events; session start/stop + scan; minimal scanner UI; day/slot rollups.
+- Policy/Expansion:
+  - Policies + nightly expansion to slot/task instances by week type.
+- NMRI TOD Confirmation + Day Close gating polish.
+
+Integration Rules (PT → Role → Tasks)
+- Assigning a PT ensures user_mri_roles(user, pt_moderator, active=true).
+- Later phases bind AMRI/RMRI tasks to MSP codes and PT role for continuity across churn.
+
+— End of chat6 (frozen). All new work continues in taxonomy_codex_chat7.txt —

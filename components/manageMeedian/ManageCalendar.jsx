@@ -139,9 +139,9 @@ export default function ManageCalendar({
     const start = new Date(startDate);
     const end = new Date(endDate);
     const now = new Date("2025-07-28T07:13:00+08:00");
-    if (end < now) return "bg-red-500/20 text-red-100";
-    if (start <= now && now <= end) return "bg-teal-500/20 text-teal-100 font-semibold";
-    return "bg-white/10 text-white/80";
+    if (end < now) return "bg-red-50 text-red-700";
+    if (start <= now && now <= end) return "bg-teal-50 text-teal-700 font-semibold";
+    return "bg-gray-50 text-gray-700";
   };
 
   const formatDate = (dateStr) => {
@@ -236,9 +236,9 @@ export default function ManageCalendar({
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-800 to-gray-900 p-6 rounded-2xl">
+    <div className="bg-white p-6 rounded-2xl border border-gray-200">
       <div className="flex justify-between items-center mb-6 max-w-full">
-        <h1 className="text-xl font-bold text-white tracking-wide">Meed Public School Calendar 2025-26</h1>
+        <h1 className="text-xl font-bold text-gray-900 tracking-wide">Meed Public School Calendar 2025-26</h1>
         <motion.button
           onClick={() => setViewMode(viewMode === "calendar" ? "school" : "calendar")}
           className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all duration-300 font-medium shadow-[0_0_15px_rgba(0,255,255,0.5)]"
@@ -285,7 +285,7 @@ export default function ManageCalendar({
                           Edit
                         </motion.button>
                       )}
-                      <div className="absolute hidden group-hover:block bg-gray-800/90 text-white text-base rounded-lg p-2 bottom-full left-1/2 transform -translate-x-1/2 mb-2 shadow-[0_0_15px_rgba(0,255,255,0.5)] w-64">
+                      <div className="absolute hidden group-hover:block bg-white text-gray-800 text-base rounded-lg p-2 bottom-full left-1/2 transform -translate-x-1/2 mb-2 shadow border border-gray-200 w-64">
                         <p className="font-medium">Week {getWeekNumber(entry)}: {entry.name}</p>
                         <p>{formatDate(entry.startDate)} - {formatDate(entry.endDate)}</p>
                         <p>{entry.majorTerm} - {entry.minorTerm}</p>
@@ -464,27 +464,27 @@ export default function ManageCalendar({
             <div className="flex gap-4 items-center">
               <motion.button
                 onClick={() => changeMonth(-1)}
-                className="px-4 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-all duration-300 font-medium shadow-[0_0_15px_rgba(0,255,255,0.5)]"
+                className="px-4 py-2 bg-white text-gray-800 border border-gray-200 rounded-lg hover:bg-gray-50 transition-all duration-200 font-medium"
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
               >
                 Previous
               </motion.button>
-              <span className="text-base font-medium text-white">
+              <span className="text-base font-medium text-gray-800">
                 {selectedMonth.toLocaleString("default", { month: "long" })}
               </span>
               <select
                 value={selectedYear}
                 onChange={handleYearChange}
-                className="p-2 bg-white/10 border border-white/20 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-base text-white"
+                className="p-2 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-base text-gray-800"
               >
                 {years.map((year) => (
-                  <option key={year} value={year} className="bg-gray-800">{year}</option>
+                  <option key={year} value={year} className="bg-white text-gray-800">{year}</option>
                 ))}
               </select>
               <motion.button
                 onClick={() => changeMonth(1)}
-                className="px-4 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-all duration-300 font-medium shadow-[0_0_15px_rgba(0,255,255,0.5)]"
+                className="px-4 py-2 bg-white text-gray-800 border border-gray-200 rounded-lg hover:bg-gray-50 transition-all duration-200 font-medium"
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
               >
@@ -494,7 +494,7 @@ export default function ManageCalendar({
             {isAdmin && (
               <motion.button
                 onClick={handleConfirmSave}
-                className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all duration-300 font-medium shadow-[0_0_15px_rgba(0,255,255,0.5)]"
+                className="px-6 py-3 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-all duration-200 font-medium"
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
               >
@@ -502,7 +502,7 @@ export default function ManageCalendar({
               </motion.button>
             )}
           </div>
-          <div className="grid grid-cols-7 gap-2 text-center text-white/90 font-medium w-full">
+          <div className="grid grid-cols-7 gap-2 text-center text-gray-600 font-medium w-full">
             {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
               <div key={day} className="py-2 text-base font-semibold">{day}</div>
             ))}
@@ -511,15 +511,15 @@ export default function ManageCalendar({
             {generateMonthDays().map((day, index) => (
               <motion.div
                 key={index}
-                className={`group relative p-3 h-40 rounded-xl border border-white/20 bg-white/10 backdrop-blur-lg shadow-sm hover:shadow-[0_0_15px_rgba(0,255,255,0.5)] transition-all duration-200 ${
+                className={`group relative p-3 h-40 rounded-xl border border-gray-200 bg-white shadow-sm hover:shadow transition-all duration-200 ${
                   day && day.toDateString() === currentDate.toDateString() ? "border-teal-500 border-2" : ""
-                } ${day ? "cursor-pointer" : "bg-gray-800/50"}`}
+                } ${day ? "cursor-pointer" : "bg-gray-100"}`}
                 whileHover={day ? { scale: 1.02 } : {}}
                 onClick={day ? () => getEntriesForDay(day).length > 0 && setDetailEntry(getEntriesForDay(day)[0]) : undefined}
               >
                 {day && (
                   <>
-                    <div className="text-base font-semibold text-white">{day.getDate()}</div>
+                    <div className="text-base font-semibold text-gray-900">{day.getDate()}</div>
                     <div className="mt-2 space-y-1">
                       {getEntriesForDay(day).map((entry) => (
                         <div

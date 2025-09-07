@@ -13,6 +13,7 @@ export async function POST(req) {
 
     const body = await req.json().catch(() => ({}));
     const messages = Array.isArray(body?.messages) ? body.messages : [];
+    const requestedModel = String(body?.model || "").trim();
     const last = messages[messages.length - 1]?.content?.toLowerCase?.() || "";
 
     // Lightweight built-in intents
@@ -48,8 +49,18 @@ export async function POST(req) {
       "If the user asks for actions requiring UI, explain where to click in the app.",
     ].join(" \n");
 
+    // Allow client to pick a model from a safe allowlist; otherwise fallback to env/default
+    const allowedModels = new Set([
+      "gpt-4o-mini",
+      "gpt-4o",
+      "gpt-4.1-mini",
+      "gpt-4.1",
+      "o4-mini",
+    ]);
+    const modelToUse = allowedModels.has(requestedModel) ? requestedModel : OPENAI_CHAT_MODEL;
+
     const payload = {
-      model: OPENAI_CHAT_MODEL,
+      model: modelToUse,
       messages: [
         { role: "system", content: system },
         { role: "system", content: `User role: ${role}` },
@@ -79,4 +90,3 @@ export async function POST(req) {
     return NextResponse.json({ error: e.message || "Failed" }, { status: 500 });
   }
 }
-

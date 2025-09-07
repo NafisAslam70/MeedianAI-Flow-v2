@@ -1,0 +1,61 @@
+TAXONOMY CODEX — CHAT 9
+Updated: 2025-09-07
+
+Scope for this session
+- Create and maintain a running log for changes and plans.
+- Track UI/UX upgrades, seeding flow, teacher-wise MSP-R, Routine Manager (AI), and upcoming Resource Management module.
+
+Changes completed (rollup)
+1) AdminSidebar
+   - Added dynamic Programs list and renamed MRI item to “Program Design”.
+2) MSP Codes
+   - Refactor to modern cards/tables, search, filters (Assigned/Unassigned), and quick actions.
+3) Program pages
+   - MSP‑R: class-wise grid + teacher-wise view with chips, Next/Shuffle.
+   - Seed flow: “Show Default Seed” modal with default matrix preview + seed button.
+   - Routine Manager (AI): modal to generate/edit JSON via DELU‑GPT/OpenAI model selector; Apply Seed posts customMatrix.
+4) Direct Message templates (Profile)
+   - Template picker + optional footer toggle (timestamp + portal link).
+   - Backend supports includeFooter.
+
+Open issues / fixes
+- Placeholder parsing in Routine Manager: fixed with safe template literal.
+- “asg not defined” in MSP‑R: replaced with activeAsg.userId.
+
+Planned next (Resource Management — Managerial > Resource Management)
+Phase 1: Schema
+- resources(id, name, assetTag, categoryId, status, location, assignedTo, serialNo, vendor, purchaseDate, warrantyEnd, cost, notes, tags[], createdAt)
+- resourceCategories(id, name, parentId, description)
+- resourceLogs(id, resourceId, kind(check_out/in, maintenance, issue, transfer, retire), byUserId, toUserId, notes, scheduledAt, completedAt, createdAt)
+- resourceAttachments(id, resourceId, title, url, mimeType, uploadedBy, createdAt)
+
+Phase 2: API (admin/team_manager)
+- GET /api/admin/resources (filters: query, status, category, location, page)
+- POST /api/admin/resources (create)
+- PATCH /api/admin/resources (batch updates)
+- GET /api/admin/resources/:id (detail)
+- POST /api/admin/resources/:id/logs (actions/logs)
+- GET/POST /api/admin/resources/categories
+
+Phase 3: UI Shell
+- Sidebar: add “Resource Management” under Managerial.
+- /dashboard/admin/manageMeedian/resources
+  - List/table toggle, filters, bulk actions, quick metrics.
+  - Drawer/detail: Overview, Activity, Maintenance, Attachments.
+
+Phase 4+: Actions & niceties
+- Check‑out/in, Assign, Move, Maintenance logs.
+- Import/Export CSV, QR labels, attachments upload.
+- Optional reminders for warranty/maintenance.
+
+Notes
+- AI assist endpoint now allows model override from a safe allowlist.
+- DM footer is optional; templates prefill subject/body.
+
+Checklist
+[ ] Add schema for resources + drizzle migration
+[ ] Wire API handlers
+[ ] Sidebar “Resource Management” item
+[ ] Resources list shell with filters + metrics
+[ ] Detail drawer with logs/actions
+
