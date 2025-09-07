@@ -34,6 +34,7 @@ export async function GET(req) {
       .select({
         id: meedRepoPosts.id,
         userId: meedRepoPosts.userId,
+        taskId: meedRepoPosts.taskId,
         title: meedRepoPosts.title,
         content: meedRepoPosts.content,
         tags: meedRepoPosts.tags,

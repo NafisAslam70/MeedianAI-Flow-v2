@@ -1011,6 +1011,7 @@ export default function Navbar() {
         }
 
         .user-info {
+          position: relative;
           /* flex applied via Tailwind (md:flex); do not force display here so 'hidden' works on mobile */
           align-items: center;
           gap: 0.5rem;
@@ -1020,6 +1021,22 @@ export default function Navbar() {
           background: #1f2937;
           box-shadow: 0 3px 10px rgba(0,0,0,0.2);
           transition: all .25s ease;
+        }
+        .notif-badge {
+          position: absolute;
+          top: -6px;
+          right: -6px;
+          background: #ef4444;
+          color: #fff;
+          font-size: 10px;
+          font-weight: 800;
+          border-radius: 9999px;
+          padding: 0 6px;
+          line-height: 16px;
+          min-width: 16px;
+          text-align: center;
+          border: 1px solid rgba(11,18,32,0.9);
+          box-shadow: 0 0 0 2px rgba(11,18,32,0.4);
         }
         .user-info:hover {
           transform: translateY(-2px);
@@ -1766,6 +1783,7 @@ export default function Navbar() {
                       alt="User Avatar"
                       onError={() => setUserImage("/default-avatar.png")}
                     />
+                    {notifUnread > 0 && <span className="notif-badge" aria-label={`${notifUnread} unread notifications`}>{Math.min(99, notifUnread)}</span>}
                     <div className="user-info-text hidden lg:flex">
                       <span className="name">{userName || "Loading..."}</span>
                       <span className="account-label">My Account</span>

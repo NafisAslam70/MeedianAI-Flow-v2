@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import useSWR from "swr";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
@@ -44,11 +44,15 @@ export default function ProgramDetailPage() {
   const { data: codeData } = useSWR(`/api/admin/manageMeedian?section=mspCodes`, fetcher);
   const [fullscreen, setFullscreen] = useState(false);
   const [showNames, setShowNames] = useState(false);
+  const [schedTab, setSchedTab] = useState("base"); // base | weekly
+  const [weekDay, setWeekDay] = useState("Mon");
   const [manageCodesOpen, setManageCodesOpen] = useState(false);
   const [dragMemberId, setDragMemberId] = useState(null);
   const [showPeriodModal, setShowPeriodModal] = useState(false);
   const [showMatrixModal, setShowMatrixModal] = useState(false);
   const [showDefaultSeedModal, setShowDefaultSeedModal] = useState(false);
+  const [selfSchedOpen, setSelfSchedOpen] = useState(false);
+  const [selfSchedFull, setSelfSchedFull] = useState(false);
   const [mspRMode, setMspRMode] = useState("class"); // class | teacher
   const [selectedTeacher, setSelectedTeacher] = useState("ALL");
   const [routineOpen, setRoutineOpen] = useState(false);
@@ -57,6 +61,7 @@ export default function ProgramDetailPage() {
   const [rmBusy, setRmBusy] = useState(false);
   const [rmEngine, setRmEngine] = useState("default"); // default = DELU-GPT env
   const [rmModel, setRmModel] = useState("gpt-4o-mini");
+  const { data: dayData, mutate: refreshDays } = useSWR(fullscreen && id ? `/api/admin/manageMeedian?section=programScheduleDays&programId=${id}&track=${track}&day=${weekDay}` : null, fetcher);
 
   const generateRoutine = async () => {
     try {
@@ -131,7 +136,7 @@ export default function ProgramDetailPage() {
       }
       if (Object.keys(row).length) m[cls] = row;
     }
-    return Object.keys(m).length ? m : { "1": { P1: ["ESLC1","English"] } };
+    return Object.keys(m).length ? m : { "1": { P1: ["ESL1","English"] } };
   }, [cellData, periodData]);
   useEffect(() => {
     if (!seedText) setSeedText(JSON.stringify(sampleMatrix, null, 2));
@@ -201,6 +206,7 @@ export default function ProgramDetailPage() {
               <Link href={`?track=${track}#schedule`}>
                 <Button variant="light" size="sm" onClick={() => { setView("detail"); setActiveSection("schedule"); }}>Open Full Schedule</Button>
               </Link>
+              <Button variant="primary" size="sm" onClick={() => setSelfSchedOpen(true)}>Self‑Scheduler</Button>
             </CardFooter>
           </Card>
 
@@ -248,6 +254,8 @@ export default function ProgramDetailPage() {
               <option value="elementary">Elementary</option>
             </select>
             <Button variant="light" onClick={() => setShowDefaultSeedModal(true)}>Show Default Seed</Button>
+            <Button variant="light" onClick={async()=>{ try{ const res = await fetch(`/api/admin/manageMeedian?section=expandBaseToDays`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ programId: id, track })}); const j = await res.json(); if(!res.ok) throw new Error(j.error||`HTTP ${res.status}`); setFullscreen(true); setSchedTab('weekly'); await refreshDays(); } catch(e){ alert(`Failed to build weekly: ${e.message}`);} }}>Build Weekly (Copy Base)</Button>
+            <Button variant="primary" onClick={async()=>{ try{ const res = await fetch(`/api/admin/manageMeedian?section=expandBaseToDaysAdvanced`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ programId: id, track })}); const j = await res.json(); if(!res.ok) throw new Error(j.error||`HTTP ${res.status}`); setFullscreen(true); setSchedTab('weekly'); await refreshDays(); } catch(e){ alert(`Failed (rules) build: ${e.message}`);} }}>Build Weekly (Rules)</Button>
             <label className="flex items-center gap-2 text-sm text-gray-700">
               <input type="checkbox" checked={showNames} onChange={(e) => setShowNames(e.target.checked)} /> Show teacher names
             </label>
@@ -311,7 +319,7 @@ export default function ProgramDetailPage() {
                   <CardBody>
                     {openSeed && (
                       <div className="mb-3">
-                        <div className="text-xs text-gray-600 mb-1">Paste matrix JSON (e.g. {"{"}"1":{"{"}P1:["ESLC1","English"]{"}"}{"}"})</div>
+                        <div className="text-xs text-gray-600 mb-1">Paste matrix JSON (e.g. {"{"}"1":{"{"}P1:["ESL1","English"]{"}"}{"}"})</div>
                         <textarea value={seedText} onChange={(e) => setSeedText(e.target.value)} className="w-full h-40 border rounded p-2 font-mono text-xs" />
                       </div>
                     )}
@@ -556,7 +564,7 @@ export default function ProgramDetailPage() {
                       className="w-full h-40 border rounded p-2 font-mono text-xs"
                       value={rmOut}
                       onChange={(e) => setRmOut(e.target.value)}
-                      placeholder={`{\n  "1": { "P1": ["ESLC1", "English"] }\n}`}
+                      placeholder={`{\n  "1": { "P1": ["ESL1", "English"] }\n}`}
                     />
                   </div>
                 </div>
@@ -632,10 +640,19 @@ export default function ProgramDetailPage() {
               {program?.programKey} — Schedule / Duties ({track === "pre_primary" ? "Pre-Primary" : "Elementary"})
             </div>
             <div className="flex items-center gap-2">
+              <div className="hidden sm:flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+                <button className={`px-2 py-1 rounded ${schedTab==='base'?'bg-white shadow font-semibold':'text-gray-700'}`} onClick={()=>setSchedTab('base')}>Base Matrix</button>
+                <button className={`px-2 py-1 rounded ${schedTab==='weekly'?'bg-white shadow font-semibold':'text-gray-700'}`} onClick={()=>setSchedTab('weekly')}>Weekly</button>
+              </div>
               <select className="px-2 py-1 border rounded text-sm" value={track} onChange={(e) => setTrack(e.target.value)}>
                 <option value="pre_primary">Pre-Primary</option>
                 <option value="elementary">Elementary</option>
               </select>
+              {schedTab === 'weekly' && (
+                <select className="px-2 py-1 border rounded text-sm" value={weekDay} onChange={(e)=>setWeekDay(e.target.value)}>
+                  {['Mon','Tue','Wed','Thu','Fri','Sat'].map(d=> <option key={d} value={d}>{d}</option>)}
+                </select>
+              )}
               <label className="flex items-center gap-2 text-sm text-gray-700">
                 <input type="checkbox" checked={showNames} onChange={(e) => setShowNames(e.target.checked)} /> Show teacher names
               </label>
@@ -643,7 +660,7 @@ export default function ProgramDetailPage() {
             </div>
           </div>
           <div className="flex-1 bg-white overflow-auto p-3">
-            {(() => {
+            {schedTab === 'base' ? (() => {
               const periods = (periodData?.periods || [])
                 .filter((p) => /^P\d+$/i.test(p.periodKey))
                 .sort((a, b) => Number(a.periodKey.slice(1)) - Number(b.periodKey.slice(1)));
@@ -665,7 +682,7 @@ export default function ProgramDetailPage() {
                       <tr className="bg-gray-50 text-gray-700">
                         <th className="border px-3 py-2 sticky left-0 bg-gray-50 z-10">Class</th>
                         {periods.map((p) => (
-                          <th key={p.periodKey} className="border px-3 py-2 text-center">{p.periodKey}<div className="text-[11px] text-gray-500">{p.startTime?.slice?.(0,5)}–{p.endTime?.slice?.(0,5)}</div></th>
+                          <th key={p.periodKey} className={`border px-3 py-2 text-center ${p.periodKey==='P5' ? 'border-l-4 border-l-rose-400' : ''}`}>{p.periodKey}<div className="text-[11px] text-gray-500">{p.startTime?.slice?.(0,5)}–{p.endTime?.slice?.(0,5)}</div></th>
                         ))}
                       </tr>
                     </thead>
@@ -680,7 +697,7 @@ export default function ProgramDetailPage() {
                             const activeAsg = (asgData?.assignments || []).find((a) => a.active && a.mspCodeId === c?.mspCodeId);
                             const teacher = activeAsg ? (teamData?.users || []).find((u) => u.id === activeAsg.userId)?.name || activeAsg.userId : null;
                             return (
-                              <td key={`${cls}-${p.periodKey}`} className="border px-3 py-2 align-top">
+                              <td key={`${cls}-${p.periodKey}`} className={`border px-3 py-2 align-top ${p.periodKey==='P5' ? 'border-l-4 border-l-rose-400' : ''}`}>
                                 <div className="font-medium text-gray-900">{showNames ? (teacher || "—") : code}</div>
                                 {subj && <div className="text-[12px] text-gray-600">{subj}</div>}
                               </td>
@@ -728,7 +745,52 @@ export default function ProgramDetailPage() {
                   })()}
                 </div>
               );
-            })()}
+              })() : (()=>{
+                const periods = (periodData?.periods || [])
+                  .filter((p) => /^P\d+$/i.test(p.periodKey))
+                  .sort((a, b) => Number(a.periodKey.slice(1)) - Number(b.periodKey.slice(1)));
+                const rows = dayData?.days || [];
+                const classList = Array.from(new Set(rows.map((r) => String(r.className || r.classId)))).sort((a,b)=>{ const na=Number(a), nb=Number(b); if(!isNaN(na)&&!isNaN(nb)) return na-nb; return String(a).localeCompare(String(b));});
+                const map = new Map();
+                for (const r of rows) map.set(`${r.className || r.classId}|${r.periodKey}`, r);
+                return (
+                  <div className="min-w-[1200px]">
+                    <table className="w-full text-sm border-collapse">
+                      <thead>
+                        <tr className="bg-gray-50 text-gray-700">
+                          <th className="border px-3 py-2 sticky left-0 bg-gray-50 z-10">Class</th>
+                          {periods.map((p) => (
+                          <th key={p.periodKey} className={`border px-3 py-2 text-center ${p.periodKey==='P5' ? 'border-l-4 border-l-rose-400' : ''}`}>{p.periodKey}<div className="text-[11px] text-gray-500">{p.startTime?.slice?.(0,5)}–{p.endTime?.slice?.(0,5)}</div></th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {classList.map((cls) => (
+                          <tr key={cls}>
+                            <td className="border px-3 py-2 sticky left-0 bg-white z-10 font-semibold">{cls}</td>
+                            {periods.map((p)=>{
+                              const c = map.get(`${cls}|${p.periodKey}`);
+                              const code = c?.mspCode || c?.mspCodeId || '—';
+                              const subj = c?.subject || '';
+                              const activeAsg = (asgData?.assignments || []).find((a)=> a.active && a.mspCodeId === c?.mspCodeId);
+                              const teacher = activeAsg ? (teamData?.users || []).find((u)=> u.id === activeAsg.userId)?.name || activeAsg.userId : null;
+                              return (
+                                <td key={`${cls}-${p.periodKey}`} className={`border px-3 py-2 align-top ${p.periodKey==='P5' ? 'border-l-4 border-l-rose-400' : ''}`}>
+                                  <div className="font-medium text-gray-900">{showNames ? (teacher || '—') : code}</div>
+                                  {subj && <div className="text-[12px] text-gray-600">{subj}</div>}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                        {rows.length === 0 && (
+                          <tr><td className="px-3 py-6 text-gray-500" colSpan={periods.length+1}>No weekly plan saved for {weekDay}.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
           </div>
         </div>
       )}
@@ -805,8 +867,8 @@ export default function ProgramDetailPage() {
                             groups.get(fam).push({ cid, code: c });
                           });
                           const sortedFamilies = Array.from(groups.keys()).sort((a,b) => String(a).localeCompare(String(b)));
-                          return (
-                            <div className="space-y-4">
+  return (
+    <div className="space-y-4">
                               {sortedFamilies.map((fam) => (
                                 <div key={fam}>
                                   <div className="text-xs font-semibold text-gray-600 mb-1">{fam}</div>
@@ -925,13 +987,13 @@ export default function ProgramDetailPage() {
                       };
                     }
                     return {
-                      "1": { P1: ["EHO1","Hin"],   P2: ["EMS1","Sci"],  P3: ["EUA1","Arb"],  P4: ["ESLC1","English"], P5: ["EHO2(2)","GK"],   P6: ["EUA1","U/QT"], P7: ["EMS1","Math"], P8: ["ESLC2(1)","S.St"] },
-                      "2": { P1: ["ESLC2(2)","S.St"], P2: ["EHO1","Hin"],  P3: ["EMS1","Sci"],  P4: ["EUA2","Arb"],     P5: ["ESLC1","English"], P6: ["EHO2(1)","Computer"], P7: ["EUA1","U/QT"], P8: ["EMS2","Math"] },
-                      "3": { P1: ["EMS2","Math"], P2: ["ESLC2(1)","S.St"], P3: ["EHO1","Hin"],  P4: ["EHO2(2)","GK"],   P5: ["EMS2","Sci"],     P6: ["ESLC1","English"], P7: ["EUA2","Arb"], P8: ["EUA1","U/QT"] },
-                      "4": { P1: ["EUA1","U/QT"], P2: ["EMS2","Math"], P3: ["ESLC2(2)","S.St"], P4: ["EHO1","Hin"],  P5: ["EUA2","Arb"],     P6: ["EMS1","Sci"],     P7: ["ESLC1","English"], P8: ["EHO2(1)","Computer"] },
-                      "5": { P1: ["EMS1","Sci"], P2: ["EUA1","U/QT"], P3: ["EMS2","Math"], P4: ["ESLC2(1)","S.St"], P5: ["EHO1","Hin"],  P6: ["EUA2","Arb"],     P7: ["EHO2(2)","GK"],   P8: ["ESLC1","English"] },
-                      "6": { P1: ["ESLC1","English"], P2: ["EHO2(1)","Computer"], P3: ["EUA2","U/QT"], P4: ["EMS2","Math"], P5: ["ESLC2(2)","S.St"], P6: ["EHO1","Hin"], P7: ["EMS2","Sci"], P8: ["EUA2","Arb"] },
-                      "7": { P1: ["EUA2","Arb"], P2: ["ESLC1","English"], P3: ["EHO2(2)","GK"], P4: ["EUA1","U/QT"], P5: ["EMS1","Math"], P6: ["ESLC2(1)","S.St"], P7: ["EHO1","Hin"], P8: ["EMS1","Sci"] },
+                      "1": { P1: ["EHO1","Hin"],   P2: ["EMS1","Sci"],  P3: ["EUA1","Arb"],  P4: ["ESL1","English"], P5: ["EHO2(1)","GK"],   P6: ["EUA1","U/QT"], P7: ["EMS1","Math"], P8: ["ESL2(1)","S.St"] },
+                      "2": { P1: ["ESL2(2)","S.St"], P2: ["EHO1","Hin"],  P3: ["EMS1","Sci"],  P4: ["EUA2","Arb"],     P5: ["ESL1","English"], P6: ["EHO2(2)","Computer"], P7: ["EUA1","U/QT"], P8: ["EMS2","Math"] },
+                      "3": { P1: ["EMS2","Math"], P2: ["ESL2(1)","S.St"], P3: ["EHO1","Hin"],  P4: ["EHO2(1)","GK"],   P5: ["EMS2","Sci"],     P6: ["ESL1","English"], P7: ["EUA2","Arb"], P8: ["EUA1","U/QT"] },
+                      "4": { P1: ["EUA1","U/QT"], P2: ["EMS2","Math"], P3: ["ESL2(2)","S.St"], P4: ["EHO1","Hin"],  P5: ["EUA2","Arb"],     P6: ["EMS1","Sci"],     P7: ["ESL1","English"], P8: ["EHO2(2)","Computer"] },
+                      "5": { P1: ["EMS1","Sci"], P2: ["EUA1","U/QT"], P3: ["EMS2","Math"], P4: ["ESL2(1)","S.St"], P5: ["EHO1","Hin"],  P6: ["EUA2","Arb"],     P7: ["EHO2(1)","GK"],   P8: ["ESL1","English"] },
+                      "6": { P1: ["ESL1","English"], P2: ["EHO2(2)","Computer"], P3: ["EUA2","U/QT"], P4: ["EMS2","Math"], P5: ["ESL2(2)","S.St"], P6: ["EHO1","Hin"], P7: ["EMS2","Sci"], P8: ["EUA2","Arb"] },
+                      "7": { P1: ["EUA2","Arb"], P2: ["ESL1","English"], P3: ["EHO2(1)","GK"], P4: ["EUA1","U/QT"], P5: ["EMS1","Math"], P6: ["ESL2(1)","S.St"], P7: ["EHO1","Hin"], P8: ["EMS1","Sci"] },
                     };
                   })();
                   return (
@@ -943,6 +1005,592 @@ export default function ProgramDetailPage() {
           </div>
         </div>
       )}
+
+      {/* Self‑Scheduler Modal */}
+      {selfSchedOpen && (
+        <div className={`fixed inset-0 z-[1000] bg-black/60 ${selfSchedFull ? 'p-0' : 'flex items-center justify-center p-4 sm:p-6'}`} onClick={()=> { setSelfSchedOpen(false); setSelfSchedFull(false); }}>
+          <div
+            className={`${selfSchedFull ? 'w-screen h-screen bg-white border-t border-slate-200 rounded-none' : 'w-[96vw] max-w-7xl my-6 sm:my-8 bg-white rounded-2xl border'} shadow-2xl overflow-hidden`}
+            style={selfSchedFull ? undefined : { maxHeight: 'calc(100vh - 96px)' }}
+            onClick={(e)=> e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-3 py-2 border-b">
+              <div className="text-sm font-semibold text-gray-900">Self‑Scheduler — {track === 'pre_primary' ? 'Pre‑Primary' : 'Elementary'}</div>
+              <div className="flex items-center gap-2">
+                <select className="px-2 py-1 border rounded text-sm" value={track} onChange={(e)=> setTrack(e.target.value)}>
+                  <option value="pre_primary">Pre‑Primary</option>
+                  <option value="elementary">Elementary</option>
+                </select>
+                <button className="px-2 py-1 rounded bg-gray-100" onClick={()=> setSelfSchedFull(v=> !v)}>{selfSchedFull ? 'Exit Full Screen' : 'Full Screen'}</button>
+                <button className="px-2 py-1 rounded bg-gray-100" onClick={()=> setSelfSchedOpen(false)}>Close</button>
+              </div>
+            </div>
+            <div className={`${selfSchedFull ? 'h-[calc(100vh-44px)]' : 'max-h-[78vh]'} overflow-auto`}>
+              <SelfScheduler
+                programId={id}
+                track={track}
+                periodData={periodData}
+                codeData={codeData}
+                asgData={asgData}
+                teamData={teamData}
+                onSaved={async()=> { await Promise.all([refreshCells()]); setSelfSchedOpen(false); setFullscreen(true); setSchedTab('weekly'); }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SelfScheduler({ programId, track, periodData, codeData, asgData, teamData, onSaved }) {
+  const [daysMode, setDaysMode] = useState('all'); // all | split
+  const [daysSel, setDaysSel] = useState({ Mon:true, Tue:true, Wed:true, Thu:true, Fri:true, Sat:false });
+  const [fallbackCode, setFallbackCode] = useState('');
+  const [viewDay, setViewDay] = useState('Mon');
+  const [staged, setStaged] = useState({}); // key: day|class|period -> codeId
+  const [errorMsg, setErrorMsg] = useState('');
+  const [seedOpen, setSeedOpen] = useState(false);
+  const [seedText, setSeedText] = useState('');
+  const [seedMsg, setSeedMsg] = useState('');
+  // History for undo/redo
+  const histRef = useRef([]); // snapshots array
+  const hiRef = useRef(-1);   // current index
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+
+  const updateStaged = (mutator) => {
+    setStaged((prev) => {
+      const next = mutator({ ...prev });
+      const trimmed = histRef.current.slice(0, hiRef.current + 1);
+      trimmed.push(next);
+      histRef.current = trimmed;
+      hiRef.current = trimmed.length - 1;
+      setCanUndo(hiRef.current > 0);
+      setCanRedo(false);
+      return next;
+    });
+  };
+  const undo = () => {
+    if (hiRef.current <= 0) return;
+    hiRef.current -= 1;
+    setStaged(histRef.current[hiRef.current] || {});
+    setCanUndo(hiRef.current > 0);
+    setCanRedo(hiRef.current < histRef.current.length - 1);
+  };
+  const redo = () => {
+    if (hiRef.current >= histRef.current.length - 1) return;
+    hiRef.current += 1;
+    setStaged(histRef.current[hiRef.current] || {});
+    setCanUndo(hiRef.current > 0);
+    setCanRedo(hiRef.current < histRef.current.length - 1);
+  };
+  // Load draft if present; else load last saved weekly into staged on open
+  useEffect(() => {
+    let aborted = false;
+    (async () => {
+      try {
+        if (!programId || !track) return;
+        // Check SOP draft first
+        const mp = await fetch('/api/admin/manageMeedian?section=metaPrograms', { cache: 'no-store' });
+        const mj = await mp.json().catch(() => ({}));
+        const prog = (mj?.programs || []).find((p) => p.id === programId);
+        const key = track === 'pre_primary' ? 'pre_primary' : 'elementary';
+        const draft = prog?.sop?.selfSchedulerDraft?.[key];
+        if (draft) {
+          const codeLookup = new Map((codeData?.codes || []).map((c) => [c.code, c.id]));
+          const next = {};
+          Object.keys(draft).forEach((day) => {
+            const byClass = draft[day] || {};
+            Object.keys(byClass).forEach((cls) => {
+              const byPeriod = byClass[cls] || {};
+              Object.keys(byPeriod).forEach((pk) => {
+                const code = Array.isArray(byPeriod[pk]) ? byPeriod[pk][0] : byPeriod[pk];
+                const id = codeLookup.get(code);
+                if (id) next[`${day}|${cls}|${pk}`] = id;
+              });
+            });
+          });
+          if (!aborted) {
+            setStaged(next);
+            histRef.current = [next];
+            hiRef.current = 0; setCanUndo(false); setCanRedo(false);
+          }
+          return;
+        }
+        // Fallback: load weekly cells
+        const res = await fetch(`/api/admin/manageMeedian?section=programScheduleDays&programId=${programId}&track=${track}`, { cache: 'no-store' });
+        const j = await res.json().catch(() => ({}));
+        if (!aborted && Array.isArray(j?.days)) {
+          const next = {};
+          j.days.forEach((r) => {
+            const cls = String(r.className || r.classId);
+            next[`${r.dayName}|${cls}|${r.periodKey}`] = r.mspCodeId || null;
+          });
+          setStaged(next);
+          histRef.current = [next];
+          hiRef.current = 0; setCanUndo(false); setCanRedo(false);
+        }
+      } catch { /* ignore */ }
+    })();
+    return () => { aborted = true; };
+  }, [programId, track, codeData]);
+
+  const periods = useMemo(() => (periodData?.periods || []).filter(p=>/^P\d+$/i.test(p.periodKey)).sort((a,b)=> Number(a.periodKey.slice(1))-Number(b.periodKey.slice(1))), [periodData]);
+  const classes = useMemo(() => {
+    // derive class list from existing base cells
+    return Array.from(new Set((periodData?.periods||[]) && (codeData?.codes||[]))).length,
+    [];
+  }, []);
+  // Use existing base cells to construct class list from cellData-ish: fallback to 1..7 or pre‑primary
+  const classList = useMemo(() => {
+    if (track === 'pre_primary') return ['Nursery','LKG','UKG'];
+    // Estimate from assignments: default 1..7
+    return ['1','2','3','4','5','6','7'];
+  }, [track]);
+
+  const familyGroups = useMemo(() => {
+    const codes = (codeData?.codes || [])
+      .filter(c => (c.track === track || c.track === 'both'))
+      .filter(c => c.active);
+    const map = new Map();
+    codes.forEach(c => { if (!map.has(c.familyKey)) map.set(c.familyKey, []); map.get(c.familyKey).push(c); });
+    return Array.from(map.entries()).map(([fam, list]) => ({ fam, list }));
+  }, [codeData, track]);
+
+  // Color classes per family (static strings so Tailwind keeps them)
+  const colorByFamily = (fam) => {
+    switch (fam) {
+      case 'ESL': return 'bg-indigo-50 border-indigo-200 text-indigo-800';
+      case 'EMS': return 'bg-emerald-50 border-emerald-200 text-emerald-800';
+      case 'EUA': return 'bg-rose-50 border-rose-200 text-rose-800';
+      case 'EHO': return 'bg-amber-50 border-amber-200 text-amber-800';
+      case 'PGL': return 'bg-violet-50 border-violet-200 text-violet-800';
+      case 'PRL': return 'bg-sky-50 border-sky-200 text-sky-800';
+      default:    return 'bg-slate-50 border-slate-200 text-slate-800';
+    }
+  };
+  const colorByCodeId = (id) => {
+    const c = (codeData?.codes || []).find(x => x.id === id);
+    return colorByFamily(c?.familyKey);
+  };
+
+  // Occurrence count: how many boxes each code occupies in the staged grid
+  const occByCode = useMemo(() => {
+    const m = new Map();
+    Object.values(staged || {}).forEach((cid) => {
+      if (!cid) return;
+      m.set(cid, (m.get(cid) || 0) + 1);
+    });
+    return m;
+  }, [staged]);
+
+  const codeTeacher = useMemo(() => {
+    const active = (asgData?.assignments || []).filter(a=> a.active);
+    const map = new Map();
+    active.forEach(a => { if (!map.has(a.mspCodeId)) map.set(a.mspCodeId, a.userId); });
+    return map; // mspCodeId -> userId
+  }, [asgData]);
+  const teacherGroup = useMemo(() => {
+    const codesById = new Map((codeData?.codes || []).map(c => [c.id, c]));
+    const result = new Map(); // userId -> 'pre' | 'ele'
+    (asgData?.assignments || []).forEach(a => {
+      if (!a.active) return;
+      const c = codesById.get(a.mspCodeId);
+      const fam = c?.familyKey;
+      const trk = c?.track;
+      const g = (fam === 'PGL' || fam === 'PRL' || trk === 'pre_primary') ? 'pre' : 'ele';
+      // prefer primary assignment when available
+      if (!result.has(a.userId) || a.isPrimary) result.set(a.userId, g);
+    });
+    return result;
+  }, [asgData, codeData]);
+
+  const onDragStart = (ev, codeId) => {
+    ev.dataTransfer.setData('text/plain', String(codeId));
+  };
+  const onDropInto = (ev, cls, pk) => {
+    ev.preventDefault();
+    setErrorMsg('');
+    const codeId = Number(ev.dataTransfer.getData('text/plain'));
+    if (!codeId) return;
+
+    const targetDays = daysMode === 'all' ? Object.keys(daysSel).filter(k=> daysSel[k]) : Object.keys(daysSel).filter(k=> daysSel[k]);
+    // Constraint 1: same code cannot appear twice at same day/period across classes (teacher clash by code)
+    for (const d of targetDays) {
+      for (const c of classList) {
+        const key = `${d}|${c}|${pk}`;
+        if (staged[key] === codeId && c !== cls) {
+          setErrorMsg('Conflict: same code in same period across classes.');
+          return;
+        }
+      }
+    }
+    // Constraint 2: teacher workload ≤ 7 periods/day across codes
+    const userId = codeTeacher.get(codeId);
+    if (userId) {
+      for (const d of targetDays) {
+        let count = 0;
+        for (const c of classList) {
+          for (const p of periods) {
+            const key = `${d}|${c}|${p.periodKey}`;
+            const cid = staged[key];
+            if (cid && codeTeacher.get(cid) === userId) count++;
+          }
+        }
+        if (count >= 7) {
+          setErrorMsg('Workload cap: teacher already at 7 periods for that day.');
+          return;
+        }
+      }
+    }
+
+    updateStaged((next) => {
+      const applyDays = targetDays;
+      const others = ['Mon','Tue','Wed','Thu','Fri','Sat'].filter(d => !applyDays.includes(d));
+      for (const d of applyDays) next[`${d}|${cls}|${pk}`] = codeId;
+      if (fallbackCode) {
+        for (const d of others) next[`${d}|${cls}|${pk}`] = Number(fallbackCode);
+      }
+      return next;
+    });
+  };
+  const allowDrop = (ev) => ev.preventDefault();
+  const onDragStartAssigned = (ev, day, cls, pk) => {
+    ev.dataTransfer.setData('text/removeKey', `${day}|${cls}|${pk}`);
+  };
+  const onDropRemove = (ev) => {
+    ev.preventDefault();
+    const key = ev.dataTransfer.getData('text/removeKey');
+    if (!key) return;
+    updateStaged((next) => { delete next[key]; return next; });
+  };
+
+  const saveWeekly = async () => {
+    try {
+      setErrorMsg('');
+      const usedDays = Object.keys(staged).map(k => k.split('|')[0]);
+      const days = Array.from(new Set(usedDays)).filter(Boolean);
+      if (!days.length) { setErrorMsg('No changes to save.'); return; }
+      // Compile rows: include staged; we won’t merge existing for brevity (future: fetch & merge)
+      const rows = Object.entries(staged).map(([k, cid]) => {
+        const [dayName, cls, periodKey] = k.split('|');
+        return { classId: isNaN(cls) ? null : Number(cls), dayName, periodKey, mspCodeId: Number(cid), subject: null };
+      });
+      // Map class names to ids
+      // Minimal resolution: try to detect numeric ids; named classes (Nursery, etc.) would require class lookup; skipped for brevity
+      const payload = { programId: programId, track, days, cells: rows.filter(r => r.classId) };
+      const res = await fetch(`/api/admin/manageMeedian?section=programScheduleDays`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+      // Clear draft for this track after finalizing
+      try {
+        const mp = await fetch('/api/admin/manageMeedian?section=metaPrograms');
+        const mj = await mp.json();
+        const prog = (mj.programs||[]).find(p=> p.id === programId);
+        const sop = prog?.sop || {};
+        const key = track === 'pre_primary' ? 'pre_primary' : 'elementary';
+        if (sop.selfSchedulerDraft && sop.selfSchedulerDraft[key]) {
+          delete sop.selfSchedulerDraft[key];
+          await fetch('/api/admin/manageMeedian?section=programSOP', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ programId, sop }) });
+        }
+      } catch {}
+      onSaved && onSaved();
+    } catch (e) {
+      setErrorMsg(e.message || 'Failed to save');
+    }
+  };
+
+  const applySeed = () => {
+    setSeedMsg(''); setErrorMsg('');
+    let parsed;
+    try {
+      parsed = JSON.parse(seedText);
+    } catch (e) {
+      setSeedMsg('Invalid JSON');
+      return;
+    }
+    const dayKeys = ['Mon','Tue','Wed','Thu','Fri','Sat'];
+    const hasDays = parsed && typeof parsed === 'object' && Object.keys(parsed).some(k => dayKeys.includes(k));
+    const targetDays = hasDays
+      ? Object.keys(parsed).filter(k => dayKeys.includes(k))
+      : Object.keys(daysSel).filter(k => daysSel[k]);
+
+    // Build code lookup
+    const codeLookup = new Map((codeData?.codes || []).map(c => [c.code, c.id]));
+
+    updateStaged((next) => {
+      if (hasDays) {
+        for (const d of targetDays) {
+          const byClass = parsed[d] || {};
+          for (const cls of Object.keys(byClass)) {
+            const byPeriod = byClass[cls] || {};
+            for (const pk of Object.keys(byPeriod)) {
+              const val = byPeriod[pk];
+              const code = Array.isArray(val) ? val[0] : (typeof val === 'string' ? val : val?.code);
+              const id = codeLookup.get(code);
+              if (id) next[`${d}|${cls}|${pk}`] = id;
+            }
+          }
+        }
+      } else {
+        // class-wise seed → apply to selected days
+        for (const cls of Object.keys(parsed)) {
+          const byPeriod = parsed[cls] || {};
+          for (const pk of Object.keys(byPeriod)) {
+            const val = byPeriod[pk];
+            const code = Array.isArray(val) ? val[0] : (typeof val === 'string' ? val : val?.code);
+            const id = codeLookup.get(code);
+            if (!id) continue;
+            for (const d of targetDays) next[`${d}|${cls}|${pk}`] = id;
+          }
+        }
+      }
+      return next;
+    });
+    setSeedMsg('Seed applied to staged grid');
+  };
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-12">
+      <div className="md:col-span-4 border-r p-3 space-y-2">
+        {/* Remove area */}
+        <div className="mb-2">
+          <div className="text-xs text-gray-600 mb-1">Drop here to remove a placed code</div>
+          <div className="border-2 border-dashed rounded-lg p-2 text-center text-xs text-gray-500 bg-gray-50"
+               onDragOver={allowDrop}
+               onDrop={onDropRemove}
+          >
+            Remove Zone
+          </div>
+        </div>
+        <div className="text-sm font-semibold text-gray-800">Codes by Family</div>
+        <div className="text-xs text-gray-600">Drag a code onto the timetable.</div>
+        <div className="max-h-[60vh] overflow-y-auto pr-1">
+          {familyGroups.map(({ fam, list }) => (
+            <div key={fam} className="mb-2">
+              <div className="text-xs font-bold text-gray-700 mb-1">{fam}</div>
+              <div className="flex flex-wrap gap-2">
+                {list.map(c => {
+                  const count = occByCode.get(c.id) || 0;
+                  return (
+                    <div
+                      key={c.id}
+                      draggable
+                      onDragStart={(e)=> onDragStart(e, c.id)}
+                      className={`px-2 py-1 rounded-lg border text-xs cursor-grab hover:brightness-105 ${colorByFamily(c.familyKey)} flex items-center justify-between gap-2 min-w-[84px]`}
+                      title={`${c.title || c.code} — placed ${count} time${count===1?'':'s'}`}
+                    >
+                      <span>{c.code}</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/80 border border-black/10 text-gray-800 min-w-[18px] text-center">{count}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 space-y-2">
+          <div className="text-sm font-semibold text-gray-800">Apply Days</div>
+          <label className="text-xs inline-flex items-center gap-2"><input type="radio" name="dm" checked={daysMode==='all'} onChange={()=> setDaysMode('all')} /> All (Mon–Fri)</label>
+          <label className="text-xs inline-flex items-center gap-2"><input type="radio" name="dm" checked={daysMode==='split'} onChange={()=> setDaysMode('split')} /> Split days</label>
+          {daysMode === 'split' && (
+            <div className="grid grid-cols-3 gap-1 text-xs">
+              {['Mon','Tue','Wed','Thu','Fri','Sat'].map(d => (
+                <label key={d} className="inline-flex items-center gap-1"><input type="checkbox" checked={!!daysSel[d]} onChange={(e)=> setDaysSel(s=> ({...s, [d]: e.target.checked}))} /> {d}</label>
+              ))}
+              <div className="col-span-3">
+                <div className="text-xs text-gray-700 mb-1">Fallback code for other days (optional)</div>
+                <select className="w-full border rounded px-2 py-1 text-xs" value={fallbackCode} onChange={(e)=> setFallbackCode(e.target.value)}>
+                  <option value="">(none)</option>
+                  {(codeData?.codes||[]).filter(c=> (c.track===track || c.track==='both') && c.active).map(c=> (
+                    <option key={c.id} value={c.id}>{c.code}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+          {errorMsg && <div className="text-xs text-rose-600">{errorMsg}</div>}
+          <div className="pt-2 flex items-center gap-2 flex-wrap">
+            <button className="px-3 py-1.5 rounded bg-gray-900 text-white text-xs" onClick={saveWeekly}>Validate & Save</button>
+            <button className="px-3 py-1.5 rounded bg-gray-100 text-gray-800 text-xs" onClick={()=> { setStaged({}); histRef.current=[{}]; hiRef.current=0; setCanUndo(false); setCanRedo(false);} }>Clear</button>
+            <button className="px-3 py-1.5 rounded bg-gray-100 text-gray-800 text-xs disabled:opacity-50" onClick={undo} disabled={!canUndo}>Undo</button>
+            <button className="px-3 py-1.5 rounded bg-gray-100 text-gray-800 text-xs disabled:opacity-50" onClick={redo} disabled={!canRedo}>Redo</button>
+            <button className="px-3 py-1.5 rounded bg-indigo-600 text-white text-xs" onClick={async()=>{
+              try {
+                setSeedMsg(''); setErrorMsg('');
+                // Build draft JSON day->class->period->code
+                const codeById = new Map((codeData?.codes||[]).map(c=> [c.id, c.code]));
+                const draft = {};
+                Object.entries(staged).forEach(([k, cid])=>{
+                  const [day, cls, pk] = k.split('|');
+                  if (!draft[day]) draft[day] = {};
+                  if (!draft[day][cls]) draft[day][cls] = {};
+                  draft[day][cls][pk] = codeById.get(cid) || null;
+                });
+                // Fetch current program SOP, merge
+                const mp = await fetch('/api/admin/manageMeedian?section=metaPrograms');
+                const mj = await mp.json();
+                const prog = (mj.programs||[]).find(p=> p.id === programId);
+                const sop = prog?.sop || {};
+                const key = track === 'pre_primary' ? 'pre_primary' : 'elementary';
+                sop.selfSchedulerDraft = sop.selfSchedulerDraft || {};
+                sop.selfSchedulerDraft[key] = draft;
+                const pr = await fetch('/api/admin/manageMeedian?section=programSOP', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ programId, sop }) });
+                const pj = await pr.json().catch(()=>({}));
+                if (!pr.ok) throw new Error(pj.error || `HTTP ${pr.status}`);
+                setSeedMsg('Draft saved');
+              } catch(e) {
+                setErrorMsg(e.message || 'Failed to save draft');
+              }
+            }}>Save Draft</button>
+            <button className="px-3 py-1.5 rounded bg-white border text-gray-800 text-xs" onClick={async()=>{
+              try {
+                setSeedMsg(''); setErrorMsg('');
+                const mp = await fetch('/api/admin/manageMeedian?section=metaPrograms');
+                const mj = await mp.json();
+                const prog = (mj.programs||[]).find(p=> p.id === programId);
+                const key = track === 'pre_primary' ? 'pre_primary' : 'elementary';
+                const draft = prog?.sop?.selfSchedulerDraft?.[key];
+                if (!draft) { setSeedMsg('No draft found'); return; }
+                const codeLookup = new Map((codeData?.codes || []).map(c => [c.code, c.id]));
+                updateStaged((next)=>{
+                  Object.keys(draft).forEach(day => {
+                    const byClass = draft[day] || {};
+                    Object.keys(byClass).forEach(cls => {
+                      const byPeriod = byClass[cls] || {};
+                      Object.keys(byPeriod).forEach(pk => {
+                        const id = codeLookup.get(byPeriod[pk]);
+                        if (id) next[`${day}|${cls}|${pk}`] = id;
+                      });
+                    });
+                  });
+                  return next;
+                });
+                setSeedMsg('Draft loaded');
+              } catch(e) { setErrorMsg(e.message || 'Failed to load draft'); }
+            }}>Load Draft</button>
+            <span className="text-[11px] text-emerald-700">{seedMsg}</span>
+            {errorMsg && <span className="text-[11px] text-rose-600">{errorMsg}</span>}
+          </div>
+          <div className="pt-3">
+            <button className="px-2 py-1.5 rounded border text-xs" onClick={()=> setSeedOpen(v=> !v)}>{seedOpen ? 'Hide' : 'Paste'} Seed JSON</button>
+            {seedOpen && (
+              <div className="mt-2 space-y-2">
+                <div className="text-[11px] text-gray-600">
+                  Format A (day-wise): {`{"Mon": { "1": { "P1": "ESL1" } } }`} • Format B (class-wise): {`{"1": { "P1": "ESL1" } }`} (applies to selected days)
+                </div>
+                <textarea className="w-full h-28 border rounded p-2 text-xs font-mono" value={seedText} onChange={(e)=> setSeedText(e.target.value)} placeholder='{"Mon":{"1":{"P1":"ESL1"}}}' />
+                <div className="flex items-center justify-between">
+                  <button className="px-3 py-1.5 rounded bg-teal-600 text-white text-xs" onClick={applySeed}>Apply Seed to Grid</button>
+                  {seedMsg && <div className="text-[11px] text-emerald-700">{seedMsg}</div>}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+      <div className="md:col-span-8 p-3">
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-sm font-semibold text-gray-800">Timetable (view day)</div>
+          <select className="px-2 py-1 border rounded text-sm" value={viewDay} onChange={(e)=> setViewDay(e.target.value)}>
+            {['Mon','Tue','Wed','Thu','Fri','Sat'].map(d => <option key={d} value={d}>{d}</option>)}
+          </select>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-[800px] text-sm border-collapse">
+            <thead>
+              <tr className="bg-gray-50 text-gray-700">
+                <th className="border px-3 py-2 sticky left-0 bg-gray-50 z-10">Class</th>
+                {periods.map(p => (
+                            <th key={p.periodKey} className={`border px-3 py-2 text-center ${p.periodKey==='P5' ? 'border-l-4 border-l-rose-400' : ''}`}>{p.periodKey}<div className="text-[11px] text-gray-500">{p.startTime?.slice?.(0,5)}–{p.endTime?.slice?.(0,5)}</div></th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {classList.map(cls => (
+                <tr key={cls}>
+                  <td className="border px-3 py-2 sticky left-0 bg-white z-10 font-semibold">{cls}</td>
+                  {periods.map(p => {
+                    const val = staged[`${viewDay}|${cls}|${p.periodKey}`];
+                    const codeObj = (codeData?.codes || []).find(c=> c.id === val);
+                    const code = codeObj?.code;
+                    return (
+                      <td key={`${cls}-${p.periodKey}`} className={`border align-top ${p.periodKey==='P5' ? 'border-l-4 border-l-rose-400' : ''}`}>
+                        <div className="min-h-[40px] px-2 py-1" onDragOver={allowDrop} onDrop={(e)=> onDropInto(e, cls, p.periodKey)}>
+                          {code ? (
+                            <div className="flex items-center gap-1">
+                              <div
+                                className={`inline-block px-2 py-1 text-xs rounded border ${colorByFamily(codeObj?.familyKey)}`}
+                                draggable
+                                onDragStart={(e)=> onDragStartAssigned(e, viewDay, cls, p.periodKey)}
+                                title="Drag back to remove zone"
+                              >
+                                {code}
+                              </div>
+                              <button
+                                className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 border hover:bg-gray-200"
+                                title="Remove from this cell"
+                                onClick={()=> setStaged(prev => { const next = { ...prev }; delete next[`${viewDay}|${cls}|${p.periodKey}`]; return next; })}
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-[10px] text-gray-400">Drop here</span>
+                          )}
+                        </div>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {/* Leisure preview (simple, based on staged only) */}
+        <div className="mt-3">
+          <div className="text-sm font-semibold text-gray-800 mb-1">Leisure (unassigned) — {viewDay}</div>
+          <div className="overflow-x-auto">
+            <table className="min-w-[800px] text-xs">
+              <thead>
+                <tr className="text-gray-600">
+                  <th className="text-left py-1 pr-2">Period</th>
+                  <th className="text-left py-1">Teachers Free</th>
+                </tr>
+              </thead>
+              <tbody>
+                {periods.map(p => {
+                  const teachers = new Set((asgData?.assignments||[]).filter(a=> a.active).map(a=> a.userId));
+                  // remove those used in staged for this day/period
+                  classList.forEach(cls => {
+                    const cid = staged[`${viewDay}|${cls}|${p.periodKey}`];
+                    if (cid) {
+                      const uid = codeTeacher.get(cid);
+                      if (uid) teachers.delete(uid);
+                    }
+                  });
+                  const pre = Array.from(teachers).filter(uid => teacherGroup.get(uid) === 'pre');
+                  const ele = Array.from(teachers).filter(uid => teacherGroup.get(uid) !== 'pre');
+                  const preNames = pre.map(uid => (teamData?.users||[]).find(u=> u.id === uid)?.name || uid).slice(0,12);
+                  const eleNames = ele.map(uid => (teamData?.users||[]).find(u=> u.id === uid)?.name || uid).slice(0,12);
+                  return (
+                    <tr key={p.periodKey} className="border-t">
+                      <td className="py-1 pr-2 font-semibold">{p.periodKey}</td>
+                      <td className="py-1">
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          <div className="text-[11px]"><span className="font-semibold text-sky-700">Pre‑Primary:</span> {preNames.length ? preNames.join(', ') : '—'}</div>
+                          <div className="text-[11px]"><span className="font-semibold text-indigo-700">Elementary:</span> {eleNames.length ? eleNames.join(', ') : '—'}</div>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

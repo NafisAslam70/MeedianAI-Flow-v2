@@ -35,6 +35,7 @@ import {
   mriRoleDefs,
   programPeriods,
   programScheduleCells,
+  programScheduleDays,
 } from "@/lib/schema";
 import { eq, or, inArray, and } from "drizzle-orm";
 import bcrypt from "bcrypt";
@@ -327,6 +328,36 @@ export async function GET(req) {
       return NextResponse.json({ cells: rows }, { status: 200 });
     }
 
+    // Program schedule days (GET)
+    if (section === "programScheduleDays") {
+      const programId = Number(searchParams.get("programId"));
+      const track = String(searchParams.get("track") || "").trim();
+      if (!programId || !track) {
+        return NextResponse.json({ error: "Missing required params: programId and track" }, { status: 400 });
+      }
+      const day = String(searchParams.get("day") || "").trim();
+      let where = and(eq(programScheduleDays.programId, programId), eq(programScheduleDays.track, track));
+      if (day) where = and(where, eq(programScheduleDays.dayName, day));
+      const rows = await db
+        .select({
+          id: programScheduleDays.id,
+          programId: programScheduleDays.programId,
+          track: programScheduleDays.track,
+          classId: programScheduleDays.classId,
+          className: Classes.name,
+          dayName: programScheduleDays.dayName,
+          periodKey: programScheduleDays.periodKey,
+          mspCodeId: programScheduleDays.mspCodeId,
+          mspCode: mspCodes.code,
+          subject: programScheduleDays.subject,
+        })
+        .from(programScheduleDays)
+        .leftJoin(Classes, eq(Classes.id, programScheduleDays.classId))
+        .leftJoin(mspCodes, eq(mspCodes.id, programScheduleDays.mspCodeId))
+        .where(where);
+      return NextResponse.json({ days: rows }, { status: 200 });
+    }
+
     // Note: DELETE handlers for mspCodes and mspCodeAssignments are implemented under DELETE, not GET.
 
     return NextResponse.json({ error: "Invalid section" }, { status: 400 });
@@ -378,6 +409,51 @@ export async function POST(req) {
         });
 
       return NextResponse.json({ entry, message: "Calendar entry added successfully" }, { status: 201 });
+    }
+
+    // Program schedule days (POST)
+    if (section === "programScheduleDays") {
+      const { programId, track, days = [], cells = [] } = body || {};
+      if (!programId || !track || !Array.isArray(cells)) {
+        return NextResponse.json({ error: "programId, track and cells[] required" }, { status: 400 });
+      }
+      const daySet = new Set((Array.isArray(days) ? days : []).map((d) => String(d)));
+      // If days not provided, derive from cells
+      if (daySet.size === 0) {
+        cells.forEach((c) => c?.dayName && daySet.add(String(c.dayName)));
+      }
+      if (daySet.size === 0) {
+        return NextResponse.json({ error: "days[] or dayName in cells is required" }, { status: 400 });
+      }
+      const dayList = Array.from(daySet);
+
+      // Remove existing rows for the provided days to allow idempotent replace
+      await db
+        .delete(programScheduleDays)
+        .where(
+          and(
+            eq(programScheduleDays.programId, Number(programId)),
+            eq(programScheduleDays.track, String(track)),
+            inArray(programScheduleDays.dayName, dayList)
+          )
+        );
+
+      // Insert new rows
+      const rows = cells
+        .filter((c) => c && c.classId && c.dayName && c.periodKey)
+        .map((c) => ({
+          programId: Number(programId),
+          track: String(track),
+          classId: Number(c.classId),
+          dayName: String(c.dayName),
+          periodKey: String(c.periodKey),
+          mspCodeId: c.mspCodeId ? Number(c.mspCodeId) : null,
+          subject: c.subject ? String(c.subject) : null,
+          active: true,
+        }));
+      if (!rows.length) return NextResponse.json({ error: "No valid cells to insert" }, { status: 400 });
+      await db.insert(programScheduleDays).values(rows);
+      return NextResponse.json({ inserted: rows.length }, { status: 201 });
     }
 
     if (section === "slots") {
@@ -502,28 +578,28 @@ export async function POST(req) {
           }
         }
       } else {
-        // Elementary matrix (finalized): ESLC1=English; S.St split ESLC2(1)/(2); EHO2(1)=Computer; EHO2(2)=GK
+        // Elementary matrix (finalized): ESL1=English; S.St split ESL2(1)/(2); EHO2(1)=GK; EHO2(2)=Computer
         const matrix = customMatrix || {
-          "1": { P1: ["EHO1","Hin"], P2: ["EMS1","Sci"], P3: ["EUA1","Arb"], P4: ["ESLC1","English"],
-                 P5: ["EHO2(2)","GK"], P6: ["EUA1","U/QT"], P7: ["EMS1","Math"], P8: ["ESLC2(1)","S.St"] },
+          "1": { P1: ["EHO1","Hin"], P2: ["EMS1","Sci"], P3: ["EUA1","Arb"], P4: ["ESL1","English"],
+                 P5: ["EHO2(1)","GK"], P6: ["EUA1","U/QT"], P7: ["EMS1","Math"], P8: ["ESL2(1)","S.St"] },
 
-          "2": { P1: ["ESLC2(2)","S.St"], P2: ["EHO1","Hin"], P3: ["EMS1","Sci"], P4: ["EUA2","Arb"],
-                 P5: ["ESLC1","English"], P6: ["EHO2(1)","Computer"], P7: ["EUA1","U/QT"], P8: ["EMS2","Math"] },
+          "2": { P1: ["ESL2(2)","S.St"], P2: ["EHO1","Hin"], P3: ["EMS1","Sci"], P4: ["EUA2","Arb"],
+                 P5: ["ESL1","English"], P6: ["EHO2(2)","Computer"], P7: ["EUA1","U/QT"], P8: ["EMS2","Math"] },
 
-          "3": { P1: ["EMS2","Math"], P2: ["ESLC2(1)","S.St"], P3: ["EHO1","Hin"], P4: ["EHO2(2)","GK"],
-                 P5: ["EMS2","Sci"], P6: ["ESLC1","English"], P7: ["EUA2","Arb"], P8: ["EUA1","U/QT"] },
+          "3": { P1: ["EMS2","Math"], P2: ["ESL2(1)","S.St"], P3: ["EHO1","Hin"], P4: ["EHO2(1)","GK"],
+                 P5: ["EMS2","Sci"], P6: ["ESL1","English"], P7: ["EUA2","Arb"], P8: ["EUA1","U/QT"] },
 
-          "4": { P1: ["EUA1","U/QT"], P2: ["EMS2","Math"], P3: ["ESLC2(2)","S.St"], P4: ["EHO1","Hin"],
-                 P5: ["EUA2","Arb"], P6: ["EMS1","Sci"], P7: ["ESLC1","English"], P8: ["EHO2(1)","Computer"] },
+          "4": { P1: ["EUA1","U/QT"], P2: ["EMS2","Math"], P3: ["ESL2(2)","S.St"], P4: ["EHO1","Hin"],
+                 P5: ["EUA2","Arb"], P6: ["EMS1","Sci"], P7: ["ESL1","English"], P8: ["EHO2(2)","Computer"] },
 
-          "5": { P1: ["EMS1","Sci"], P2: ["EUA1","U/QT"], P3: ["EMS2","Math"], P4: ["ESLC2(1)","S.St"],
-                 P5: ["EHO1","Hin"], P6: ["EUA2","Arb"], P7: ["EHO2(2)","GK"], P8: ["ESLC1","English"] },
+          "5": { P1: ["EMS1","Sci"], P2: ["EUA1","U/QT"], P3: ["EMS2","Math"], P4: ["ESL2(1)","S.St"],
+                 P5: ["EHO1","Hin"], P6: ["EUA2","Arb"], P7: ["EHO2(1)","GK"], P8: ["ESL1","English"] },
 
-          "6": { P1: ["ESLC1","English"], P2: ["EHO2(1)","Computer"], P3: ["EUA2","U/QT"], P4: ["EMS2","Math"],
-                 P5: ["ESLC2(2)","S.St"], P6: ["EHO1","Hin"], P7: ["EMS2","Sci"], P8: ["EUA2","Arb"] },
+          "6": { P1: ["ESL1","English"], P2: ["EHO2(2)","Computer"], P3: ["EUA2","U/QT"], P4: ["EMS2","Math"],
+                 P5: ["ESL2(2)","S.St"], P6: ["EHO1","Hin"], P7: ["EMS2","Sci"], P8: ["EUA2","Arb"] },
 
-          "7": { P1: ["EUA2","Arb"], P2: ["ESLC1","English"], P3: ["EHO2(2)","GK"], P4: ["EUA1","U/QT"],
-                 P5: ["EMS1","Math"], P6: ["ESLC2(1)","S.St"], P7: ["EHO1","Hin"], P8: ["EMS1","Sci"] },
+          "7": { P1: ["EUA2","Arb"], P2: ["ESL1","English"], P3: ["EHO2(1)","GK"], P4: ["EUA1","U/QT"],
+                 P5: ["EMS1","Math"], P6: ["ESL2(1)","S.St"], P7: ["EHO1","Hin"], P8: ["EMS1","Sci"] },
         };
         for (const [className, row] of Object.entries(matrix)) {
           const classId = nameToId.get(className);
@@ -590,18 +666,18 @@ export async function POST(req) {
         { code: "EMS1", familyKey: "EMS", track: "elementary", title: "Elementary Science" },
         { code: "EMS2", familyKey: "EMS", track: "elementary", title: "Elementary Math" },
 
-        { code: "ESLC1", familyKey: "ESLC", track: "elementary", title: "Elementary English" },
+        { code: "ESL1", familyKey: "ESL", track: "elementary", title: "Elementary English" },
         // Social Studies split
-        { code: "ESLC2(1)", familyKey: "ESLC", track: "elementary", title: "Social Studies slice 1", parentSlice: "SST" },
-        { code: "ESLC2(2)", familyKey: "ESLC", track: "elementary", title: "Social Studies slice 2", parentSlice: "SST" },
+        { code: "ESL2(1)", familyKey: "ESL", track: "elementary", title: "Elementary Social Studies (Part 1)", parentSlice: "S.St" },
+        { code: "ESL2(2)", familyKey: "ESL", track: "elementary", title: "Elementary Social Studies (Part 2)", parentSlice: "S.St" },
 
         { code: "EUA1", familyKey: "EUA", track: "elementary", title: "Elementary Urdu / QT" },
         { code: "EUA2", familyKey: "EUA", track: "elementary", title: "Elementary Arabic" },
 
         { code: "EHO1", familyKey: "EHO", track: "elementary", title: "Elementary Hindi" },
         // GK / Computer split
-        { code: "EHO2(1)", familyKey: "EHO", track: "elementary", title: "Computer", parentSlice: "Computer" },
-        { code: "EHO2(2)", familyKey: "EHO", track: "elementary", title: "General Knowledge", parentSlice: "GK" },
+        { code: "EHO2(1)", familyKey: "EHO", track: "elementary", title: "General Knowledge", parentSlice: "GK" },
+        { code: "EHO2(2)", familyKey: "EHO", track: "elementary", title: "Computer", parentSlice: "Computer" },
       ];
 
       const existing = await db.select({ id: mspCodes.id, code: mspCodes.code }).from(mspCodes);
@@ -616,10 +692,112 @@ export async function POST(req) {
 
       // Deactivate legacy base codes if present
       try {
-        await db.update(mspCodes).set({ active: false }).where(inArray(mspCodes.code, ["ESLC2", "EHO2"]));
+        await db.update(mspCodes).set({ active: false }).where(inArray(mspCodes.code, ["ESLC1","ESLC2","EHO2"]));
       } catch (_) {}
 
       return NextResponse.json({ message: `Seeded MSP codes (${created} new, ${standard.length - created} existing)` }, { status: 200 });
+    }
+
+    // Expand base matrix to day-wise overlay (simple replication utility)
+    if (section === "expandBaseToDays") {
+      const { programId, track, days = ["Mon","Tue","Wed","Thu","Fri"] } = body || {};
+      if (!programId || !track) return NextResponse.json({ error: "programId and track required" }, { status: 400 });
+      const dayList = Array.isArray(days) && days.length ? days : ["Mon","Tue","Wed","Thu","Fri"];
+      const base = await db
+        .select({ classId: programScheduleCells.classId, periodKey: programScheduleCells.periodKey, mspCodeId: programScheduleCells.mspCodeId, subject: programScheduleCells.subject })
+        .from(programScheduleCells)
+        .where(and(eq(programScheduleCells.programId, Number(programId)), eq(programScheduleCells.track, String(track))));
+      if (!base.length) return NextResponse.json({ error: "No base matrix found" }, { status: 404 });
+      // Replace existing for provided days
+      await db
+        .delete(programScheduleDays)
+        .where(and(eq(programScheduleDays.programId, Number(programId)), eq(programScheduleDays.track, String(track)), inArray(programScheduleDays.dayName, dayList)));
+      const rows = [];
+      for (const d of dayList) {
+        for (const c of base) {
+          rows.push({ programId: Number(programId), track: String(track), classId: c.classId, dayName: d, periodKey: c.periodKey, mspCodeId: c.mspCodeId || null, subject: c.subject || null, active: true });
+        }
+      }
+      await db.insert(programScheduleDays).values(rows);
+      return NextResponse.json({ inserted: rows.length }, { status: 201 });
+    }
+
+    if (section === "expandBaseToDaysAdvanced") {
+      const { programId, track, days = ["Mon","Tue","Wed","Thu","Fri"] } = body || {};
+      if (!programId || !track) return NextResponse.json({ error: "programId and track required" }, { status: 400 });
+      const dayList = Array.isArray(days) && days.length ? days : ["Mon","Tue","Wed","Thu","Fri"];
+
+      // Helpers: resolve code ids
+      const wantedCodes = ["EUA1","EUA3","ESL2(2)","EHO2(1)","EHO2(2)"];
+      const codeRows = await db.select({ id: mspCodes.id, code: mspCodes.code }).from(mspCodes).where(inArray(mspCodes.code, wantedCodes));
+      const codeId = (c) => codeRows.find((r) => r.code === c)?.id || null;
+      const EUA1 = codeId("EUA1");
+      const EUA3 = codeId("EUA3");
+      const ESL2_2 = codeId("ESL2(2)");
+      const EHO2_1 = codeId("EHO2(1)");
+      const EHO2_2 = codeId("EHO2(2)");
+
+      // Collect base cells and periods
+      const base = await db
+        .select({ classId: programScheduleCells.classId, periodKey: programScheduleCells.periodKey, mspCodeId: programScheduleCells.mspCodeId, subject: programScheduleCells.subject })
+        .from(programScheduleCells)
+        .where(and(eq(programScheduleCells.programId, Number(programId)), eq(programScheduleCells.track, String(track))));
+      if (!base.length) return NextResponse.json({ error: "No base matrix found" }, { status: 404 });
+
+      // Determine periods P1..P8 and split pre/post tiffin (assume P1..P3 pre)
+      const pkeys = Array.from(new Set(base.map((b) => b.periodKey))).sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
+      const preTiffin = new Set(pkeys.filter((pk) => Number(pk.slice(1)) <= 3));
+      const postTiffin = new Set(pkeys.filter((pk) => Number(pk.slice(1)) > 3));
+      const chosenPost = pkeys.find((pk) => postTiffin.has(pk)) || pkeys[pkeys.length - 1];
+
+      // Wipe target days then insert
+      await db
+        .delete(programScheduleDays)
+        .where(and(eq(programScheduleDays.programId, Number(programId)), eq(programScheduleDays.track, String(track)), inArray(programScheduleDays.dayName, dayList)));
+
+      const rows = [];
+      for (const d of dayList) {
+        for (const c of base) {
+          let mspCodeId = c.mspCodeId || null;
+          let subject = c.subject || null;
+
+          // Pre‑tiffin blocks force EUA1 U/QT
+          if (preTiffin.has(c.periodKey) && EUA1) {
+            mspCodeId = EUA1;
+            subject = "U/QT";
+          }
+
+          // QT Mon/Tue vs Urdu otherwise on chosen post‑tiffin period
+          if (c.periodKey === chosenPost) {
+            if ((d === "Mon" || d === "Tue") && EUA1) {
+              mspCodeId = EUA1;
+              subject = "QT";
+            } else if (EUA3) {
+              mspCodeId = EUA3;
+              subject = "Urdu";
+            }
+          }
+
+          // ESL2 split: avoid P1 for ESL2(1) by flipping to ESL2(2) if needed
+          // We detect by subject/code text via base (not joined) — rely on subject containing S.St or code id mapping not available; best effort: if ESL2_2 exists and this is P1 and not pre‑tiffin override
+          if (c.periodKey === "P1" && !preTiffin.has(c.periodKey) && ESL2_2 && mspCodeId && mspCodeId !== ESL2_2) {
+            // If base intends S.St (heuristic: subject contains 'S' or 'St'), we can flip
+            if ((subject || '').toLowerCase().includes('st')) {
+              mspCodeId = ESL2_2;
+            }
+          }
+
+          // EHO2 split: Mon/Thu = GK(EHO2(1)), Tue/Fri = Computer(EHO2(2))
+          if (mspCodeId && (mspCodeId === EHO2_1 || mspCodeId === EHO2_2)) {
+            if (d === "Mon" || d === "Thu") { if (EHO2_1) { mspCodeId = EHO2_1; subject = "GK"; } }
+            if (d === "Tue" || d === "Fri") { if (EHO2_2) { mspCodeId = EHO2_2; subject = "Computer"; } }
+          }
+
+          rows.push({ programId: Number(programId), track: String(track), classId: c.classId, dayName: d, periodKey: c.periodKey, mspCodeId, subject, active: true });
+        }
+      }
+      await db.insert(programScheduleDays).values(rows);
+      return NextResponse.json({ inserted: rows.length, days: dayList.length, chosenPost }, { status: 201 });
     }
 
     if (section === "mspCodeAssignments") {
@@ -677,6 +855,12 @@ export async function POST(req) {
         .values({ familyId, programKey, name, scope, aims: aims || null, sop: sop || null, active: !!active })
         .returning();
       return NextResponse.json({ program: row }, { status: 201 });
+    }
+    if (section === "programSOP") {
+      const { programId, sop } = body || {};
+      if (!programId || sop === undefined) return NextResponse.json({ error: "programId and sop required" }, { status: 400 });
+      await db.update(mriPrograms).set({ sop }).where(eq(mriPrograms.id, Number(programId)));
+      return NextResponse.json({ ok: true }, { status: 200 });
     }
     if (section === "metaProgramRoles") {
       const { programId, action, roleKey } = body || {};

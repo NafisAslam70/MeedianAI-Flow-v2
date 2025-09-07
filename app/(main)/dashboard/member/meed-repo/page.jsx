@@ -21,14 +21,24 @@ export default function MeedRepoPage() {
   const posts = data?.posts || [];
   const users = Array.isArray(usersData?.users) ? usersData.users : [];
   const usersById = useMemo(() => users.reduce((acc, u) => { acc[Number(u.id)] = u; return acc; }, {}), [users]);
+  // Managers for reviewer selection
+  const { data: teamData } = useSWR(`/api/admin/manageMeedian?section=team`, fetcher);
+  const managers = useMemo(() => (teamData?.users || []).filter((u) => u.role === 'admin' || u.role === 'team_manager'), [teamData]);
+  // My tasks today for optional linking
+  const todayStr = new Date().toISOString().slice(0,10);
+  const { data: myTasksData } = useSWR(session?.user?.id ? `/api/member/assignedTasks?action=tasks&date=${todayStr}` : null, fetcher);
+  const myTasks = myTasksData?.tasks || [];
 
   const [title, setTitle] = useState("");
   // Minimal: no content/tags/URL attachments
   const [files, setFiles] = useState([]); // { title, file, preview, mimeType }
   const fileInputRef = useRef(null);
   const [saving, setSaving] = useState(false);
-  // Minimal: no task linking in submit form
   const [showModal, setShowModal] = useState(false);
+  const [linkTask, setLinkTask] = useState(false);
+  const [selectedTaskId, setSelectedTaskId] = useState("");
+  const [selectedVerifier, setSelectedVerifier] = useState("");
+  const [purpose, setPurpose] = useState("submitted");
 
   const removeFile = (i) => setFiles((a) => a.filter((_, idx) => idx !== i));
 
@@ -74,12 +84,15 @@ export default function MeedRepoPage() {
         })
       );
 
+      const tags = [];
+      if (selectedVerifier) tags.push({ reviewerId: Number(selectedVerifier) });
       const payload = {
         title: title.trim(),
         content: null,
-        tags: [],
+        tags,
         attachments: fileDataUrls,
         status: desiredStatus,
+        ...(linkTask && selectedTaskId ? { taskId: Number(selectedTaskId) } : {}),
       };
       const res = await fetch("/api/member/meed-repo", {
         method: "POST",
@@ -163,41 +176,36 @@ export default function MeedRepoPage() {
     );
   };
 
-  const PostCard = ({ p }) => (
-    <div className="p-4 space-y-3 border-b last:border-0">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3 min-w-0">
-          <img src={(usersById[p.userId]?.image) || "/default-avatar.png"} alt="avatar" className="w-9 h-9 rounded-full border object-cover" />
-          <div className="min-w-0">
-            <div className="text-sm font-semibold text-gray-900 truncate">{usersById[p.userId]?.name || "User"}</div>
-            <div className="text-[11px] text-gray-500">{fmtRel(p.createdAt)}</div>
+  // Detail viewer state
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [activePost, setActivePost] = useState(null);
+  const openDetail = (post) => { setActivePost(post); setDetailOpen(true); };
+  const closeDetail = () => { setDetailOpen(false); setActivePost(null); };
+
+  const Tile = ({ p }) => {
+    const a = (p.attachments && p.attachments[0]) || null;
+    const isImg = a && String(a.mimeType||"").startsWith("image/");
+    const isPdf = a && String(a.mimeType||"").includes("pdf");
+    return (
+      <button onClick={() => openDetail(p)} className="text-left rounded-2xl border bg-white overflow-hidden shadow-sm hover:shadow-md transition focus:outline-none">
+        <div className="relative">
+          <div className="absolute top-2 left-2 text-[11px] px-2 py-0.5 rounded-full bg-white/90 border font-semibold">{p.status}</div>
+          {p.taskId && (<div className="absolute top-2 right-2 text-[11px] px-2 py-0.5 rounded-full bg-white/90 border">Task #{p.taskId}</div>)}
+          <div className="w-full aspect-[4/3] bg-gray-50 flex items-center justify-center">
+            {a ? (
+              isImg ? <img src={a.url} alt={a.title||""} className="w-full h-full object-cover" /> : (isPdf ? <span className="text-gray-600 text-xs">PDF</span> : <span className="text-gray-600 text-xs">File</span>)
+            ) : (
+              <span className="text-gray-400 text-xs">No media</span>
+            )}
           </div>
         </div>
-        <div className={chipCls(p.status)}>{p.status}</div>
-      </div>
-      <div className="text-sm font-semibold text-gray-900">{p.title}</div>
-      {Array.isArray(p.attachments) && p.attachments.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-          {p.attachments.slice(0,4).map((a, idx) => (
-            <div key={(a.id||a.url)+idx} className="relative">
-              <PreviewTile a={a} />
-              {idx===3 && p.attachments.length>4 && (
-                <div className="absolute inset-0 bg-black/50 text-white text-sm font-semibold rounded-xl flex items-center justify-center">
-                  +{p.attachments.length-4} more
-                </div>
-              )}
-            </div>
-          ))}
+        <div className="p-2">
+          <div className="text-sm font-semibold text-gray-900 truncate" title={p.title}>{p.title}</div>
+          <div className="mt-1 text-[11px] text-gray-600 truncate">By {usersById[p.userId]?.name || 'User'} • {fmtRel(p.createdAt)}</div>
         </div>
-      )}
-      <div className="text-xs text-gray-500">{new Date(p.createdAt).toLocaleString()}</div>
-      {p.status !== "archived" && (
-        <div>
-          <button className="text-xs text-gray-700 underline" onClick={() => archive(p.id)}>Move to Archive</button>
-        </div>
-      )}
-    </div>
-  );
+      </button>
+    );
+  };
 
   return (
     <div className="p-4 space-y-4">
@@ -206,14 +214,19 @@ export default function MeedRepoPage() {
           <h1 className="text-lg font-bold text-gray-900">Meed Repo</h1>
           <p className="text-sm text-gray-600">Your posts in a modern gallery.</p>
         </div>
-        <div className="flex items-center gap-2">
-          {isManager && (
-            <label className="text-xs text-gray-700 inline-flex items-center gap-2">
-              <input type="checkbox" checked={viewAll} onChange={(e) => { setViewAll(e.target.checked); }} />
-              View All
-            </label>
-          )}
-          <div className="flex items-center gap-1 text-xs bg-white border px-2 py-1 rounded-xl">
+      <div className="flex items-center gap-2">
+        {isManager && (
+          <label className="text-xs text-gray-700 inline-flex items-center gap-2">
+            <input type="checkbox" checked={viewAll} onChange={(e) => { setViewAll(e.target.checked); }} />
+            View All
+          </label>
+        )}
+        {isManager && (
+          <button className="text-xs px-2 py-1 rounded bg-amber-100 text-amber-800 border border-amber-200" onClick={() => { setViewAll(true); setStatusFilter('submitted'); }}>
+            To Verify
+          </button>
+        )}
+        <div className="flex items-center gap-1 text-xs bg-white border px-2 py-1 rounded-xl">
             {["submitted","approved","rejected","archived","all"].map((k) => (
               <button key={k} className={`px-2 py-1 rounded-lg ${statusFilter===k?"bg-gray-900 text-white":"hover:bg-gray-100"}`} onClick={() => setStatusFilter(k)}>
                 {k}
@@ -228,7 +241,7 @@ export default function MeedRepoPage() {
       {filteredPosts.length ? (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
           {filteredPosts.map((p) => (
-            <PostCard key={p.id} p={p} />
+            <Tile key={p.id} p={p} />
           ))}
         </div>
       ) : (
@@ -259,6 +272,26 @@ export default function MeedRepoPage() {
                     <input type="radio" name="purpose" value="approved" onChange={() => { /* handled in submit */ }} />
                     Just Share
                   </label>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="inline-flex items-center gap-2 text-xs text-gray-700">
+                    <input type="checkbox" onChange={(e)=> window.__linkTask = e.target.checked} /> Link to a task
+                  </label>
+                  {myTasks.length > 0 && (
+                    <select className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" onChange={(e)=> window.__selectedTaskId = e.target.value} defaultValue="">
+                      <option value="">Select a task…</option>
+                      {myTasks.map((t)=> (<option key={t.id} value={t.id}>{t.title || `Task #${t.id}`}</option>))}
+                    </select>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-700 mb-1">Select Verifier</label>
+                  <select className="w-full border rounded-lg px-3 py-2 text-sm" onChange={(e)=> window.__selectedVerifier = e.target.value} defaultValue="">
+                    <option value="">(Any manager)</option>
+                    {managers.map((m)=> (<option key={m.id} value={m.id}>{m.name} ({m.role === 'admin' ? 'Admin' : 'Manager'})</option>))}
+                  </select>
                 </div>
               </div>
               <div className="space-y-2">
@@ -299,12 +332,120 @@ export default function MeedRepoPage() {
                   // Set status from selected radio
                   const form = document.querySelector('input[name="purpose"]:checked');
                   const val = form?.value || 'submitted';
-                  // Monkey patch payload by temporarily storing desired
+                  // Capture optional linking + reviewer
+                  const link = !!window.__linkTask;
+                  const selTask = window.__selectedTaskId || '';
+                  const selVer = window.__selectedVerifier || '';
+                  // Pass through helper state before submit
+                  if (link) {
+                    // mutate local state to include task
+                  }
+                  // Temporarily stash via closures
+                  // Wrap submit: mutate function reads title/files only; we overload via globals
+                  const old = { linkTask: window.___lt, selectedTaskId: window.___stid, selectedVerifier: window.___ver };
+                  window.___lt = link; window.___stid = selTask; window.___ver = selVer;
                   await submitWithStatus(val);
+                  window.___lt = old.linkTask; window.___stid = old.selectedTaskId; window.___ver = old.selectedVerifier;
                   setShowModal(false);
                 }}>
                   {saving ? "Submitting..." : "Submit for Verification"}
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Detail viewer modal */}
+      {detailOpen && activePost && (
+        <div className="fixed inset-0 z-[70] bg-black/70 backdrop-blur-sm flex items-center justify-center p-3" onClick={closeDetail}>
+          <div className="w-full max-w-4xl bg-white rounded-2xl border shadow-2xl overflow-hidden" onClick={(e)=> e.stopPropagation()}>
+            <div className="flex items-center justify-between px-3 py-2 border-b">
+              <div className="flex items-center gap-2 min-w-0">
+                <img src={(usersById[activePost.userId]?.image)||'/default-avatar.png'} alt="avatar" className="w-8 h-8 rounded-full border object-cover" />
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-gray-900 truncate">{usersById[activePost.userId]?.name || 'User'}</div>
+                  <div className="text-[11px] text-gray-500">{fmtRel(activePost.createdAt)}</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className={chipCls(activePost.status)}>{activePost.status}</div>
+                {activePost.taskId && (<div className="text-[11px] px-2 py-1 rounded-full border bg-gray-50 text-gray-700">Task #{activePost.taskId}</div>)}
+                <button className="px-2 py-1 rounded bg-gray-100" onClick={closeDetail}>Close</button>
+              </div>
+            </div>
+            <div className="grid md:grid-cols-2 gap-0">
+              <div className="bg-gray-50 min-h-[50vh] flex items-center justify-center">
+                {Array.isArray(activePost.attachments) && activePost.attachments.length ? (
+                  <div className="w-full h-full p-2 grid grid-cols-2 gap-2">
+                    {activePost.attachments.map((a, i)=> (
+                      <a key={(a.id||a.url)+i} href={a.url} target="_blank" rel="noopener" className="rounded-xl overflow-hidden border bg-white flex items-center justify-center">
+                        {String(a.mimeType||"").startsWith('image/') ? (
+                          <img src={a.url} alt={a.title||''} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="text-xs text-gray-600 p-4">{a.title || 'Open file'}</div>
+                        )}
+                      </a>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-gray-500 text-sm">No attachments</div>
+                )}
+              </div>
+              <div className="p-3 space-y-3">
+                <div className="text-base font-semibold text-gray-900">{activePost.title}</div>
+                <div className="text-sm text-gray-700 whitespace-pre-wrap">{activePost.content || ''}</div>
+              <div className="flex items-center justify-between">
+                <div className="text-xs text-gray-600">
+                  {(Array.isArray(activePost.tags)?activePost.tags:[]).find(t=>t.reviewerId) && (
+                    <span>Reviewer: {usersById[(Array.isArray(activePost.tags)?activePost.tags:[]).find(t=>t.reviewerId)?.reviewerId]?.name || (Array.isArray(activePost.tags)?activePost.tags:[]).find(t=>t.reviewerId)?.reviewerId}</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                    {activePost.status === 'submitted' && (session?.user?.role === 'admin' || session?.user?.role === 'team_manager') && (
+                      <>
+                        <button className="text-xs px-2 py-1 rounded bg-emerald-600 text-white" onClick={async()=>{ const res = await fetch('/api/member/meed-repo', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: activePost.id, action: 'approve' })}); if(res.ok){ mutate(); closeDetail(); } }}>
+                          Approve
+                        </button>
+                        <button className="text-xs px-2 py-1 rounded bg-rose-600 text-white" onClick={async()=>{ const note = prompt('Reason (optional)'); const res = await fetch('/api/member/meed-repo', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: activePost.id, action: 'reject', tags: note ? [{ reviewNote: note }] : undefined })}); if(res.ok){ mutate(); closeDetail(); } }}>
+                          Reject
+                        </button>
+                      </>
+                    )}
+                    {activePost.status !== 'archived' && (
+                      <button className="text-xs text-gray-700 underline" onClick={async()=>{ await archive(activePost.id); closeDetail(); }}>Archive</button>
+                    )}
+                  </div>
+                </div>
+                {/* Review comments */}
+                <div className="mt-3">
+                  <div className="text-sm font-semibold text-gray-800 mb-1">Review Comments</div>
+                  <div className="max-h-40 overflow-y-auto space-y-1.5">
+                    {(Array.isArray(activePost.tags)?activePost.tags:[]).filter(t=>t.reviewNote).map((t,i)=> (
+                      <div key={i} className="p-2 bg-gray-50 rounded border text-xs text-gray-800">
+                        <span className="font-semibold mr-1">{usersById[t.by]?.name || 'Reviewer'}:</span>
+                        {t.reviewNote}
+                        <span className="ml-2 text-[10px] text-gray-500">{t.at ? new Date(t.at).toLocaleString() : ''}</span>
+                      </div>
+                    ))}
+                    {!(Array.isArray(activePost.tags)?activePost.tags:[]).some(t=>t.reviewNote) && (
+                      <div className="text-xs text-gray-500">No comments yet.</div>
+                    )}
+                  </div>
+                  {(session?.user?.role === 'admin' || session?.user?.role === 'team_manager') && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <input id="__repo_comment" className="flex-1 border rounded px-2 py-1 text-sm" placeholder="Add a comment" />
+                      <button className="text-xs px-2 py-1 rounded bg-gray-900 text-white" onClick={async()=>{
+                        const input = document.getElementById('__repo_comment');
+                        const note = input?.value?.trim(); if(!note) return;
+                        const tags = Array.isArray(activePost.tags)? [...activePost.tags] : [];
+                        tags.push({ reviewNote: note, by: Number(session?.user?.id), at: new Date().toISOString() });
+                        const res = await fetch('/api/member/meed-repo', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: activePost.id, tags })});
+                        if(res.ok){ input.value=''; mutate(); }
+                      }}>Post</button>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
