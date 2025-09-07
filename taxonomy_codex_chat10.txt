@@ -46,11 +46,3 @@ QA checklist
      • Clear Teacher: removes all placements for a selected teacher from the staged grid.
      • Clear Code: removes all staged placements of a selected MSP code (resets its load to 0) so it can be reassigned.
    - File: app/(main)/dashboard/admin/manageMeedian/programs/[id]/page.jsx
-
-5) MSP — Split days dual-code cell
-   - In Self‑Scheduler weekly grid, when “Split days” is selected:
-     • Each cell shows two droppable zones: “Selected days” and “Other days (fallback)”.
-     • You can drop a code into each zone to plan two codes for the same class/period across different day groups.
-     • Clear buttons remove assignments for the respective day group.
-   - Conflict checks preserved (no same code in same day/period across classes; teacher workload ≤ 7 per day).
-   - File: app/(main)/dashboard/admin/manageMeedian/programs/[id]/page.jsx
