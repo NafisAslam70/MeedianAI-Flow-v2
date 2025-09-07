@@ -20,6 +20,24 @@ export default function MeedCommunityPage() {
   const [files, setFiles] = useState([]); // { title, file, preview, mimeType }
   const fileInputRef = useRef(null);
   const [saving, setSaving] = useState(false);
+  // Full post viewer state
+  const [viewerPost, setViewerPost] = useState(null);
+  const [viewerIndex, setViewerIndex] = useState(0);
+  const [viewerComments, setViewerComments] = useState([]);
+  const [viewerCommentText, setViewerCommentText] = useState("");
+
+  const openViewer = async (p) => {
+    setViewerPost(p);
+    setViewerIndex(0);
+    try {
+      const r = await fetch(`/api/community/comments?postId=${p.id}`);
+      const j = await r.json();
+      setViewerComments(Array.isArray(j?.comments) ? j.comments : []);
+    } catch {
+      setViewerComments([]);
+    }
+  };
+  const closeViewer = () => { setViewerPost(null); setViewerComments([]); setViewerIndex(0); setViewerCommentText(""); };
 
   const onPickFiles = (e) => {
     const picked = Array.from(e.target.files || []);
@@ -99,14 +117,14 @@ export default function MeedCommunityPage() {
           </div>
         </div>
         {a ? (
-          <div className="w-full aspect-[4/3] bg-gray-50 flex items-center justify-center">
+          <div onClick={() => openViewer(p)} role="button" title="View post" className="w-full aspect-[4/3] bg-gray-50 flex items-center justify-center cursor-pointer">
             {isImg ? <img src={a.url} alt={a.title||""} className="w-full h-full object-cover" /> : (isPdf ? <div className="text-gray-600">PDF</div> : <div className="text-gray-600">File</div>)}
           </div>
         ) : (
-          <div className="w-full aspect-[4/3] bg-gray-100 flex items-center justify-center text-gray-500">No media</div>
+          <div onClick={() => openViewer(p)} role="button" title="View post" className="w-full aspect-[4/3] bg-gray-100 flex items-center justify-center text-gray-500 cursor-pointer">No media</div>
         )}
         <div className="p-3">
-          <div className="text-sm font-semibold text-gray-900 truncate" title={p.title || "Untitled"}>{p.title || "Untitled"}</div>
+          <div onClick={() => openViewer(p)} role="button" className="text-sm font-semibold text-gray-900 truncate cursor-pointer" title={p.title || "Untitled"}>{p.title || "Untitled"}</div>
           <div className="mt-2 flex items-center gap-2 text-xs text-gray-600 flex-wrap">
             {REACTIONS.map(({ key, label }) => {
               const count = p.reactions?.counts?.[key] || 0;
@@ -209,6 +227,102 @@ export default function MeedCommunityPage() {
               </div>
               <div className="flex items-center gap-2">
                 <button disabled={saving} className="px-4 py-2 rounded-lg bg-teal-600 text-white hover:bg-teal-700" onClick={submit}>{saving ? "Posting..." : "Post"}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Full Post Viewer */}
+      {viewerPost && (
+        <div className="fixed inset-0 z-[70] bg-black/70 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4" onClick={closeViewer}>
+          <div className="w-full max-w-4xl bg-white rounded-2xl border shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="View post">
+            <div className="flex items-center justify-between px-3 py-2 border-b">
+              <div className="flex items-center gap-2 min-w-0">
+                <img src={(usersById[viewerPost.userId]?.image) || "/default-avatar.png"} alt="avatar" className="w-8 h-8 rounded-full object-cover border" />
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-gray-900 truncate">{usersById[viewerPost.userId]?.name || "Meedian"}</div>
+                  <div className="text-[11px] text-gray-500">{fmtRel(viewerPost.createdAt)}</div>
+                </div>
+              </div>
+              <button className="px-2 py-1 rounded bg-gray-100 hover:bg-gray-200" onClick={closeViewer} aria-label="Close">Close</button>
+            </div>
+            <div className="grid md:grid-cols-2 gap-0">
+              <div className="bg-gray-50 flex items-center justify-center min-h-[50vh]">
+                {Array.isArray(viewerPost.attachments) && viewerPost.attachments.length > 0 ? (
+                  (() => {
+                    const att = viewerPost.attachments[Math.max(0, Math.min(viewerIndex, viewerPost.attachments.length - 1))];
+                    const isImg = String(att.mimeType||"").startsWith("image/");
+                    const isPdf = String(att.mimeType||"").includes("pdf");
+                    return (
+                      <div className="relative w-full">
+                        {isImg ? (
+                          <img src={att.url} alt={att.title||""} className="w-full h-[60vh] object-contain bg-black" />
+                        ) : (
+                          <div className="w-full h-[60vh] flex items-center justify-center text-gray-600 bg-gray-100">{isPdf ? 'PDF' : 'File'}</div>
+                        )}
+                        {viewerPost.attachments.length > 1 && (
+                          <>
+                            <button onClick={() => setViewerIndex((i)=> Math.max(0, i-1))} className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/60 text-white rounded-full w-8 h-8 grid place-items-center">‹</button>
+                            <button onClick={() => setViewerIndex((i)=> Math.min(viewerPost.attachments.length-1, i+1))} className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/60 text-white rounded-full w-8 h-8 grid place-items-center">›</button>
+                            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1">
+                              {viewerPost.attachments.map((_, idx) => (
+                                <span key={idx} className={`w-2 h-2 rounded-full ${idx===viewerIndex? 'bg-white' : 'bg-white/50'}`} />
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })()
+                ) : (
+                  <div className="w-full h-[60vh] flex items-center justify-center text-gray-500">No media</div>
+                )}
+              </div>
+              <div className="p-3 space-y-3 min-h-[50vh]">
+                <div>
+                  <div className="text-base font-semibold text-gray-900">{viewerPost.title || 'Untitled'}</div>
+                </div>
+                <div className="flex items-center gap-2 text-sm text-gray-700 flex-wrap">
+                  {REACTIONS.map(({ key, label }) => {
+                    const count = viewerPost.reactions?.counts?.[key] || 0;
+                    const yours = (viewerPost.reactions?.yours || []).includes(key);
+                    return (
+                      <button key={key} className={`px-2 py-1 rounded-lg border ${yours ? 'bg-gray-900 text-white border-gray-900' : 'bg-white hover:bg-gray-50'}`}
+                        onClick={async () => {
+                          try {
+                            const res = await fetch('/api/community/reactions', { method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ postId: viewerPost.id, type: key })});
+                            if (res.ok) { mutate(); /* refetch posts */ }
+                          } catch {}
+                        }}
+                      >{label} <span className="ml-1 text-xs text-gray-500">{count}</span></button>
+                    );
+                  })}
+                </div>
+                <div className="border-t pt-3">
+                  <div className="text-sm font-semibold text-gray-800 mb-2">Comments</div>
+                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                    {viewerComments.length === 0 ? (
+                      <div className="text-xs text-gray-500">No comments yet.</div>
+                    ) : (
+                      viewerComments.map((c) => (
+                        <div key={c.id} className="flex items-start gap-2">
+                          <img src={(usersById[c.userId]?.image) || '/default-avatar.png'} alt="avatar" className="w-6 h-6 rounded-full object-cover border" />
+                          <div className="bg-gray-50 rounded-lg px-2 py-1 border">
+                            <div className="text-xs font-semibold text-gray-900">{usersById[c.userId]?.name || 'User'}</div>
+                            <div className="text-xs text-gray-800 whitespace-pre-wrap">{c.content}</div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 mt-2">
+                    <input className="flex-1 border rounded-lg px-3 py-1.5 text-sm" placeholder="Write a comment" value={viewerCommentText} onChange={(e)=>setViewerCommentText(e.target.value)} />
+                    <button className="px-3 py-1.5 rounded-lg bg-gray-900 text-white text-xs" onClick={async ()=>{ if(!viewerCommentText.trim()) return; const res = await fetch('/api/community/comments',{method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ postId: viewerPost.id, content: viewerCommentText.trim() })}); if(res.ok){ setViewerCommentText(''); const r = await fetch(`/api/community/comments?postId=${viewerPost.id}`); const j = await r.json(); setViewerComments(Array.isArray(j?.comments)? j.comments: []); mutate(); } }}>
+                      Post
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

@@ -135,7 +135,7 @@ export default function DeluGPT() {
     <>
       <button
         onClick={() => setOpen(true)}
-        className="fixed bottom-20 left-4 z-[1000] rounded-full p-0.5 shadow-xl border border-pink-300/40 bg-gradient-to-br from-pink-500 to-fuchsia-600 hover:brightness-110"
+        className="fixed bottom-4 sm:bottom-20 left-4 z-[1000] rounded-full p-0.5 shadow-xl border border-pink-300/40 bg-gradient-to-br from-pink-500 to-fuchsia-600 hover:brightness-110"
         title="Open DELU‑GPT"
         aria-label="Open DELU‑GPT"
       >

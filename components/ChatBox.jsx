@@ -270,10 +270,15 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
   }, [selectedRecipient, messageContent, userDetails?.id, scrollBottom, playSend]);
 
   const mouseDown = useCallback((e) => {
-    if (e.target.closest(".chatbox-header")) {
-      setDragging(true);
-      dragStart.current = { x: e.clientX - pos.x, y: e.clientY - pos.y };
-    }
+    // Left-click only; allow dragging from almost anywhere in the dock
+    if (e.button !== 0) return;
+    const interactive = e.target.closest(
+      'input, textarea, select, button, a, [role="button"], .no-drag'
+    );
+    // Keep chat panel text fields/clicks intact
+    if (interactive && !e.target.classList.contains('drag-handle')) return;
+    setDragging(true);
+    dragStart.current = { x: e.clientX - pos.x, y: e.clientY - pos.y };
   }, [pos]);
 
   const mouseMove = useCallback((e) => {
@@ -441,6 +446,10 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
           .chatbox-container {
             width: 95vw !important;
             max-height: 85vh !important;
+            /* Pin to bottom-right on mobile */
+            left: auto !important;
+            right: 12px !important;
+            bottom: 12px !important;
           }
           .history-container {
             width: 95vw !important;
@@ -457,7 +466,7 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.3 }}
         className="fixed z-50 chatbox-container"
-        style={{ right: `${pos.x}px`, bottom: `${-pos.y + 40}px` }}
+        style={{ right: `${pos.x}px`, bottom: `${-pos.y + 40}px`, cursor: dragging ? 'grabbing' : 'grab' }}
         onMouseDown={mouseDown}
       >
         {error && (
