@@ -1265,6 +1265,101 @@ function SelfScheduler({ programId, track, periodData, codeData, asgData, teamDa
       return next;
     });
   };
+  // Drop handlers for split mode: assign for selected days or other days separately
+  const onDropPrimary = (ev, cls, pk) => {
+    ev.preventDefault();
+    setErrorMsg('');
+    const codeId = Number(ev.dataTransfer.getData('text/plain'));
+    if (!codeId) return;
+    const applyDays = Object.keys(daysSel).filter((k) => daysSel[k]);
+    // Conflict: same code cannot appear twice in same day/period across classes
+    for (const d of applyDays) {
+      for (const c of classes) {
+        const key = `${d}|${c}|${pk}`;
+        if (staged[key] === codeId && c !== cls) {
+          setErrorMsg('Conflict: same code in same period across classes.');
+          return;
+        }
+      }
+    }
+    // Workload cap per day
+    const userId = codeTeacher.get(codeId);
+    if (userId) {
+      for (const d of applyDays) {
+        let count = 0;
+        for (const c of classes) {
+          for (const p of periods) {
+            const key = `${d}|${c}|${p.periodKey}`;
+            const cid = staged[key];
+            if (cid && codeTeacher.get(cid) === userId) count++;
+          }
+        }
+        if (count >= 7) {
+          setErrorMsg('Workload cap: teacher already at 7 periods for that day.');
+          return;
+        }
+      }
+    }
+    updateStaged((next) => {
+      for (const d of applyDays) next[`${d}|${cls}|${pk}`] = codeId;
+      return next;
+    });
+  };
+  const onDropFallbackZone = (ev, cls, pk) => {
+    ev.preventDefault();
+    setErrorMsg('');
+    const codeId = Number(ev.dataTransfer.getData('text/plain'));
+    if (!codeId) return;
+    const selected = Object.keys(daysSel).filter((k) => daysSel[k]);
+    const others = ['Mon','Tue','Wed','Thu','Fri','Sat'].filter((d) => !selected.includes(d));
+    // Conflict check on others
+    for (const d of others) {
+      for (const c of classes) {
+        const key = `${d}|${c}|${pk}`;
+        if (staged[key] === codeId && c !== cls) {
+          setErrorMsg('Conflict: same code in same period across classes.');
+          return;
+        }
+      }
+    }
+    // Workload cap per day for others
+    const userId = codeTeacher.get(codeId);
+    if (userId) {
+      for (const d of others) {
+        let count = 0;
+        for (const c of classes) {
+          for (const p of periods) {
+            const key = `${d}|${c}|${p.periodKey}`;
+            const cid = staged[key];
+            if (cid && codeTeacher.get(cid) === userId) count++;
+          }
+        }
+        if (count >= 7) {
+          setErrorMsg('Workload cap: teacher already at 7 periods for that day.');
+          return;
+        }
+      }
+    }
+    updateStaged((next) => {
+      for (const d of others) next[`${d}|${cls}|${pk}`] = codeId;
+      return next;
+    });
+  };
+  const removePrimary = (cls, pk) => {
+    const applyDays = Object.keys(daysSel).filter((k) => daysSel[k]);
+    updateStaged((next) => {
+      for (const d of applyDays) delete next[`${d}|${cls}|${pk}`];
+      return next;
+    });
+  };
+  const removeFallback = (cls, pk) => {
+    const selected = Object.keys(daysSel).filter((k) => daysSel[k]);
+    const others = ['Mon','Tue','Wed','Thu','Fri','Sat'].filter((d) => !selected.includes(d));
+    updateStaged((next) => {
+      for (const d of others) delete next[`${d}|${cls}|${pk}`];
+      return next;
+    });
+  };
   const allowDrop = (ev) => ev.preventDefault();
   const onDragStartAssigned = (ev, day, cls, pk) => {
     ev.dataTransfer.setData('text/removeKey', `${day}|${cls}|${pk}`);
@@ -1489,6 +1584,7 @@ function SelfScheduler({ programId, track, periodData, codeData, asgData, teamDa
             <ResetControls
               classes={classes}
               team={teamData?.users || []}
+              codes={(codeData?.codes || []).filter(c => (c.track===track || c.track==='both') && c.active).map(c => ({ id: c.id, code: c.code, count: occByCode.get(c.id) || 0 }))}
               onResetClass={(cls) => {
                 const base = baselineRef.current || {};
                 if (!cls) return;
@@ -1509,6 +1605,15 @@ function SelfScheduler({ programId, track, periodData, codeData, asgData, teamDa
                     const cid = next[k];
                     const asg = activeAsgByCode.get(cid);
                     if (asg && Number(asg.userId) === Number(userId)) delete next[k];
+                  });
+                  return next;
+                });
+              }}
+              onClearCode={(codeId) => {
+                if (!codeId) return;
+                updateStaged((next) => {
+                  Object.keys(next).forEach((k) => {
+                    if (Number(next[k]) === Number(codeId)) delete next[k];
                   });
                   return next;
                 });
@@ -1559,29 +1664,65 @@ function SelfScheduler({ programId, track, periodData, codeData, asgData, teamDa
                     const code = codeObj?.code;
                     return (
                       <td key={`${cls}-${p.periodKey}`} className={`border align-top ${p.periodKey==='P5' ? 'border-l-4 border-l-rose-400' : ''}`}>
-                        <div className="min-h-[40px] px-2 py-1" onDragOver={allowDrop} onDrop={(e)=> onDropInto(e, cls, p.periodKey)}>
-                          {code ? (
-                            <div className="flex items-center gap-1">
-                              <div
-                                className={`inline-block px-2 py-1 text-xs rounded border ${colorByFamily(codeObj?.familyKey)}`}
-                                draggable
-                                onDragStart={(e)=> onDragStartAssigned(e, viewDay, cls, p.periodKey)}
-                                title="Drag back to remove zone"
-                              >
-                                {code}
-                              </div>
-                              <button
-                                className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 border hover:bg-gray-200"
-                                title="Remove from this cell"
-                                onClick={()=> setStaged(prev => { const next = { ...prev }; delete next[`${viewDay}|${cls}|${p.periodKey}`]; return next; })}
-                              >
-                                ×
-                              </button>
+                        {daysMode === 'split' ? (
+                          <div className="px-2 py-1 space-y-1">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] text-gray-500">Selected days</span>
+                              <button className="text-[10px] px-1 py-0.5 rounded bg-gray-100 border" onClick={()=> removePrimary(cls, p.periodKey)}>Clear</button>
                             </div>
-                          ) : (
-                            <span className="text-[10px] text-gray-400">Drop here</span>
-                          )}
-                        </div>
+                            <div className="min-h-[28px] border border-dashed rounded px-1.5 py-1" onDragOver={allowDrop} onDrop={(e)=> onDropPrimary(e, cls, p.periodKey)}>
+                              {(() => {
+                                // Show code for current view day only if it is among selected days
+                                if (!daysSel[viewDay]) return <span className="text-[10px] text-gray-400">Drop a code…</span>;
+                                const cid = staged[`${viewDay}|${cls}|${p.periodKey}`];
+                                const obj = (codeData?.codes || []).find(c=> c.id === cid);
+                                const cd = obj?.code;
+                                return cd ? (
+                                  <span className={`inline-block px-2 py-0.5 text-[11px] rounded border ${colorByFamily(obj?.familyKey)}`}>{cd}</span>
+                                ) : <span className="text-[10px] text-gray-400">Drop a code…</span>;
+                              })()}
+                            </div>
+                            <div className="flex items-center justify-between mt-1">
+                              <span className="text-[10px] text-gray-500">Other days</span>
+                              <button className="text-[10px] px-1 py-0.5 rounded bg-gray-100 border" onClick={()=> removeFallback(cls, p.periodKey)}>Clear</button>
+                            </div>
+                            <div className="min-h-[28px] border border-dashed rounded px-1.5 py-1" onDragOver={allowDrop} onDrop={(e)=> onDropFallbackZone(e, cls, p.periodKey)}>
+                              {(() => {
+                                if (daysSel[viewDay]) return <span className="text-[10px] text-gray-400">Drop a code…</span>;
+                                const cid = staged[`${viewDay}|${cls}|${p.periodKey}`];
+                                const obj = (codeData?.codes || []).find(c=> c.id === cid);
+                                const cd = obj?.code;
+                                return cd ? (
+                                  <span className={`inline-block px-2 py-0.5 text-[11px] rounded border ${colorByFamily(obj?.familyKey)}`}>{cd}</span>
+                                ) : <span className="text-[10px] text-gray-400">Drop a code…</span>;
+                              })()}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="min-h-[40px] px-2 py-1" onDragOver={allowDrop} onDrop={(e)=> onDropInto(e, cls, p.periodKey)}>
+                            {code ? (
+                              <div className="flex items-center gap-1">
+                                <div
+                                  className={`inline-block px-2 py-1 text-xs rounded border ${colorByFamily(codeObj?.familyKey)}`}
+                                  draggable
+                                  onDragStart={(e)=> onDragStartAssigned(e, viewDay, cls, p.periodKey)}
+                                  title="Drag back to remove zone"
+                                >
+                                  {code}
+                                </div>
+                                <button
+                                  className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 border hover:bg-gray-200"
+                                  title="Remove from this cell"
+                                  onClick={()=> setStaged(prev => { const next = { ...prev }; delete next[`${viewDay}|${cls}|${p.periodKey}`]; return next; })}
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-[10px] text-gray-400">Drop here</span>
+                            )}
+                          </div>
+                        )}
                       </td>
                     );
                   })}
@@ -1637,9 +1778,10 @@ function SelfScheduler({ programId, track, periodData, codeData, asgData, teamDa
   );
 }
 
-function ResetControls({ classes, team, onResetClass, onClearTeacher }) {
+function ResetControls({ classes, team, codes, onResetClass, onClearTeacher, onClearCode }) {
   const [cls, setCls] = useState('');
   const [userId, setUserId] = useState('');
+  const [codeId, setCodeId] = useState('');
   return (
     <div className="space-y-2">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -1662,6 +1804,18 @@ function ResetControls({ classes, team, onResetClass, onClearTeacher }) {
             </select>
             <button className="px-2.5 py-1.5 rounded bg-white border text-xs" onClick={()=> onClearTeacher && onClearTeacher(Number(userId))} disabled={!userId}>Clear Teacher</button>
           </div>
+        </div>
+      </div>
+      <div className="space-y-1">
+        <div className="text-xs text-gray-600">Clear all placements of a code (reset load to 0)</div>
+        <div className="flex items-center gap-2">
+          <select className="flex-1 border rounded px-2 py-1 text-xs" value={codeId} onChange={(e)=> setCodeId(e.target.value)}>
+            <option value="">Select code…</option>
+            {(codes || []).map((c)=> (
+              <option key={c.id} value={c.id}>{c.code}{typeof c.count==='number' ? ` (x${c.count})` : ''}</option>
+            ))}
+          </select>
+          <button className="px-2.5 py-1.5 rounded bg-white border text-xs" onClick={()=> onClearCode && onClearCode(Number(codeId))} disabled={!codeId}>Clear Code</button>
         </div>
       </div>
     </div>
