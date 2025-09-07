@@ -572,6 +572,18 @@ export async function PATCH(req) {
           status: "sent",
         }))
       );
+      try {
+        const { createNotifications } = await import("@/lib/notify");
+        await createNotifications({
+          recipients: generalTargets,
+          type: "task_update",
+          title: "Task update",
+          body: notification,
+          entityKind: "task",
+          entityId: taskId,
+          meta: { sprintId: sprintId || null },
+        });
+      } catch {}
     }
 
     if (specialNotification && specialTargets.length) {
@@ -584,6 +596,18 @@ export async function PATCH(req) {
           status: "sent",
         }))
       );
+      try {
+        const { createNotifications } = await import("@/lib/notify");
+        await createNotifications({
+          recipients: specialTargets,
+          type: derivedOrStatus === "verified" ? "task_verified" : "task_ready_for_verification",
+          title: derivedOrStatus === "verified" ? "Task verified" : "Task ready for verification",
+          body: specialNotification,
+          entityKind: "task",
+          entityId: taskId,
+          meta: { sprintId: sprintId || null },
+        });
+      } catch {}
     }
 
     if (notifyWhatsapp && senderWhatsapp) {

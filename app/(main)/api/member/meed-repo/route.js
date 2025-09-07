@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 import { db } from "@/lib/db";
+import { createNotifications } from "@/lib/notify";
 import { auth } from "@/lib/auth";
 import {
   users,
@@ -130,6 +131,32 @@ export async function POST(req) {
         .map((a) => ({ postId: post.id, title: a.title || null, url: a.url, mimeType: a.mimeType || null }));
       if (rows.length) await db.insert(meedRepoAttachments).values(rows);
     }
+
+    // Notify managers when a post is submitted for verification
+    try {
+      if (safeStatus === "submitted") {
+        const mgrs = await db.query.users.findMany({
+          where: (u, { inArray }) => inArray(u.role, ["admin", "team_manager"]),
+          columns: { id: true },
+        }).catch(async () => {
+          // fallback: simple select
+          const { users } = await import("@/lib/schema");
+          const { inArray } = await import("drizzle-orm");
+          return await db.select({ id: users.id }).from(users).where(inArray(users.role, ["admin", "team_manager"]));
+        });
+        const recipients = (mgrs || []).map((m) => Number(m.id)).filter(Boolean);
+        if (recipients.length) {
+          await createNotifications({
+            recipients,
+            type: "repo_submitted",
+            title: "Repo post submitted",
+            body: `"${String(title).trim()}" submitted for verification`,
+            entityKind: "meed_repo_post",
+            entityId: post.id,
+          });
+        }
+      }
+    } catch {}
 
     return NextResponse.json({ postId: post.id, message: "Post created" }, { status: 201 });
   } catch (e) {

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { createNotifications } from "@/lib/notify";
 import { messages, users } from "@/lib/schema";
 import { auth } from "@/lib/auth";
 import { eq, or, and, lte } from "drizzle-orm";
@@ -87,6 +88,19 @@ export async function POST(req) {
     if (req.socket?.server?.io) {
       req.socket.server.io.to(recipientId.toString()).emit("message", newMessage);
     }
+
+    // Notification for recipient
+    try {
+      await createNotifications({
+        recipients: [recipientId],
+        type: "chat_message",
+        title: "New message",
+        body: newMessage.content.slice(0, 140),
+        entityKind: "chat",
+        entityId: newMessage.id,
+        meta: { senderId: newMessage.senderId },
+      });
+    } catch {}
 
     return NextResponse.json({ message: newMessage });
   } catch (error) {

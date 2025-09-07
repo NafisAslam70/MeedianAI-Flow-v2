@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
-import { meedCommunityPosts, meedCommunityAttachments, meedCommunityReactions, meedCommunityComments } from "@/lib/schema";
+import { meedCommunityPosts, meedCommunityAttachments, meedCommunityReactions, meedCommunityComments, users } from "@/lib/schema";
+import { createNotifications } from "@/lib/notify";
 import { desc, eq, inArray } from "drizzle-orm";
 
 export async function GET(req) {
@@ -71,6 +72,21 @@ export async function POST(req) {
         .map((a) => ({ postId: post.id, title: a.title || null, url: a.url, mimeType: a.mimeType || null }));
       if (rows.length) await db.insert(meedCommunityAttachments).values(rows);
     }
+    try {
+      // Notify managers about new community post (lightweight)
+      const mgrs = await db.select({ id: users.id }).from(users).where(inArray(users.role, ["admin", "team_manager"]));
+      const recipients = (mgrs || []).map((m)=> Number(m.id)).filter((id)=> id && id !== Number(session.user.id));
+      if (recipients.length) {
+        await createNotifications({
+          recipients,
+          type: "community_post",
+          title: "New community post",
+          body: String(title || "Untitled"),
+          entityKind: "community_post",
+          entityId: post.id,
+        });
+      }
+    } catch {}
     return NextResponse.json({ postId: post.id }, { status: 201 });
   } catch (e) {
     console.error("community POST error", e);

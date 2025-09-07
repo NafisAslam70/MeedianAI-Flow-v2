@@ -7,6 +7,8 @@ import { useEffect, useState } from "react";
 import {
   Menu,
   X,
+  Bell,
+  BellDot,
   Users,
   Sparkles,
   Mountain,
@@ -66,6 +68,10 @@ export default function Navbar() {
   // NEW: MRIs side-sheet
   const [isMRISheetOpen, setIsMRISheetOpen] = useState(false);
   const [isAboutMeedOpen, setIsAboutMeedOpen] = useState(false);
+  // Notifications
+  const [isNotifOpen, setIsNotifOpen] = useState(false);
+  const [notifItems, setNotifItems] = useState([]);
+  const [notifUnread, setNotifUnread] = useState(0);
   // MRIs preview state
   const [todayAMRIs, setTodayAMRIs] = useState([]);
   const [todayNMRIs, setTodayNMRIs] = useState([]);
@@ -148,6 +154,33 @@ export default function Navbar() {
       window.removeEventListener("message", onMsg);
     };
   }, [status, pathname, update]);
+
+  // notifications polling
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    let stop = false;
+    const fetchNotifs = async () => {
+      try {
+        const [unreadRes, allRes] = await Promise.all([
+          fetch("/api/member/notifications?unread=1&limit=1", { cache: "no-store" }),
+          isNotifOpen ? fetch("/api/member/notifications?limit=20", { cache: "no-store" }) : Promise.resolve(null),
+        ]);
+        if (!stop) {
+          if (unreadRes?.ok) {
+            const j = await unreadRes.json();
+            setNotifUnread((j.notifications || []).length);
+          }
+          if (isNotifOpen && allRes?.ok) {
+            const j2 = await allRes.json();
+            setNotifItems(j2.notifications || []);
+          }
+        }
+      } catch {}
+    };
+    fetchNotifs();
+    const id = window.setInterval(fetchNotifs, 12000);
+    return () => { stop = true; window.clearInterval(id); };
+  }, [status, isNotifOpen]);
 
   
 
@@ -943,6 +976,14 @@ export default function Navbar() {
           background: rgba(255,255,255,0.1);
           transform: translateY(-2px);
         }
+        /* Notifications panel */
+        .notif-panel { position: absolute; right: 0; top: calc(100% + 10px); width: 320px; background: #0b1220; border: 1px solid rgba(34,211,238,0.25); border-radius: 12px; box-shadow: 0 12px 30px rgba(0,0,0,0.5); padding: 8px; z-index: 10010; }
+        .notif-item { display: grid; grid-template-columns: auto 1fr; gap: 8px; padding: 8px; border-radius: 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(148,163,184,0.12); }
+        .notif-item.unread { background: rgba(59,130,246,0.08); border-color: rgba(59,130,246,0.25); }
+        .notif-title { font-weight: 700; color: #bff7ff; font-size: 0.9rem; }
+        .notif-body { font-size: 0.82rem; color: #cfefff; }
+        .notif-time { font-size: 0.72rem; color: #9fb6c6; }
+        .notif-dot { position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 9999px; background: #ef4444; box-shadow: 0 0 10px #ef4444; }
 
         /* Playful sparkle highlight for Community (non‑formal) */
         .community-sparkle { position: relative; }
@@ -1615,6 +1656,7 @@ export default function Navbar() {
                   <button type="button" onClick={() => setIsMRISheetOpen(true)} className={`nav-item mris-highlight ${isMRISheetOpen ? "active" : ""}`}>MRIs</button>
                   {/* CloseMyDay for admins too */}
                   <Link href="/dashboard/member/closeMyDay" className={`nav-item ${isActive("/dashboard/member/closeMyDay") ? "active" : ""}`}>CloseMyDay</Link>
+                  
                   {/* Community (social icon) */}
                   <Link href="/dashboard/member/meed-community" title="Community" aria-label="Community"
                     className={`nav-icon-button community-sparkle ${isActive("/dashboard/member/meed-community") ? "active" : ""}`}>
@@ -1640,6 +1682,7 @@ export default function Navbar() {
 
                   <button onClick={handleAddMember} className="nav-button bg-teal-600 hover:bg-teal-700 text-white">Add Member</button>
                   <button onClick={handleManageMeedian} className="nav-button bg-blue-600 hover:bg-blue-700 text-white">Manage Meedian</button>
+                  
                   {/* MyPerformance removed from center nav (available in Profile) */}
                 </>
               )}
@@ -1683,6 +1726,7 @@ export default function Navbar() {
                   <button type="button" onClick={() => setIsMRISheetOpen(true)} className={`nav-item mris-highlight ${isMRISheetOpen ? "active" : ""}`}>MRIs</button>
                   <Link href="/dashboard/member/closeMyDay" className={`nav-item ${isActive("/dashboard/member/closeMyDay") ? "active" : ""}`}>CloseMyDay</Link>
                   <Link href="/dashboard/member/meed-repo" className={`nav-item ${isActive("/dashboard/member/meed-repo") ? "active" : ""}`}>Meed Repo</Link>
+                  
                   {/* Community (social icon) */}
                   <Link href="/dashboard/member/meed-community" title="Community" aria-label="Community"
                     className={`nav-icon-button community-sparkle ${isActive("/dashboard/member/meed-community") ? "active" : ""}`}>
@@ -1727,6 +1771,35 @@ export default function Navbar() {
                       <span className="account-label">My Account</span>
                     </div>
                   </button>
+                  {/* Notifications beside profile */}
+                  <div className="relative">
+                    <button type="button" onClick={() => setIsNotifOpen((v)=>!v)} className={`nav-icon-button ${isNotifOpen ? 'active' : ''} relative`} title="Notifications" aria-haspopup="true" aria-expanded={isNotifOpen}>
+                      {notifUnread > 0 ? <BellDot className="w-4 h-4" /> : <Bell className="w-4 h-4" />}
+                      {notifUnread > 0 && <span className="notif-dot" aria-hidden />}
+                    </button>
+                    {isNotifOpen && (
+                      <div className="notif-panel" role="menu" aria-label="Notifications" onClick={(e)=>e.stopPropagation()}>
+                        <div className="flex items-center justify-between px-1 mb-1">
+                          <div className="text-cyan-300 font-semibold">Notifications</div>
+                          <button className="text-xs text-cyan-200 hover:text-white" onClick={async ()=>{ await fetch('/api/member/notifications', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ all: true, read: true })}); setNotifUnread(0); setIsNotifOpen(false); }}>Mark all read</button>
+                        </div>
+                        <div className="grid gap-1 max-h-72 overflow-auto pr-1">
+                          {notifItems.length === 0 ? (
+                            <div className="text-sm text-slate-300 px-2 py-4">No recent notifications.</div>
+                          ) : notifItems.map((n) => (
+                            <div key={n.id} className={`notif-item ${n.read ? '' : 'unread'}`}>
+                              <div className="pt-0.5">{n.type?.includes('task') ? '🗂️' : n.type?.includes('chat') ? '💬' : n.type?.includes('community') ? '🧩' : '📌'}</div>
+                              <div>
+                                <div className="notif-title">{n.title || 'Notification'}</div>
+                                {n.body && <div className="notif-body">{n.body}</div>}
+                                <div className="notif-time">{new Date(n.createdAt).toLocaleString()}</div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                   <button
                     onClick={openLogoutModal}
                     className="nav-button bg-red-600 hover:bg-red-700 text-white"
@@ -1738,6 +1811,18 @@ export default function Navbar() {
             </div>
             {/* mobile: hamburger only */}
             <div className="md:hidden flex items-center gap-2 flex-shrink-0">
+              {(role === "admin" || role === "team_manager" || role === "member") && (
+                <div className="relative">
+                  <button
+                    onClick={() => setIsNotifOpen((v) => !v)}
+                    className="text-white p-2 rounded-full hover:bg-gray-700 transition min-h-[44px] min-w-[44px] relative"
+                    aria-label="Notifications"
+                  >
+                    {notifUnread > 0 ? <BellDot size={20} /> : <Bell size={20} />}
+                    {notifUnread > 0 && <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold rounded-full px-1.5 py-[1px] shadow">{notifUnread}</span>}
+                  </button>
+                </div>
+              )}
               <button
                 onClick={toggleMobileMenu}
                 className="text-white p-2 rounded-full hover:bg-gray-700 transition min-h-[44px] min-w-[44px]"

@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
-import { meedCommunityReactions } from "@/lib/schema";
+import { meedCommunityReactions, meedCommunityPosts } from "@/lib/schema";
+import { createNotifications } from "@/lib/notify";
 import { and, eq } from "drizzle-orm";
 
 export async function POST(req) {
@@ -22,6 +23,21 @@ export async function POST(req) {
     } else {
       if (action !== "unlike") {
         await db.insert(meedCommunityReactions).values({ postId: Number(postId), userId: Number(session.user.id), type: String(type) });
+        // Notify post author on like (not for self)
+        try {
+          const [post] = await db.select({ userId: meedCommunityPosts.userId }).from(meedCommunityPosts).where(eq(meedCommunityPosts.id, Number(postId)));
+          const authorId = Number(post?.userId);
+          if (authorId && authorId !== Number(session.user.id)) {
+            await createNotifications({
+              recipients: [authorId],
+              type: "community_like",
+              title: "New reaction on your post",
+              body: `Someone reacted ${String(type)} to your post`,
+              entityKind: "community_post",
+              entityId: Number(postId),
+            });
+          }
+        } catch {}
         return NextResponse.json({ reacted: true });
       }
       return NextResponse.json({ reacted: false });

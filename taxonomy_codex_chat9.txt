@@ -53,6 +53,40 @@ Changes completed (rollup)
    - Gallery layout (reels-like) with Create Post modal (Blob-powered uploads).
    - Navbar: compact Instagram-style icon to open Community; mobile menu entries added.
 
+10) Chat Dock + DELU‑GPT (mobile + UX)
+   - Collapsible chat dock cluster with toggle; Open Chat + History + Quick actions appear when expanded.
+   - Draggable dock cluster (desktop + mobile pointer) with grab cursor; persists position during session.
+   - Mobile layout: dock anchored bottom‑right; DELU‑GPT launcher anchored bottom‑left.
+   - Performance: no visual overlap; safe‑area ready for optional padding.
+
+11) Navbar polish (mobile + desktop)
+   - “Towards Greatness” mobile label changed to “Execute Now” with a formal accent badge on mobile.
+   - Reordered “Execute Now” to appear immediately after MRIs/MyMRIs in mobile menus (team_manager, member).
+   - Community icon gains playful sparkle (✨) on desktop and mobile.
+
+12) Meed Community improvements
+   - Card header now shows the actual post author (name + avatar) instead of the viewing user.
+   - Full‑view post modal: tap media/title to open; supports multi‑attachment navigation and comments panel.
+   - Comment box rewritten to be per‑post and ref‑based (uncontrolled) to eliminate keystroke lag on low‑end devices.
+
+13) Meed Repo author display
+   - Repo cards now show the post author (name + avatar) based on `userId`.
+
+14) Resource Management — Add Resource modal (landscape)
+   - Modal centered, max‑height constrained (gap from navbar/footer), internal scroll for body.
+   - Landscape 3‑column layout; fields regrouped for readability.
+   - Quick Add mode reduced to: Name, Category, Building, Room, Desk(=Asset Tag), Cost, Status.
+
+15) Notifications (systemwide)
+   - Schema: `notifications` table + `notification_type` enum.
+   - API: GET/PATCH `/api/member/notifications` to fetch/mark read.
+   - Triggers wired:
+     • Chat: new message → recipient notified
+     • Tasks: updates/ready/verified → assignees/owner notified
+     • Meed Repo: submitted for verification → admins/team managers notified
+     • Community: new post (to managers), comment/like (to post author)
+   - UI: Navbar bell (mobile + desktop) for all roles with unread badge and panel; “Mark all read”.
+
 6) Member‑read API access
    - Opened read guards for members on: slots, metaPrograms, programPeriods, programScheduleCells, mspCodes, mspCodeAssignments.
    - Admin/team_manager still required for mutations/seeding.
@@ -96,6 +130,7 @@ Notes
 - DM footer is optional; templates prefill subject/body.
  - Dashboard MSP‑R supports both tracks; consider CSV export and owner tooltips inline.
  - MeedRepo/Community: consider reactions/comments for Repo and moderation tools for Community.
+ - Notifications: consider socket push in place of polling (12s) and deep‑link actions from the panel.
 
 Checklist
 [ ] Add schema for resources + drizzle migration
