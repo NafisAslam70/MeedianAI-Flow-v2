@@ -1807,16 +1807,17 @@ export default function Navbar() {
                     <>
                       <Link href="/dashboard" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard") ? "active" : ""}`}>General</Link>
                       <Link href="/dashboard/team_manager" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/team_manager") ? "active" : ""}`}>My Dashboard</Link>
-                    <button onClick={() => { setIsMRISheetOpen(true); toggleMobileMenu(); }} className={`mobile-menu-item ${isMRISheetOpen ? "active" : ""}`}>MRIs</button>
+                      <button onClick={() => { setIsMRISheetOpen(true); toggleMobileMenu(); }} className={`mobile-menu-item ${isMRISheetOpen ? "active" : ""}`}>MRIs</button>
+                      {/* Execute Now directly after MRIs */}
+                      <button onClick={() => { setIsExecuteOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">
+                        <span className="formal-accent" aria-hidden />
+                        <span className="formal-label">Execute Now</span>
+                      </button>
                       <Link href="/dashboard/member/closeMyDay" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member/closeMyDay") ? "active" : ""}`}>CloseMyDay</Link>
                       {/* MyPerformance removed from mobile nav (in Profile) */}
 
                   <button onClick={() => { setIsManagerialOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">
                     Managerial
-                  </button>
-                  <button onClick={() => { setIsExecuteOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">
-                    <span className="formal-accent" aria-hidden />
-                    <span className="formal-label">Execute Now</span>
                   </button>
                   <Link href="/dashboard/member/meed-community" onClick={toggleMobileMenu} className={`mobile-menu-item community-sparkle ${isActive("/dashboard/member/meed-community") ? "active" : ""}`}>
                     Community <span className="sparkle-emoji" aria-hidden>✨</span>
@@ -1829,17 +1830,17 @@ export default function Navbar() {
                       <Link href="/dashboard" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard") ? "active" : ""}`}>General</Link>
                       <Link href="/dashboard/member" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member") ? "active" : ""}`}>My Dashboard</Link>
                       <Link href="/dashboard/member/myMeedRituals" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member/myMeedRituals") ? "active" : ""}`}>MyMRIs</Link>
+                      {/* Execute Now directly after MyMRIs */}
+                      <button onClick={() => { setIsExecuteOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">
+                        <span className="formal-accent" aria-hidden />
+                        <span className="formal-label">Execute Now</span>
+                      </button>
                       <Link href="/dashboard/member/closeMyDay" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member/closeMyDay") ? "active" : ""}`}>CloseMyDay</Link>
                       <Link href="/dashboard/member/meed-repo" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member/meed-repo") ? "active" : ""}`}>Meed Repo</Link>
                       <Link href="/dashboard/member/meed-community" onClick={toggleMobileMenu} className={`mobile-menu-item community-sparkle ${isActive("/dashboard/member/meed-community") ? "active" : ""}`}>
                         Community <span className="sparkle-emoji" aria-hidden>✨</span>
                       </Link>
                       {/* MyPerformance removed from mobile nav (in Profile) */}
-
-                      <button onClick={() => { setIsExecuteOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">
-                        <span className="formal-accent" aria-hidden />
-                        <span className="formal-label">Execute Now</span>
-                      </button>
                     </>
                   )}
 

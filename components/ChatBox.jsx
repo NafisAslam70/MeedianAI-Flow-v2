@@ -444,9 +444,9 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
       <style jsx global>{`
         @media (max-width: 640px) {
           .chatbox-container {
-            width: 95vw !important;
-            max-height: 85vh !important;
-            /* Pin to bottom-right on mobile */
+            width: auto !important;
+            max-width: calc(100vw - 24px) !important;
+            /* Pin dock cluster to bottom-right on mobile */
             left: auto !important;
             right: 12px !important;
             bottom: 12px !important;

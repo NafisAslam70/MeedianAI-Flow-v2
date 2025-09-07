@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import useSWR from "swr";
 
@@ -17,7 +17,10 @@ export default function MeedRepoPage() {
     return `/api/member/meed-repo?${params.toString()}`;
   })();
   const { data, mutate } = useSWR(listUrl, fetcher);
+  const { data: usersData } = useSWR("/api/member/users", fetcher);
   const posts = data?.posts || [];
+  const users = Array.isArray(usersData?.users) ? usersData.users : [];
+  const usersById = useMemo(() => users.reduce((acc, u) => { acc[Number(u.id)] = u; return acc; }, {}), [users]);
 
   const [title, setTitle] = useState("");
   // Minimal: no content/tags/URL attachments
@@ -164,9 +167,9 @@ export default function MeedRepoPage() {
     <div className="p-4 space-y-3 border-b last:border-0">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3 min-w-0">
-          <img src={session?.user?.image || "/default-avatar.png"} alt="avatar" className="w-9 h-9 rounded-full border" />
+          <img src={(usersById[p.userId]?.image) || "/default-avatar.png"} alt="avatar" className="w-9 h-9 rounded-full border object-cover" />
           <div className="min-w-0">
-            <div className="text-sm font-semibold text-gray-900 truncate">{session?.user?.name || "You"}</div>
+            <div className="text-sm font-semibold text-gray-900 truncate">{usersById[p.userId]?.name || "User"}</div>
             <div className="text-[11px] text-gray-500">{fmtRel(p.createdAt)}</div>
           </div>
         </div>
