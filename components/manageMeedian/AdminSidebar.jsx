@@ -26,6 +26,11 @@ const groups = [
         icon: Workflow,
       },
       {
+        href: "/dashboard/admin/manageMeedian/slots",
+        label: "Daily Slots",
+        icon: Workflow,
+      },
+      {
         href: "/dashboard/admin/manageMeedian/mri-programs",
         label: "Program Design",
         icon: Boxes,

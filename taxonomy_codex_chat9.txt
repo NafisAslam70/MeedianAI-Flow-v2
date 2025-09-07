@@ -1,5 +1,5 @@
 TAXONOMY CODEX — CHAT 9
-Updated: 2025-09-07
+Updated: 2025-09-07 (post‑MSP‑R dashboard integration)
 
 Scope for this session
 - Create and maintain a running log for changes and plans.
@@ -17,10 +17,23 @@ Changes completed (rollup)
 4) Direct Message templates (Profile)
    - Template picker + optional footer toggle (timestamp + portal link).
    - Backend supports includeFooter.
+5) General Dashboard — MSP‑R below N‑MRI
+   - Added MSP‑R modal to the main dashboard under MRIs, just below N‑MRI.
+   - Data: reads metaPrograms → programPeriods/programScheduleCells (MSP) with member‑read access.
+   - Views: Class‑wise and Teacher‑wise; track toggle (Elementary / Pre‑Primary).
+   - Teacher‑wise guard: if no assignments in selected track, show hint to check the other track.
+   - Code Owners: modal lists owners per MSP code in current track (Primary flagged).
+   - Mobile: stacked cards for both views; desktop keeps tables. Tooltips on codes.
+
+6) Member‑read API access
+   - Opened read guards for members on: slots, metaPrograms, programPeriods, programScheduleCells, mspCodes, mspCodeAssignments.
+   - Admin/team_manager still required for mutations/seeding.
 
 Open issues / fixes
 - Placeholder parsing in Routine Manager: fixed with safe template literal.
-- “asg not defined” in MSP‑R: replaced with activeAsg.userId.
+- “asg not defined” in MSP‑R: replaced with activeAsg.userId. (resolved)
+- General Dashboard hydration mismatch: removed SSR randomness (animated background now mounts client‑side only). (resolved)
+- MSP‑R modal hooks error: removed early returns before hooks and fixed variable init order. (resolved)
 
 Planned next (Resource Management — Managerial > Resource Management)
 Phase 1: Schema
@@ -51,6 +64,7 @@ Phase 4+: Actions & niceties
 Notes
 - AI assist endpoint now allows model override from a safe allowlist.
 - DM footer is optional; templates prefill subject/body.
+ - Dashboard MSP‑R supports both tracks; consider CSV export and owner tooltips inline.
 
 Checklist
 [ ] Add schema for resources + drizzle migration
@@ -59,3 +73,9 @@ Checklist
 [ ] Resources list shell with filters + metrics
 [ ] Detail drawer with logs/actions
 
+QA checklist (MSP‑R Dashboard)
+[x] Class‑wise table shows codes/subjects
+[x] Teacher‑wise highlights owned cells only
+[x] Track toggle works and shows hint when no ownership
+[x] Mobile stacked layout for both modes
+[x] Code Owners modal reflects current track and schedule

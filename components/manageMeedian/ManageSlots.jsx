@@ -54,8 +54,7 @@ export default function ManageSlots({
     deleteSlotAssignment(editSlot.id);
   };
 
-  const isSpecialSlot = (slotName) =>
-    ["MSP-D1", "MSP-D2", "MHCP1-HW Urgencies", "MHCP2-Beyond Potential"].includes(slotName);
+  const isSpecialSlot = () => false; // MSPR/MHCP management removed; all slots editable
 
   if (loading) {
     return <p className="text-gray-600 text-center text-lg">Loading slots...</p>;
@@ -68,7 +67,7 @@ export default function ManageSlots({
           <div className="bg-green-100 rounded-2xl shadow-lg p-4 h-full">
             <h3 className="font-semibold text-gray-700 mb-2">Block 1 (Slots 1-6)</h3>
             {slots
-              .filter((slot) => !slot.mspDivision && !slot.mhcpDivision && slot.id >= 1 && slot.id <= 6)
+              .filter((slot) => slot.id >= 1 && slot.id <= 6)
               .map((slot) => (
                 <motion.div
                   key={slot.id}
@@ -77,21 +76,12 @@ export default function ManageSlots({
                   transition={{ duration: 0.2 }}
                 >
                   <div className="flex justify-between items-center">
-                    <div onClick={() => !isSpecialSlot(slot.name) && confirmEdit(slot)}>
+                    <div onClick={() => confirmEdit(slot)}>
                       <p>Slot {slot.id}: {slot.name}</p>
                       <p>{slot.startTime} - {slot.endTime}</p>
                       <p>TOD: {members.find((m) => m.id === slot.assignedMemberId)?.name || "Unassigned"}</p>
                     </div>
-                    {isSpecialSlot(slot.name) && (
-                      <motion.button
-                        className="px-3 py-1 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-all duration-200"
-                        whileHover={{ scale: 1.03 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => console.log(`Manage ${slot.name.includes("MSP") ? "MSPR" : "MHCP"} for slot ${slot.id}`)} // Placeholder
-                      >
-                        Manage {slot.name.includes("MSP") ? "MSPR" : "MHCP"}
-                      </motion.button>
-                    )}
+                    {/* Special program management removed */}
                   </div>
                 </motion.div>
               ))}
@@ -99,7 +89,7 @@ export default function ManageSlots({
           <div className="bg-green-100 rounded-2xl shadow-lg p-4 h-full">
             <h3 className="font-semibold text-gray-700 mb-2">Block 3 (Slots 10-11)</h3>
             {slots
-              .filter((slot) => !slot.mspDivision && !slot.mhcpDivision && slot.id >= 10 && slot.id <= 11)
+              .filter((slot) => slot.id >= 10 && slot.id <= 11)
               .map((slot) => (
                 <motion.div
                   key={slot.id}
@@ -108,21 +98,12 @@ export default function ManageSlots({
                   transition={{ duration: 0.2 }}
                 >
                   <div className="flex justify-between items-center">
-                    <div onClick={() => !isSpecialSlot(slot.name) && confirmEdit(slot)}>
+                    <div onClick={() => confirmEdit(slot)}>
                       <p>Slot {slot.id}: {slot.name}</p>
                       <p>{slot.startTime} - {slot.endTime}</p>
                       <p>TOD: {members.find((m) => m.id === slot.assignedMemberId)?.name || "Unassigned"}</p>
                     </div>
-                    {isSpecialSlot(slot.name) && (
-                      <motion.button
-                        className="px-3 py-1 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-all duration-200"
-                        whileHover={{ scale: 1.03 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => console.log(`Manage ${slot.name.includes("MSP") ? "MSPR" : "MHCP"} for slot ${slot.id}`)} // Placeholder
-                      >
-                        Manage {slot.name.includes("MSP") ? "MSPR" : "MHCP"}
-                      </motion.button>
-                    )}
+                    {/* Special program management removed */}
                   </div>
                 </motion.div>
               ))}
@@ -158,12 +139,10 @@ export default function ManageSlots({
                 </motion.div>
               ))}
           </div>
-        </div>
-        <div className="space-y-4">
           <div className="bg-green-100 rounded-2xl shadow-lg p-4 h-full">
-            <h3 className="font-semibold text-gray-700 mb-2">Block 2 (Slots 7-9)</h3>
+            <h3 className="font-semibold text-gray-700 mb-2">Block 6 (Slot 17)</h3>
             {slots
-              .filter((slot) => !slot.mspDivision && !slot.mhcpDivision && slot.id >= 7 && slot.id <= 9)
+              .filter((slot) => slot.id === 17)
               .map((slot) => (
                 <motion.div
                   key={slot.id}
@@ -172,21 +151,38 @@ export default function ManageSlots({
                   transition={{ duration: 0.2 }}
                 >
                   <div className="flex justify-between items-center">
-                    <div onClick={() => !isSpecialSlot(slot.name) && confirmEdit(slot)}>
+                    <div onClick={() => confirmEdit(slot)}>
                       <p>Slot {slot.id}: {slot.name}</p>
                       <p>{slot.startTime} - {slot.endTime}</p>
                       <p>TOD: {members.find((m) => m.id === slot.assignedMemberId)?.name || "Unassigned"}</p>
                     </div>
-                    {isSpecialSlot(slot.name) && (
-                      <motion.button
-                        className="px-3 py-1 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-all duration-200"
-                        whileHover={{ scale: 1.03 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => console.log(`Manage ${slot.name.includes("MSP") ? "MSPR" : "MHCP"} for slot ${slot.id}`)} // Placeholder
-                      >
-                        Manage {slot.name.includes("MSP") ? "MSPR" : "MHCP"}
-                      </motion.button>
-                    )}
+                  </div>
+                </motion.div>
+              ))}
+            {slots.filter((s) => s.id === 17).length === 0 && (
+              <div className="text-sm text-gray-700">Slot 17 not found in DB. Use template under N‑MRI.</div>
+            )}
+          </div>
+        </div>
+        <div className="space-y-4">
+          <div className="bg-green-100 rounded-2xl shadow-lg p-4 h-full">
+            <h3 className="font-semibold text-gray-700 mb-2">Block 2 (Slots 7-9)</h3>
+            {slots
+              .filter((slot) => slot.id >= 7 && slot.id <= 9)
+              .map((slot) => (
+                <motion.div
+                  key={slot.id}
+                  className="bg-white rounded-lg p-2 mb-2"
+                  whileHover={{ scale: 1.02, boxShadow: "0 4px 8px rgba(0, 0, 0, 0.1)" }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <div className="flex justify-between items-center">
+                    <div onClick={() => confirmEdit(slot)}>
+                      <p>Slot {slot.id}: {slot.name}</p>
+                      <p>{slot.startTime} - {slot.endTime}</p>
+                      <p>TOD: {members.find((m) => m.id === slot.assignedMemberId)?.name || "Unassigned"}</p>
+                    </div>
+                    {/* Special program management removed */}
                   </div>
                 </motion.div>
               ))}
@@ -194,7 +190,7 @@ export default function ManageSlots({
           <div className="bg-green-100 rounded-2xl shadow-lg p-4 h-full">
             <h3 className="font-semibold text-gray-700 mb-2">Block 4 (Slots 12-14)</h3>
             {slots
-              .filter((slot) => !slot.mspDivision && !slot.mhcpDivision && slot.id >= 12 && slot.id <= 14)
+              .filter((slot) => slot.id >= 12 && slot.id <= 14)
               .map((slot) => (
                 <motion.div
                   key={slot.id}
@@ -203,21 +199,12 @@ export default function ManageSlots({
                   transition={{ duration: 0.2 }}
                 >
                   <div className="flex justify-between items-center">
-                    <div onClick={() => !isSpecialSlot(slot.name) && confirmEdit(slot)}>
+                    <div onClick={() => confirmEdit(slot)}>
                       <p>Slot {slot.id}: {slot.name}</p>
                       <p>{slot.startTime} - {slot.endTime}</p>
                       <p>TOD: {members.find((m) => m.id === slot.assignedMemberId)?.name || "Unassigned"}</p>
                     </div>
-                    {isSpecialSlot(slot.name) && (
-                      <motion.button
-                        className="px-3 py-1 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-all duration-200"
-                        whileHover={{ scale: 1.03 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => console.log(`Manage ${slot.name.includes("MSP") ? "MSPR" : "MHCP"} for slot ${slot.id}`)} // Placeholder
-                      >
-                        Manage {slot.name.includes("MSP") ? "MSPR" : "MHCP"}
-                      </motion.button>
-                    )}
+                    {/* Special program management removed */}
                   </div>
                 </motion.div>
               ))}
@@ -225,7 +212,7 @@ export default function ManageSlots({
           <div className="bg-green-100 rounded-2xl shadow-lg p-4 h-full">
             <h3 className="font-semibold text-gray-700 mb-2">Block 5 (Slots 15-16)</h3>
             {slots
-              .filter((slot) => !slot.mspDivision && !slot.mhcpDivision && slot.id >= 15 && slot.id <= 16)
+              .filter((slot) => slot.id >= 15 && slot.id <= 16)
               .map((slot) => (
                 <motion.div
                   key={slot.id}
@@ -234,21 +221,12 @@ export default function ManageSlots({
                   transition={{ duration: 0.2 }}
                 >
                   <div className="flex justify-between items-center">
-                    <div onClick={() => !isSpecialSlot(slot.name) && confirmEdit(slot)}>
+                    <div onClick={() => confirmEdit(slot)}>
                       <p>Slot {slot.id}: {slot.name}</p>
                       <p>{slot.startTime} - {slot.endTime}</p>
                       <p>TOD: {members.find((m) => m.id === slot.assignedMemberId)?.name || "Unassigned"}</p>
                     </div>
-                    {isSpecialSlot(slot.name) && (
-                      <motion.button
-                        className="px-3 py-1 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-all duration-200"
-                        whileHover={{ scale: 1.03 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => console.log(`Manage ${slot.name.includes("MSP") ? "MSPR" : "MHCP"} for slot ${slot.id}`)} // Placeholder
-                      >
-                        Manage {slot.name.includes("MSP") ? "MSPR" : "MHCP"}
-                      </motion.button>
-                    )}
+                    {/* Special program management removed */}
                   </div>
                 </motion.div>
               ))}

@@ -41,6 +41,7 @@ export default function GeneralDashboard() {
   const [showKnowMIDModal, setShowKnowMIDModal] = useState(false);
   const [showMSPRModal, setShowMSPRModal] = useState(false);
   const [showMHCPModal, setShowMHCPModal] = useState(false);
+  const [showNMRIPlanModal, setShowNMRIPlanModal] = useState(false);
   const [showCalendarModal, setShowCalendarModal] = useState(false);
   const [showMrnModal, setShowMrnModal] = useState(false);
   const [mrrFeed, setMrrFeed] = useState([]);
@@ -537,6 +538,12 @@ export default function GeneralDashboard() {
               >
                 MHCP
               </button>
+              <button
+                className="col-span-3 text-xs text-gray-700 hover:text-purple-600"
+                onClick={() => setShowNMRIPlanModal(true)}
+              >
+                NMRI Plan (D/L by Day)
+              </button>
             </div>
           </div>
         </div>
@@ -841,6 +848,41 @@ export default function GeneralDashboard() {
                     ))}
                   </div>
                 )}
+              </motion.div>
+            </motion.div>
+          )}
+
+          {showNMRIPlanModal && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/70 flex items-center justify-center p-3 sm:p-6 z-50 backdrop-blur-sm"
+              onClick={() => setShowNMRIPlanModal(false)}
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.95, opacity: 0, y: 20 }}
+                className="bg-white/90 backdrop-blur-lg rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-6 w-[95vw] sm:w-full sm:max-w-6xl max-h-[85vh] overflow-hidden border border-white/50"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex justify-between items-center mb-3 sm:mb-4">
+                  <h2 className="text-lg sm:text-2xl font-bold text-gray-900">NMRI Plan — Day-wise D/L</h2>
+                  <motion.button
+                    onClick={() => setShowNMRIPlanModal(false)}
+                    className="text-gray-700 hover:text-gray-900 p-2 sm:p-3 rounded-full bg-white/50 hover:bg-white/70 shadow-md"
+                    whileHover={{ scale: 1.06, rotate: 90 }}
+                    whileTap={{ scale: 0.97 }}
+                    aria-label="Close"
+                  >
+                    <X size={22} className="sm:hidden" />
+                    <X size={24} className="hidden sm:block" />
+                  </motion.button>
+                </div>
+
+                {/* Content: responsive cards (mobile) + table (desktop) */}
+                <NMRIPlanView slots={slots} members={members} slotData={slotData} />
               </motion.div>
             </motion.div>
           )}
@@ -1481,6 +1523,99 @@ function MSPRSchedule({ fetcher }) {
       </AnimatePresence>
       </>
       )}
+    </div>
+  );
+}
+
+// Read-only NMRI plan: day-wise Discipline/Language per slot
+function NMRIPlanView({ slots, members, slotData }) {
+  const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]; // Sunday optional
+  const isAMRI = (id) => [0, 3, 4, 6, 10, 13, 14].includes(Number(id));
+  const nmriSlots = (slots || []).filter((s) => !isAMRI(s.id));
+  const nameById = new Map((members || []).map((m) => [String(m.id), m.name]));
+  const assigns = Array.isArray(slotData?.slotAssignments) ? slotData.slotAssignments : [];
+
+  const map = new Map(); // key: `${slotId}__${day}` -> { D: name, L: name }
+  for (const a of assigns) {
+    const sid = String(a.slotId);
+    const day = String(a.dayOfWeek || "").toLowerCase();
+    const role = String(a.role || "").toLowerCase();
+    if (!sid || !day || !role) continue;
+    const key = `${sid}__${day}`;
+    const curr = map.get(key) || { D: "", L: "" };
+    const nm = nameById.get(String(a.memberId)) || "";
+    if (role.startsWith("d")) curr.D = nm;
+    if (role.startsWith("l")) curr.L = nm;
+    map.set(key, curr);
+  }
+
+  // Mobile cards
+  return (
+    <div className="w-full h-full overflow-auto">
+      <div className="sm:hidden space-y-3 pr-1">
+        {nmriSlots.map((s) => (
+          <div key={s.id} className="rounded-xl border bg-white/90 p-3">
+            <div className="flex justify-between items-center">
+              <div>
+                <div className="text-sm font-semibold text-gray-900">Slot {s.id} · {s.name}</div>
+                <div className="text-xs text-gray-600">{String(s.startTime).slice(0,5)} - {String(s.endTime).slice(0,5)}</div>
+              </div>
+            </div>
+            <div className="mt-2 space-y-1">
+              {DAYS.map((d) => {
+                const v = map.get(`${s.id}__${d}`) || {};
+                if (!v.D && !v.L) return null;
+                return (
+                  <div key={d} className="text-xs text-gray-800">
+                    <span className="font-semibold capitalize">{d.slice(0,3)}:</span> D: {v.D || "—"} · L: {v.L || "—"}
+                  </div>
+                );
+              })}
+              {/* fallback if nothing set */}
+              {!DAYS.some((d) => map.get(`${s.id}__${d}`)) && (
+                <div className="text-xs text-gray-500">No day-wise assignment</div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Desktop table */}
+      <div className="hidden sm:block overflow-auto rounded-xl border bg-white/90">
+        <table className="min-w-full text-sm">
+          <thead>
+            <tr className="bg-gray-50">
+              <th className="text-left px-3 py-2">Slot</th>
+              <th className="text-left px-3 py-2">Name</th>
+              <th className="text-left px-3 py-2">Time</th>
+              {DAYS.map((d) => (
+                <th key={d} className="text-left px-3 py-2 capitalize">{d.slice(0,3)} (D/L)</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {nmriSlots.map((s) => (
+              <tr key={s.id} className="border-t">
+                <td className="px-3 py-2 font-medium text-gray-900">{s.id}</td>
+                <td className="px-3 py-2 text-gray-800">{s.name}</td>
+                <td className="px-3 py-2 text-gray-600 text-xs">{String(s.startTime).slice(0,5)} - {String(s.endTime).slice(0,5)}</td>
+                {DAYS.map((d) => {
+                  const v = map.get(`${s.id}__${d}`) || {};
+                  return (
+                    <td key={d} className="px-3 py-2 text-gray-800 text-xs whitespace-pre-wrap">
+                      {v.D || v.L ? (
+                        <>{v.D || "—"} / {v.L || "—"}</>
+                      ) : (
+                        <span className="text-gray-300">—</span>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

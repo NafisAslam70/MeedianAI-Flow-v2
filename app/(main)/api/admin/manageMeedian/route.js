@@ -140,11 +140,15 @@ export async function GET(req) {
 
       const assignments = await db
         .select({
+          id: dailySlotAssignments.id,
           slotId: dailySlotAssignments.slotId,
           memberId: dailySlotAssignments.memberId,
+          dayOfWeek: dailySlotAssignments.dayOfWeek,
+          role: dailySlotAssignments.role,
         })
         .from(dailySlotAssignments);
 
+      // Keep backward compat: surface a coarse assignedMemberId if any assignment exists
       const slotsWithAssignments = slots.map((slot) => ({
         ...slot,
         assignedMemberId:
@@ -153,7 +157,7 @@ export async function GET(req) {
           null,
       }));
 
-      return NextResponse.json({ slots: slotsWithAssignments }, { status: 200 });
+      return NextResponse.json({ slots: slotsWithAssignments, slotAssignments: assignments }, { status: 200 });
     }
 
     if (section === "students") {
@@ -374,6 +378,32 @@ export async function POST(req) {
         });
 
       return NextResponse.json({ entry, message: "Calendar entry added successfully" }, { status: 201 });
+    }
+
+    if (section === "slots") {
+      const { name, startTime, endTime, hasSubSlots = false, assignedMemberId = null } = body || {};
+      if (!name || !startTime || !endTime) {
+        return NextResponse.json({ error: "Missing required fields: name, startTime, endTime" }, { status: 400 });
+      }
+      const [row] = await db
+        .insert(dailySlots)
+        .values({
+          name: String(name).trim(),
+          startTime,
+          endTime,
+          hasSubSlots: !!hasSubSlots,
+          assignedMemberId: assignedMemberId ? Number(assignedMemberId) : null,
+        })
+        .returning({
+          id: dailySlots.id,
+          name: dailySlots.name,
+          startTime: dailySlots.startTime,
+          endTime: dailySlots.endTime,
+          hasSubSlots: dailySlots.hasSubSlots,
+          assignedMemberId: dailySlots.assignedMemberId,
+          createdAt: dailySlots.createdAt,
+        });
+      return NextResponse.json({ slot: row, message: "Slot created" }, { status: 201 });
     }
 
     if (section === "programPeriods") {
@@ -958,30 +988,58 @@ export async function PATCH(req) {
 
       const updatedAssignments = [];
       for (const update of updates) {
-        const { slotId, memberId, startTime, endTime } = update;
+        const { slotId, memberId, startTime, endTime, name, dayOfWeek, role } = update;
         if (!slotId || (!memberId && !startTime && !endTime)) {
-          return NextResponse.json({ error: `Missing required fields for slot assignment: slotId or memberId/startTime/endTime` }, { status: 400 });
+          // allow name-only update as well
+          if (!(name && slotId)) {
+            return NextResponse.json({ error: `Missing required fields for slot update: slotId or memberId/startTime/endTime/name` }, { status: 400 });
+          }
         }
         if (!slotIds.has(slotId)) return NextResponse.json({ error: `Invalid slotId: ${slotId}` }, { status: 400 });
         if (memberId && !userIds.has(memberId)) return NextResponse.json({ error: `Invalid memberId: ${memberId}` }, { status: 400 });
 
-        if (memberId) {
-          const existing = await db
-            .select({ id: dailySlotAssignments.id })
-            .from(dailySlotAssignments)
-            .where(eq(dailySlotAssignments.slotId, slotId));
-
-          if (existing.length) {
-            await db.update(dailySlotAssignments).set({ memberId }).where(eq(dailySlotAssignments.slotId, slotId));
+        if (memberId !== undefined) {
+          // If day/role provided, do day-wise role-wise upsert; else global per-slot assignment
+          if (dayOfWeek || role) {
+            const day = dayOfWeek ? String(dayOfWeek).toLowerCase() : null;
+            const rl = role ? String(role).toLowerCase() : null;
+            const where = and(
+              eq(dailySlotAssignments.slotId, slotId),
+              day ? eq(dailySlotAssignments.dayOfWeek, day) : eq(dailySlotAssignments.dayOfWeek, null),
+              rl ? eq(dailySlotAssignments.role, rl) : eq(dailySlotAssignments.role, null)
+            );
+            const existing = await db
+              .select({ id: dailySlotAssignments.id })
+              .from(dailySlotAssignments)
+              .where(where);
+            if (existing.length) {
+              await db.update(dailySlotAssignments).set({ memberId: memberId ?? null }).where(eq(dailySlotAssignments.id, existing[0].id));
+            } else {
+              await db.insert(dailySlotAssignments).values({ slotId, memberId: memberId ?? null, dayOfWeek: day, role: rl });
+            }
+            updatedAssignments.push({ slotId, memberId, dayOfWeek: day, role: rl });
           } else {
-            await db.insert(dailySlotAssignments).values({ slotId, memberId });
+            const existing = await db
+              .select({ id: dailySlotAssignments.id })
+              .from(dailySlotAssignments)
+              .where(eq(dailySlotAssignments.slotId, slotId));
+            if (existing.length) {
+              await db.update(dailySlotAssignments).set({ memberId }).where(eq(dailySlotAssignments.slotId, slotId));
+            } else {
+              await db.insert(dailySlotAssignments).values({ slotId, memberId });
+            }
+            updatedAssignments.push({ slotId, memberId });
           }
-          updatedAssignments.push({ slotId, memberId });
         }
 
         if (startTime && endTime) {
           await db.update(dailySlots).set({ startTime, endTime }).where(eq(dailySlots.id, slotId));
           updatedAssignments.push({ slotId, startTime, endTime });
+        }
+
+        if (typeof name === "string") {
+          await db.update(dailySlots).set({ name: String(name).trim() }).where(eq(dailySlots.id, slotId));
+          updatedAssignments.push({ slotId, name: String(name).trim() });
         }
       }
 
@@ -1237,9 +1295,13 @@ export async function DELETE(req) {
     }
 
     if (section === "slots") {
-      const { slotId } = body || {};
+      const { slotId, deleteSlot = false } = body || {};
       if (!slotId) return NextResponse.json({ error: "Missing required field: slotId" }, { status: 400 });
       await db.delete(dailySlotAssignments).where(eq(dailySlotAssignments.slotId, slotId));
+      if (deleteSlot) {
+        await db.delete(dailySlots).where(eq(dailySlots.id, slotId));
+        return NextResponse.json({ message: "Slot deleted successfully" }, { status: 200 });
+      }
       return NextResponse.json({ message: "Slot assignment deleted successfully" }, { status: 200 });
     }
 
