@@ -1367,33 +1367,38 @@ function MSPRSchedule({ fetcher }) {
             <div className="p-3 text-sm text-gray-700">Select a teacher to view schedule.</div>
           ) : (
             <>
-            {/* Mobile stacked view */}
+            {/* Mobile stacked view – period-first (P1..P8 with classes owned) */}
             <div className="sm:hidden divide-y divide-gray-200">
-              {classNames.map((cn) => (
-                <div key={cn} className="p-3">
-                  <div className="font-semibold text-gray-900 mb-2">Class {cn}</div>
-                  <div className="grid grid-cols-2 gap-2">
-                    {periodKeys.map((pk) => {
-                      const cell = cells.find((c) => String(c.className) === cn && String(c.periodKey) === pk);
-                      const codeId = cell?.mspCodeId;
-                      const owns = codeId && teacherCodeIds.get(Number(selectedTeacher))?.has(codeId);
-                      return (
-                        <div key={pk} className={`rounded-lg border p-2 ${owns ? "bg-purple-50 border-purple-200" : "bg-white"}`}>
-                          <div className="text-xs text-gray-500 mb-0.5">{pk} · {periodTimeMap.get(pk) || "--:--"}</div>
-                          {owns ? (
-                            <>
-                              <div className="text-sm font-semibold text-purple-700" title={cell?.mspCode || ""}>{cell?.mspCode || ""}</div>
-                              {cell?.subject && <div className="text-xs text-gray-600">{cell.subject}</div>}
-                            </>
-                          ) : (
-                            <div className="text-gray-300">—</div>
-                          )}
-                        </div>
-                      );
-                    })}
+              {periodKeys.map((pk) => {
+                const owned = classNames
+                  .map((cn) => {
+                    const cell = cells.find((c) => String(c.className) === cn && String(c.periodKey) === pk);
+                    const codeId = cell?.mspCodeId;
+                    const owns = codeId && teacherCodeIds.get(Number(selectedTeacher))?.has(codeId);
+                    return owns ? { cn, cell } : null;
+                  })
+                  .filter(Boolean);
+                return (
+                  <div key={pk} className="p-3">
+                    <div className="font-semibold text-gray-900 mb-2">
+                      {pk} · {periodTimeMap.get(pk) || "--:--"}
+                    </div>
+                    {owned.length === 0 ? (
+                      <div className="text-xs text-gray-500">No classes this period.</div>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-2">
+                        {owned.map(({ cn, cell }) => (
+                          <div key={`${pk}__${cn}`} className="rounded-lg border p-2 bg-purple-50 border-purple-200">
+                            <div className="text-xs text-gray-600 mb-0.5">Class {cn}</div>
+                            <div className="text-sm font-semibold text-purple-700" title={cell?.mspCode || ""}>{cell?.mspCode || ""}</div>
+                            {cell?.subject && <div className="text-xs text-gray-600">{cell.subject}</div>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Desktop table */}
