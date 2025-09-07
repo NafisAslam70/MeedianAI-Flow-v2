@@ -16,6 +16,7 @@ export default function LoginInner() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [selectedRole, setSelectedRole] = useState(roleHint);
   const [tempRole, setTempRole] = useState(roleHint);
   const [teamManagerType, setTeamManagerType] = useState("");
@@ -249,15 +250,26 @@ export default function LoginInner() {
                 <label htmlFor="password" className="block text-sm font-medium text-gray-700">
                   Password
                 </label>
-                <input
-                  type="password"
-                  id="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="mt-1 w-full p-3 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-lg"
-                  required
-                  placeholder="Enter your password"
-                />
+                <div className="mt-1 relative">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    id="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full p-3 pr-12 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-lg"
+                    required
+                    placeholder="Enter your password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    className="absolute inset-y-0 right-0 px-3 flex items-center text-sm text-gray-600 hover:text-gray-800"
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    title={showPassword ? "Hide password" : "Show password"}
+                  >
+                    {showPassword ? "Hide" : "Show"}
+                  </button>
+                </div>
               </div>
               <motion.button
                 type="submit"

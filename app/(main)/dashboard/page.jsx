@@ -889,10 +889,10 @@ export default function GeneralDashboard() {
                 initial={{ scale: 0.95, opacity: 0, y: 20 }}
                 animate={{ scale: 1, opacity: 1, y: 0 }}
                 exit={{ scale: 0.95, opacity: 0, y: 20 }}
-                className="bg-white/90 backdrop-blur-lg rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-8 w-[95vw] sm:w-full sm:max-w-5xl max-h-[85vh] overflow-y-auto border border-white/50"
+                className="bg-white/90 backdrop-blur-lg rounded-2xl sm:rounded-3xl shadow-2xl p-4 sm:p-8 w-[95vw] sm:w-full sm:max-w-6xl max-h-[85vh] overflow-y-auto border border-white/50"
               >
                 <div className="flex justify-between items-center mb-4 sm:mb-6">
-                  <h2 className="text-lg sm:text-2xl font-bold text-gray-900">View MSPR</h2>
+                  <h2 className="text-lg sm:text-2xl font-bold text-gray-900">MSP-R Schedule</h2>
                   <motion.button
                     onClick={() => setShowMSPRModal(false)}
                     className="text-gray-700 hover:text-gray-900 p-2 sm:p-3 rounded-full bg-white/50 hover:bg-white/70 shadow-md"
@@ -904,9 +904,8 @@ export default function GeneralDashboard() {
                     <X size={24} className="hidden sm:block" />
                   </motion.button>
                 </div>
-                <p className="text-sm sm:text-base font-medium text-gray-800">
-                  Meed School Program details.
-                </p>
+                {/* MSP-R schedule content */}
+                <MSPRSchedule fetcher={fetcher} />
               </motion.div>
             </motion.div>
           )}
@@ -1053,5 +1052,435 @@ export default function GeneralDashboard() {
         </AnimatePresence>
       </div>
     </motion.div>
+  );
+}
+
+// Inline component to render MSP-R schedule (MSP program matrix)
+function MSPRSchedule({ fetcher }) {
+  const { data: progData, error: progErr } = useSWR(
+    "/api/admin/manageMeedian?section=metaPrograms",
+    fetcher
+  );
+
+  const mspProgram = Array.isArray(progData?.programs)
+    ? progData.programs.find((p) => String(p.programKey).toUpperCase() === "MSP")
+    : null;
+  const programId = mspProgram?.id;
+
+  const { data: prePeriods } = useSWR(
+    programId ? `/api/admin/manageMeedian?section=programPeriods&programId=${programId}&track=pre_primary` : null,
+    fetcher
+  );
+  const { data: elePeriods } = useSWR(
+    programId ? `/api/admin/manageMeedian?section=programPeriods&programId=${programId}&track=elementary` : null,
+    fetcher
+  );
+  const { data: preCells } = useSWR(
+    programId ? `/api/admin/manageMeedian?section=programScheduleCells&programId=${programId}&track=pre_primary` : null,
+    fetcher
+  );
+  const { data: eleCells } = useSWR(
+    programId ? `/api/admin/manageMeedian?section=programScheduleCells&programId=${programId}&track=elementary` : null,
+    fetcher
+  );
+
+  const [track, setTrack] = useState("elementary");
+  const [viewMode, setViewMode] = useState("class"); // class | teacher
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const [ownersOpen, setOwnersOpen] = useState(false);
+
+  // For teacher-wise view: fetch users, assignments, codes
+  const { data: usersData } = useSWR("/api/member/users", fetcher);
+  const { data: assignData } = useSWR(
+    programId ? "/api/admin/manageMeedian?section=mspCodeAssignments" : null,
+    fetcher
+  );
+  const { data: codesData } = useSWR(
+    programId ? "/api/admin/manageMeedian?section=mspCodes" : null,
+    fetcher
+  );
+
+  const programError = !!progErr;
+  const programNotReady = !programId;
+
+  const periods = (track === "pre_primary" ? prePeriods?.periods : elePeriods?.periods) || [];
+  const cells = (track === "pre_primary" ? preCells?.cells : eleCells?.cells) || [];
+
+  // Build class list and period keys
+  const classNames = Array.from(
+    new Set(cells.map((c) => String(c.className)))
+  ).sort((a, b) => {
+    // numeric classes first in order, then names
+    const na = Number(a), nb = Number(b);
+    if (!isNaN(na) && !isNaN(nb)) return na - nb;
+    if (!isNaN(na)) return -1;
+    if (!isNaN(nb)) return 1;
+    return a.localeCompare(b);
+  });
+  const periodKeys = Array.from(
+    new Set(periods.map((p) => String(p.periodKey)))
+  ).sort((a, b) => {
+    // P1..P8 natural order
+    const ai = parseInt(a.replace(/\D/g, "")) || 0;
+    const bi = parseInt(b.replace(/\D/g, "")) || 0;
+    if (ai !== bi) return ai - bi;
+    return a.localeCompare(b);
+  });
+  const periodTimeMap = new Map(
+    periods.map((p) => [String(p.periodKey), `${String(p.startTime || "").slice(0,5)}-${String(p.endTime || "").slice(0,5)}`])
+  );
+
+  const cellMap = new Map();
+  for (const c of cells) {
+    cellMap.set(`${c.className}__${c.periodKey}`, {
+      code: c.mspCode || "",
+      subject: c.subject || "",
+    });
+  }
+
+  const loading = !prePeriods || !elePeriods || !preCells || !eleCells;
+
+  // Build teacher -> set(codeIds)
+  const activeAssignments = Array.isArray(assignData?.assignments)
+    ? assignData.assignments.filter((a) => {
+        const start = a.startDate ? String(a.startDate).slice(0, 10) : null;
+        const end = a.endDate ? String(a.endDate).slice(0, 10) : null;
+        const inRange = (!start || start <= todayIso) && (!end || todayIso <= end);
+        return a.active !== false && inRange;
+      })
+    : [];
+  const teacherCodeIds = new Map(); // userId -> Set(mspCodeId)
+  for (const a of activeAssignments) {
+    if (!teacherCodeIds.has(a.userId)) teacherCodeIds.set(a.userId, new Set());
+    if (a.mspCodeId) teacherCodeIds.get(a.userId).add(a.mspCodeId);
+  }
+  // Build teacher options from users present in assignments
+  const allUsers = Array.isArray(usersData) ? usersData : usersData?.users || [];
+  const teacherOptions = Array.from(teacherCodeIds.keys())
+    .map((uid) => ({ id: uid, name: allUsers.find((u) => String(u.id) === String(uid))?.name || `User ${uid}` }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const [selectedTeacher, setSelectedTeacher] = useState(teacherOptions[0]?.id || "");
+  useEffect(() => {
+    // Ensure selected teacher remains valid when options load/update
+    if (!selectedTeacher && teacherOptions.length > 0) setSelectedTeacher(teacherOptions[0].id);
+  }, [teacherOptions.length]);
+
+  // Build ownership map for current track codes (after users and assignments are available)
+  const codesById = new Map(
+    (codesData?.codes || [])
+      .filter((c) => String(c.track) === track)
+      .map((c) => [c.id, c])
+  );
+  const ownersByCodeId = new Map(); // codeId -> [{id,name,isPrimary}]
+  for (const a of activeAssignments) {
+    if (!a.mspCodeId || !codesById.has(a.mspCodeId)) continue;
+    const arr = ownersByCodeId.get(a.mspCodeId) || [];
+    const user = allUsers.find((u) => String(u.id) === String(a.userId));
+    arr.push({ id: a.userId, name: user?.name || `User ${a.userId}`, isPrimary: !!a.isPrimary });
+    ownersByCodeId.set(a.mspCodeId, arr);
+  }
+  const codesInView = Array.from(new Set(cells.map((c) => c.mspCodeId).filter(Boolean)));
+
+  return (
+    <div className="flex flex-col gap-4">
+      {programError && (
+        <div className="text-sm text-red-700">Failed to load program list.</div>
+      )}
+      {programNotReady && !programError && (
+        <div className="text-sm text-gray-700">MSP program not configured.</div>
+      )}
+      {!programError && !programNotReady && (
+      <>
+      <div className="flex items-center gap-2 flex-wrap">
+        <button
+          className={`px-3 py-1.5 text-sm rounded-lg border ${
+            track === "elementary" ? "bg-teal-600 text-white border-teal-600" : "bg-white text-gray-800 border-gray-200"
+          }`}
+          onClick={() => setTrack("elementary")}
+        >
+          Elementary
+        </button>
+        <button
+          className={`px-3 py-1.5 text-sm rounded-lg border ${
+            track === "pre_primary" ? "bg-teal-600 text-white border-teal-600" : "bg-white text-gray-800 border-gray-200"
+          }`}
+          onClick={() => setTrack("pre_primary")}
+        >
+          Pre-Primary
+        </button>
+
+        <div className="ml-2 flex items-center gap-2">
+          <label className="text-sm font-medium text-gray-800">View:</label>
+          <button
+            className={`px-3 py-1.5 text-sm rounded-lg border ${
+              viewMode === "class" ? "bg-purple-600 text-white border-purple-600" : "bg-white text-gray-800 border-gray-200"
+            }`}
+            onClick={() => setViewMode("class")}
+          >
+            Class-wise
+          </button>
+          <button
+            className={`px-3 py-1.5 text-sm rounded-lg border ${
+              viewMode === "teacher" ? "bg-purple-600 text-white border-purple-600" : "bg-white text-gray-800 border-gray-200"
+            }`}
+            onClick={() => setViewMode("teacher")}
+          >
+            Teacher-wise
+          </button>
+        </div>
+
+        <button
+          className="ml-auto px-3 py-1.5 text-sm rounded-lg border bg-white text-gray-800 border-gray-200 hover:bg-gray-50"
+          onClick={() => setOwnersOpen(true)}
+        >
+          Code owners
+        </button>
+
+        {viewMode === "teacher" && (
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-gray-700">Teacher:</label>
+            <select
+              value={selectedTeacher}
+              onChange={(e) => setSelectedTeacher(e.target.value)}
+              className="px-2 py-1.5 text-sm rounded-lg border border-gray-200 bg-white"
+            >
+              {!teacherOptions.length && <option value="">No assignments</option>}
+              {teacherOptions.map((t) => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
+
+      {loading ? (
+        <div className="flex items-center gap-3 text-gray-700">
+          <div className="w-5 h-5 border-4 border-teal-600 border-t-transparent rounded-full animate-spin" />
+          <span className="text-sm">Loading schedule…</span>
+        </div>
+      ) : cells.length === 0 ? (
+        <p className="text-sm text-gray-700">Schedule not configured for this track.</p>
+      ) : viewMode === "class" ? (
+        <div className="w-full overflow-x-auto rounded-xl border border-gray-200 bg-white/70">
+          {/* Mobile stacked view */}
+          <div className="sm:hidden divide-y divide-gray-200">
+            {classNames.map((cn) => (
+              <div key={cn} className="p-3">
+                <div className="font-semibold text-gray-900 mb-2">Class {cn}</div>
+                <div className="grid grid-cols-2 gap-2">
+                  {periodKeys.map((pk) => {
+                    const v = cellMap.get(`${cn}__${pk}`) || {};
+                    return (
+                      <div key={pk} className="rounded-lg border p-2 bg-white">
+                        <div className="text-xs text-gray-500 mb-0.5">{pk} · {periodTimeMap.get(pk) || "--:--"}</div>
+                        <div className="text-sm font-semibold text-teal-700" title={v.code}>{v.code || "—"}</div>
+                        {v.subject && <div className="text-xs text-gray-600">{v.subject}</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Desktop table */}
+          <table className="min-w-full text-sm hidden sm:table">
+            <thead>
+              <tr className="bg-gray-50">
+                <th className="text-left px-3 py-2 font-semibold text-gray-800 sticky left-0 bg-gray-50">Class</th>
+                {periodKeys.map((pk) => (
+                  <th key={pk} className="px-3 py-2 font-semibold text-gray-800 whitespace-nowrap">
+                    <div>{pk}</div>
+                    <div className="text-xs text-gray-500">{periodTimeMap.get(pk) || "--:--"}</div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {classNames.map((cn) => (
+                <tr key={cn} className="even:bg-gray-50/50">
+                  <td className="px-3 py-2 font-medium text-gray-900 sticky left-0 bg-white/90">
+                    {cn}
+                  </td>
+                  {periodKeys.map((pk) => {
+                    const v = cellMap.get(`${cn}__${pk}`) || {};
+                    return (
+                      <td key={pk} className="px-3 py-2 text-gray-800 align-top" title={v.code}>
+                        <div className="font-semibold text-teal-700">{v.code || "—"}</div>
+                        <div className="text-xs text-gray-600">{v.subject || ""}</div>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="w-full overflow-x-auto rounded-xl border border-gray-200 bg-white/70">
+          {/* Teacher-wise grid: same axes, cells filled only if teacher owns the code */}
+          {!selectedTeacher ? (
+            <div className="p-3 text-sm text-gray-700">Select a teacher to view schedule.</div>
+          ) : (
+            <>
+            {/* Mobile stacked view */}
+            <div className="sm:hidden divide-y divide-gray-200">
+              {classNames.map((cn) => (
+                <div key={cn} className="p-3">
+                  <div className="font-semibold text-gray-900 mb-2">Class {cn}</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {periodKeys.map((pk) => {
+                      const cell = cells.find((c) => String(c.className) === cn && String(c.periodKey) === pk);
+                      const codeId = cell?.mspCodeId;
+                      const owns = codeId && teacherCodeIds.get(Number(selectedTeacher))?.has(codeId);
+                      return (
+                        <div key={pk} className={`rounded-lg border p-2 ${owns ? "bg-purple-50 border-purple-200" : "bg-white"}`}>
+                          <div className="text-xs text-gray-500 mb-0.5">{pk} · {periodTimeMap.get(pk) || "--:--"}</div>
+                          {owns ? (
+                            <>
+                              <div className="text-sm font-semibold text-purple-700" title={cell?.mspCode || ""}>{cell?.mspCode || ""}</div>
+                              {cell?.subject && <div className="text-xs text-gray-600">{cell.subject}</div>}
+                            </>
+                          ) : (
+                            <div className="text-gray-300">—</div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop table */}
+            <table className="min-w-full text-sm hidden sm:table">
+              <thead>
+                <tr className="bg-gray-50">
+                  <th className="text-left px-3 py-2 font-semibold text-gray-800 sticky left-0 bg-gray-50">Class</th>
+                  {periodKeys.map((pk) => (
+                    <th key={pk} className="px-3 py-2 font-semibold text-gray-800 whitespace-nowrap">
+                      <div>{pk}</div>
+                      <div className="text-xs text-gray-500">{periodTimeMap.get(pk) || "--:--"}</div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {/* If the selected teacher has no ownership in the chosen track, show a hint row */}
+                {(() => {
+                  const stId = Number(selectedTeacher);
+                  const ownsAnyInTrack = !!cells.find((c) => c.mspCodeId && teacherCodeIds.get(stId)?.has(c.mspCodeId));
+                  if (!ownsAnyInTrack) {
+                    const niceTrack = track === "elementary" ? "Elementary" : "Pre-Primary";
+                    const altTrack = track === "elementary" ? "Pre-Primary" : "Elementary";
+                    return (
+                      <tr>
+                        <td className="px-3 py-3 text-sm text-amber-700 bg-amber-50 border-b border-amber-100 rounded-l-lg" colSpan={periodKeys.length + 1}>
+                          This teacher has no MSP‑R assignments in {niceTrack}. Please check {altTrack}.
+                        </td>
+                      </tr>
+                    );
+                  }
+                  return null;
+                })()}
+                {classNames.map((cn) => (
+                  <tr key={cn} className="even:bg-gray-50/50">
+                    <td className="px-3 py-2 font-medium text-gray-900 sticky left-0 bg-white/90">
+                      {cn}
+                    </td>
+                    {periodKeys.map((pk) => {
+                      const cell = cells.find((c) => String(c.className) === cn && String(c.periodKey) === pk);
+                      const codeId = cell?.mspCodeId;
+                      const owns = codeId && teacherCodeIds.get(Number(selectedTeacher))?.has(codeId);
+                      return (
+                        <td key={pk} className="px-3 py-2 text-gray-800 align-top" title={cell?.mspCode || ""}>
+                          {owns ? (
+                            <>
+                              <div className="font-semibold text-purple-700">{cell?.mspCode || ""}</div>
+                              <div className="text-xs text-gray-600">{cell?.subject || ""}</div>
+                            </>
+                          ) : (
+                            <span className="text-gray-300">—</span>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Owners modal */}
+      <AnimatePresence>
+        {ownersOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-3"
+            onClick={() => setOwnersOpen(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 10 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 10 }}
+              className="w-full max-w-2xl max-h-[80vh] overflow-y-auto bg-white/95 rounded-2xl border border-white/60 p-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-lg font-semibold text-gray-900">MSP‑R Code Owners ({track === "elementary" ? "Elementary" : "Pre‑Primary"})</h3>
+                <button
+                  onClick={() => setOwnersOpen(false)}
+                  className="p-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700"
+                  aria-label="Close"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="text-xs text-gray-600 mb-3">Only codes present in the current schedule are shown.</div>
+              <div className="divide-y divide-gray-200">
+                {codesInView
+                  .filter((id) => codesById.has(id))
+                  .sort((a, b) => String(codesById.get(a)?.code || "").localeCompare(String(codesById.get(b)?.code || "")))
+                  .map((id) => {
+                    const code = codesById.get(id);
+                    const owners = (ownersByCodeId.get(id) || []).sort((a, b) => (b.isPrimary - a.isPrimary) || a.name.localeCompare(b.name));
+                    return (
+                      <div key={id} className="py-2">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="text-sm font-semibold text-gray-900">{code?.code || `Code ${id}`}</div>
+                            {code?.title && <div className="text-xs text-gray-600">{code.title}</div>}
+                          </div>
+                          <div className="text-sm text-gray-800">
+                            {owners.length ? (
+                              owners.map((o, i) => (
+                                <span key={o.id} className={`inline-block px-2 py-0.5 rounded-full border text-xs mr-1 ${o.isPrimary ? "bg-purple-50 border-purple-200 text-purple-700" : "bg-gray-50 border-gray-200"}`}>
+                                  {o.name}{o.isPrimary ? " • Primary" : ""}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">Unassigned</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                {!codesInView.length && (
+                  <div className="py-6 text-sm text-gray-700">No codes found in the current schedule.</div>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      </>
+      )}
+    </div>
   );
 }

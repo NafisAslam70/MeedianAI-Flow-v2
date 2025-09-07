@@ -47,12 +47,23 @@ export async function GET(req) {
   const section = String(rawSection).trim();
   const sectionLc = section.toLowerCase();
 
-  if (section === "slots") {
+  // Access control: allow broader read for member-safe sections
+  const memberReadable = new Set([
+    "slots",
+    "programPeriods",
+    "programScheduleCells",
+    "metaPrograms",
+    "mspCodes",
+    "mspCodeAssignments",
+  ]);
+  if (memberReadable.has(section)) {
     if (!session || !["admin", "team_manager", "member"].includes(session.user?.role)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-  } else if (!session || !["admin", "team_manager"].includes(session.user?.role)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  } else {
+    if (!session || !["admin", "team_manager"].includes(session.user?.role)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
   }
 
   try {

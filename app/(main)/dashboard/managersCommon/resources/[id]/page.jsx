@@ -1,6 +1,6 @@
 "use client";
 import useSWR from "swr";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { Card, CardHeader, CardBody } from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import { useState } from "react";
@@ -10,26 +10,41 @@ const fetcher = (u) => fetch(u, { headers: { "Content-Type": "application/json" 
 export default function ResourceDetailPage() {
   const params = useParams();
   const id = Number(params?.id);
+  const router = useRouter();
   const { data, mutate } = useSWR(id ? `/api/admin/resources/${id}` : null, fetcher);
   const { data: catData } = useSWR(`/api/admin/resources/categories`, fetcher, { dedupingInterval: 60000 });
+  const { data: teamData } = useSWR(`/api/admin/manageMeedian?section=team`, fetcher, { dedupingInterval: 30000 });
   const r = data?.resource;
   const logs = data?.logs || [];
   const [busy, setBusy] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [form, setForm] = useState({ name: "", assetTag: "", categoryId: "", building: "", room: "", status: "available", assignedTo: "", notes: "" });
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [assignUserId, setAssignUserId] = useState("");
+  const [assignNotes, setAssignNotes] = useState("");
+  const [err, setErr] = useState("");
   const categories = catData?.categories || [];
+  const members = (teamData?.users || []).filter((u) => u.role === "member" || u.role === "team_manager");
   const onChange = (e) => {
     const { name, value } = e.target;
     setForm((f) => ({ ...f, [name]: value }));
   };
 
-  const quickAssign = async () => {
-    const to = prompt("Assign to user id (number)");
-    if (!to) return;
+  const submitAssign = async (e) => {
+    e?.preventDefault?.();
+    setErr("");
+    if (!assignUserId) { setErr("Please choose a user"); return; }
     setBusy(true);
     try {
-      await fetch(`/api/admin/resources/${id}/logs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "assign", toUserId: Number(to), notes: "Quick assign" }) });
+      const res = await fetch(`/api/admin/resources/${id}/logs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "assign", toUserId: Number(assignUserId), notes: assignNotes || "" }) });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+      setAssignOpen(false);
+      setAssignUserId("");
+      setAssignNotes("");
       mutate();
+    } catch (e2) {
+      setErr(e2.message);
     } finally { setBusy(false); }
   };
 
@@ -37,10 +52,13 @@ export default function ResourceDetailPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-bold text-gray-900">{r.name} ({r.status})</h1>
+        <div className="flex items-center gap-2">
+          <Button variant="light" onClick={() => (history.length > 1 ? router.back() : router.push('/dashboard/managersCommon/resources'))}>Back</Button>
+          <h1 className="text-lg font-bold text-gray-900">{r.name} ({r.status})</h1>
+        </div>
         <div className="flex gap-2">
           <Button variant="light" onClick={() => { setForm({ name: r.name || "", assetTag: r.assetTag || "", categoryId: r.categoryId || "", building: r.building || "", room: r.room || "", status: r.status || "available", assignedTo: r.assignedTo || "", notes: r.notes || "" }); setEditOpen(true); }} disabled={busy}>Edit</Button>
-          <Button variant="light" onClick={quickAssign} disabled={busy}>Assign</Button>
+          <Button variant="light" onClick={() => setAssignOpen(true)} disabled={busy}>Assign</Button>
           <Button variant="light" onClick={() => mutate()} disabled={busy}>Refresh</Button>
         </div>
       </div>
@@ -130,8 +148,13 @@ export default function ResourceDetailPage() {
                     </select>
                   </div>
                   <div className="md:col-span-2">
-                    <label className="block text-xs text-gray-700 mb-1">Assigned To (User ID)</label>
-                    <input name="assignedTo" value={form.assignedTo} onChange={onChange} className="w-full px-3 py-2 border rounded" />
+                    <label className="block text-xs text-gray-700 mb-1">Assigned To</label>
+                    <select name="assignedTo" value={form.assignedTo} onChange={onChange} className="w-full px-3 py-2 border rounded">
+                      <option value="">(none)</option>
+                      {members.map((u) => (
+                        <option key={u.id} value={u.id}>{u.name}</option>
+                      ))}
+                    </select>
                   </div>
                   <div className="md:col-span-2">
                     <label className="block text-xs text-gray-700 mb-1">Notes</label>
@@ -180,6 +203,41 @@ export default function ResourceDetailPage() {
           </div>
         </CardBody>
       </Card>
+
+      {assignOpen && (
+        <div className="fixed inset-0 z-[1000] bg-black/50 flex items-start justify-center" onClick={() => !busy && setAssignOpen(false)}>
+          <div className="mt-12 w-[92vw] max-w-md" onClick={(e) => e.stopPropagation()}>
+            <Card>
+              <CardHeader className="flex items-center justify-between">
+                <div className="font-semibold text-gray-900">Assign Resource</div>
+                <Button size="sm" variant="light" onClick={() => setAssignOpen(false)} disabled={busy}>Close</Button>
+              </CardHeader>
+              <CardBody>
+                {err && <div className="mb-2 text-sm text-red-600">{err}</div>}
+                <form className="space-y-3" onSubmit={submitAssign}>
+                  <div className="flex items-center gap-2">
+                    <label className="w-28 text-xs text-gray-700">User</label>
+                    <select className="flex-1 px-3 py-2 border rounded" value={assignUserId} onChange={(e) => setAssignUserId(e.target.value)} required>
+                      <option value="">Select user</option>
+                      {members.map((u) => (
+                        <option key={u.id} value={u.id}>{u.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="w-28 text-xs text-gray-700">Notes</label>
+                    <input className="flex-1 px-3 py-2 border rounded" value={assignNotes} onChange={(e) => setAssignNotes(e.target.value)} placeholder="Optional" />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button type="button" variant="light" onClick={() => setAssignOpen(false)} disabled={busy}>Cancel</Button>
+                    <Button disabled={busy}>{busy ? "Assigning…" : "Assign"}</Button>
+                  </div>
+                </form>
+              </CardBody>
+            </Card>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

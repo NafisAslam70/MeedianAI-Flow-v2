@@ -13,12 +13,14 @@ export default function ResourceManagementPage() {
   const rows = data?.resources || [];
   const { data: catData } = useSWR(`/api/admin/resources/categories`, fetcher, { dedupingInterval: 60000 });
   const categories = catData?.categories || [];
+  const { data: teamData } = useSWR(`/api/admin/manageMeedian?section=team`, fetcher, { dedupingInterval: 30000 });
 
   const [createOpen, setCreateOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [simpleMode, setSimpleMode] = useState(true);
   const [issueNow, setIssueNow] = useState(false);
   const [categorySimple, setCategorySimple] = useState("school");
+  const [createErr, setCreateErr] = useState("");
   const [form, setForm] = useState({
     name: "",
     assetTag: "",
@@ -41,7 +43,7 @@ export default function ResourceManagementPage() {
   };
   const submit = async (e) => {
     e?.preventDefault?.();
-    if (!form.name.trim()) return alert("Name is required");
+    if (!form.name.trim()) { setCreateErr("Name is required"); return; }
     setBusy(true);
     try {
       // Resolve category (existing or quick)
@@ -102,7 +104,7 @@ export default function ResourceManagementPage() {
       setIssueNow(false);
       mutate();
     } catch (err) {
-      alert(err.message);
+      setCreateErr(err.message || "Failed to create resource");
     } finally { setBusy(false); }
   };
 
@@ -278,8 +280,13 @@ export default function ResourceManagementPage() {
                   </select>
                 </div>
                 <div className="md:col-span-2">
-                  <label className="block text-xs text-gray-700 mb-1">Assigned To (User ID)</label>
-                  <input name="assignedTo" value={form.assignedTo} onChange={onChange} className="w-full px-3 py-2 border rounded" />
+                  <label className="block text-xs text-gray-700 mb-1">Assigned To</label>
+                  <select name="assignedTo" value={form.assignedTo} onChange={onChange} className="w-full px-3 py-2 border rounded">
+                    <option value="">(none)</option>
+                    {(teamData?.users || []).filter((u) => u.role === 'member' || u.role === 'team_manager').map((u) => (
+                      <option key={u.id} value={u.id}>{u.name}</option>
+                    ))}
+                  </select>
                 </div>
                 <div className="md:col-span-2">
                   <label className="block text-xs text-gray-700 mb-1">Notes</label>
