@@ -12,6 +12,10 @@ img, video, canvas, svg { display: block; max-width: 100%; height: auto; }
 /* Prevent viewport jump on iOS safe-areas */
 :root { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
 
+/* Safe-area helpers for iOS bottom insets */
+.pb-safe { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 1rem); }
+.mb-safe { margin-bottom: env(safe-area-inset-bottom, 0px); }
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
