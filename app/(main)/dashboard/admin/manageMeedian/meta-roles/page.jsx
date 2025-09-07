@@ -50,6 +50,8 @@ export default function RoleDefinitionsPage() {
   const [form, setForm] = useState({ roleKey: "", name: "", category: "rmri" });
   const [message, setMessage] = useState(null);
   const [families, setFamilies] = useState([]);
+  const [taskModal, setTaskModal] = useState({ open: false, role: null, tasks: [], loading: false });
+  const [taskForm, setTaskForm] = useState({ title: "", description: "" });
 
   // derive category options from families (active only); fallback to defaults
   const categoryOptions = useMemo(() => {
@@ -192,6 +194,74 @@ export default function RoleDefinitionsPage() {
     }
   };
 
+  const openTasks = async (role) => {
+    setTaskModal({ open: true, role, tasks: [], loading: true });
+    try {
+      const res = await fetch(`/api/admin/manageMeedian?section=metaRoleTasks&roleDefId=${role.id}`);
+      const j = await res.json();
+      setTaskModal({ open: true, role, tasks: j.tasks || [], loading: false });
+    } catch (e) {
+      setTaskModal({ open: true, role, tasks: [], loading: false });
+      setMessage({ type: "error", text: `Failed to load tasks: ${e.message}` });
+    }
+  };
+
+  const createTask = async (e) => {
+    e.preventDefault();
+    if (!taskModal?.role?.id) return;
+    try {
+      const res = await fetch(`/api/admin/manageMeedian?section=metaRoleTasks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roleDefId: taskModal.role.id, title: taskForm.title, description: taskForm.description }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Failed to create task");
+      setTaskForm({ title: "", description: "" });
+      // refresh list
+      const res2 = await fetch(`/api/admin/manageMeedian?section=metaRoleTasks&roleDefId=${taskModal.role.id}`);
+      const j2 = await res2.json();
+      setTaskModal((m) => ({ ...m, tasks: j2.tasks || [] }));
+    } catch (e) {
+      setMessage({ type: "error", text: e.message });
+    }
+  };
+
+  const updateTask = async (id, patch) => {
+    try {
+      const res = await fetch(`/api/admin/manageMeedian?section=metaRoleTasks`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ updates: [{ id, ...patch }] }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Failed to update task");
+      const res2 = await fetch(`/api/admin/manageMeedian?section=metaRoleTasks&roleDefId=${taskModal.role.id}`);
+      const j2 = await res2.json();
+      setTaskModal((m) => ({ ...m, tasks: j2.tasks || [] }));
+    } catch (e) {
+      setMessage({ type: "error", text: e.message });
+    }
+  };
+
+  const deleteTask = async (id) => {
+    if (!confirm("Delete this task?")) return;
+    try {
+      const res = await fetch(`/api/admin/manageMeedian?section=metaRoleTasks`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Failed to delete task");
+      const res2 = await fetch(`/api/admin/manageMeedian?section=metaRoleTasks&roleDefId=${taskModal.role.id}`);
+      const j2 = await res2.json();
+      setTaskModal((m) => ({ ...m, tasks: j2.tasks || [] }));
+    } catch (e) {
+      setMessage({ type: "error", text: e.message });
+    }
+  };
+
   const Tab = ({ value, label }) => (
     <button
       className={`px-3 py-1.5 rounded-lg text-sm border transition-colors ${
@@ -241,6 +311,7 @@ export default function RoleDefinitionsPage() {
                         </option>
                       ))}
                     </Select>
+                    <Button onClick={() => openTasks(d)} variant="secondary">Tasks</Button>
                     <Button onClick={() => updateRole(d.id, { active: !d.active })} variant={d.active ? "secondary" : "primary"}>
                       {d.active ? "Disable" : "Enable"}
                     </Button>
@@ -296,6 +367,46 @@ export default function RoleDefinitionsPage() {
             <Button type="submit" disabled={loading} variant="primary">Create</Button>
           </div>
         </form>
+      </Modal>
+
+      <Modal open={taskModal.open} title={taskModal.role ? `Tasks: ${taskModal.role.roleKey}` : "Tasks"} onClose={() => setTaskModal({ open: false, role: null, tasks: [], loading: false })}>
+        {!taskModal.role ? (
+          <div className="text-sm text-gray-500">No role selected.</div>
+        ) : (
+          <div className="space-y-4">
+            <form onSubmit={createTask} className="space-y-2">
+              <Input label="Task Title" value={taskForm.title} onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })} required />
+              <Input label="Description" value={taskForm.description} onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })} />
+              <div className="flex items-center justify-end">
+                <Button type="submit" variant="primary">Add Task</Button>
+              </div>
+            </form>
+            <div>
+              {taskModal.loading ? (
+                <div className="text-sm text-gray-500">Loading...</div>
+              ) : (taskModal.tasks || []).length === 0 ? (
+                <div className="text-sm text-gray-500">No tasks yet.</div>
+              ) : (
+                <ul className="divide-y divide-gray-200">
+                  {taskModal.tasks.map((t) => (
+                    <li key={t.id} className="py-2 flex items-start justify-between gap-2">
+                      <div className="flex-1">
+                        <div className="text-gray-900 font-medium">{t.title}</div>
+                        {t.description ? <div className="text-gray-600 text-sm">{t.description}</div> : null}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button onClick={() => updateTask(t.id, { active: !t.active })} variant={t.active ? "secondary" : "primary"}>
+                          {t.active ? "Disable" : "Enable"}
+                        </Button>
+                        <Button onClick={() => deleteTask(t.id)} variant="ghost">Delete</Button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );

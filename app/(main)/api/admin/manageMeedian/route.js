@@ -33,6 +33,7 @@ import {
   mriPrograms,
   mriProgramRoles,
   mriRoleDefs,
+  mriRoleTasks,
   programPeriods,
   programScheduleCells,
   programScheduleDays,
@@ -255,6 +256,23 @@ export async function GET(req) {
       const rows = await db.select().from(mriRoleDefs);
       return NextResponse.json({ roleDefs: rows }, { status: 200 });
     }
+    if (section === "metaRoleTasks") {
+      const roleDefId = Number(searchParams.get("roleDefId"));
+      if (!roleDefId) return NextResponse.json({ error: "roleDefId required" }, { status: 400 });
+      const rows = await db
+        .select({
+          id: mriRoleTasks.id,
+          roleDefId: mriRoleTasks.roleDefId,
+          title: mriRoleTasks.title,
+          description: mriRoleTasks.description,
+          active: mriRoleTasks.active,
+          createdAt: mriRoleTasks.createdAt,
+          updatedAt: mriRoleTasks.updatedAt,
+        })
+        .from(mriRoleTasks)
+        .where(eq(mriRoleTasks.roleDefId, roleDefId));
+      return NextResponse.json({ tasks: rows }, { status: 200 });
+    }
     // Note: metaFamilies updates are handled under PATCH below.
     // Note: Updates for metaPrograms, metaProgramRoles, metaRoleDefs are handled under PATCH below.
 
@@ -456,6 +474,25 @@ export async function POST(req) {
       return NextResponse.json({ inserted: rows.length }, { status: 201 });
     }
 
+    // Create Role Task
+    if (section === "metaRoleTasks") {
+      const { roleDefId, title, description, active = true } = body || {};
+      if (!roleDefId || !title) return NextResponse.json({ error: "roleDefId and title required" }, { status: 400 });
+      const [row] = await db
+        .insert(mriRoleTasks)
+        .values({ roleDefId: Number(roleDefId), title: String(title).trim(), description: description ? String(description) : null, active: !!active })
+        .returning({
+          id: mriRoleTasks.id,
+          roleDefId: mriRoleTasks.roleDefId,
+          title: mriRoleTasks.title,
+          description: mriRoleTasks.description,
+          active: mriRoleTasks.active,
+          createdAt: mriRoleTasks.createdAt,
+          updatedAt: mriRoleTasks.updatedAt,
+        });
+      return NextResponse.json({ task: row, message: "Role task created" }, { status: 201 });
+    }
+
     if (section === "slots") {
       const { name, startTime, endTime, hasSubSlots = false, assignedMemberId = null } = body || {};
       if (!name || !startTime || !endTime) {
@@ -510,6 +547,26 @@ export async function POST(req) {
         await db.insert(programScheduleCells).values({ programId: Number(programId), track, classId: Number(classId), periodKey, mspCodeId: mspCodeId ? Number(mspCodeId) : null, subject: subject || null });
       }
       return NextResponse.json({ message: "Program schedule cells saved" }, { status: 200 });
+    }
+
+    // Update Role Tasks (batch)
+    if (section === "metaRoleTasks") {
+      const { updates } = body || {};
+      if (!Array.isArray(updates) || updates.length === 0) return NextResponse.json({ error: "updates[] required" }, { status: 400 });
+      for (const u of updates) {
+        const { id, title, description, active } = u || {};
+        if (!id) return NextResponse.json({ error: "Each update requires id" }, { status: 400 });
+        await db
+          .update(mriRoleTasks)
+          .set({
+            ...(title !== undefined ? { title: String(title).trim() } : {}),
+            ...(description !== undefined ? { description: description === null ? null : String(description) } : {}),
+            ...(active !== undefined ? { active: !!active } : {}),
+            updatedAt: new Date(),
+          })
+          .where(eq(mriRoleTasks.id, Number(id)));
+      }
+      return NextResponse.json({ message: "Role tasks updated" }, { status: 200 });
     }
 
     // Seed helper for MSP (requires existing MSP codes and Classes rows)
@@ -1557,6 +1614,13 @@ export async function DELETE(req) {
       if (!id) return NextResponse.json({ error: "Missing required field: id" }, { status: 400 });
       await db.delete(classParentTeachers).where(eq(classParentTeachers.id, Number(id)));
       return NextResponse.json({ message: "Class teacher assignment deleted" }, { status: 200 });
+    }
+
+    if (section === "metaRoleTasks") {
+      const { id } = body || {};
+      if (!id) return NextResponse.json({ error: "Missing required field: id" }, { status: 400 });
+      await db.delete(mriRoleTasks).where(eq(mriRoleTasks.id, Number(id)));
+      return NextResponse.json({ message: "Role task deleted" }, { status: 200 });
     }
 
     return NextResponse.json({ error: "Invalid section" }, { status: 400 });

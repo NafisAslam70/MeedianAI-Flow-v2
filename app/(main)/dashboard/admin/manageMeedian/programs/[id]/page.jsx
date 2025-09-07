@@ -1053,6 +1053,7 @@ function SelfScheduler({ programId, track, periodData, codeData, asgData, teamDa
   const [seedOpen, setSeedOpen] = useState(false);
   const [seedText, setSeedText] = useState('');
   const [seedMsg, setSeedMsg] = useState('');
+  const baselineRef = useRef(null); // snapshot of initial load for resets
   // History for undo/redo
   const histRef = useRef([]); // snapshots array
   const hiRef = useRef(-1);   // current index
@@ -1115,6 +1116,7 @@ function SelfScheduler({ programId, track, periodData, codeData, asgData, teamDa
             setStaged(next);
             histRef.current = [next];
             hiRef.current = 0; setCanUndo(false); setCanRedo(false);
+            baselineRef.current = next;
           }
           return;
         }
@@ -1130,6 +1132,7 @@ function SelfScheduler({ programId, track, periodData, codeData, asgData, teamDa
           setStaged(next);
           histRef.current = [next];
           hiRef.current = 0; setCanUndo(false); setCanRedo(false);
+          baselineRef.current = next;
         }
       } catch { /* ignore */ }
     })();
@@ -1157,6 +1160,13 @@ function SelfScheduler({ programId, track, periodData, codeData, asgData, teamDa
     codes.forEach(c => { if (!map.has(c.familyKey)) map.set(c.familyKey, []); map.get(c.familyKey).push(c); });
     return Array.from(map.entries()).map(([fam, list]) => ({ fam, list }));
   }, [codeData, track]);
+
+  // Helpers for reset-by-teacher
+  const activeAsgByCode = useMemo(() => {
+    const map = new Map();
+    (asgData?.assignments || []).forEach((a) => { if (a.active && a.mspCodeId) map.set(a.mspCodeId, a); });
+    return map;
+  }, [asgData]);
 
   // Color classes per family (static strings so Tailwind keeps them)
   const colorByFamily = (fam) => {
@@ -1473,6 +1483,38 @@ function SelfScheduler({ programId, track, periodData, codeData, asgData, teamDa
             <span className="text-[11px] text-emerald-700">{seedMsg}</span>
             {errorMsg && <span className="text-[11px] text-rose-600">{errorMsg}</span>}
           </div>
+          {/* Reset tools */}
+          <div className="pt-3 border-t mt-3 space-y-2">
+            <div className="text-sm font-semibold text-gray-800">Reset Tools</div>
+            <ResetControls
+              classes={classes}
+              team={teamData?.users || []}
+              onResetClass={(cls) => {
+                const base = baselineRef.current || {};
+                if (!cls) return;
+                updateStaged((next) => {
+                  ['Mon','Tue','Wed','Thu','Fri','Sat'].forEach((d) => {
+                    periods.forEach((p) => {
+                      const k = `${d}|${cls}|${p.periodKey}`;
+                      if (k in base) next[k] = base[k]; else delete next[k];
+                    });
+                  });
+                  return next;
+                });
+              }}
+              onClearTeacher={(userId) => {
+                if (!userId) return;
+                updateStaged((next) => {
+                  Object.keys(next).forEach((k) => {
+                    const cid = next[k];
+                    const asg = activeAsgByCode.get(cid);
+                    if (asg && Number(asg.userId) === Number(userId)) delete next[k];
+                  });
+                  return next;
+                });
+              }}
+            />
+          </div>
           <div className="pt-3">
             <button className="px-2 py-1.5 rounded border text-xs" onClick={()=> setSeedOpen(v=> !v)}>{seedOpen ? 'Hide' : 'Paste'} Seed JSON</button>
             {seedOpen && (
@@ -1588,6 +1630,37 @@ function SelfScheduler({ programId, track, periodData, codeData, asgData, teamDa
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ResetControls({ classes, team, onResetClass, onClearTeacher }) {
+  const [cls, setCls] = useState('');
+  const [userId, setUserId] = useState('');
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <div className="text-xs text-gray-600">Reset a class row from current plan</div>
+          <div className="flex items-center gap-2">
+            <select className="flex-1 border rounded px-2 py-1 text-xs" value={cls} onChange={(e)=> setCls(e.target.value)}>
+              <option value="">Select class…</option>
+              {classes.map((c)=> <option key={c} value={c}>{c}</option>)}
+            </select>
+            <button className="px-2.5 py-1.5 rounded bg-white border text-xs" onClick={()=> onResetClass && onResetClass(cls)} disabled={!cls}>Reset Class</button>
+          </div>
+        </div>
+        <div className="space-y-1">
+          <div className="text-xs text-gray-600">Clear all placements for a teacher</div>
+          <div className="flex items-center gap-2">
+            <select className="flex-1 border rounded px-2 py-1 text-xs" value={userId} onChange={(e)=> setUserId(e.target.value)}>
+              <option value="">Select teacher…</option>
+              {team.map((u)=> <option key={u.id} value={u.id}>{u.name || u.id}</option>)}
+            </select>
+            <button className="px-2.5 py-1.5 rounded bg-white border text-xs" onClick={()=> onClearTeacher && onClearTeacher(Number(userId))} disabled={!userId}>Clear Teacher</button>
           </div>
         </div>
       </div>

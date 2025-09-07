@@ -1,0 +1,47 @@
+TAXONOMY CODEX — CHAT 10
+Updated: 2025-09-08 (MRI Role Tasks)
+
+Scope for this session
+- Extend MRI & Roles meta to support per‑role task definitions (title + description).
+- Wire admin API for CRUD on role tasks and add basic UI in Role Definitions to manage them.
+
+Changes completed
+1) Schema
+   - New table: mri_role_tasks
+     • id (pk), roleDefId → mri_role_defs.id (cascade delete)
+     • title (varchar 255, required)
+     • description (text, optional)
+     • active (bool, default true)
+     • createdAt, updatedAt (timestamps)
+     • Index: roleDefId
+
+2) Admin API (/api/admin/manageMeedian)
+   - GET   section=metaRoleTasks&roleDefId=:id → { tasks: [...] }
+   - POST  section=metaRoleTasks { roleDefId, title, description?, active? } → create
+   - PATCH section=metaRoleTasks { updates: [{ id, title?, description?, active? }] } → batch update
+   - DELETE section=metaRoleTasks { id } → delete
+
+3) UI — Admin > MRI & Roles > Role Definitions
+   - Each Custom Role row now has a “Tasks” button.
+   - Tasks modal:
+     • List existing tasks (title + optional description) with Enable/Disable and Delete.
+     • Quick add form (title, description).
+   - Built‑in role list remains read‑only; tasks are attached to custom role definitions.
+
+Notes
+- This attaches tasks to role definitions (meta), not to individual users.
+- API follows existing manageMeedian patterns; access guarded to admin/team_manager.
+- Next: optionally expose role tasks where RMRI flows need guidance/checklists.
+
+QA checklist
+[x] Create task for a role definition
+[x] Fetch tasks per role definition
+[x] Toggle active and delete tasks
+[x] UI modal opens, lists, and refreshes after changes
+
+4) MSP — Self‑Scheduler reset tools
+   - Added baseline snapshot on open (weekly or draft) to allow per‑class reset.
+   - New controls in Self‑Scheduler left panel:
+     • Reset Class: restores grid for a selected class from current plan (all days, all periods).
+     • Clear Teacher: removes all placements for a selected teacher from the staged grid.
+   - File: app/(main)/dashboard/admin/manageMeedian/programs/[id]/page.jsx
