@@ -1,6 +1,7 @@
 "use client";
 import { useSession, signOut } from "next-auth/react";
 import Link from "next/link";
+import { Instagram } from "lucide-react";
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
@@ -1576,6 +1577,11 @@ export default function Navbar() {
                   <button type="button" onClick={() => setIsMRISheetOpen(true)} className={`nav-item mris-highlight ${isMRISheetOpen ? "active" : ""}`}>MRIs</button>
                   {/* CloseMyDay for admins too */}
                   <Link href="/dashboard/member/closeMyDay" className={`nav-item ${isActive("/dashboard/member/closeMyDay") ? "active" : ""}`}>CloseMyDay</Link>
+                  {/* Community (social icon) */}
+                  <Link href="/dashboard/member/meed-community" title="Community" aria-label="Community"
+                    className={`nav-icon-button ${isActive("/dashboard/member/meed-community") ? "active" : ""}`}>
+                    <Instagram className="w-4 h-4" />
+                  </Link>
 
                   {/* Managerial button -> opens side sheet */}
                   <button
@@ -1606,6 +1612,11 @@ export default function Navbar() {
                   <ExecuteLauncher />
                   <button type="button" onClick={() => setIsMRISheetOpen(true)} className={`nav-item mris-highlight ${isMRISheetOpen ? "active" : ""}`}>MRIs</button>
                   <Link href="/dashboard/member/closeMyDay" className={`nav-item ${isActive("/dashboard/member/closeMyDay") ? "active" : ""}`}>CloseMyDay</Link>
+                  {/* Community (social icon) */}
+                  <Link href="/dashboard/member/meed-community" title="Community" aria-label="Community"
+                    className={`nav-icon-button ${isActive("/dashboard/member/meed-community") ? "active" : ""}`}>
+                    <Instagram className="w-4 h-4" />
+                  </Link>
                   {/* MyPerformance removed from center nav (available in Profile) */}
 
                   <button
@@ -1631,6 +1642,12 @@ export default function Navbar() {
                   <ExecuteLauncher />
                   <button type="button" onClick={() => setIsMRISheetOpen(true)} className={`nav-item mris-highlight ${isMRISheetOpen ? "active" : ""}`}>MRIs</button>
                   <Link href="/dashboard/member/closeMyDay" className={`nav-item ${isActive("/dashboard/member/closeMyDay") ? "active" : ""}`}>CloseMyDay</Link>
+                  <Link href="/dashboard/member/meed-repo" className={`nav-item ${isActive("/dashboard/member/meed-repo") ? "active" : ""}`}>Meed Repo</Link>
+                  {/* Community (social icon) */}
+                  <Link href="/dashboard/member/meed-community" title="Community" aria-label="Community"
+                    className={`nav-icon-button ${isActive("/dashboard/member/meed-community") ? "active" : ""}`}>
+                    <Instagram className="w-4 h-4" />
+                  </Link>
                   {/* MyPerformance removed from center nav (available in Profile) */}
 
                   {/* Members should not see Managerial */}
@@ -1737,6 +1754,7 @@ export default function Navbar() {
 
                       <button onClick={() => { handleAddMember(); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">Add Member</button>
                       <button onClick={() => { handleManageMeedian(); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">Manage Meedian</button>
+                      <Link href="/dashboard/member/meed-community" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member/meed-community") ? "active" : ""}`}>Community</Link>
                       {/* MyPerformance removed from mobile nav (in Profile) */}
                     </>
                   )}
@@ -1749,12 +1767,13 @@ export default function Navbar() {
                       <Link href="/dashboard/member/closeMyDay" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member/closeMyDay") ? "active" : ""}`}>CloseMyDay</Link>
                       {/* MyPerformance removed from mobile nav (in Profile) */}
 
-                      <button onClick={() => { setIsManagerialOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">
-                        Managerial
-                      </button>
+                  <button onClick={() => { setIsManagerialOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">
+                    Managerial
+                  </button>
                   <button onClick={() => { setIsExecuteOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">
                     Towards Greatness
                   </button>
+                  <Link href="/dashboard/member/meed-community" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member/meed-community") ? "active" : ""}`}>Community</Link>
                     </>
                   )}
 
@@ -1764,6 +1783,8 @@ export default function Navbar() {
                       <Link href="/dashboard/member" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member") ? "active" : ""}`}>My Dashboard</Link>
                       <Link href="/dashboard/member/myMeedRituals" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member/myMeedRituals") ? "active" : ""}`}>MyMRIs</Link>
                       <Link href="/dashboard/member/closeMyDay" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member/closeMyDay") ? "active" : ""}`}>CloseMyDay</Link>
+                      <Link href="/dashboard/member/meed-repo" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member/meed-repo") ? "active" : ""}`}>Meed Repo</Link>
+                      <Link href="/dashboard/member/meed-community" onClick={toggleMobileMenu} className={`mobile-menu-item ${isActive("/dashboard/member/meed-community") ? "active" : ""}`}>Community</Link>
                       {/* MyPerformance removed from mobile nav (in Profile) */}
 
                       <button onClick={() => { setIsExecuteOpen(true); toggleMobileMenu(); }} className="mobile-menu-item text-left w-full">

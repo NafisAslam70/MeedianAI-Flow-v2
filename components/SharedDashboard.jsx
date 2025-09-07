@@ -1280,6 +1280,16 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                 <FilePlus className="w-4 h-4" />
                 <span className="hidden sm:inline">Notes</span>
               </motion.button>
+              <motion.a
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                href="/dashboard/member/meed-repo"
+                className="ml-1 flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold tracking-wide text-amber-800 dark:text-amber-300 bg-amber-200/70 dark:bg-amber-700/30 border border-amber-300/70 dark:border-amber-600/50 hover:bg-amber-200/90 dark:hover:bg-amber-700/40 flex-shrink-0"
+                title="Submit for verification / archive"
+              >
+                <FileText className="w-4 h-4" />
+                <span className="hidden sm:inline">Meed Repo</span>
+              </motion.a>
             </div>
           </div>
         </motion.div>

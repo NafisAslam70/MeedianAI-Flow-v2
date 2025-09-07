@@ -321,6 +321,15 @@ export default function GeneralDashboard() {
             >
               All MRNs
             </motion.button>
+            <motion.a
+              href="/dashboard/member/meed-repo"
+              className="p-2 bg-amber-500 text-white rounded-lg sm:rounded-full hover:bg-amber-600 shadow-md"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.97 }}
+              aria-label="Open Meed Repo"
+            >
+              Meed Repo
+            </motion.a>
           </motion.div>
         </div>
 

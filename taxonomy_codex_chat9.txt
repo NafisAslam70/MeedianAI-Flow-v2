@@ -1,5 +1,5 @@
 TAXONOMY CODEX — CHAT 9
-Updated: 2025-09-07 (post‑MSP‑R dashboard integration)
+Updated: 2025-09-07 (MSP‑R + Daily Slots + MeedRepo + Community)
 
 Scope for this session
 - Create and maintain a running log for changes and plans.
@@ -25,6 +25,34 @@ Changes completed (rollup)
    - Code Owners: modal lists owners per MSP code in current track (Primary flagged).
    - Mobile: stacked cards for both views; desktop keeps tables. Tooltips on codes.
 
+6) Daily Slots (Admin > ManageMeedian > MRI & Roles > Daily Slots)
+   - New tabs: Full Day (Blocks), N‑MRI, A‑MRI, O‑NMRI.
+   - Full Day (Blocks): editable grid by blocks (incl. Block 6); modal to edit a slot’s TOD.
+   - Bulk Allotments: landscape modal to assign TODs for all N‑MRI slots; block filter + search; mobile-friendly.
+   - Slots Meta: CRUD with landscape table (Block/Type/Name/Start/End), add/delete slot, batch save.
+   - API: PATCH slots supports name/start/end and assignment; POST/DELETE for create/remove.
+   - MEED day template wired (Slots 0–17; AMRI/NMRI) for context and defaults.
+
+7) General Dashboard polish
+   - Mobile scroll restored + safe-area padding; desktop retains centered panel.
+   - Added “All MRNs”, “Meed Repo” quick buttons; MRIs card gains “NMRI Plan (D/L by Day)”.
+   - NMRI Plan modal: renders day-wise Discipline/Language per slot using day/role assignments.
+   - Lightweight mobile chat dock (AI + chat) on phones only.
+
+8) Meed Repo (Verification Posts)
+   - Padlet-style quick post: Title + drag/drop files; uses Vercel Blob (@vercel/blob) with fallback to data URLs.
+   - Purpose: “For Verification” (submitted) or “Just Share” (approved straight to repo).
+   - List-first page: gallery grid; viewer modal with all attachments; manager Approve/Reject inline.
+   - Navbar + dashboards: added entry points (General, Shared, Navbar).
+   - API: POST accepts status submitted/approved; robust insert if task_id migration not applied yet.
+
+9) Meed Community (School-wide social feed)
+   - New schema + API for community posts and attachments.
+   - Reactions: 👍 ❤️ 🔥 👏 🎉 (toggle per user/type) with counts and “yours”.
+   - Comments: inline thread per post with avatars; add comment box.
+   - Gallery layout (reels-like) with Create Post modal (Blob-powered uploads).
+   - Navbar: compact Instagram-style icon to open Community; mobile menu entries added.
+
 6) Member‑read API access
    - Opened read guards for members on: slots, metaPrograms, programPeriods, programScheduleCells, mspCodes, mspCodeAssignments.
    - Admin/team_manager still required for mutations/seeding.
@@ -34,6 +62,8 @@ Open issues / fixes
 - “asg not defined” in MSP‑R: replaced with activeAsg.userId. (resolved)
 - General Dashboard hydration mismatch: removed SSR randomness (animated background now mounts client‑side only). (resolved)
 - MSP‑R modal hooks error: removed early returns before hooks and fixed variable init order. (resolved)
+- MeedRepo insert task_id missing: fallback insert for envs without migration. (resolved)
+- Upload API: unified on @vercel/blob put(); graceful fallback to data URLs in dev. (resolved)
 
 Planned next (Resource Management — Managerial > Resource Management)
 Phase 1: Schema
@@ -65,6 +95,7 @@ Notes
 - AI assist endpoint now allows model override from a safe allowlist.
 - DM footer is optional; templates prefill subject/body.
  - Dashboard MSP‑R supports both tracks; consider CSV export and owner tooltips inline.
+ - MeedRepo/Community: consider reactions/comments for Repo and moderation tools for Community.
 
 Checklist
 [ ] Add schema for resources + drizzle migration
@@ -72,6 +103,12 @@ Checklist
 [ ] Sidebar “Resource Management” item
 [ ] Resources list shell with filters + metrics
 [ ] Detail drawer with logs/actions
+
+Add‑ons (next)
+[ ] Manager verification dashboard (all submitted, approve/reject inline)
+[ ] Community moderation (delete/hide post/comment)
+[ ] Infinite scroll/pagination for feeds
+[ ] Lightbox carousel for multi-attachment posts
 
 QA checklist (MSP‑R Dashboard)
 [x] Class‑wise table shows codes/subjects
