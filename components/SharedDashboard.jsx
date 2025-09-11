@@ -1747,6 +1747,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                         height={240}
                         scanBox={220}
                         className="rounded-xl overflow-hidden border border-gray-200 dark:border-white/10"
+                        autoStopOnDecode
                       />
                     </div>
                     <div className="text-[11px] text-gray-500 dark:text-gray-400">If camera fails, paste the code manually.</div>

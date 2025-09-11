@@ -9,6 +9,7 @@ export default function QrScanner({
   className = "",
   scanBox = 200,
   fps = 10,
+  autoStopOnDecode = true,
 }) {
   const divId = useId().replace(/[:]/g, "");
   const containerRef = useRef(null);
@@ -33,11 +34,20 @@ export default function QrScanner({
         }
         scannerRef.current = new Html5Qrcode(id);
         setReady(true);
-        await scannerRef.current.start(
+        const scanner = scannerRef.current;
+        await scanner.start(
           { facingMode: { exact: "environment" } },
           { fps, qrbox: scanBox },
-          (decodedText) => {
-            try { onDecode?.(decodedText); } catch {}
+          async (decodedText) => {
+            try {
+              if (autoStopOnDecode && scannerRef.current) {
+                try { await scannerRef.current.stop(); } catch {}
+                try { await scannerRef.current.clear(); } catch {}
+              }
+              onDecode?.(decodedText);
+            } catch (e) {
+              // ignore
+            }
           },
           () => {}
         );
@@ -70,4 +80,3 @@ export default function QrScanner({
     </div>
   );
 }
-

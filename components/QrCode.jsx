@@ -8,7 +8,9 @@ export default function QrCode({ value = "", size = 192, margin = 2, className =
     async function gen() {
       try {
         if (!value) { setDataUrl(""); return; }
-        const QR = (await import("qrcode")).default;
+        const mod = await import("qrcode");
+        const QR = mod?.default && mod.default.toDataURL ? mod.default : mod;
+        if (!QR?.toDataURL) throw new Error("qrcode module missing toDataURL");
         const url = await QR.toDataURL(String(value), {
           errorCorrectionLevel: "M",
           margin,
@@ -16,7 +18,9 @@ export default function QrCode({ value = "", size = 192, margin = 2, className =
           color: { dark: "#000000", light: "#ffffff" },
         });
         if (!cancelled) setDataUrl(url);
-      } catch {
+      } catch (e) {
+        // leave placeholder; best-effort
+        if (process.env.NODE_ENV !== 'production') console.error('QR gen failed', e);
         if (!cancelled) setDataUrl("");
       }
     }
@@ -40,4 +44,3 @@ export default function QrCode({ value = "", size = 192, margin = 2, className =
     </div>
   );
 }
-

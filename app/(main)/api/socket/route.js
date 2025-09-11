@@ -1,12 +1,20 @@
 import { Server } from "socket.io";
 import { NextResponse } from "next/server";
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 export async function GET(req) {
+  // In App Router, NextRequest may not expose a Node socket; guard for it
+  const anyReq = req;
+  const server = anyReq?.socket?.server;
+  if (!server) {
+    return NextResponse.json({ message: "Socket disabled on this platform" });
+  }
   // Check if the Socket.IO server is already initialized
-  if (!req.socket.server.io) {
+  if (!server.io) {
     console.log("Initializing Socket.IO server");
 
-    const io = new Server(req.socket.server, {
+    const io = new Server(server, {
       path: "/api/socket",
       cors: {
         origin: process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000",
@@ -65,7 +73,7 @@ export async function GET(req) {
       });
     });
 
-    req.socket.server.io = io;
+    server.io = io;
   } else {
     console.log("Socket.IO server already initialized");
   }
