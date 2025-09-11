@@ -418,7 +418,7 @@ const useSlotTiming = (mriData) => {
 /* ------------------------------------------------------------------ */
 /*  Modal                                                              */
 /* ------------------------------------------------------------------ */
-const Modal = ({ isOpen, onClose, title, children }) => (
+const Modal = ({ isOpen, onClose, title, children, wide = false }) => (
   <AnimatePresence>
     {isOpen && (
       <motion.div
@@ -432,7 +432,7 @@ const Modal = ({ isOpen, onClose, title, children }) => (
           animate={{ y: 0, opacity: 1, scale: 1 }}
           exit={{ y: 30, opacity: 0, scale: 0.98 }}
           transition={{ duration: 0.35, ease: "easeOut" }}
-          className="bg-white/90 dark:bg-slate-900/80 backdrop-blur-xl rounded-3xl shadow-2xl p-4 sm:p-8 w-full max-w-[95vw] sm:max-w-lg border border-gray-100/30"
+          className={`bg-white/90 dark:bg-slate-900/80 backdrop-blur-xl rounded-3xl shadow-2xl p-4 sm:p-8 w-full ${wide ? 'max-w-[95vw] sm:max-w-5xl' : 'max-w-[95vw] sm:max-w-lg'} border border-gray-100/30`}
         >
           <motion.button
             whileHover={{ scale: 1.08, rotate: 90 }}
@@ -1378,6 +1378,23 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
             <span className="text-[13px] sm:text-sm md:text-base font-extrabold text-blue-700 dark:text-blue-300 whitespace-nowrap tracking-tight">
               Hey {session?.user?.name || "User"}!
             </span>
+            {/* Mobile inline opened status/action */}
+            <div className="sm:hidden ml-2">
+              {dayPack?.openedAt ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px]">
+                  <Clock className="w-3 h-3" /> Opened: {fmtHM(dayPack.openedAt)}
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleOpenDay}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-600 text-white text-[10px] border border-emerald-500"
+                  title="Mark your day as opened"
+                >
+                  <Clock className="w-3 h-3" /> Open Day
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
@@ -1424,23 +1441,14 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                     onClick={() => setActiveTab(key)}
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
-                    className={`relative flex items-center gap-1.5 px-2 md:px-3 py-1.5 rounded-xl text-[11px] md:text-sm font-medium transition-all flex-shrink-0 ${
+                    className={`flex items-center gap-1.5 px-2 md:px-3 py-1.5 rounded-xl text-[11px] md:text-sm font-medium transition-colors flex-shrink-0 ${
                       activeTab === key
-                        ? "text-white"
+                        ? "bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow"
                         : "text-gray-700 dark:text-gray-200 hover:bg-gray-100/60 dark:hover:bg-slate-700/60"
                     }`}
                   >
-                    {activeTab === key && (
-                      <motion.span
-                        layoutId="tabActive"
-                        className="absolute inset-0 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 shadow"
-                        transition={{ type: "spring", stiffness: 500, damping: 40, mass: 1 }}
-                      />
-                    )}
-                    <span className="relative z-10 inline-flex items-center gap-1.5">
-                      <Icon className="w-4 h-4" />
-                      <span className="hidden md:inline">{label}</span>
-                    </span>
+                    <Icon className="w-4 h-4" />
+                    <span className="hidden md:inline">{label}</span>
                   </motion.button>
                 </div>
               ))}
@@ -2138,19 +2146,18 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
           </div>
         </Modal>
 
-        <Modal isOpen={showNotesModal} onClose={() => setShowNotesModal(false)} title="My Notes">
+        <Modal isOpen={showNotesModal} onClose={() => setShowNotesModal(false)} title="My Notes" wide>
           <MyNotes
             userId={viewUserId || user?.id}
             setError={(msg) => {
-              setShowNotesModal(false);
               setError(msg);
               setTimeout(() => setError(""), 3000);
             }}
             setSuccess={(msg) => {
-              setShowNotesModal(false);
               setSuccess(msg);
               setTimeout(() => setSuccess(""), 2500);
             }}
+            twoPane
           />
         </Modal>
 

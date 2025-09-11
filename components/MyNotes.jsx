@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AlertCircle, Clock, Edit, Trash2, CheckCircle, AlertTriangle, FileText, X } from "lucide-react";
 
@@ -10,6 +10,7 @@ const MyNotes = ({
   setSuccess = () => {},
   embedded = false,
   fullScreen = false,
+  twoPane = false,
   onClose = () => {},
   initialMode = "view", // 'view' | 'add'
 }) => {
@@ -20,21 +21,25 @@ const MyNotes = ({
   const [editingNoteContent, setEditingNoteContent] = useState("");
   const [editingNoteCategory, setEditingNoteCategory] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [showViewNotesModal, setShowViewNotesModal] = useState(initialMode !== "add");
-  const [showAddNoteModal, setShowAddNoteModal] = useState(initialMode === "add");
+  const [showViewNotesModal, setShowViewNotesModal] = useState(twoPane ? true : initialMode !== "add");
+  const [showAddNoteModal, setShowAddNoteModal] = useState(twoPane ? true : initialMode === "add");
   const [localError, setLocalError] = useState("");
   const [localSuccess, setLocalSuccess] = useState("");
+  const addingRef = useRef(false);
 
   // Load notes
   useEffect(() => {
+    let aborted = false;
     const fetchNotes = async () => {
       setIsLoading(true);
       try {
         const response = await fetch(`/api/member/notes?userId=${userId}`);
         const data = await response.json();
+        if (aborted) return;
         if (response.ok) setNotes(data.notes || []);
         else throw new Error(data.error || "Failed to fetch notes");
       } catch (err) {
+        if (aborted) return;
         setError(err.message);
         setLocalError(err.message);
         setTimeout(() => {
@@ -42,11 +47,12 @@ const MyNotes = ({
           setLocalError("");
         }, 3000);
       } finally {
-        setIsLoading(false);
+        if (!aborted) setIsLoading(false);
       }
     };
     if (userId) fetchNotes();
-  }, [userId, setError]);
+    return () => { aborted = true; };
+  }, [userId]);
 
   // Helpers
   const closeAllInner = useCallback(() => {
@@ -75,9 +81,11 @@ const MyNotes = ({
 
   // Actions
   const handleAddNote = useCallback(async () => {
+    if (addingRef.current) return; // prevent rapid double submits
     if (!newNote.trim()) return flash(false, "Note content cannot be empty");
     if (!newCategory) return flash(false, "Please select a category");
     setIsLoading(true);
+    addingRef.current = true;
     try {
       const response = await fetch("/api/member/notes", {
         method: "POST",
@@ -86,18 +94,24 @@ const MyNotes = ({
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Failed to add note");
-      setNotes((prev) => [...prev, data.note]);
+      setNotes((prev) => {
+        const exists = prev.some((n) => String(n.id) === String(data.note?.id));
+        return exists ? prev : [...prev, data.note];
+      });
       setNewNote("");
       setNewCategory("");
       flash(true, "Note added!");
-      setShowAddNoteModal(false);
-      setShowViewNotesModal(true);
+      if (!twoPane) {
+        setShowAddNoteModal(false);
+        setShowViewNotesModal(true);
+      }
     } catch (err) {
       flash(false, err.message);
     } finally {
       setIsLoading(false);
+      addingRef.current = false;
     }
-  }, [userId, newNote, newCategory, flash]);
+  }, [userId, newNote, newCategory, flash, twoPane]);
 
   const handleEditNote = useCallback(async (noteId) => {
     if (!editingNoteContent.trim()) return flash(false, "Note content cannot be empty");
@@ -145,8 +159,8 @@ const MyNotes = ({
   }, [flash]);
 
   // UI
-  const twoPane = showViewNotesModal && showAddNoteModal;
-  const colsClass = twoPane ? "sm:grid-cols-2 grid-cols-1" : "grid-cols-1";
+  const isTwoPane = twoPane || (showViewNotesModal && showAddNoteModal);
+  const colsClass = isTwoPane ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1";
 
   if (embedded) return null;
 
@@ -267,8 +281,13 @@ const MyNotes = ({
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => {
-                  setShowAddNoteModal(true);
-                  setShowViewNotesModal(false);
+                  if (twoPane) {
+                    setShowAddNoteModal(true);
+                    setShowViewNotesModal(true);
+                  } else {
+                    setShowAddNoteModal(true);
+                    setShowViewNotesModal(false);
+                  }
                 }}
                 className="px-4 py-1 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700"
               >
@@ -416,8 +435,13 @@ const MyNotes = ({
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => {
-                  setShowViewNotesModal(true);
-                  setShowAddNoteModal(false);
+                  if (twoPane) {
+                    setShowViewNotesModal(true);
+                    setShowAddNoteModal(true);
+                  } else {
+                    setShowViewNotesModal(true);
+                    setShowAddNoteModal(false);
+                  }
                 }}
                 className="px-4 py-1 bg-teal-600 text-white rounded-lg text-sm font-medium hover:bg-teal-700 dark:bg-teal-700 dark:hover:bg-teal-800"
               >
