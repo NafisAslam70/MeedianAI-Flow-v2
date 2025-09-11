@@ -2,6 +2,7 @@
 "use client";
 
 import { useState, useEffect, useReducer, useMemo, useRef } from "react";
+import Link from "next/link";
 import { motion, AnimatePresence, useMotionValue, useTransform } from "framer-motion";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
@@ -1347,11 +1348,9 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}
           className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 sm:mb-6 gap-4 relative z-[40] min-w-0"
         >
-          <div className="flex items-center gap-3 min-w-0">
+          <div className="flex items-center gap-2 min-w-0">
             <Sparkles className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-            <h1 className="text-lg sm:text-xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-700 to-blue-600 dark:from-indigo-300 dark:to-blue-300 truncate">
-              Hi {session?.user?.name || "User"}, welcome to MeedianAI-Flow!
-            </h1>
+            <span className="text-xs sm:text-sm font-semibold text-gray-800 dark:text-gray-200">Hey {session?.user?.name || "User"}!</span>
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
@@ -1396,16 +1395,39 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                   onClick={() => setActiveTab(key)}
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
-                  className={`flex items-center gap-1.5 px-1.5 md:px-3 py-1.5 rounded-xl text-[11px] md:text-sm font-medium transition-all flex-shrink-0 ${
+                  className={`relative flex items-center gap-1.5 px-2 md:px-3 py-1.5 rounded-xl text-[11px] md:text-sm font-medium transition-all flex-shrink-0 ${
                     activeTab === key
-                      ? "bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow"
+                      ? "text-white"
                       : "text-gray-700 dark:text-gray-200 hover:bg-gray-100/60 dark:hover:bg-slate-700/60"
                   }`}
                 >
-                  <Icon className="w-4 h-4" />
-                  <span className="hidden md:inline">{label}</span>
+                  {activeTab === key && (
+                    <motion.span
+                      layoutId="tabActive"
+                      className="absolute inset-0 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 shadow"
+                      transition={{ type: "spring", stiffness: 500, damping: 40, mass: 1 }}
+                    />
+                  )}
+                  <span className="relative z-10 inline-flex items-center gap-1.5">
+                    <Icon className="w-4 h-4" />
+                    <span className="hidden md:inline">{label}</span>
+                  </span>
                 </motion.button>
               ))}
+              {/* Dive In for Execution */}
+              <Link
+                href={"?execute=1"}
+                className="ml-1 relative flex items-center gap-1.5 px-2 md:px-3 py-1.5 rounded-xl text-[11px] md:text-sm font-semibold text-white shadow flex-shrink-0 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500"
+                title="Dive In for Execution"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M3 11l3-3 3 3" />
+                  <path d="M12 21V3" />
+                  <path d="M18 13l3 3-3 3" />
+                </svg>
+                <span className="hidden md:inline">Dive In for Execution</span>
+                <span className="md:hidden">Dive In</span>
+              </Link>
               {/* Secondary actions: show full on sm+, compact menu on xs */}
               <div className="hidden sm:flex items-center">
                 <motion.button
@@ -1490,6 +1512,9 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                       {currentMrn?.note && (
                         <div className="mt-2 text-xs sm:text-sm italic opacity-95">Note: {currentMrn.note}</div>
                       )}
+                      <div className="mt-2 text-xs sm:text-sm opacity-95">
+                        Hi {session?.user?.name || "User"}, welcome to MeedianAI-Flow!
+                      </div>
                     </div>
                     <div className="flex flex-col gap-2 min-w-[220px] items-stretch">
                       <div className="grid grid-cols-3 gap-2">

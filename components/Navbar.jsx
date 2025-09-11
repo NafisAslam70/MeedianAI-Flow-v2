@@ -235,6 +235,20 @@ export default function Navbar() {
     }
   }, [isExecuteOpen, isManagerialOpen, isLogoutModalOpen, isProfileOpen, isAllMeediansOpen]);
 
+  // Deep-link Execute modal: open when URL contains ?execute=1, then clean URL
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const url = new URL(window.location.href);
+      if (url.searchParams.get('execute') === '1') {
+        setIsExecuteOpen(true);
+        url.searchParams.delete('execute');
+        const newUrl = url.pathname + (url.search ? url.search : '') + url.hash;
+        window.history.replaceState(null, '', newUrl);
+      }
+    } catch {}
+  }, []);
+
   // Load current MRN when the Profile sheet opens (and poll while open)
   useEffect(() => {
     if (!isProfileOpen || status !== "authenticated") return;
