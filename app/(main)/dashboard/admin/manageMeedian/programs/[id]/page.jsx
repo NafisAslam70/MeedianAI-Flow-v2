@@ -9,6 +9,26 @@ import Button from "@/components/ui/Button";
 const fetcher = (u) => fetch(u, { headers: { "Content-Type": "application/json" } }).then((r) => r.json());
 
 export default function ProgramDetailPage() {
+  // ...existing hooks and state...
+
+  // Extract and save the entire day's grid as a seed (for copy-paste reuse)
+  function extractAndSaveCurrentSeed(day) {
+    const codeById = new Map((codeData?.codes || []).map(c => [c.id, c.code]));
+    const seed = {};
+    Object.entries(staged).forEach(([k, cid]) => {
+      const [d, cls, pk] = k.split('|');
+      if (d !== day) return;
+      if (!seed[cls]) seed[cls] = {};
+      seed[cls][pk] = codeById.get(cid) || null;
+    });
+    if (Object.keys(seed).length === 0) {
+      alert('No data for this day.');
+      return;
+    }
+    navigator.clipboard.writeText(JSON.stringify(seed, null, 2));
+    alert('Seed copied to clipboard!\n' + JSON.stringify(seed, null, 2));
+  if (typeof refreshCells === 'function') refreshCells();
+  }
   const params = useParams();
   const id = Number(params?.id);
   const { data: progData } = useSWR(id ? `/api/admin/manageMeedian?section=metaPrograms` : null, fetcher);
@@ -42,6 +62,53 @@ export default function ProgramDetailPage() {
   const { data: asgData, mutate: refreshAsg } = useSWR(`/api/admin/manageMeedian?section=mspCodeAssignments`, fetcher);
   const { data: teamData } = useSWR(`/api/admin/manageMeedian?section=team`, fetcher);
   const { data: codeData } = useSWR(`/api/admin/manageMeedian?section=mspCodes`, fetcher);
+  const { data: klassData, mutate: refreshKlass } = useSWR(`/api/admin/manageMeedian?section=classes&track=${track}`, fetcher);
+  // Derive classes (SOP override -> cells -> fallback)
+  const classes = useMemo(() => {
+    const fromSop = program?.sop?.classList?.[track];
+    if (Array.isArray(fromSop) && fromSop.length) {
+      const list = fromSop.map(String);
+      if (track === "pre_primary") {
+        const allowed = list.filter((v) => ["Nursery","LKG","UKG"].includes(v));
+        return allowed.length ? allowed : ["Nursery", "LKG", "UKG"];
+      }
+      if (track === "elementary") {
+        const numeric = list.filter((v) => /^\d+$/.test(v));
+        if (numeric.length) return numeric;
+        // if SOP contains pre-primary names by mistake, ignore and fallback
+      }
+    }
+
+    if (track === "pre_primary") {
+      return ["Nursery", "LKG", "UKG"];
+    } else if (track === "elementary") {
+      const cells = cellData?.cells || [];
+      const cls = Array.from(new Set(cells.map((c) => String(c.className || c.classId)))).filter((v) => /^\d+$/.test(v));
+      return cls.length ? cls : ["1", "2", "3", "4", "5", "6", "7", "8"];
+    }
+
+    return [];
+  }, [program, cellData, track]);
+
+  const effectiveClasses = useMemo(() => {
+    const fallback = (classes || []).map((name) => ({ name, track }));
+    const base = (klassData?.classes && klassData.classes.length) ? klassData.classes : fallback;
+    const seen = new Set();
+    const list = [];
+    (base || []).forEach((c) => {
+      const nm = String(c.name || c.id || '');
+      const tr = String(c.track || track);
+      const k = `${nm}|${tr}`;
+      if (!seen.has(k)) { seen.add(k); list.push({ ...c, name: nm, track: tr }); }
+    });
+    return list.sort((a,b)=>{
+      const an = Number(a.name), bn = Number(b.name);
+      const anNum = !Number.isNaN(an), bnNum = !Number.isNaN(bn);
+      if (anNum && bnNum) return an - bn;
+      if (anNum) return -1; if (bnNum) return 1;
+      return String(a.name||'').localeCompare(String(b.name||''));
+    });
+  }, [klassData, classes, track]);
   const [fullscreen, setFullscreen] = useState(false);
   const [showNames, setShowNames] = useState(false);
   const [schedTab, setSchedTab] = useState("base"); // base | weekly
@@ -52,7 +119,13 @@ export default function ProgramDetailPage() {
   const [showMatrixModal, setShowMatrixModal] = useState(false);
   const [showDefaultSeedModal, setShowDefaultSeedModal] = useState(false);
   const [selfSchedOpen, setSelfSchedOpen] = useState(false);
+  const [selfStageOpen, setSelfStageOpen] = useState(false);
+  const [selfPlanMode, setSelfPlanMode] = useState('fixed_all_days'); // fixed_all_days | split_same_subject | same_period_diff_subject
   const [selfSchedFull, setSelfSchedFull] = useState(false);
+  const lockPushRef = useRef(null);
+  // Scheduler day selection (for header controls)
+  const [daysMode, setDaysMode] = useState('all'); // all | split
+  const [daysSel, setDaysSel] = useState({ Mon:true, Tue:true, Wed:true, Thu:true, Fri:false, Sat:true });
   const [mspRMode, setMspRMode] = useState("class"); // class | teacher
   const [selectedTeacher, setSelectedTeacher] = useState("ALL");
   const [routineOpen, setRoutineOpen] = useState(false);
@@ -62,6 +135,74 @@ export default function ProgramDetailPage() {
   const [rmEngine, setRmEngine] = useState("default"); // default = DELU-GPT env
   const [rmModel, setRmModel] = useState("gpt-4o-mini");
   const { data: dayData, mutate: refreshDays } = useSWR(fullscreen && id ? `/api/admin/manageMeedian?section=programScheduleDays&programId=${id}&track=${track}&day=${weekDay}` : null, fetcher);
+
+  // --- Manage Classes state ---
+  const [manageClassesOpen, setManageClassesOpen] = useState(false);
+  const [manageClassesStep, setManageClassesStep] = useState('pick'); // pick | list
+  const [newClassName, setNewClassName] = useState("");
+  const [classLoading, setClassLoading] = useState(false);
+  // removed: section selector for Manage Classes
+  const [editedClasses, setEditedClasses] = useState({});
+  const [rowSaving, setRowSaving] = useState(null);
+
+
+  // Adapter for the modal’s current rendering (id/name fields)
+  const classList = useMemo(
+    () => classes.map((name) => ({ id: name, name })),
+    [classes]
+  );
+
+  async function saveClassList(nextList) {
+    setClassLoading(true);
+    try {
+      // fetch current programs to get the latest SOP
+      const mp = await fetch("/api/admin/manageMeedian?section=metaPrograms", { cache: "no-store" });
+      const mj = await mp.json().catch(() => ({}));
+      const prog = (mj?.programs || []).find((p) => p.id === id);
+      const sop = prog?.sop || {};
+
+      // write classes per track
+      sop.classList = sop.classList || {};
+      sop.classList[track] = nextList.map(String);
+
+      const pr = await fetch("/api/admin/manageMeedian?section=programSOP", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ programId: id, sop }),
+      });
+      const pj = await pr.json().catch(() => ({}));
+      if (!pr.ok) throw new Error(pj.error || `HTTP ${pr.status}`);
+
+      // Optional: refresh schedule data if needed
+      await Promise.all([refreshCells?.(), refreshPeriods?.()]);
+    } finally {
+      setClassLoading(false);
+    }
+  }
+
+  async function handleAddClass() {
+    const base = newClassName.trim();
+    const name = base; // ignore section in name
+    if (!name) return;
+    const next = Array.from(new Set([...classes.map(String), name]));
+    await saveClassList(next);
+    setNewClassName("");
+    // keep section as-is so multiple classes can be added quickly
+  }
+
+  async function handleDeleteClass(nameOrId) {
+    const next = classes.filter((c) => String(c) !== String(nameOrId));
+    await saveClassList(next);
+  }
+
+  async function syncSOPFromDB() {
+    try {
+      const res = await fetch(`/api/admin/manageMeedian?section=classes&track=${track}`);
+      const j = await res.json();
+      const list = (j?.classes || []).filter((c) => c.active !== false).map((c) => String(c.name));
+      if (list.length) await saveClassList(list);
+    } catch {}
+  }
 
   const generateRoutine = async () => {
     try {
@@ -117,6 +258,8 @@ export default function ProgramDetailPage() {
     }
   };
   // MSP-R seed editor
+
+  // --- Manage Classes Modal State ---
   const [openSeed, setOpenSeed] = useState(false);
   const [seedText, setSeedText] = useState("");
   const sampleMatrix = useMemo(() => {
@@ -161,6 +304,8 @@ export default function ProgramDetailPage() {
     await Promise.all([refreshPeriods(), refreshCells()]);
   };
 
+  // --- Manage Classes Modal State ---
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2">
@@ -204,9 +349,146 @@ export default function ProgramDetailPage() {
             </CardBody>
             <CardFooter className="flex items-center justify-end gap-2">
               <Link href={`?track=${track}#schedule`}>
-                <Button variant="light" size="sm" onClick={() => { setView("detail"); setActiveSection("schedule"); }}>Open Full Schedule</Button>
+                <Button variant="light" size="sm" onClick={() => { setView("detail"); setActiveSection("schedule"); }}>View Full Schedule</Button>
               </Link>
-              <Button variant="primary" size="sm" onClick={() => setSelfSchedOpen(true)}>Self‑Scheduler</Button>
+
+              <Button variant="light" size="sm" onClick={() => { setManageClassesStep('pick'); setManageClassesOpen(true); }}>Manage Classes</Button>
+              <Button variant="primary" size="sm" onClick={() => setSelfStageOpen(true)}>Self‑Scheduler</Button>
+
+              {/* --- Manage Classes Modal --- */}
+              {manageClassesOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-30">
+                  <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-6 relative">
+                    <button className="absolute top-2 right-2 text-gray-400 hover:text-gray-700" onClick={() => setManageClassesOpen(false)}>&times;</button>
+                    <h2 className="text-lg font-semibold mb-2">Manage Classes</h2>
+                    {manageClassesStep === 'pick' && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                        <button className="border rounded-lg p-3 text-left hover:bg-gray-50" onClick={()=> { setTrack('pre_primary'); setManageClassesStep('list'); }}>
+                          <div className="text-sm font-semibold text-gray-900">Pre‑Primary</div>
+                          <div className="text-xs text-gray-600">Nursery, LKG, UKG</div>
+                        </button>
+                        <button className="border rounded-lg p-3 text-left hover:bg-gray-50" onClick={()=> { setTrack('elementary'); setManageClassesStep('list'); }}>
+                          <div className="text-sm font-semibold text-gray-900">Elementary</div>
+                          <div className="text-xs text-gray-600">I .. VIII (or 1 .. 8)</div>
+                        </button>
+                      </div>
+                    )}
+                    {manageClassesStep === 'list' && (
+                      <div className="mb-3 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <button className="text-xs px-2 py-1 rounded border" onClick={()=> setManageClassesStep('pick')}>← Back</button>
+                          <span className="text-xs text-gray-700">Track:</span>
+                          <select className="border rounded px-2 py-1 text-xs" value={track} onChange={(e)=> setTrack(e.target.value)}>
+                            <option value="pre_primary">Pre‑Primary</option>
+                            <option value="elementary">Elementary</option>
+                          </select>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button variant="light" size="sm" onClick={async()=>{ try{ const res = await fetch('/api/admin/manageMeedian?section=classesNormalize', { method:'POST' }); const j = await res.json().catch(()=>({})); if(!res.ok) throw new Error(j.error||`HTTP ${res.status}`); await refreshKlass?.(); await syncSOPFromDB(); } catch(e){ alert('Normalize failed: '+(e.message||e)); } }}>Normalize</Button>
+                          <Button variant="light" size="sm" onClick={async()=>{ await refreshKlass?.(); await syncSOPFromDB(); }}>Refresh</Button>
+                        </div>
+                      </div>
+                    )}
+                    {manageClassesStep === 'list' && (
+                      <div className="mb-4">
+                        <input
+                          type="text"
+                          className="border rounded px-3 py-2 w-full"
+                          placeholder="New class name"
+                          value={newClassName}
+                          onChange={e => setNewClassName(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') handleAddClass(); }}
+                          disabled={classLoading}
+                        />
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          className="mt-2 w-full"
+                          onClick={async ()=>{ try { const name = newClassName.trim(); if(!name) return; const res = await fetch('/api/admin/manageMeedian?section=classes', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name, track, active: true }) }); const j = await res.json().catch(()=>({})); if(!res.ok) throw new Error(j.error||`HTTP ${res.status}`); await refreshKlass?.(); await syncSOPFromDB(); handleAddClass(); } catch(e){ alert(e.message||'Failed'); } }}
+                          disabled={classLoading || !newClassName.trim()}
+                        >Add Class</Button>
+                      </div>
+                    )}
+                    {manageClassesStep === 'list' && (
+                    <div className="max-h-60 overflow-y-auto border rounded">
+                      {classLoading ? (
+                        <div className="text-center py-4 text-gray-500">Loading…</div>
+                      ) : ((effectiveClasses.filter(c => String(c.track||track)===track && (c.active !== false))).length === 0) ? (
+                        <div className="text-center py-4 text-gray-500">No classes found.</div>
+                      ) : (
+                        <ul>
+                          {effectiveClasses.filter(c => String(c.track||track)===track && (c.active !== false)).map((cls) => {
+                            const originalName = String(cls.name || cls.id);
+                            const edited = editedClasses[originalName] || {
+                              name: originalName,
+                              active: cls.active !== false,
+                              track: String(cls.track || track),
+                            };
+                            return (
+                              <li key={(cls.id ?? `${originalName}|${edited.track}`)} className="flex items-center gap-2 px-4 py-2 border-b last:border-b-0">
+                                <input
+                                  className="w-24 border rounded px-2 py-1 text-xs"
+                                  value={edited.name}
+                                  onChange={(e)=> setEditedClasses((m)=> ({ ...m, [originalName]: { ...edited, name: e.target.value } }))}
+                                  placeholder="Name"
+                                  title="Class name"
+                                />
+                                <select
+                                  className="w-28 border rounded px-2 py-1 text-xs"
+                                  value={edited.track}
+                                  onChange={(e)=> setEditedClasses((m)=> ({ ...m, [originalName]: { ...edited, track: e.target.value } }))}
+                                  title="Track"
+                                >
+                                  <option value="pre_primary">Pre‑Primary</option>
+                                  <option value="elementary">Elementary</option>
+                                </select>
+                                <label className="text-xs flex items-center gap-1">
+                                  <input
+                                    type="checkbox"
+                                    checked={edited.active}
+                                    onChange={(e)=> setEditedClasses((m)=> ({ ...m, [originalName]: { ...edited, active: e.target.checked } }))}
+                                  />
+                                  Active
+                                </label>
+                                <button
+                                  className="ml-auto px-2 py-1 text-xs rounded border bg-white"
+                                  disabled={rowSaving === originalName}
+                                  onClick={async ()=>{
+                                    setRowSaving(originalName);
+                                    try {
+                                      const originalTrack = String(cls.track || track);
+                                      const payload = (originalName !== edited.name || originalTrack !== edited.track)
+                                        ? { oldName: originalName, oldTrack: originalTrack, name: edited.name, track: edited.track, active: edited.active }
+                                        : { name: edited.name, track: edited.track, active: edited.active };
+                                      const res = await fetch(`/api/admin/manageMeedian?section=classes`, {
+                                        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+                                      });
+                                      if (!res.ok) {
+                                        const j = await res.json().catch(()=>({}));
+                                        alert(j.error || `Failed: HTTP ${res.status}`);
+                                      } else {
+                                        await refreshKlass?.();
+                                        await syncSOPFromDB();
+                                      }
+                                    } finally {
+                                      setRowSaving(null);
+                                    }
+                                  }}
+                                >
+                                  {rowSaving === originalName ? 'Saving…' : 'Save'}
+                                </button>
+                                <button className="text-red-500 hover:underline text-xs" onClick={() => handleDeleteClass(originalName)}>Delete</button>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                    </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              {/* section state removed */}
             </CardFooter>
           </Card>
 
@@ -220,6 +502,21 @@ export default function ProgramDetailPage() {
             <CardFooter className="flex items-center justify-end gap-2">
               <Button variant="light" size="sm" onClick={() => { setView("detail"); setActiveSection("trackers"); if (typeof window !== "undefined") window.location.hash = "trackers"; }}>Open Tracker Setup</Button>
             </CardFooter>
+          </Card>
+
+          {/* Meta Features card (Period Grid + Routine Manager) */}
+          <Card>
+            <CardHeader>
+              <div className="font-semibold text-gray-900">Meta Features</div>
+            </CardHeader>
+            <CardBody>
+              <div className="text-xs text-gray-600 mb-2">Tools to assist design and verification.</div>
+              <div className="flex flex-wrap gap-2">
+                <Button size="xs" variant="light" onClick={() => setShowPeriodModal(true)}>Open Period Grid</Button>
+                <Button size="xs" variant="light" onClick={() => setShowMatrixModal(true)}>Open Matrix</Button>
+                <Button size="xs" variant="light" onClick={() => setRoutineOpen(true)}>Routine Manager (AI)</Button>
+              </div>
+            </CardBody>
           </Card>
         </div>
       )}
@@ -253,9 +550,7 @@ export default function ProgramDetailPage() {
               <option value="pre_primary">Pre-Primary</option>
               <option value="elementary">Elementary</option>
             </select>
-            <Button variant="light" onClick={() => setShowDefaultSeedModal(true)}>Show Default Seed</Button>
-            <Button variant="light" onClick={async()=>{ try{ const res = await fetch(`/api/admin/manageMeedian?section=expandBaseToDays`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ programId: id, track })}); const j = await res.json(); if(!res.ok) throw new Error(j.error||`HTTP ${res.status}`); setFullscreen(true); setSchedTab('weekly'); await refreshDays(); } catch(e){ alert(`Failed to build weekly: ${e.message}`);} }}>Build Weekly (Copy Base)</Button>
-            <Button variant="primary" onClick={async()=>{ try{ const res = await fetch(`/api/admin/manageMeedian?section=expandBaseToDaysAdvanced`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ programId: id, track })}); const j = await res.json(); if(!res.ok) throw new Error(j.error||`HTTP ${res.status}`); setFullscreen(true); setSchedTab('weekly'); await refreshDays(); } catch(e){ alert(`Failed (rules) build: ${e.message}`);} }}>Build Weekly (Rules)</Button>
+            {/* Viewing only: meta actions moved to root Meta Features card */}
             <label className="flex items-center gap-2 text-sm text-gray-700">
               <input type="checkbox" checked={showNames} onChange={(e) => setShowNames(e.target.checked)} /> Show teacher names
             </label>
@@ -310,6 +605,11 @@ export default function ProgramDetailPage() {
                           onClick={() => setMspRMode("teacher")}
                           type="button"
                         >Teacher-wise</button>
+                        <button
+                          className={`px-2.5 py-1 text-xs rounded-lg border ${mspRMode === "day" ? "bg-teal-50 text-teal-700 border-teal-200" : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"}`}
+                          onClick={() => setMspRMode("day")}
+                          type="button"
+                        >Day-wise</button>
                       </div>
                       <Button size="sm" variant="light" onClick={() => setOpenSeed((v) => !v)}>{openSeed ? "Hide Seed Editor" : "Paste / Modify Seed"}</Button>
                       <Button size="sm" variant="light" onClick={() => seed(track)}>Seed Default</Button>
@@ -359,7 +659,7 @@ export default function ProgramDetailPage() {
                           </tbody>
                         </table>
                       </div>
-                    ) : (
+                    ) : mspRMode === "teacher" ? (
                       <div className="space-y-4">
                         {(() => {
                           const usersMap = new Map((teamData?.users || []).map((u) => [u.id, u]));
@@ -457,30 +757,54 @@ export default function ProgramDetailPage() {
                           );
                         })()}
                       </div>
-                    )}
+                    ) : mspRMode === "day" ? (
+                      <div className="overflow-auto">
+                        <div className="mb-2 flex items-center gap-2">
+                          <label className="text-xs font-semibold">Select Day:</label>
+                          <select className="border rounded px-2 py-1 text-xs" value={weekDay} onChange={e => setWeekDay(e.target.value)}>
+                            {["Mon","Tue","Wed","Thu","Fri","Sat"].map((d) => <option key={d} value={d}>{d}</option>)}
+                          </select>
+                        </div>
+                        <table className="min-w-[900px] w-full text-sm border-collapse">
+                          <thead>
+                            <tr className="bg-gray-50 text-gray-700">
+                              <th className="border px-3 py-2 sticky left-0 bg-gray-50 z-10">Class</th>
+                              {periods.map((p) => (
+                                <th key={p.periodKey} className="border px-3 py-2 text-center">
+                                  {p.periodKey}
+                                  <div className="text-[11px] text-gray-500">{p.startTime?.slice?.(0,5)}–{p.endTime?.slice?.(0,5)}</div>
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {classList.map(cls => (
+                              <tr key={cls}>
+                                <td className="border px-3 py-2 sticky left-0 bg-white z-10 font-semibold">{cls}</td>
+                                {periods.map((p) => {
+                                  const c = cells.find(cell => (cell.className || cell.classId) == cls && cell.day === weekDay && cell.periodKey === p.periodKey);
+                                  const code = c?.mspCode || c?.mspCodeId || "—";
+                                  const subj = c?.subject || "";
+                                  return (
+                                    <td key={`${cls}-${p.periodKey}`} className="border px-3 py-2 align-top">
+                                      <div className="font-medium text-gray-900">{code}</div>
+                                      {subj && <div className="text-[12px] text-gray-600">{subj}</div>}
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : null}
                   </CardBody>
                 </Card>
               </div>
             );
           })()}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
-            <div className="border rounded-lg p-3 bg-white">
-              <div className="text-sm font-semibold text-gray-900 mb-1">Period Grid</div>
-              <p className="text-xs text-gray-600 mb-2">View or verify period timings for the selected track.</p>
-              <Button size="sm" variant="light" onClick={() => setShowPeriodModal(true)}>Open Period Grid</Button>
-            </div>
-            <div className="border rounded-lg p-3 bg-white">
-              <div className="text-sm font-semibold text-gray-900 mb-1">Matrix (Class × Period)</div>
-              <p className="text-xs text-gray-600 mb-2">See which code/teacher applies per class and period.</p>
-              <Button size="sm" variant="light" onClick={() => setShowMatrixModal(true)}>Open Matrix</Button>
-            </div>
-            <div className="border rounded-lg p-3 bg-white">
-              <div className="text-sm font-semibold text-gray-900 mb-1">Routine Manager (AI)</div>
-              <p className="text-xs text-gray-600 mb-2">Use AI to draft an MSP routine and seed it.</p>
-              <Button size="sm" variant="light" onClick={() => setRoutineOpen(true)}>Open Routine Manager</Button>
-            </div>
-          </div>
+          {/* Meta Features moved to root cards */}
         </CardBody>
       </Card>
       )}
@@ -867,46 +1191,52 @@ export default function ProgramDetailPage() {
                             groups.get(fam).push({ cid, code: c });
                           });
                           const sortedFamilies = Array.from(groups.keys()).sort((a,b) => String(a).localeCompare(String(b)));
-  return (
-    <div className="space-y-4">
-                              {sortedFamilies.map((fam) => (
-                                <div key={fam}>
-                                  <div className="text-xs font-semibold text-gray-600 mb-1">{fam}</div>
-                                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                                    {groups.get(fam)
-                                      .sort((a,b) => String(a.code?.code || "").localeCompare(String(b.code?.code || "")))
-                                      .map(({ cid, code }) => {
-                                        const asg = activeAsgByCode.get(cid);
-                                        const teacher = asg ? (members.find((m) => m.id === asg.userId)?.name || asg.userId) : "—";
-                                        const clear = async () => {
-                                          if (!asg) return;
-                                          try {
-                                            await fetch(`/api/admin/manageMeedian?section=mspCodeAssignments`, {
-                                              method: "PATCH",
-                                              headers: { "Content-Type": "application/json" },
-                                              body: JSON.stringify({ updates: [{ id: asg.id, endDate: new Date().toISOString().slice(0,10), active: false }] })
-                                            });
-                                            await refreshAsg();
-                                          } catch (_) {}
-                                        };
-                                        return (
-                                          <div key={cid}
-                                               onDragOver={(e) => e.preventDefault()}
-                                               onDrop={() => onDropAssign(cid)}
-                                               className="border rounded-lg p-2 bg-gray-50">
-                                            <div className="text-sm font-semibold text-gray-900">{code?.code || cid}</div>
-                                            <div className="text-xs text-gray-700">{code?.title || ""}</div>
-                                            <div className="text-sm mt-1 flex items-center gap-2">
-                                              <span className="text-gray-600">Teacher:</span> {teacher}
-                                              {asg && <button className="text-xs text-red-600 hover:underline" onClick={clear}>Remove</button>}
+                          return (
+                            <div className="mt-4 border-t pt-3">
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="text-sm font-semibold text-gray-900">Legend — Code → Teacher (Family)</div>
+                                <Button size="sm" variant="light" onClick={() => setManageCodesOpen(true)}>Manage Codes</Button>
+                              </div>
+                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                                {sortedFamilies.map((fam) => (
+                                  <div key={fam}>
+                                    <div className="text-xs font-semibold text-gray-600 mb-1">{fam}</div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                                      {groups.get(fam)
+                                        .sort((a,b) => String(a.code?.code || "").localeCompare(String(b.code?.code || "")))
+                                        .map(({ cid, code }) => {
+                                          const asg = activeAsgByCode.get(cid);
+                                          const teacher = asg ? (members.find((m) => m.id === asg.userId)?.name || asg.userId) : "—";
+                                          const clear = async () => {
+                                            if (!asg) return;
+                                            try {
+                                              await fetch(`/api/admin/manageMeedian?section=mspCodeAssignments`, {
+                                                method: "PATCH",
+                                                headers: { "Content-Type": "application/json" },
+                                                body: JSON.stringify({ updates: [{ id: asg.id, endDate: new Date().toISOString().slice(0,10), active: false }] })
+                                              });
+                                              await refreshAsg();
+                                            } catch (_) {}
+                                          };
+                                          return (
+                                            <div key={cid}
+                                                 onDragOver={(e) => e.preventDefault()}
+                                                 onDrop={() => onDropAssign(cid)}
+                                                 className="border rounded-lg p-2 bg-gray-50">
+                                              <div className="text-sm font-semibold text-gray-900">{code?.code || cid}</div>
+                                              <div className="text-xs text-gray-700">{code?.title || ""}</div>
+                                              <div className="text-sm mt-1 flex items-center gap-2">
+                                                <span className="text-gray-600">Teacher:</span> {teacher}
+                                                {asg && <button className="text-xs text-red-600 hover:underline" onClick={clear}>Remove</button>}
+                                              </div>
+                                              <div className="text-[11px] text-gray-500">Drop member here to assign</div>
                                             </div>
-                                            <div className="text-[11px] text-gray-500">Drop member here to assign</div>
-                                          </div>
-                                        );
-                                      })}
+                                          );
+                                        })}
+                                    </div>
                                   </div>
-                                </div>
-                              ))}
+                                ))}
+                              </div>
                             </div>
                           );
                         })()}
@@ -929,7 +1259,7 @@ export default function ProgramDetailPage() {
                 <div className="text-sm font-semibold text-gray-900">Periods — {preview.track === "pre_primary" ? "Pre-Primary" : "Elementary"}</div>
                 <div className="flex items-center gap-2">
                   <Link href={`?track=${preview.track}#schedule`}>
-                    <Button size="sm" variant="light" onClick={() => { setPreview({ open: false, track: "pre_primary" }); setView("detail"); setActiveSection("schedule"); }}>Open Full Schedule</Button>
+                    <Button size="sm" variant="light" onClick={() => { setPreview({ open: false, track: "pre_primary" }); setView("detail"); setActiveSection("schedule"); }}>View Full Schedule</Button>
                   </Link>
                   <Button size="sm" variant="light" onClick={() => setPreview({ open: false, track: "pre_primary" })}>Close</Button>
                 </div>
@@ -960,6 +1290,36 @@ export default function ProgramDetailPage() {
                 </div>
               </CardBody>
             </Card>
+          </div>
+        </div>
+      )}
+
+      {/* Self‑Scheduler: Stage picker */}
+      {selfStageOpen && (
+        <div className="fixed inset-0 z-[1000] bg-black/60 flex items-center justify-center p-4" onClick={()=> setSelfStageOpen(false)}>
+          <div className="w-[96vw] max-w-3xl bg-white rounded-2xl border shadow-2xl overflow-hidden" onClick={(e)=> e.stopPropagation()}>
+            <div className="px-4 py-3 border-b flex items-center justify-between">
+              <div className="font-semibold text-gray-900">Plan MSP‑R — Choose Stage</div>
+              <button className="px-2 py-1 rounded bg-gray-100" onClick={()=> setSelfStageOpen(false)}>Close</button>
+            </div>
+            <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className={`border rounded-lg p-3 ${selfPlanMode==='fixed_all_days'?'ring-2 ring-teal-500':''}`} onClick={()=> setSelfPlanMode('fixed_all_days')} role="button">
+                <div className="text-sm font-semibold">Fixed Subjects</div>
+                <p className="text-xs text-gray-600">One teacher takes a subject for all classes across Mon–Fri (same period).</p>
+              </div>
+              <div className={`border rounded-lg p-3 ${selfPlanMode==='split_same_subject'?'ring-2 ring-teal-500':''}`} onClick={()=> setSelfPlanMode('split_same_subject')} role="button">
+                <div className="text-sm font-semibold">Split Same Subject</div>
+                <p className="text-xs text-gray-600">Same subject shared by multiple teachers for the same period.</p>
+              </div>
+              <div className={`border rounded-lg p-3 ${selfPlanMode==='same_period_diff_subject'?'ring-2 ring-teal-500':''}`} onClick={()=> setSelfPlanMode('same_period_diff_subject')} role="button">
+                <div className="text-sm font-semibold">Same Period, Diff Subjects</div>
+                <p className="text-xs text-gray-600">One class, different subjects on different days.</p>
+              </div>
+            </div>
+            <div className="px-4 pb-4 flex items-center justify-end gap-2">
+              <button className="px-3 py-1.5 rounded bg-gray-100" onClick={()=> setSelfStageOpen(false)}>Cancel</button>
+              <button className="px-3 py-1.5 rounded bg-teal-600 text-white" onClick={()=> { setSelfStageOpen(false); setSelfSchedOpen(true); }}>Start</button>
+            </div>
           </div>
         </div>
       )}
@@ -1016,11 +1376,44 @@ export default function ProgramDetailPage() {
           >
             <div className="flex items-center justify-between px-3 py-2 border-b">
               <div className="text-sm font-semibold text-gray-900">Self‑Scheduler — {track === 'pre_primary' ? 'Pre‑Primary' : 'Elementary'}</div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <select className="px-2 py-1 border rounded text-sm" value={track} onChange={(e)=> setTrack(e.target.value)}>
                   <option value="pre_primary">Pre‑Primary</option>
                   <option value="elementary">Elementary</option>
                 </select>
+                {/* Days selection (top bar) */}
+                <div className="flex items-center gap-1">
+                  <span className="text-xs text-gray-600">Days:</span>
+                  <button
+                    className={`px-2 py-1 rounded text-xs border ${daysMode==='all' ? 'bg-gray-900 text-white' : 'bg-white'}`}
+                    onClick={()=> setDaysMode('all')}
+                    title="Use default days (Mon, Tue, Wed, Thu, Sat)"
+                  >
+                    Default
+                  </button>
+                  <button
+                    className={`px-2 py-1 rounded text-xs border ${daysMode==='split' ? 'bg-gray-900 text-white' : 'bg-white'}`}
+                    onClick={()=> setDaysMode('split')}
+                    title="Pick custom days"
+                  >
+                    Custom
+                  </button>
+                  {daysMode === 'split' && (
+                    <div className="flex items-center gap-1 ml-1">
+                      {['Mon','Tue','Wed','Thu','Fri','Sat'].map(d => (
+                        <button
+                          key={d}
+                          className={`px-1.5 py-0.5 rounded text-[11px] border ${daysSel[d] ? 'bg-teal-600 text-white' : 'bg-white'}`}
+                          onClick={()=> setDaysSel(prev => ({ ...prev, [d]: !prev[d] }))}
+                          title={d}
+                        >
+                          {d}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <button className="px-2 py-1 rounded bg-sky-700 text-white text-sm" title="Lock current work, save seed and push" onClick={()=>{ try{ lockPushRef.current && lockPushRef.current(); } catch(e){ alert('Lock & Push failed: ' + (e.message||e)); } }}>Lock & Push Stage</button>
                 <button className="px-2 py-1 rounded bg-gray-100" onClick={()=> setSelfSchedFull(v=> !v)}>{selfSchedFull ? 'Exit Full Screen' : 'Full Screen'}</button>
                 <button className="px-2 py-1 rounded bg-gray-100" onClick={()=> setSelfSchedOpen(false)}>Close</button>
               </div>
@@ -1033,6 +1426,14 @@ export default function ProgramDetailPage() {
                 codeData={codeData}
                 asgData={asgData}
                 teamData={teamData}
+                classes={classes}
+                planMode={selfPlanMode}
+                setPlanMode={setSelfPlanMode}
+                daysMode={daysMode}
+                setDaysMode={setDaysMode}
+                daysSel={daysSel}
+                setDaysSel={setDaysSel}
+                registerLockPush={(fn)=> { lockPushRef.current = fn; }}
                 onSaved={async()=> { await Promise.all([refreshCells()]); setSelfSchedOpen(false); setFullscreen(true); setSchedTab('weekly'); }}
               />
             </div>
@@ -1043,9 +1444,7 @@ export default function ProgramDetailPage() {
   );
 }
 
-function SelfScheduler({ programId, track, periodData, codeData, asgData, teamData, onSaved }) {
-  const [daysMode, setDaysMode] = useState('all'); // all | split
-  const [daysSel, setDaysSel] = useState({ Mon:true, Tue:true, Wed:true, Thu:true, Fri:true, Sat:false });
+function SelfScheduler({ programId, track, periodData, codeData, asgData, teamData, classes, planMode, setPlanMode, onSaved, daysMode, setDaysMode, daysSel, setDaysSel, registerLockPush }) {
   const [fallbackCode, setFallbackCode] = useState('');
   const [viewDay, setViewDay] = useState('Mon');
   const [staged, setStaged] = useState({}); // key: day|class|period -> codeId
@@ -1053,6 +1452,19 @@ function SelfScheduler({ programId, track, periodData, codeData, asgData, teamDa
   const [seedOpen, setSeedOpen] = useState(false);
   const [seedText, setSeedText] = useState('');
   const [seedMsg, setSeedMsg] = useState('');
+  const [clearedInfo, setClearedInfo] = useState(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [codeFilter, setCodeFilter] = useState('');
+  const [showLeisure, setShowLeisure] = useState(false);
+  const [leisurePeriod, setLeisurePeriod] = useState('');
+  const [activePeriod, setActivePeriod] = useState('');
+  const [stageIdx, setStageIdx] = useState(1); // 1 -> 2 -> 3
+  const [lockedMap, setLockedMap] = useState({}); // key: day|class|period -> true
+  const [fixedActiveCodes, setFixedActiveCodes] = useState([]); // stage1: collected fixed codes
+  // Saved seeds
+  const [savedSeeds, setSavedSeeds] = useState([]);
+  const [selectedSeedId, setSelectedSeedId] = useState('');
+  const [seedsLoading, setSeedsLoading] = useState(false);
   const baselineRef = useRef(null); // snapshot of initial load for resets
   // History for undo/redo
   const histRef = useRef([]); // snapshots array
@@ -1139,18 +1551,202 @@ function SelfScheduler({ programId, track, periodData, codeData, asgData, teamDa
     return () => { aborted = true; };
   }, [programId, track, codeData]);
 
+  // Default active period when periods load
+  useEffect(() => {
+    const first = (periodData?.periods || []).find((p) => /^P\d+$/i.test(p.periodKey));
+    if (!activePeriod && first) setActivePeriod(first.periodKey);
+  }, [periodData, activePeriod]);
+
+  // Expose Lock & Push handler to parent header button
+  useEffect(() => {
+    if (!registerLockPush) return;
+    registerLockPush(async () => {
+      // 1) Save a seed snapshot for default days
+      const DEFAULT_DAYS = ['Mon','Tue','Wed','Thu','Sat'];
+      const codeById = new Map((codeData?.codes || []).map(c => [c.id, c.code]));
+      const matrix = {};
+      Object.entries(staged).forEach(([k, cid]) => {
+        const [day, cls, pk] = k.split('|');
+        if (!DEFAULT_DAYS.includes(day)) return;
+        if (!matrix[cls]) matrix[cls] = {};
+        const code = codeById.get(cid) || null;
+        if (code) matrix[cls][pk] = code;
+      });
+      try { await saveSeedToSOP(matrix, `Stage ${stageIdx} Seed — ${new Date().toLocaleString()}`); } catch {}
+
+      // 2) Persist staged days (weekly)
+      await saveWeekly();
+
+      // 3) Lock current filled cells
+      const newLocks = {};
+      Object.keys(staged).forEach((k) => { if (staged[k]) newLocks[k] = true; });
+      setLockedMap((prev) => ({ ...prev, ...newLocks }));
+
+      // 4) Advance stage or finalize
+      const next = Math.min(3, stageIdx + 1);
+      if (next > stageIdx) setStageIdx(next);
+      // Auto-switch quick tools mode to guide user
+      if (setPlanMode) {
+        if (next === 2) setPlanMode('split_same_subject');
+        if (next === 3) setPlanMode('same_period_diff_subject');
+      }
+      // Finalize on Stage 3 → push base MSP-R and close
+      if (stageIdx >= 3) {
+        try {
+          // Build classId mapping from existing programScheduleCells
+          const qRes = await fetch(`/api/admin/manageMeedian?section=programScheduleCells&programId=${programId}&track=${track}`);
+          const qj = await qRes.json().catch(()=>({}));
+          const classMap = new Map();
+          (qj?.cells || []).forEach((r)=> { const key = String(r.className || r.classId); classMap.set(key, Number(r.classId)); });
+          const baseDays = DEFAULT_DAYS;
+          const cellsMap = new Map();
+          Object.entries(staged).forEach(([k, cid])=>{
+            const [day, cls, pk] = k.split('|');
+            if (!baseDays.includes(day)) return;
+            let classId = null; const parsed = Number(cls);
+            if (!Number.isNaN(parsed) && String(parsed) === String(cls)) classId = parsed;
+            if (classId === null) classId = classMap.get(String(cls));
+            if (!classId) return;
+            const mapKey = `${classId}|${pk}`;
+            if (!cellsMap.has(mapKey) || cid) cellsMap.set(mapKey, cid ? Number(cid) : null);
+          });
+          const cells = Array.from(cellsMap.entries()).map(([k, mspCodeId]) => { const [classId, periodKey] = k.split('|'); return { classId: Number(classId), periodKey, mspCodeId: mspCodeId ? Number(mspCodeId) : null }; });
+          const payload = { programId, track, cells };
+          const res = await fetch('/api/admin/manageMeedian?section=programScheduleCells', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+          const j = await res.json().catch(()=>({}));
+          if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+        } catch(e) { /* surface non-fatal */ }
+        // Close via onSaved to refresh and exit
+        onSaved && onSaved();
+      }
+    });
+  }, [registerLockPush, staged, stageIdx, programId, track, codeData, saveWeekly]);
+
+  // Load saved seeds for this program & track
+  const fetchSeeds = async () => {
+    try {
+      setSeedsLoading(true);
+      const mp = await fetch('/api/admin/manageMeedian?section=metaPrograms');
+      const mj = await mp.json().catch(() => ({}));
+      const prog = (mj?.programs || []).find((p) => p.id === programId);
+      const key = track === 'pre_primary' ? 'pre_primary' : 'elementary';
+      const seeds = (prog?.sop?.selfSchedulerSeeds && prog.sop.selfSchedulerSeeds[key]) || [];
+      setSavedSeeds(Array.isArray(seeds) ? seeds : []);
+      setSelectedSeedId((seeds && seeds[0] && seeds[0].id) || '');
+    } catch (e) {
+      setSavedSeeds([]);
+    } finally {
+      setSeedsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (programId) fetchSeeds();
+  }, [programId, track]);
+
+  const saveSeedToSOP = async (matrix, name) => {
+    try {
+      const mp = await fetch('/api/admin/manageMeedian?section=metaPrograms');
+      const mj = await mp.json().catch(() => ({}));
+      const prog = (mj?.programs || []).find((p) => p.id === programId);
+      const sop = prog?.sop || {};
+      const key = track === 'pre_primary' ? 'pre_primary' : 'elementary';
+      sop.selfSchedulerSeeds = sop.selfSchedulerSeeds || {};
+      sop.selfSchedulerSeeds[key] = sop.selfSchedulerSeeds[key] || [];
+      const seedObj = { id: Date.now().toString(), name: name || `Seed ${new Date().toLocaleString()}`, matrix, createdAt: new Date().toISOString() };
+      // prepend so newest appear at top
+      sop.selfSchedulerSeeds[key] = [seedObj, ...sop.selfSchedulerSeeds[key]];
+      const pr = await fetch('/api/admin/manageMeedian?section=programSOP', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ programId, sop }) });
+      const pj = await pr.json().catch(() => ({}));
+      if (!pr.ok) throw new Error(pj.error || `HTTP ${pr.status}`);
+
+      // Optional: refresh schedule data if needed
+      await Promise.all([refreshCells?.(), refreshPeriods?.()]);
+      return seedObj;
+    } catch (e) {
+      throw e;
+    }
+  };
+
+  const loadSeedById = async (id) => {
+    try {
+      const seed = (savedSeeds || []).find(s => s.id === id);
+      if (!seed) return;
+      const codeLookup = new Map((codeData?.codes || []).map(c => [c.code, c.id]));
+      // Determine target days: selected days; fallback to full week if none selected
+      const selDays = Object.keys(daysSel).filter((d) => daysSel[d]);
+      const targetDays = selDays.length ? selDays : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      updateStaged((next) => {
+        Object.keys(seed.matrix || {}).forEach((cls) => {
+          const byPeriod = seed.matrix[cls] || {};
+          Object.keys(byPeriod).forEach((pk) => {
+            const val = byPeriod[pk];
+            const code = Array.isArray(val) ? val[0] : (typeof val === 'string' ? val : val?.code);
+            const cid = codeLookup.get(code);
+            if (cid) {
+              // apply to each target day
+              targetDays.forEach((d) => {
+                next[`${d}|${cls}|${pk}`] = cid;
+              });
+            }
+          });
+        });
+        return next;
+      });
+      // Ensure grid view shows one of the days we applied
+      if (targetDays.length) setViewDay(targetDays[0]);
+      setSeedMsg('Seed loaded');
+    } catch (e) {
+      setErrorMsg(e.message || 'Failed to load seed');
+    }
+  };
+
+  const deleteSeedById = async (id) => {
+    try {
+      const mp = await fetch('/api/admin/manageMeedian?section=metaPrograms');
+      const mj = await mp.json().catch(() => ({}));
+      const prog = (mj?.programs || []).find((p) => p.id === programId);
+      const sop = prog?.sop || {};
+      const key = track === 'pre_primary' ? 'pre_primary' : 'elementary';
+      sop.selfSchedulerSeeds = sop.selfSchedulerSeeds || {};
+      sop.selfSchedulerSeeds[key] = (sop.selfSchedulerSeeds[key] || []).filter(s => s.id !== id);
+      const pr = await fetch('/api/admin/manageMeedian?section=programSOP', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ programId, sop }) });
+      const pj = await pr.json().catch(() => ({}));
+      if (!pr.ok) throw new Error(pj.error || `HTTP ${pr.status}`);
+      await fetchSeeds();
+      setSeedMsg('Seed deleted');
+    } catch (e) {
+      setErrorMsg(e.message || 'Failed to delete seed');
+    }
+  };
+
+  const extractAndSaveCurrentSeed = async () => {
+    try {
+      // Build class-wise matrix from staged
+      const codeById = new Map((codeData?.codes || []).map(c => [c.id, c.code]));
+      const matrix = {};
+      Object.entries(staged).forEach(([k, cid]) => {
+        const [day, cls, pk] = k.split('|');
+        if (!matrix[cls]) matrix[cls] = {};
+        matrix[cls][pk] = codeById.get(cid) || null;
+      });
+      const name = prompt('Name for the new seed (optional):', `Seed ${new Date().toLocaleString()}`) || `Seed ${new Date().toLocaleString()}`;
+      await saveSeedToSOP(matrix, name);
+      setSeedMsg('Seed saved');
+    } catch (e) {
+      setErrorMsg(e.message || 'Failed to save seed');
+    }
+  };
+
   const periods = useMemo(() => (periodData?.periods || []).filter(p=>/^P\d+$/i.test(p.periodKey)).sort((a,b)=> Number(a.periodKey.slice(1))-Number(b.periodKey.slice(1))), [periodData]);
-  const classes = useMemo(() => {
-    // derive class list from existing base cells
-    return Array.from(new Set((periodData?.periods||[]) && (codeData?.codes||[]))).length,
-    [];
-  }, []);
-  // Use existing base cells to construct class list from cellData-ish: fallback to 1..7 or pre‑primary
+  // Always show full class list provided by parent; do not filter by staged
   const classList = useMemo(() => {
+    if (Array.isArray(classes) && classes.length) {
+      return [...classes.map(String)].sort((a,b) => { const na = Number(a), nb = Number(b); if (!Number.isNaN(na) && !Number.isNaN(nb)) return na-nb; return String(a).localeCompare(String(b)); });
+    }
     if (track === 'pre_primary') return ['Nursery','LKG','UKG'];
-    // Estimate from assignments: default 1..7
     return ['1','2','3','4','5','6','7'];
-  }, [track]);
+  }, [classes, track]);
 
   const familyGroups = useMemo(() => {
     const codes = (codeData?.codes || [])
@@ -1225,8 +1821,13 @@ function SelfScheduler({ programId, track, periodData, codeData, asgData, teamDa
     const codeId = Number(ev.dataTransfer.getData('text/plain'));
     if (!codeId) return;
 
-    const targetDays = daysMode === 'all' ? Object.keys(daysSel).filter(k=> daysSel[k]) : Object.keys(daysSel).filter(k=> daysSel[k]);
-    // Constraint 1: same code cannot appear twice at same day/period across classes (teacher clash by code)
+    const targetDays = daysMode === 'split' ? Object.keys(daysSel).filter(k=> daysSel[k]) : ['Mon','Tue','Wed','Thu','Sat'];
+    // Prevent editing locked cell(s) for this class/period
+    for (const d of targetDays) {
+      const key = `${d}|${cls}|${pk}`;
+      if (lockedMap[key]) return;
+    }
+    // Constraint 1: same code cannot appear twice at same day/period across classes (teacher/code clash)
     for (const d of targetDays) {
       for (const c of classList) {
         const key = `${d}|${c}|${pk}`;
@@ -1264,31 +1865,80 @@ function SelfScheduler({ programId, track, periodData, codeData, asgData, teamDa
       }
       return next;
     });
+    // Stage 1: collect active fixed codes (for reference/lock view in next stages)
+    if (planMode === 'fixed_all_days') {
+      setFixedActiveCodes((prev) => (prev.includes(codeId) ? prev : [...prev, codeId]));
+    }
   };
   const allowDrop = (ev) => ev.preventDefault();
   const onDragStartAssigned = (ev, day, cls, pk) => {
-    ev.dataTransfer.setData('text/removeKey', `${day}|${cls}|${pk}`);
+    const k = `${day}|${cls}|${pk}`;
+    ev.dataTransfer.setData('text/removeKey', k);
+    const cid = staged[k];
+    if (cid) ev.dataTransfer.setData('text/codeIdAssigned', String(cid));
   };
   const onDropRemove = (ev) => {
     ev.preventDefault();
     const key = ev.dataTransfer.getData('text/removeKey');
-    if (!key) return;
-    updateStaged((next) => { delete next[key]; return next; });
+    // If a placed chip was dragged, we set text/codeIdAssigned
+    let codeId = Number(ev.dataTransfer.getData('text/codeIdAssigned')) || 0;
+    // If a code pill from the code list was dragged, it carries 'text/plain' with codeId
+    if (!codeId) {
+      const maybe = Number(ev.dataTransfer.getData('text/plain'));
+      if (!Number.isNaN(maybe)) codeId = maybe;
+    }
+    const selectedDays = daysMode === 'split' ? Object.keys(daysSel).filter(d => daysSel[d]) : ['Mon','Tue','Wed','Thu','Sat'];
+
+    updateStaged((next) => {
+      if (codeId) {
+        // Clear all placements of this code across selected days
+        Object.keys(next).forEach((k) => {
+          const d = k.split('|')[0];
+          if (selectedDays.includes(d) && Number(next[k]) === codeId) delete next[k];
+        });
+      } else if (key) {
+        // Fallback: remove only this cell
+        delete next[key];
+      }
+      return next;
+    });
   };
 
-  const saveWeekly = async () => {
+  async function saveWeekly() {
     try {
       setErrorMsg('');
       const usedDays = Object.keys(staged).map(k => k.split('|')[0]);
       const days = Array.from(new Set(usedDays)).filter(Boolean);
       if (!days.length) { setErrorMsg('No changes to save.'); return; }
-      // Compile rows: include staged; we won’t merge existing for brevity (future: fetch & merge)
+      // Compile rows: include staged; resolve class names to numeric classId
+      // Fetch current programScheduleCells to map className -> classId
+      const qRes = await fetch(`/api/admin/manageMeedian?section=programScheduleCells&programId=${programId}&track=${track}`);
+      const qj = await qRes.json().catch(() => ({}));
+      const classMap = new Map();
+      (qj?.cells || []).forEach((r) => {
+        const key = String(r.className || r.classId);
+        classMap.set(key, Number(r.classId));
+      });
+
+      const unresolved = new Set();
       const rows = Object.entries(staged).map(([k, cid]) => {
         const [dayName, cls, periodKey] = k.split('|');
-        return { classId: isNaN(cls) ? null : Number(cls), dayName, periodKey, mspCodeId: Number(cid), subject: null };
+        // cls might be a numeric string (class id) or a class name; try numeric first
+        let classId = null;
+        const parsed = Number(cls);
+        if (!Number.isNaN(parsed) && String(parsed) === String(cls)) classId = parsed;
+        if (classId === null) {
+          const mapped = classMap.get(String(cls));
+          if (mapped) classId = mapped;
+        }
+        if (!classId) unresolved.add(cls);
+        return { classId: classId || null, dayName, periodKey, mspCodeId: cid ? Number(cid) : null, subject: null };
       });
+      if (unresolved.size) {
+        setErrorMsg(`Cannot resolve classes to IDs: ${Array.from(unresolved).slice(0,8).join(', ')}. Ensure classes exist in base schedule.`);
+        return;
+      }
       // Map class names to ids
-      // Minimal resolution: try to detect numeric ids; named classes (Nursery, etc.) would require class lookup; skipped for brevity
       const payload = { programId: programId, track, days, cells: rows.filter(r => r.classId) };
       const res = await fetch(`/api/admin/manageMeedian?section=programScheduleDays`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
       const j = await res.json();
@@ -1309,7 +1959,7 @@ function SelfScheduler({ programId, track, periodData, codeData, asgData, teamDa
     } catch (e) {
       setErrorMsg(e.message || 'Failed to save');
     }
-  };
+  }
 
   const applySeed = () => {
     setSeedMsg(''); setErrorMsg('');
@@ -1361,50 +2011,200 @@ function SelfScheduler({ programId, track, periodData, codeData, asgData, teamDa
     setSeedMsg('Seed applied to staged grid');
   };
 
+  // Function to extract seed of any day from the grid and save it at the bottom
+  async function extractSeedFromGrid(day) {
+    try {
+      const gridData = cellData?.cells || [];
+      const seed = gridData.filter((cell) => cell.day === day).map((cell) => cell.seed);
+
+      // Save the extracted seed at the bottom
+      const updatedSeed = [...(program?.sop?.seeds || []), ...seed];
+
+      const response = await fetch("/api/admin/manageMeedian?section=programSOP", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ programId: id, sop: { ...program.sop, seeds: updatedSeed } }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || `HTTP ${response.status}`);
+      }
+
+      console.log("Seed saved successfully at the bottom.");
+    } catch (error) {
+      console.error("Failed to extract and save seed:", error);
+    }
+  }
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-12">
       <div className="md:col-span-4 border-r p-3 space-y-2">
-        {/* Remove area */}
+        {/* Remove drop zone (drag a placed code or a code pill to clear) */}
         <div className="mb-2">
-          <div className="text-xs text-gray-600 mb-1">Drop here to remove a placed code</div>
+          <div className="text-xs text-gray-600 mb-1">Drop here to remove/reset</div>
           <div className="border-2 border-dashed rounded-lg p-2 text-center text-xs text-gray-500 bg-gray-50"
                onDragOver={allowDrop}
                onDrop={onDropRemove}
           >
-            Remove Zone
+            Drop a placed code to remove that cell, or drop a code to clear it across selected days.
           </div>
         </div>
-        <div className="text-sm font-semibold text-gray-800">Codes by Family</div>
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-semibold text-gray-800">Codes</div>
+          <input
+            className="ml-2 flex-1 border rounded px-2 py-1 text-xs"
+            placeholder="Search code/title"
+            value={codeFilter}
+            onChange={(e)=> setCodeFilter(e.target.value)}
+          />
+        </div>
         <div className="text-xs text-gray-600">Drag a code onto the timetable.</div>
+        {/* Quick tools based on planMode */}
+        <div className="mt-2 space-y-2">
+          {planMode !== 'fixed_all_days' ? (
+            <div className="flex items-center justify-between">
+              <div className="text-xs text-gray-700">Active Period</div>
+              <div className="flex flex-wrap gap-1">
+                {(periodData?.periods||[]).filter(p=>/^P\d+$/i.test(p.periodKey)).map(p => (
+                  <button key={p.periodKey} className={`px-2 py-0.5 rounded text-[11px] border ${activePeriod===p.periodKey?'bg-gray-900 text-white':'bg-white'}`} onClick={()=> setActivePeriod(p.periodKey)}>
+                    {p.periodKey}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div className="flex items-center justify-between">
+                <div className="text-xs text-gray-700">Active Fixed Codes</div>
+                <span className="text-[10px] text-gray-500">Stage {stageIdx}</span>
+              </div>
+              <div className="mt-1 flex flex-wrap gap-1">
+                {fixedActiveCodes.length === 0 ? (
+                  <span className="text-[11px] text-gray-500">Drag codes into grid to collect</span>
+                ) : (
+                  fixedActiveCodes.map(id => {
+                    const c = (codeData?.codes||[]).find(x=> x.id === id);
+                    return <span key={id} className="px-2 py-0.5 rounded border bg-white text-[11px]">{c?.code || id}</span>;
+                  })
+                )}
+              </div>
+            </div>
+          )}
+          {planMode === 'fixed_all_days' && (
+            <div>
+              <div className="text-xs text-gray-700 mb-1">Bulk fill (drop a code here): all classes, selected days, active period</div>
+              <div className="border-2 border-dashed rounded p-2 text-center text-xs text-gray-500 bg-gray-50" onDragOver={allowDrop} onDrop={(e)=>{
+                e.preventDefault();
+                const cid = Number(e.dataTransfer.getData('text/plain'));
+                if (!cid || !activePeriod) return;
+                const targetDays = (daysMode==='split'? Object.keys(daysSel).filter(d=> daysSel[d]) : ['Mon','Tue','Wed','Thu','Sat']);
+                updateStaged((next)=>{
+                  classes.forEach(cls => {
+                    targetDays.forEach(d => { next[`${d}|${cls}|${activePeriod}`] = cid; });
+                  });
+                  return next;
+                });
+              }}>Drop code to fill</div>
+            </div>
+          )}
+          {planMode === 'split_same_subject' && (
+            <div className="space-y-1">
+              <div className="text-xs text-gray-700">Distribution bucket (drop multiple teacher-variants)</div>
+              <div className="border-2 border-dashed rounded p-2 min-h-[38px] flex flex-wrap gap-1 bg-gray-50" onDragOver={allowDrop} onDrop={(e)=>{ e.preventDefault(); const cid = Number(e.dataTransfer.getData('text/plain')); if (!cid) return; setBucketCodes(b => b.includes(cid)? b : [...b, cid]); }}>
+                {bucketCodes.map(id => { const c = (codeData?.codes||[]).find(x=> x.id===id); return <span key={id} className="px-2 py-0.5 text-xs rounded border bg-white">{c?.code||id}</span>; })}
+              </div>
+              <button className="px-2.5 py-1 rounded bg-gray-900 text-white text-xs" onClick={()=>{
+                if (!bucketCodes.length || !activePeriod) return;
+                const targetDays = (daysMode==='split'? Object.keys(daysSel).filter(d=> daysSel[d]) : ['Mon','Tue','Wed','Thu','Sat']);
+                updateStaged((next)=>{
+                  classes.forEach((cls, idx) => {
+                    const codeId = bucketCodes[idx % bucketCodes.length];
+                    targetDays.forEach(d => { next[`${d}|${cls}|${activePeriod}`] = codeId; });
+                  });
+                  return next;
+                });
+              }}>Distribute to classes</button>
+            </div>
+          )}
+          {planMode === 'same_period_diff_subject' && (
+            <div className="space-y-1">
+              <div className="text-xs text-gray-700">One class, one period — split days between two subjects</div>
+              <select className="w-full border rounded px-2 py-1 text-xs" value={spdsClass} onChange={(e)=> setSpdsClass(e.target.value)}>
+                <option value="">Select class…</option>
+                {classes.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <div className="text-[11px] text-gray-600">Drop Subject A</div>
+                  <div className="border-2 border-dashed rounded p-2 min-h-[34px] bg-gray-50" onDragOver={allowDrop} onDrop={(e)=>{ e.preventDefault(); const cid = Number(e.dataTransfer.getData('text/plain')); if (cid) setSpdsA(cid); }}>
+                    {spdsA ? (codeData?.codes||[]).find(c=> c.id===spdsA)?.code : '—'}
+                  </div>
+                  <input type="number" min="0" max="5" className="mt-1 w-full border rounded px-2 py-1 text-xs" value={spdsACount} onChange={(e)=> setSpdsACount(Math.max(0, Math.min(5, Number(e.target.value)||0)))} />
+                </div>
+                <div>
+                  <div className="text-[11px] text-gray-600">Drop Subject B</div>
+                  <div className="border-2 border-dashed rounded p-2 min-h-[34px] bg-gray-50" onDragOver={allowDrop} onDrop={(e)=>{ e.preventDefault(); const cid = Number(e.dataTransfer.getData('text/plain')); if (cid) setSpdsB(cid); }}>
+                    {spdsB ? (codeData?.codes||[]).find(c=> c.id===spdsB)?.code : '—'}
+                  </div>
+                  <input type="number" min="0" max="5" className="mt-1 w-full border rounded px-2 py-1 text-xs" value={spdsBCount} onChange={(e)=> setSpdsBCount(Math.max(0, Math.min(5, Number(e.target.value)||0)))} />
+                </div>
+              </div>
+              <button className="px-2.5 py-1 rounded bg-gray-900 text-white text-xs" onClick={()=>{
+                if (!spdsClass || !activePeriod || (!spdsA && !spdsB)) return;
+                const targetDays = (daysMode==='split'? Object.keys(daysSel).filter(d=> daysSel[d]) : ['Mon','Tue','Wed','Thu','Sat']);
+                const seq = [];
+                for (let i=0;i<spdsACount && seq.length<targetDays.length;i++) seq.push(spdsA);
+                for (let i=0;i<spdsBCount && seq.length<targetDays.length;i++) seq.push(spdsB);
+                while (seq.length < targetDays.length) seq.push(spdsA || spdsB);
+                updateStaged((next)=>{
+                  targetDays.forEach((d, i) => { const cid = seq[i]; if (cid) next[`${d}|${spdsClass}|${activePeriod}`] = cid; });
+                  return next;
+                });
+              }}>Apply split</button>
+            </div>
+          )}
+        </div>
         <div className="max-h-[60vh] overflow-y-auto pr-1">
-          {familyGroups.map(({ fam, list }) => (
+          {familyGroups
+            .map(({ fam, list }) => ({ fam, list: list.filter(c => {
+              const q = codeFilter.trim().toLowerCase();
+              if (!q) return true;
+              return c.code.toLowerCase().includes(q) || (c.title||'').toLowerCase().includes(q);
+            }) }))
+            .filter(({ list }) => list.length)
+            .map(({ fam, list }) => (
             <div key={fam} className="mb-2">
               <div className="text-xs font-bold text-gray-700 mb-1">{fam}</div>
               <div className="flex flex-wrap gap-2">
-                {list.map(c => {
-                  const count = occByCode.get(c.id) || 0;
-                  return (
-                    <div
-                      key={c.id}
-                      draggable
-                      onDragStart={(e)=> onDragStart(e, c.id)}
+                 {list.map(c => {
+                   const count = occByCode.get(c.id) || 0;
+                   const asgs = (asgData?.assignments||[]).filter(a=> a.active && Number(a.mspCodeId) === Number(c.id));
+                   const names = asgs.map(a => (teamData?.users||[]).find(u => u.id === a.userId)?.name || a.userId);
+                   return (
+                     <div
+                       key={c.id}
+                       draggable
+                       onDragStart={(e)=> onDragStart(e, c.id)}
                       className={`px-2 py-1 rounded-lg border text-xs cursor-grab hover:brightness-105 ${colorByFamily(c.familyKey)} flex items-center justify-between gap-2 min-w-[84px]`}
-                      title={`${c.title || c.code} — placed ${count} time${count===1?'':'s'}`}
-                    >
+                      title={`${c.title || c.code}${names.length ? ` — Teacher: ${names.join(', ')}`:''} — placed ${count} time${count===1?'':'s'}`}
+                     >
                       <span>{c.code}</span>
+                      {names.length > 0 && <span className="text-[9px] px-1 py-0.5 rounded bg-white/80 border border-black/10 text-gray-700">{names[0]}</span>}
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/80 border border-black/10 text-gray-800 min-w-[18px] text-center">{count}</span>
-                    </div>
-                  );
-                })}
+                     </div>
+                   );
+                 })}
               </div>
             </div>
           ))}
         </div>
         <div className="mt-3 space-y-2">
-          <div className="text-sm font-semibold text-gray-800">Apply Days</div>
-          <label className="text-xs inline-flex items-center gap-2"><input type="radio" name="dm" checked={daysMode==='all'} onChange={()=> setDaysMode('all')} /> All (Mon–Fri)</label>
-          <label className="text-xs inline-flex items-center gap-2"><input type="radio" name="dm" checked={daysMode==='split'} onChange={()=> setDaysMode('split')} /> Split days</label>
-          {daysMode === 'split' && (
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-semibold text-gray-800">Tools</div>
+            <button className="text-xs text-gray-600 underline" onClick={()=> setShowAdvanced(v=> !v)}>{showAdvanced ? 'Hide Advanced' : 'Show Advanced'}</button>
+          </div>
+          {showAdvanced && (
             <div className="grid grid-cols-3 gap-1 text-xs">
               {['Mon','Tue','Wed','Thu','Fri','Sat'].map(d => (
                 <label key={d} className="inline-flex items-center gap-1"><input type="checkbox" checked={!!daysSel[d]} onChange={(e)=> setDaysSel(s=> ({...s, [d]: e.target.checked}))} /> {d}</label>
@@ -1423,9 +2223,51 @@ function SelfScheduler({ programId, track, periodData, codeData, asgData, teamDa
           {errorMsg && <div className="text-xs text-rose-600">{errorMsg}</div>}
           <div className="pt-2 flex items-center gap-2 flex-wrap">
             <button className="px-3 py-1.5 rounded bg-gray-900 text-white text-xs" onClick={saveWeekly}>Validate & Save</button>
-            <button className="px-3 py-1.5 rounded bg-gray-100 text-gray-800 text-xs" onClick={()=> { setStaged({}); histRef.current=[{}]; hiRef.current=0; setCanUndo(false); setCanRedo(false);} }>Clear</button>
+            {/* Push as MSP-R moved to header button */}
+            <button className="px-3 py-1.5 rounded bg-gray-100 text-gray-800 text-xs" onClick={() => {
+              // Determine visible days: split selection or Mon-Fri for 'all'
+              const visibleDays = daysMode === 'split' ? Object.keys(daysSel).filter(d => daysSel[d]) : ['Mon','Tue','Wed','Thu','Sat'];
+              const targets = visibleDays.length > 1 ? visibleDays : [viewDay];
+              if (!confirm(`Clear placements for ${targets.length} day(s)?`)) return;
+              const removed = [];
+              updateStaged((next) => {
+                Object.keys(next).forEach((k) => {
+                  const d = k.split('|')[0];
+                  if (targets.includes(d)) { removed.push(k); delete next[k]; }
+                });
+                return next;
+              });
+              setClearedInfo({ count: removed.length, sample: removed.slice(0, 6) });
+              setTimeout(() => setClearedInfo(null), 6000);
+            }}>Clear Day</button>
+            {daysMode === 'split' && (
+              <button className="px-3 py-1.5 rounded bg-gray-100 text-gray-800 text-xs" onClick={() => {
+                const targets = Object.keys(daysSel).filter(d => daysSel[d]);
+                if (!targets.length) return alert('No days selected');
+                if (!confirm(`Clear placements for ${targets.length} selected day(s)?`)) return;
+                const removed = [];
+                updateStaged((next) => {
+                  Object.keys(next).forEach((k) => {
+                    const d = k.split('|')[0];
+                    if (targets.includes(d)) { removed.push(k); delete next[k]; }
+                  });
+                  return next;
+                });
+                setClearedInfo({ count: removed.length, sample: removed.slice(0, 6) });
+                setTimeout(() => setClearedInfo(null), 6000);
+              }}>Clear Selected Days</button>
+            )}
+            <button className="px-3 py-1.5 rounded bg-gray-100 text-gray-800 text-xs" onClick={()=> {
+              if (!confirm('Clear all placements for the week?')) return;
+              const removed = [];
+              updateStaged(() => { return {}; });
+              // We cannot easily capture removed keys here after clearing; show generic message
+              setClearedInfo({ count: null, sample: [] });
+              setTimeout(() => setClearedInfo(null), 6000);
+            }} >Clear All</button>
             <button className="px-3 py-1.5 rounded bg-gray-100 text-gray-800 text-xs disabled:opacity-50" onClick={undo} disabled={!canUndo}>Undo</button>
             <button className="px-3 py-1.5 rounded bg-gray-100 text-gray-800 text-xs disabled:opacity-50" onClick={redo} disabled={!canRedo}>Redo</button>
+            {showAdvanced && (
             <button className="px-3 py-1.5 rounded bg-indigo-600 text-white text-xs" onClick={async()=>{
               try {
                 setSeedMsg(''); setErrorMsg('');
@@ -1443,18 +2285,19 @@ function SelfScheduler({ programId, track, periodData, codeData, asgData, teamDa
                 const mj = await mp.json();
                 const prog = (mj.programs||[]).find(p=> p.id === programId);
                 const sop = prog?.sop || {};
-                const key = track === 'pre_primary' ? 'pre_primary' : 'elementary';
                 sop.selfSchedulerDraft = sop.selfSchedulerDraft || {};
                 sop.selfSchedulerDraft[key] = draft;
-                const pr = await fetch('/api/admin/manageMeedian?section=programSOP', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ programId, sop }) });
-                const pj = await pr.json().catch(()=>({}));
+                const pr = await fetch('/api/admin/manageMeedian?section=programSOP', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ programId, sop }) });
+                const pj = await pr.json().catch(() => ({}));
                 if (!pr.ok) throw new Error(pj.error || `HTTP ${pr.status}`);
                 setSeedMsg('Draft saved');
               } catch(e) {
                 setErrorMsg(e.message || 'Failed to save draft');
               }
             }}>Save Draft</button>
-            <button className="px-3 py-1.5 rounded bg-white border text-gray-800 text-xs" onClick={async()=>{
+            )}
+            {showAdvanced && (
+            <button className="px-3 py-1.5 rounded bg-gray-100 border text-gray-800 text-xs" onClick={async()=>{
               try {
                 setSeedMsg(''); setErrorMsg('');
                 const mp = await fetch('/api/admin/manageMeedian?section=metaPrograms');
@@ -1480,10 +2323,17 @@ function SelfScheduler({ programId, track, periodData, codeData, asgData, teamDa
                 setSeedMsg('Draft loaded');
               } catch(e) { setErrorMsg(e.message || 'Failed to load draft'); }
             }}>Load Draft</button>
+            )}
             <span className="text-[11px] text-emerald-700">{seedMsg}</span>
+            {clearedInfo && (
+              <div className="text-[11px] text-rose-600 ml-2">
+                Cleared {clearedInfo.count === null ? 'all' : `${clearedInfo.count} cells`} {clearedInfo.sample && clearedInfo.sample.length ? ` (e.g. ${clearedInfo.sample.join(',')})` : ''}
+              </div>
+            )}
             {errorMsg && <span className="text-[11px] text-rose-600">{errorMsg}</span>}
           </div>
-          {/* Reset tools */}
+          {/* Advanced tools */}
+          {showAdvanced && (
           <div className="pt-3 border-t mt-3 space-y-2">
             <div className="text-sm font-semibold text-gray-800">Reset Tools</div>
             <ResetControls
@@ -1523,8 +2373,11 @@ function SelfScheduler({ programId, track, periodData, codeData, asgData, teamDa
                   return next;
                 });
               }}
+              extractAndSaveCurrentSeed={extractAndSaveCurrentSeed}
             />
           </div>
+          )}
+          {showAdvanced && (
           <div className="pt-3">
             <button className="px-2 py-1.5 rounded border text-xs" onClick={()=> setSeedOpen(v=> !v)}>{seedOpen ? 'Hide' : 'Paste'} Seed JSON</button>
             {seedOpen && (
@@ -1540,14 +2393,41 @@ function SelfScheduler({ programId, track, periodData, codeData, asgData, teamDa
               </div>
             )}
           </div>
+          )}
+          {/* Saved Seeds panel */}
+          {showAdvanced && (
+          <div className="pt-3 border-t mt-3">
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-semibold text-gray-800">Saved Seeds</div>
+              <div className="text-xs text-gray-500">{seedsLoading ? 'Loading…' : `${savedSeeds.length} saved`}</div>
+            </div>
+            <div className="mt-2 space-y-2">
+              {savedSeeds.length === 0 && <div className="text-xs text-gray-500">No saved seeds</div>}
+              {savedSeeds.map(s => (
+                <div key={s.id} className="flex items-center gap-2 justify-between border rounded p-2 bg-gray-50">
+                  <div className="text-xs">{s.name}</div>
+                  <div className="flex items-center gap-1">
+                    <button className="px-2 py-0.5 text-xs rounded bg-white border" onClick={() => { setSelectedSeedId(s.id); loadSeedById(s.id); }}>Load</button>
+                    <button className="px-2 py-0.5 text-xs rounded bg-white border text-rose-600" onClick={() => { if (confirm('Delete seed?')) deleteSeedById(s.id); }}>Delete</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          )}
         </div>
       </div>
       <div className="md:col-span-8 p-3">
         <div className="flex items-center justify-between mb-2">
           <div className="text-sm font-semibold text-gray-800">Timetable (view day)</div>
-          <select className="px-2 py-1 border rounded text-sm" value={viewDay} onChange={(e)=> setViewDay(e.target.value)}>
-            {['Mon','Tue','Wed','Thu','Fri','Sat'].map(d => <option key={d} value={d}>{d}</option>)}
-          </select>
+          <div className="flex items-center gap-2">
+            <label className="text-xs inline-flex items-center gap-1">
+              <input type="checkbox" onChange={(e)=> setShowLeisure(e.target.checked)} checked={showLeisure} /> Show leisure
+            </label>
+            <select className="px-2 py-1 border rounded text-sm" value={viewDay} onChange={(e)=> setViewDay(e.target.value)}>
+              {['Mon','Tue','Wed','Thu','Fri','Sat'].map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-[800px] text-sm border-collapse">
@@ -1601,53 +2481,55 @@ function SelfScheduler({ programId, track, periodData, codeData, asgData, teamDa
           </table>
         </div>
         {/* Leisure preview (simple, based on staged only) */}
+        {showLeisure && (
         <div className="mt-3">
-          <div className="text-sm font-semibold text-gray-800 mb-1">Leisure (unassigned) — {viewDay}</div>
-          <div className="overflow-x-auto">
-            <table className="min-w-[800px] text-xs">
-              <thead>
-                <tr className="text-gray-600">
-                  <th className="text-left py-1 pr-2">Period</th>
-                  <th className="text-left py-1">Teachers Free</th>
-                </tr>
-              </thead>
-              <tbody>
-                {periods.map(p => {
-                  const teachers = new Set((asgData?.assignments||[]).filter(a=> a.active).map(a=> a.userId));
-                  // remove those used in staged for this day/period
-                  classList.forEach(cls => {
-                    const cid = staged[`${viewDay}|${cls}|${p.periodKey}`];
-                    if (cid) {
-                      const uid = codeTeacher.get(cid);
-                      if (uid) teachers.delete(uid);
-                    }
-                  });
-                  const pre = Array.from(teachers).filter(uid => teacherGroup.get(uid) === 'pre');
-                  const ele = Array.from(teachers).filter(uid => teacherGroup.get(uid) !== 'pre');
-                  const preNames = pre.map(uid => (teamData?.users||[]).find(u=> u.id === uid)?.name || uid).slice(0,12);
-                  const eleNames = ele.map(uid => (teamData?.users||[]).find(u=> u.id === uid)?.name || uid).slice(0,12);
-                  return (
-                    <tr key={p.periodKey} className="border-t">
-                      <td className="py-1 pr-2 font-semibold">{p.periodKey}</td>
-                      <td className="py-1">
-                        <div className="flex flex-col sm:flex-row gap-2">
-                          <div className="text-[11px]"><span className="font-semibold text-sky-700">Pre‑Primary:</span> {preNames.length ? preNames.join(', ') : '—'}</div>
-                          <div className="text-[11px]"><span className="font-semibold text-indigo-700">Elementary:</span> {eleNames.length ? eleNames.join(', ') : '—'}</div>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-sm font-semibold text-gray-800">Leisure (free teachers)</div>
+            <div className="flex flex-wrap gap-1">
+              {periods.map(p => (
+                <button key={p.periodKey} className={`px-2 py-1 rounded text-xs border ${leisurePeriod === p.periodKey ? 'bg-gray-900 text-white' : 'bg-white'}`} onClick={()=> setLeisurePeriod(p.periodKey)}>
+                  {p.periodKey}
+                </button>
+              ))}
+            </div>
           </div>
+          {(() => {
+            const targetPk = leisurePeriod || (periods[0]?.periodKey || 'P1');
+            const teachers = new Set((asgData?.assignments||[]).filter(a=> a.active).map(a=> a.userId));
+            // remove those used in staged for this day/period
+            classList.forEach(cls => {
+              const cid = staged[`${viewDay}|${cls}|${targetPk}`];
+              if (cid) {
+                const uid = codeTeacher.get(cid);
+                if (uid) teachers.delete(uid);
+              }
+            });
+            const pre = Array.from(teachers).filter(uid => teacherGroup.get(uid) === 'pre');
+            const ele = Array.from(teachers).filter(uid => teacherGroup.get(uid) !== 'pre');
+            const preNames = pre.map(uid => (teamData?.users||[]).find(u=> u.id === uid)?.name || uid);
+            const eleNames = ele.map(uid => (teamData?.users||[]).find(u=> u.id === uid)?.name || uid);
+            const Chip = ({ name }) => <span className="px-2 py-1 rounded-full border bg-gray-50 text-[11px]">{name}</span>;
+            return (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="border rounded-lg p-2">
+                  <div className="text-xs font-semibold text-sky-700 mb-1">Pre‑Primary — {targetPk}</div>
+                  <div className="flex flex-wrap gap-1.5">{preNames.length ? preNames.slice(0, 24).map((n,i)=> <Chip key={i} name={n}/>) : <span className="text-[11px] text-gray-500">—</span>}</div>
+                </div>
+                <div className="border rounded-lg p-2">
+                  <div className="text-xs font-semibold text-indigo-700 mb-1">Elementary — {targetPk}</div>
+                  <div className="flex flex-wrap gap-1.5">{eleNames.length ? eleNames.slice(0, 24).map((n,i)=> <Chip key={i} name={n}/>) : <span className="text-[11px] text-gray-500">—</span>}</div>
+                </div>
+              </div>
+            );
+          })()}
         </div>
+        )}
       </div>
     </div>
   );
 }
 
-function ResetControls({ classes, team, codes, onResetClass, onClearTeacher, onClearCode }) {
+function ResetControls({ classes, team, codes, onResetClass, onClearTeacher, onClearCode, extractAndSaveCurrentSeed }) {
   const [cls, setCls] = useState('');
   const [userId, setUserId] = useState('');
   const [codeId, setCodeId] = useState('');
@@ -1685,6 +2567,16 @@ function ResetControls({ classes, team, codes, onResetClass, onClearTeacher, onC
             ))}
           </select>
           <button className="px-2.5 py-1.5 rounded bg-white border text-xs" onClick={()=> onClearCode && onClearCode(Number(codeId))} disabled={!codeId}>Clear Code</button>
+        </div>
+      </div>
+      <div className="space-y-1">
+        <div className="text-xs text-gray-600">Extract and save the entire day's grid as a seed (for copy-paste reuse)</div>
+        <div className="flex items-center gap-2">
+          <select className="flex-1 border rounded px-2 py-1 text-xs" value={userId} onChange={(e)=> setUserId(e.target.value)}>
+            <option value="">Select day…</option>
+            {["Mon","Tue","Wed","Thu","Fri","Sat"].map((d)=> <option key={d} value={d}>{d}</option>)}
+          </select>
+          <button className="px-2.5 py-1.5 rounded bg-indigo-600 text-white text-xs" onClick={()=> userId && extractAndSaveCurrentSeed(userId)} disabled={!userId}>Extract Seed</button>
         </div>
       </div>
     </div>

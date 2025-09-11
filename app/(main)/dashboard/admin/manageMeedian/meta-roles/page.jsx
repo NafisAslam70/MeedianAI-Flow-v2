@@ -41,6 +41,21 @@ function Modal({ open, title, onClose, children }) {
   );
 }
 
+const generateTaskWithAI = async (context) => {
+  try {
+    const res = await fetch("/api/admin/manageMeedian/generateTask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ context }),
+    });
+    if (!res.ok) throw new Error("Failed to generate task with AI");
+    return await res.json();
+  } catch (err) {
+    console.error("AI Task Generation Error:", err);
+    return null;
+  }
+};
+
 export default function RoleDefinitionsPage() {
   const [loading, setLoading] = useState(false);
   const [builtin, setBuiltin] = useState([]);
@@ -51,7 +66,10 @@ export default function RoleDefinitionsPage() {
   const [message, setMessage] = useState(null);
   const [families, setFamilies] = useState([]);
   const [taskModal, setTaskModal] = useState({ open: false, role: null, tasks: [], loading: false });
-  const [taskForm, setTaskForm] = useState({ title: "", description: "" });
+  const [taskForm, setTaskForm] = useState({ title: "", description: "", submissables: "", action: "" });
+  const [editingTaskId, setEditingTaskId] = useState(null);
+  const [editForm, setEditForm] = useState({ title: "", description: "", submissables: "", action: "", active: true });
+  const [submissablesList, setSubmissablesList] = useState([]);
 
   // derive category options from families (active only); fallback to defaults
   const categoryOptions = useMemo(() => {
@@ -194,6 +212,25 @@ export default function RoleDefinitionsPage() {
     }
   };
 
+  // Ensure a roleDef exists for a built-in role key, then return it
+  const ensureRoleDefForBuiltin = async (roleKey) => {
+    const pretty = String(roleKey).replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
+    const category = builtinCategoryMap[roleKey] || "rmri";
+    try {
+      const res = await fetch(`/api/admin/manageMeedian?section=metaRoleDefs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roleKey, name: pretty, category }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Failed to ensure role def");
+      return j.roleDef || j.role || j.created || j; // be tolerant of response shape
+    } catch (e) {
+      setMessage({ type: "error", text: e.message });
+      return null;
+    }
+  };
+
   const openTasks = async (role) => {
     setTaskModal({ open: true, role, tasks: [], loading: true });
     try {
@@ -206,31 +243,64 @@ export default function RoleDefinitionsPage() {
     }
   };
 
+  // Open tasks for a built-in role key by ensuring roleDef first
+  const openBuiltinTasks = async (roleKey) => {
+    const rd = await ensureRoleDefForBuiltin(roleKey);
+    if (rd) openTasks(rd);
+  };
+
+  const openTaskModal = (role) => {
+    setTaskModal({ open: true, role, tasks: [], loading: true });
+    fetch(`/api/admin/manageMeedian?section=metaRoleTasks&roleDefId=${role.id}`)
+      .then((res) => res.json())
+      .then((data) => {
+        setTaskModal((prev) => ({ ...prev, tasks: data.tasks || [], loading: false }));
+      })
+      .catch((err) => {
+        console.error("Failed to fetch tasks:", err);
+        setTaskModal((prev) => ({ ...prev, loading: false }));
+      });
+  };
+
   const createTask = async (e) => {
     e.preventDefault();
-    if (!taskModal?.role?.id) return;
+    setTaskModal((prev) => ({ ...prev, loading: true }));
     try {
+      // Transform submissables: accept comma or newline separated -> array
+      let subs = null;
+      if (taskForm.submissables && String(taskForm.submissables).trim()) {
+        subs = String(taskForm.submissables)
+          .split(/\n|,/)
+          .map((s) => s.trim())
+          .filter(Boolean);
+      }
       const res = await fetch(`/api/admin/manageMeedian?section=metaRoleTasks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ roleDefId: taskModal.role.id, title: taskForm.title, description: taskForm.description }),
+        body: JSON.stringify({
+          roleDefId: taskModal.role.id,
+          title: taskForm.title,
+          description: taskForm.description,
+          submissables: subs,
+          action: taskForm.action || null,
+        }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Failed to create task");
-      setTaskForm({ title: "", description: "" });
-      // refresh list
-      const res2 = await fetch(`/api/admin/manageMeedian?section=metaRoleTasks&roleDefId=${taskModal.role.id}`);
-      const j2 = await res2.json();
-      setTaskModal((m) => ({ ...m, tasks: j2.tasks || [] }));
-    } catch (e) {
-      setMessage({ type: "error", text: e.message });
+      setTaskForm({ title: "", description: "", submissables: "", action: "" });
+      await openTaskModal(taskModal.role);
+    } catch (err) {
+      console.error("Failed to create task:", err);
+    } finally {
+      setTaskModal((prev) => ({ ...prev, loading: false }));
     }
   };
 
   const updateTask = async (id, patch) => {
     try {
+      // Use POST with updates[] as per current API implementation
       const res = await fetch(`/api/admin/manageMeedian?section=metaRoleTasks`, {
-        method: "PATCH",
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ updates: [{ id, ...patch }] }),
       });
@@ -284,9 +354,11 @@ export default function RoleDefinitionsPage() {
             {builtinList.length === 0 && <div className="text-sm text-gray-500">No built-in roles in this category.</div>}
             <ul className="divide-y divide-gray-200">
               {builtinList.map((r) => (
-                <li key={r} className="py-2 text-sm flex items-center justify-between">
+                <li key={r} className="py-2 text-sm flex items-center justify-between gap-2">
                   <span className="text-gray-800">{r}</span>
-                  <span className="text-xs text-gray-500">read-only</span>
+                  <div className="flex items-center gap-2">
+                    <Button onClick={() => openBuiltinTasks(r)} variant="secondary">Tasks</Button>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -324,6 +396,32 @@ export default function RoleDefinitionsPage() {
         </Card>
       </div>
     );
+  };
+
+  const addSubmissable = () => {
+    if (taskForm.submissables.trim()) {
+      setSubmissablesList((prev) => [...prev, taskForm.submissables.trim()]);
+      setTaskForm((prev) => ({ ...prev, submissables: '' }));
+    }
+  };
+
+  const removeSubmissable = (index) => {
+    setSubmissablesList((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleGenerateWithAI = async () => {
+    setTaskModal((prev) => ({ ...prev, loading: true }));
+    const context = `Role: ${taskModal.role.name}, Existing Tasks: ${taskModal.tasks.map((t) => t.title).join(", ")}`;
+    const aiGeneratedTask = await generateTaskWithAI(context);
+    if (aiGeneratedTask) {
+      setTaskForm({
+        title: aiGeneratedTask.title || "",
+        description: aiGeneratedTask.description || "",
+        submissables: aiGeneratedTask.submissables?.join(", ") || "",
+        action: aiGeneratedTask.action || "",
+      });
+    }
+    setTaskModal((prev) => ({ ...prev, loading: false }));
   };
 
   return (
@@ -369,7 +467,7 @@ export default function RoleDefinitionsPage() {
         </form>
       </Modal>
 
-      <Modal open={taskModal.open} title={taskModal.role ? `Tasks: ${taskModal.role.roleKey}` : "Tasks"} onClose={() => setTaskModal({ open: false, role: null, tasks: [], loading: false })}>
+      <Modal open={taskModal.open} title={taskModal.role ? `Tasks: ${taskModal.role.roleKey || taskModal.role.name}` : "Tasks"} onClose={() => { setTaskModal({ open: false, role: null, tasks: [], loading: false }); setEditingTaskId(null); }}>
         {!taskModal.role ? (
           <div className="text-sm text-gray-500">No role selected.</div>
         ) : (
@@ -377,7 +475,28 @@ export default function RoleDefinitionsPage() {
             <form onSubmit={createTask} className="space-y-2">
               <Input label="Task Title" value={taskForm.title} onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })} required />
               <Input label="Description" value={taskForm.description} onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })} />
+              <div>
+                <label htmlFor="submissables">Submissables</label>
+                <input
+                  type="text"
+                  id="submissables"
+                  value={taskForm.submissables}
+                  onChange={(e) => setTaskForm({ ...taskForm, submissables: e.target.value })}
+                />
+                <button type="button" onClick={addSubmissable}>Add Submissable</button>
+              </div>
+              <ul>
+                {submissablesList.map((item, index) => (
+                  <li key={index}>
+                    {item} <button type="button" onClick={() => removeSubmissable(index)}>Remove</button>
+                  </li>
+                ))}
+              </ul>
+              <Input label="Action (optional)" value={taskForm.action} onChange={(e) => setTaskForm({ ...taskForm, action: e.target.value })} />
               <div className="flex items-center justify-end">
+                <Button type="button" onClick={handleGenerateWithAI} disabled={taskModal.loading}>
+                  {taskModal.loading ? "Generating..." : "Generate with AI"}
+                </Button>
                 <Button type="submit" variant="primary">Add Task</Button>
               </div>
             </form>
@@ -389,17 +508,94 @@ export default function RoleDefinitionsPage() {
               ) : (
                 <ul className="divide-y divide-gray-200">
                   {taskModal.tasks.map((t) => (
-                    <li key={t.id} className="py-2 flex items-start justify-between gap-2">
-                      <div className="flex-1">
-                        <div className="text-gray-900 font-medium">{t.title}</div>
-                        {t.description ? <div className="text-gray-600 text-sm">{t.description}</div> : null}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button onClick={() => updateTask(t.id, { active: !t.active })} variant={t.active ? "secondary" : "primary"}>
-                          {t.active ? "Disable" : "Enable"}
-                        </Button>
-                        <Button onClick={() => deleteTask(t.id)} variant="ghost">Delete</Button>
-                      </div>
+                    <li key={t.id} className="py-2 flex flex-col gap-2">
+                      {editingTaskId === t.id ? (
+                        <div className="space-y-2">
+                          <Input label="Title" value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} />
+                          <Input label="Description" value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} />
+                          <Input label="Submissables (comma/newline separated)" value={editForm.submissables} onChange={(e) => setEditForm({ ...editForm, submissables: e.target.value })} />
+                          <Input label="Action" value={editForm.action} onChange={(e) => setEditForm({ ...editForm, action: e.target.value })} />
+                          <div className="flex items-center gap-2 justify-end">
+                            <Button
+                              onClick={async () => {
+                                let subs = null;
+                                if (editForm.submissables && String(editForm.submissables).trim()) {
+                                  subs = String(editForm.submissables)
+                                    .split(/\n|,/)
+                                    .map((s) => s.trim())
+                                    .filter(Boolean);
+                                }
+                                await updateTask(t.id, {
+                                  title: editForm.title,
+                                  description: editForm.description,
+                                  submissables: subs,
+                                  action: editForm.action || null,
+                                  active: !!editForm.active,
+                                });
+                                setEditingTaskId(null);
+                              }}
+                              variant="primary"
+                            >
+                              Save
+                            </Button>
+                            <Button onClick={() => setEditingTaskId(null)} variant="ghost">Cancel</Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1">
+                            <div className="text-gray-900 font-medium">{t.title}</div>
+                            {t.description ? <div className="text-gray-600 text-sm">{t.description}</div> : null}
+                            {/* Display submissables and action if present */}
+                            {t.submissables ? (
+                              <div className="text-gray-600 text-xs mt-1">
+                                <span className="font-medium">Submissables:</span>
+                                {(() => {
+                                  try {
+                                    const arr = JSON.parse(t.submissables || "null");
+                                    if (Array.isArray(arr) && arr.length) {
+                                      return (
+                                        <ol className="list-decimal pl-5 mt-1">
+                                          {arr.map((item, idx) => (
+                                            <li key={idx} className="leading-5">{String(item)}</li>
+                                          ))}
+                                        </ol>
+                                      );
+                                    }
+                                    return <span> {String(t.submissables)}</span>;
+                                  } catch {
+                                    return <span> {String(t.submissables)}</span>;
+                                  }
+                                })()}
+                              </div>
+                            ) : null}
+                            {t.action ? (
+                              <div className="text-gray-600 text-xs"><span className="font-medium">Action:</span> {t.action}</div>
+                            ) : null}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button onClick={() => updateTask(t.id, { active: !t.active })} variant={t.active ? "secondary" : "primary"}>
+                              {t.active ? "Disable" : "Enable"}
+                            </Button>
+                            <Button
+                              onClick={() => {
+                                setEditingTaskId(t.id);
+                                setEditForm({
+                                  title: t.title || "",
+                                  description: t.description || "",
+                                  submissables: (() => { try { const arr = JSON.parse(t.submissables || "null"); return Array.isArray(arr) ? arr.join(", ") : String(t.submissables || ""); } catch { return String(t.submissables || ""); } })(),
+                                  action: t.action || "",
+                                  active: !!t.active,
+                                });
+                              }}
+                              variant="secondary"
+                            >
+                              Edit
+                            </Button>
+                            <Button onClick={() => deleteTask(t.id)} variant="ghost">Delete</Button>
+                          </div>
+                        </div>
+                      )}
                     </li>
                   ))}
                 </ul>

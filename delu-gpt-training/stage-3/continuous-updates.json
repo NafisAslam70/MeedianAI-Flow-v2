@@ -1,0 +1,17 @@
+{
+  "description": "Continuous updates for DeluGPT.",
+  "data": [
+    {
+      "update_type": "system_changes",
+      "content": "Details about recent changes in the system."
+    },
+    {
+      "update_type": "new_roles",
+      "content": "Information about newly added roles and their tasks."
+    },
+    {
+      "update_type": "user_feedback",
+      "content": "Feedback from users to improve DeluGPT's accuracy."
+    }
+  ]
+}

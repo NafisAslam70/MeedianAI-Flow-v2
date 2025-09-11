@@ -4,6 +4,8 @@ import { MessageSquare, Send, X, Sparkles, Mic, MicOff, Volume2, VolumeX } from 
 import { useSession } from "next-auth/react";
 
 export default function DeluGPT() {
+  const MAX_CONTEXT_TURNS = 12; // how many recent messages to send to API
+  const MAX_RENDER_MESSAGES = 100; // cap DOM rendering for smooth scroll
   const { data: session } = useSession();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -11,6 +13,8 @@ export default function DeluGPT() {
   const [messages, setMessages] = useState([
     { role: "assistant", content: "Hi, I’m DELU‑GPT. How can I help?" },
   ]);
+  const messagesRef = useRef(messages);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
   const endRef = useRef(null);
   const modalRef = useRef(null);
   const [pos, setPos] = useState({ x: 16, y: 100 });
@@ -21,9 +25,15 @@ export default function DeluGPT() {
   const [ttsEnabled, setTtsEnabled] = useState(false);
   const [recognizing, setRecognizing] = useState(false);
   const [sttSupported, setSttSupported] = useState(false);
+  const [typing, setTyping] = useState(false);
+  const abortRef = useRef(null);
 
   useEffect(() => {
-    if (endRef.current) endRef.current.scrollIntoView({ behavior: "smooth" });
+    if (!endRef.current) return;
+    const behave = messages.length > 40 ? "auto" : "smooth";
+    requestAnimationFrame(() => {
+      try { endRef.current.scrollIntoView({ behavior: behave }); } catch {}
+    });
   }, [messages, open]);
 
   // Initialize modal position on open
@@ -67,11 +77,19 @@ export default function DeluGPT() {
     setInput("");
     setMessages((m) => [...m, { role: "user", content }]);
     setBusy(true);
+    setTyping(true);
+    // cancel any in-flight request
+    try { abortRef.current?.abort(); } catch {}
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
       const res = await fetch("/api/ai/assist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: [...messages, { role: "user", content }] }),
+        body: JSON.stringify({
+          messages: [...messagesRef.current, { role: "user", content }].slice(-MAX_CONTEXT_TURNS),
+        }),
+        signal: controller.signal,
       });
       const data = await res.json();
       if (res.ok) {
@@ -90,9 +108,12 @@ export default function DeluGPT() {
         setMessages((m) => [...m, { role: "assistant", content: data.error || "Request failed" }]);
       }
     } catch (e) {
-      setMessages((m) => [...m, { role: "assistant", content: e.message || "Network error" }]);
+      if (e?.name !== "AbortError") {
+        setMessages((m) => [...m, { role: "assistant", content: e.message || "Network error" }]);
+      }
     } finally {
       setBusy(false);
+      setTyping(false);
     }
   };
 
@@ -173,12 +194,18 @@ export default function DeluGPT() {
               </div>
             </div>
             <div className="p-3 h-80 overflow-y-auto space-y-2">
-              {messages.map((m, i) => (
+              {messages.slice(-MAX_RENDER_MESSAGES).map((m, i) => (
                 <div key={i} className={`text-sm ${m.role === "assistant" ? "text-cyan-100" : "text-gray-200"}`}>
                   <span className="font-semibold mr-1">{m.role === "assistant" ? "DELU‑GPT:" : "You:"}</span>
                   <span dangerouslySetInnerHTML={{ __html: m.content.replace(/\n/g, "<br/>") }} />
                 </div>
               ))}
+              {typing && (
+                <div className="text-sm text-cyan-200">
+                  <span className="font-semibold mr-1">DELU‑GPT:</span>
+                  <span>typing…</span>
+                </div>
+              )}
               <div ref={endRef} />
             </div>
             <div className="px-3 pb-2 flex gap-2 flex-wrap">

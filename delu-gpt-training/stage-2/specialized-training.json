@@ -1,0 +1,17 @@
+{
+  "description": "Specialized training data for DeluGPT.",
+  "data": [
+    {
+      "module": "Routine Manager",
+      "content": "Details about managing routines and schedules."
+    },
+    {
+      "module": "Task Management",
+      "content": "Information on creating, assigning, and tracking tasks."
+    },
+    {
+      "module": "Role Definitions",
+      "content": "Definitions and responsibilities of various roles."
+    }
+  ]
+}

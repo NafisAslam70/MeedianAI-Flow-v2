@@ -3,6 +3,8 @@ import { auth } from "@/lib/auth";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_CHAT_MODEL = process.env.OPENAI_CHAT_MODEL || "gpt-4o-mini";
+const ASSIST_MAX_TURNS = Number(process.env.ASSIST_MAX_TURNS || 12);
+const ASSIST_MAX_TOKENS = Number(process.env.ASSIST_MAX_TOKENS || 500);
 
 export async function POST(req) {
   try {
@@ -59,14 +61,19 @@ export async function POST(req) {
     ]);
     const modelToUse = allowedModels.has(requestedModel) ? requestedModel : OPENAI_CHAT_MODEL;
 
+    // Trim history server-side as well (defensive)
+    const convo = messages.map((m) => ({ role: m.role, content: String(m.content || "") }));
+    const trimmed = convo.slice(-ASSIST_MAX_TURNS);
+
     const payload = {
       model: modelToUse,
       messages: [
         { role: "system", content: system },
         { role: "system", content: `User role: ${role}` },
-        ...messages.map((m) => ({ role: m.role, content: String(m.content || "") })),
+        ...trimmed,
       ],
       temperature: 0.3,
+      max_tokens: ASSIST_MAX_TOKENS,
     };
 
     const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {

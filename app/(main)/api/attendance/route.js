@@ -1,0 +1,92 @@
+import { NextResponse } from "next/server";
+import { auth } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { users, userMriRoles, scannerSessions, attendanceEvents } from "@/lib/schema";
+import { and, eq } from "drizzle-orm";
+import crypto from "crypto";
+
+const b64u = (s) => Buffer.from(s).toString("base64").replace(/=+$/,'').replace(/\+/g,'-').replace(/\//g,'_');
+const b64uJson = (o) => b64u(JSON.stringify(o));
+const sign = (payload, secret) => crypto.createHmac("sha256", secret).update(payload).digest("hex");
+const SECRET = process.env.ATTENDANCE_SECRET || process.env.NEXTAUTH_SECRET || "dev_secret";
+
+function nowTs() { return Math.floor(Date.now() / 1000); }
+
+export async function GET(req) {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { searchParams } = new URL(req.url);
+  const section = String(searchParams.get("section") || "");
+  try {
+    if (section === "personalToken") {
+      const uid = Number(session.user.id);
+      const date = new Date().toISOString().slice(0,10);
+      const payload = { uid, date, exp: nowTs() + 10 * 60, nonce: crypto.randomBytes(6).toString("hex") };
+      const p = b64uJson(payload);
+      const sig = sign(p, SECRET);
+      return NextResponse.json({ token: `${p}.${sig}` });
+    }
+    return NextResponse.json({ error: "Invalid section" }, { status: 400 });
+  } catch (e) {
+    return NextResponse.json({ error: e.message }, { status: 500 });
+  }
+}
+
+export async function POST(req) {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { searchParams } = new URL(req.url);
+  const section = String(searchParams.get("section") || "");
+  const body = await req.json().catch(() => ({}));
+  try {
+    if (section === "sessionStart") {
+      // Require RMRI role holder (e.g., msp_ele_moderator)
+      const roleRows = await db.select().from(userMriRoles).where(and(eq(userMriRoles.userId, Number(session.user.id)), eq(userMriRoles.active, true)));
+      const roleKeys = new Set(roleRows.map(r => r.role));
+      const roleKey = String(body.roleKey || "").toLowerCase();
+      if (!roleKey || !roleKeys.has(roleKey)) return NextResponse.json({ error: "Not permitted for this role" }, { status: 403 });
+      const programKey = String(body.programKey || "MSP").toUpperCase();
+      const track = String(body.track || "elementary").toLowerCase();
+      const ttlMin = Number(body.ttlMin || 25);
+      const nonce = crypto.randomBytes(12).toString("hex");
+      const expiresAt = new Date(Date.now() + ttlMin * 60 * 1000);
+      const [row] = await db.insert(scannerSessions).values({ programKey, track, roleKey, startedBy: Number(session.user.id), nonce, active: true, expiresAt }).returning();
+      const payload = { sid: row.id, nonce, exp: nowTs() + ttlMin * 60 };
+      const p = b64uJson(payload);
+      const sig = sign(p, SECRET);
+      return NextResponse.json({ session: { id: row.id, programKey, track, expiresAt }, token: `${p}.${sig}` }, { status: 201 });
+    }
+
+    if (section === "ingest") {
+      const { sessionToken, userToken, clientIp, wifiSsid, deviceFp } = body || {};
+      if (!sessionToken || !userToken) return NextResponse.json({ error: "sessionToken and userToken required" }, { status: 400 });
+      const [sp, ssig] = String(sessionToken).split('.') || [];
+      const [up, usig] = String(userToken).split('.') || [];
+      if (!sp || !ssig || !up || !usig) return NextResponse.json({ error: "Invalid token(s)" }, { status: 400 });
+      if (sign(sp, SECRET) !== ssig || sign(up, SECRET) !== usig) return NextResponse.json({ error: "Bad signature" }, { status: 403 });
+      const sPayload = JSON.parse(Buffer.from(sp.replace(/-/g,'+').replace(/_/g,'/'), 'base64').toString('utf8'));
+      const uPayload = JSON.parse(Buffer.from(up.replace(/-/g,'+').replace(/_/g,'/'), 'base64').toString('utf8'));
+      if (!sPayload?.sid || !uPayload?.uid) return NextResponse.json({ error: "Malformed payloads" }, { status: 400 });
+      if (sPayload.exp && nowTs() > sPayload.exp) return NextResponse.json({ error: "Session expired" }, { status: 410 });
+      if (uPayload.exp && nowTs() > uPayload.exp) return NextResponse.json({ error: "User token expired" }, { status: 410 });
+      // Verify session active
+      const [sess] = await db.select().from(scannerSessions).where(eq(scannerSessions.id, Number(sPayload.sid)));
+      if (!sess || sess.active === false || (sess.expiresAt && new Date() > new Date(sess.expiresAt))) {
+        return NextResponse.json({ error: "Session inactive" }, { status: 410 });
+      }
+      // Upsert attendance
+      try {
+        await db.insert(attendanceEvents).values({ sessionId: Number(sPayload.sid), userId: Number(uPayload.uid), clientIp: clientIp || null, wifiSsid: wifiSsid || null, deviceFp: deviceFp || null });
+      } catch {
+        // duplicate → ok
+      }
+      return NextResponse.json({ ok: true });
+    }
+
+    return NextResponse.json({ error: "Invalid section" }, { status: 400 });
+  } catch (e) {
+    console.error("attendance error", e);
+    return NextResponse.json({ error: e.message }, { status: 500 });
+  }
+}
+

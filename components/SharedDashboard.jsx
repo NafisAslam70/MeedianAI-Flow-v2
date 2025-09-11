@@ -673,6 +673,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
   const [error, setError] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [tokenInput, setTokenInput] = useState("");
+  const [openingDay, setOpeningDay] = useState(false);
 
   // force dark theme on this view
   useEffect(() => {
@@ -718,6 +719,29 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
   const [slotsGD, setSlotsGD] = useState([]);
   const [currentSlotGD, setCurrentSlotGD] = useState(null);
   const [currentBlockGD, setCurrentBlockGD] = useState(null);
+
+  async function handleOpenDay() {
+    try {
+      setOpeningDay(true);
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const res = await fetch('/api/member/startDay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: selectedDate || todayStr })
+      });
+      const j = await res.json().catch(()=>({}));
+      if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+      const nowMs = Date.now();
+      setDayPack((p) => ({ ...(p || {}), openedAt: nowMs }));
+      setSuccess('Day opened successfully');
+      setTimeout(()=> setSuccess(''), 2500);
+    } catch(e) {
+      setError(e.message || 'Failed to open day');
+      setTimeout(()=> setError(''), 3500);
+    } finally {
+      setOpeningDay(false);
+    }
+  }
   const [timeLeftGD, setTimeLeftGD] = useState(null);
 
   useEffect(() => {
@@ -1243,7 +1267,18 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                 />
                 <div className="hidden sm:flex items-center gap-2 px-2 py-1 rounded-xl text-[11px] bg-white/80 dark:bg-slate-800/70 border border-gray-200/50 dark:border-white/10 text-gray-700 dark:text-gray-200">
                   <Clock className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Opened: {dayPack?.openedAt ? fmtHM(dayPack.openedAt) : "6:53 am"}</span>
+                  <span>Opened: {dayPack?.openedAt ? fmtHM(dayPack.openedAt) : "Not opened yet"}</span>
+                  {!dayPack?.openedAt && (
+                    <button
+                      type="button"
+                      onClick={handleOpenDay}
+                      disabled={openingDay}
+                      className="ml-1 inline-flex items-center px-2 py-0.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-60"
+                      title="Mark your day as opened"
+                    >
+                      {openingDay ? 'Opening…' : 'Open Day'}
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -1321,7 +1356,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] sm:text-xs opacity-95">
                         <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white/15 border border-white/20">
                           <Clock className="w-3.5 h-3.5" />
-                          Opened: {dayPack?.openedAt ? fmtHM(dayPack.openedAt) : "6:53 am"}
+                          Opened: {dayPack?.openedAt ? fmtHM(dayPack.openedAt) : "Not opened yet"}
                         </span>
                         <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white/15 border border-white/20">
                           Now: {currentBlockGD || "—"}
@@ -1330,6 +1365,17 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                           <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white/15 border border-white/20">
                             {`${currentSlotGD.startTime?.slice(0, 5)}–${currentSlotGD.endTime?.slice(0, 5)}`} · {timeLeftGD !== null ? `${formatTimeLeft(timeLeftGD)} left` : "Ended"}
                           </span>
+                        )}
+                        {!dayPack?.openedAt && (
+                          <button
+                            type="button"
+                            onClick={handleOpenDay}
+                            disabled={openingDay}
+                            className="ml-2 inline-flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-600 text-white border border-white/10 hover:bg-emerald-500 disabled:opacity-60"
+                            title="Mark your day as opened"
+                          >
+                            {openingDay ? 'Opening…' : 'Open Day'}
+                          </button>
                         )}
                       </div>
                       {currentMrn?.note && (

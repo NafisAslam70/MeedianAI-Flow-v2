@@ -34,6 +34,11 @@ export default function MyMRIs() {
   const [isMAPModalOpen, setIsMAPModalOpen] = useState(false);
   const [isMGHPModalOpen, setIsMGHPModalOpen] = useState(false);
   const [isRMRIInfoOpen, setIsRMRIInfoOpen] = useState(false);
+  const [rRoleModalOpen, setRRoleModalOpen] = useState(false);
+  const [rTaskModalOpen, setRTaskModalOpen] = useState(false);
+  const [selectedRoleBundle, setSelectedRoleBundle] = useState(null); // { roleKey, roleName, tasks: [] }
+  const [selectedRTask, setSelectedRTask] = useState(null); // { roleName, task }
+  const [scanPanel, setScanPanel] = useState({ session: null, sessionToken: "", userTokenInput: "", logs: [] , starting: false, ingesting: false});
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [error, setError] = useState(null);
   const [todayAMRIs, setTodayAMRIs] = useState([]);
@@ -42,6 +47,10 @@ export default function MyMRIs() {
   const [weeklyNMRIs, setWeeklyNMRIs] = useState([]);
   const [routineTasks, setRoutineTasks] = useState([]);
   const [isLoadingNMRIs, setIsLoadingNMRIs] = useState(true);
+  const { data: roleTasksData, error: roleTasksError } = useSWR(
+    session?.user?.id ? "/api/member/mris/role-tasks" : null,
+    fetcher
+  );
 
   // Fetch today's A-MRIs and N-MRIs
   const { data: todayMRIsData, error: todayMRIsError } = useSWR(
@@ -125,7 +134,11 @@ export default function MyMRIs() {
       setRoutineTasks([{ id: 1, description: "Daily check-in", status: "not_started" }, { id: 2, description: "Team report", status: "not_started" }]);
       setTimeout(() => setError(null), 3000);
     }
-  }, [session, todayMRIsData, todayMRIsError, weeklyMRIsData, weeklyMRIsError, assignedTasksData, assignedTasksError, routineTasksData, routineTasksError]);
+    if (roleTasksError) {
+      // not critical, just log
+      console.warn("Failed to load role tasks:", roleTasksError);
+    }
+  }, [session, todayMRIsData, todayMRIsError, weeklyMRIsData, weeklyMRIsError, assignedTasksData, assignedTasksError, routineTasksData, routineTasksError, roleTasksError]);
 
   const today = format(new Date("2025-07-28T21:45:00+08:00"), "EEEE, MMMM d, yyyy");
 
@@ -253,9 +266,19 @@ export default function MyMRIs() {
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.5 }}
           >
-            <div className="flex items-center gap-2 mb-4">
-              <Calendar size={20} className="text-teal-600" />
-              <h2 className="text-xl font-bold text-gray-800">Today's Rituals</h2>
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="flex items-center gap-2">
+                <Calendar size={20} className="text-teal-600" />
+                <h2 className="text-xl font-bold text-gray-800">Today's Rituals</h2>
+              </div>
+              <motion.button
+                className="px-3 py-1.5 rounded-lg bg-teal-600 text-white text-xs font-semibold hover:bg-teal-700"
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setIsRoutineTasksModalOpen(true)}
+              >
+                Routine tasks
+              </motion.button>
             </div>
             <p className="text-sm text-gray-600 mb-6">{today}</p>
 
@@ -287,28 +310,30 @@ export default function MyMRIs() {
             </div>
 
             {/* R-MRIs (Role-Based) */}
-            <div className="mb-6">
-              <h3 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
-                <CheckCircle size={18} className="text-rose-600" />
-                R-MRIs (Role-Based Tasks)
-              </h3>
-              <div className="grid grid-cols-1 gap-3">
-                <motion.button
-                  className="bg-rose-50/80 rounded-xl p-3 flex items-center justify-center text-rose-800 font-semibold text-sm hover:bg-rose-100 transition-all duration-300"
-                  whileHover={{ scale: 1.05 }}
-                  onClick={() => {
-                    const tmType = session?.user?.team_manager_type;
-                    if (session?.user?.role === "admin" || tmType === "accountant") {
-                      router.push("/dashboard/accountant");
-                    } else {
-                      setIsRMRIInfoOpen(true);
-                    }
-                  }}
-                >
-                  Open Role-Based Tasks
-                </motion.button>
+            {(roleTasksData?.roles || []).length > 0 && (
+              <div className="mb-6">
+                <h3 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                  <CheckCircle size={18} className="text-rose-600" />
+                  R-MRIs (Role-Based Tasks)
+                </h3>
+                <div className="grid grid-cols-3 gap-3">
+                  {(roleTasksData.roles || []).map((r, index) => (
+                    <motion.button
+                      key={r.roleKey}
+                      className="bg-rose-50/80 rounded-xl p-3 flex items-center justify-center text-rose-800 font-semibold text-sm hover:bg-rose-100 transition-all duration-300 text-center"
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ duration: 0.3, delay: index * 0.05 }}
+                      whileHover={{ scale: 1.05 }}
+                      onClick={() => { setSelectedRoleBundle(r); setRRoleModalOpen(true); }}
+                      title={r.roleKey}
+                    >
+                      {r.roleName || r.roleKey}
+                    </motion.button>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* N-MRIs */}
             <div className="mb-6 flex-1">
@@ -345,25 +370,7 @@ export default function MyMRIs() {
               )}
             </div>
 
-            {/* Buttons */}
-            <div className="space-y-3 mt-auto">
-              <motion.button
-                className="w-full bg-teal-600 text-white py-3 rounded-xl font-semibold hover:bg-teal-700 transition-all duration-300 flex items-center justify-center gap-2"
-                whileHover={{ scale: 1.02 }}
-                onClick={() => setIsAssignedTasksModalOpen(true)}
-              >
-                <CheckCircle size={16} />
-                Assigned Tasks
-              </motion.button>
-              <motion.button
-                className="w-full bg-blue-600 text-white py-3 rounded-xl font-semibold hover:bg-blue-700 transition-all duration-300 flex items-center justify-center gap-2"
-                whileHover={{ scale: 1.02 }}
-                onClick={() => setIsRoutineTasksModalOpen(true)}
-              >
-                <Clock size={16} />
-                Routine Tasks
-              </motion.button>
-            </div>
+            {/* Buttons removed to keep column compact and avoid extra scroll */}
           </motion.div>
 
           {/* My All Rituals Column */}
@@ -377,7 +384,7 @@ export default function MyMRIs() {
               <Calendar size={20} className="text-teal-600" />
               <h2 className="text-xl font-bold text-gray-800">All Rituals</h2>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 flex-1">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1">
               {/* A-Rituals Card */}
               <motion.div
                 className="bg-white/50 backdrop-blur-sm rounded-2xl shadow-md p-6 border border-teal-100/50 flex flex-col items-center justify-center text-center"
@@ -419,13 +426,43 @@ export default function MyMRIs() {
                 <h3 className="text-lg font-bold text-gray-800 mb-2">N-Rituals</h3>
                 <p className="text-sm text-gray-600">View all N-Rituals for the week</p>
               </motion.div>
+
+              {/* R-Rituals Card */}
+              {(roleTasksData?.roles || []).length > 0 && (
+                <motion.div
+                  className="bg-white/50 backdrop-blur-sm rounded-2xl shadow-md p-6 border border-rose-100/50 flex flex-col text-left"
+                  whileHover={{ scale: 1.02, boxShadow: "0 8px 16px rgba(225, 29, 72, 0.08)" }}
+                >
+                  <CheckCircle className="w-12 h-12 text-rose-600 mb-4" />
+                  <h3 className="text-lg font-bold text-gray-800 mb-2">R-Rituals</h3>
+                  <p className="text-sm text-gray-600 mb-4">Role-based tasks available to you</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {roleTasksData.roles
+                      .flatMap((r) => (r.tasks || []).map((t) => ({ roleName: r.roleName || r.roleKey, task: t })))
+                      .map((rt, idx) => (
+                        <motion.button
+                          key={`${rt.roleName}-${rt.task.id}`}
+                          className="bg-rose-50 rounded-lg px-3 py-2 text-rose-800 text-xs font-medium hover:bg-rose-100 text-left truncate"
+                          initial={{ opacity: 0, y: 6 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.25, delay: idx * 0.03 }}
+                          whileHover={{ scale: 1.03 }}
+                          title={`${rt.roleName}: ${rt.task.title}`}
+                          onClick={() => { setSelectedRTask(rt); setRTaskModalOpen(true); }}
+                        >
+                          {rt.task.title}
+                        </motion.button>
+                      ))}
+                  </div>
+                </motion.div>
+              )}
             </div>
           </motion.div>
         </div>
 
         {/* Modals */}
         <AnimatePresence>
-          {isRMRIInfoOpen && (
+          {rRoleModalOpen && selectedRoleBundle && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -440,9 +477,9 @@ export default function MyMRIs() {
                 className="bg-white/90 backdrop-blur-md rounded-3xl shadow-xl p-6 w-full max-w-md border border-rose-100/50"
               >
                 <div className="flex justify-between items-center mb-4">
-                  <h2 className="text-lg font-bold text-gray-800">Role-Based Tasks</h2>
+                  <h2 className="text-lg font-bold text-gray-800">{selectedRoleBundle.roleName || selectedRoleBundle.roleKey}</h2>
                   <motion.button
-                    onClick={() => setIsRMRIInfoOpen(false)}
+                    onClick={() => setRRoleModalOpen(false)}
                     className="text-gray-500 hover:text-gray-700 p-2 rounded-full hover:bg-gray-100 transition-all duration-200"
                     whileHover={{ scale: 1.1 }}
                     whileTap={{ scale: 0.95 }}
@@ -450,17 +487,140 @@ export default function MyMRIs() {
                     <X size={20} />
                   </motion.button>
                 </div>
-                <p className="text-sm text-gray-700">This section will open your role’s daily checklist. If you are Accountant/Admin it routes to Accountant dashboard. Other roles coming soon.</p>
-                <div className="flex justify-end mt-6">
+                <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+                  {Array.isArray(selectedRoleBundle.tasks) && selectedRoleBundle.tasks.length > 0 ? (
+                    selectedRoleBundle.tasks.map((t) => (
+                      <div key={t.id} className="bg-rose-50/70 border border-rose-100 rounded-xl p-3">
+                        <div className="font-semibold text-rose-900">{t.title}</div>
+                        {t.description && <div className="text-xs text-gray-700 mt-1">{t.description}</div>}
+                        {Array.isArray(t.submissables) && t.submissables.length > 0 && (
+                          <ol className="list-decimal pl-5 text-xs text-gray-800 mt-2 space-y-1">
+                            {t.submissables.map((s, i) => (<li key={i}>{String(s)}</li>))}
+                          </ol>
+                        )}
+                        {t.action && <div className="text-[12px] text-gray-700 mt-2"><span className="font-semibold">Action:</span> {t.action}</div>}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-sm text-gray-600">No tasks defined for this role.</div>
+                  )}
+                  {/* Scanner controls for MSP Elementary Moderator */}
+                  {String(selectedRoleBundle.roleKey || "").toLowerCase() === "msp_ele_moderator" && (
+                    <div className="mt-2 bg-white border border-rose-100 rounded-xl p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-sm font-semibold text-gray-900">Day Opening — Scanner</div>
+                        <button
+                          className="px-2 py-1 text-xs rounded bg-rose-600 text-white disabled:opacity-60"
+                          disabled={scanPanel.starting}
+                          onClick={async ()=>{
+                            try {
+                              setScanPanel((p)=>({ ...p, starting: true }));
+                              const r = await fetch('/api/attendance?section=sessionStart', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ roleKey: 'msp_ele_moderator', programKey: 'MSP', track: 'elementary' })});
+                              const j = await r.json();
+                              if(!r.ok) throw new Error(j.error||`HTTP ${r.status}`);
+                              setScanPanel((p)=>({ ...p, starting: false, session: j.session, sessionToken: j.token }));
+                            } catch(e){
+                              setScanPanel((p)=>({ ...p, starting: false }));
+                              alert('Failed to start scanner: '+(e.message||e));
+                            }
+                          }}
+                        >{scanPanel.session ? 'Restart' : 'Start'} Session</button>
+                      </div>
+                      {scanPanel.session && (
+                        <div className="text-xs text-gray-700 space-y-2">
+                          <div><span className="font-medium">Session:</span> #{scanPanel.session.id} — expires {new Date(scanPanel.session.expiresAt).toLocaleTimeString()}</div>
+                          <div className="bg-rose-50 border border-rose-100 rounded p-2">
+                            <div className="font-semibold text-rose-900">Session Code</div>
+                            <div className="font-mono break-all text-[11px] text-rose-800">{scanPanel.sessionToken}</div>
+                            <div className="text-[11px] text-gray-600 mt-1">Show this on your screen. Each member should open their personal code and you paste/scan below.</div>
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
+                            <div className="sm:col-span-2">
+                              <label className="block text-[11px] text-gray-600">Member Code (paste from member’s phone)</label>
+                              <input
+                                value={scanPanel.userTokenInput}
+                                onChange={(e)=> setScanPanel((p)=>({ ...p, userTokenInput: e.target.value }))}
+                                placeholder="paste-token-here"
+                                className="w-full border rounded px-2 py-1 text-xs"
+                              />
+                            </div>
+                            <button
+                              className="px-3 py-2 rounded bg-rose-600 text-white text-xs disabled:opacity-60"
+                              disabled={!scanPanel.userTokenInput || scanPanel.ingesting}
+                              onClick={async ()=>{
+                                try{
+                                  setScanPanel((p)=>({ ...p, ingesting: true }));
+                                  const r = await fetch('/api/attendance?section=ingest', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ sessionToken: scanPanel.sessionToken, userToken: scanPanel.userTokenInput })});
+                                  const j = await r.json();
+                                  if(!r.ok) throw new Error(j.error||`HTTP ${r.status}`);
+                                  setScanPanel((p)=>({ ...p, ingesting: false, userTokenInput: "", logs: [{ ts: Date.now(), ok:true }, ...p.logs].slice(0,20) }));
+                                } catch(e){
+                                  setScanPanel((p)=>({ ...p, ingesting: false, logs: [{ ts: Date.now(), ok:false, err: (e.message||String(e)) }, ...p.logs].slice(0,20) }));
+                                }
+                              }}
+                            >Mark Present</button>
+                          </div>
+                          {scanPanel.logs.length>0 && (
+                            <div className="mt-2">
+                              <div className="text-[11px] font-semibold text-gray-700">Recent scans</div>
+                              <ul className="text-[11px] text-gray-700 list-disc pl-5">
+                                {scanPanel.logs.map((l,i)=>(
+                                  <li key={i}>{new Date(l.ts).toLocaleTimeString()} — {l.ok? 'OK' : `Failed: ${l.err}`}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {rTaskModalOpen && selectedRTask && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50"
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                transition={{ duration: 0.3 }}
+                className="bg-white/90 backdrop-blur-md rounded-3xl shadow-xl p-6 w-full max-w-md border border-rose-100/50"
+              >
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-lg font-bold text-gray-800">{selectedRTask.task.title}</h2>
                   <motion.button
-                    onClick={() => setIsRMRIInfoOpen(false)}
-                    className="px-4 py-2 bg-gray-600 text-white rounded-xl text-sm font-semibold hover:bg-gray-500"
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
+                    onClick={() => setRTaskModalOpen(false)}
+                    className="text-gray-500 hover:text-gray-700 p-2 rounded-full hover:bg-gray-100 transition-all duration-200"
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.95 }}
                   >
-                    Close
+                    <X size={20} />
                   </motion.button>
                 </div>
+                <div className="text-sm text-gray-700 mb-2">Role: <span className="font-medium">{selectedRTask.roleName}</span></div>
+                {selectedRTask.task.description && (
+                  <div className="text-sm text-gray-800 mb-2">{selectedRTask.task.description}</div>
+                )}
+                {Array.isArray(selectedRTask.task.submissables) && selectedRTask.task.submissables.length > 0 && (
+                  <div className="mb-2">
+                    <div className="text-xs font-semibold text-gray-800">Submissables</div>
+                    <ol className="list-decimal pl-5 text-xs text-gray-700 mt-1 space-y-1">
+                      {selectedRTask.task.submissables.map((s, i) => (<li key={i}>{String(s)}</li>))}
+                    </ol>
+                  </div>
+                )}
+                {selectedRTask.task.action && (
+                  <div className="text-[12px] text-gray-700"><span className="font-semibold">Action:</span> {selectedRTask.task.action}</div>
+                )}
               </motion.div>
             </motion.div>
           )}

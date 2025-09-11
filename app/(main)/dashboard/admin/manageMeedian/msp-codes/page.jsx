@@ -12,6 +12,7 @@ export default function MSPCodesPage() {
   const { data: codeData, error: codeErr } = useSWR("/api/admin/manageMeedian?section=mspCodes", fetcher, { dedupingInterval: 30000 });
   const { data: asgData, error: asgErr } = useSWR("/api/admin/manageMeedian?section=mspCodeAssignments", fetcher, { dedupingInterval: 30000 });
   const { data: teamData } = useSWR("/api/admin/manageMeedian?section=team", fetcher, { dedupingInterval: 30000 });
+  const { data: famData } = useSWR("/api/admin/manageMeedian?section=metaFamilies", fetcher, { dedupingInterval: 30000 });
   const [codes, setCodes] = useState([]);
   const [assignments, setAssignments] = useState([]);
   const users = (teamData?.users || []).filter((u) => u.role === "member" || u.role === "team_manager");
@@ -227,6 +228,8 @@ export default function MSPCodesPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
               {families.map((fam) => {
                 const ct = countsByFamily.get(fam) || { total: 0, assigned: 0, unassigned: 0 };
+                // find the full family row (id/name) if available
+                const famRow = (famData?.families || []).find((r) => r.key === fam);
                 return (
                   <div key={fam} className="rounded-xl border border-gray-200 bg-white p-4">
                     <div className="flex items-center justify-between">
@@ -242,6 +245,19 @@ export default function MSPCodesPage() {
                     <div className="mt-3 flex gap-2">
                       <Button variant="light" size="sm" onClick={() => { setModalType("assign"); setModalFamily(fam); setModalOpen(true); }}>Assign</Button>
                       <Button variant="light" size="sm" onClick={() => { setModalType("create"); setModalFamily(fam); setModalOpen(true); }}>Create</Button>
+                      {famRow?.id && (
+                        <Button variant="ghost" size="sm" onClick={async () => {
+                          if (!confirm(`Delete family ${famRow.name}?`)) return;
+                          setBusy(true); setErr("");
+                          try {
+                            const res = await fetch("/api/admin/manageMeedian?section=metaFamilies", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: famRow.id }) });
+                            const j = await res.json(); if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+                            setMsg("Family deleted");
+                            mutate("/api/admin/manageMeedian?section=metaFamilies");
+                            mutate("/api/admin/manageMeedian?section=mspCodes");
+                          } catch (e) { setErr(e.message); } finally { setBusy(false); setTimeout(() => setMsg(""), 2000); }
+                        }}>Delete</Button>
+                      )}
                     </div>
                   </div>
                 );

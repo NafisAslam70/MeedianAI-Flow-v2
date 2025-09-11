@@ -53,7 +53,8 @@ const formatDate = (dateStr) => {
   return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 };
 
-export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipientId }) {
+export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipientId, socket }) {
+  const MAX_RENDER_MESSAGES = 200; // cap DOM to last N messages for perf
   const pathname = usePathname();
   if (pathname.includes("/workTogether")) return null;
 
@@ -86,6 +87,9 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
   const [jumpKey, setJumpKey] = useState(0);
   // Collapsible dock for bottom chat tools
   const [dockExpanded, setDockExpanded] = useState(false);
+  // Typing indicators per userId
+  const [typingMap, setTypingMap] = useState({});
+  const typingTimeoutRef = useRef(null);
 
   // position + drag
   const [pos, setPos] = useState({ x: 16, y: -16 });
@@ -141,9 +145,11 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
   }, []);
 
   const scrollBottom = useCallback(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: "auto" });
-    }
+    if (!messagesEndRef.current) return;
+    const behavior = prevMessageCount.current > 80 ? "auto" : "smooth";
+    requestAnimationFrame(() => {
+      try { messagesEndRef.current.scrollIntoView({ behavior }); } catch {}
+    });
   }, []);
 
   const closeAll = useCallback(() => {
@@ -332,11 +338,60 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
     };
   }, [showHistory, userDetails?.role, pathname, router, dispatchOpenTask, closeAll]);
 
+  // Initial fetch + periodic refresh (slower refresh if realtime socket connected)
   useEffect(() => {
     fetchData();
-    const id = setInterval(fetchData, 10000);
+    const intervalMs = socket?.connected ? 60000 : 10000;
+    const id = setInterval(fetchData, intervalMs);
     return () => clearInterval(id);
-  }, [fetchData]);
+  }, [fetchData, socket?.connected]);
+
+  // Socket realtime bindings
+  useEffect(() => {
+    if (!socket) return;
+    const onMessage = (m) => {
+      // Only process messages related to me
+      if (
+        m.senderId === Number(userDetails.id) ||
+        m.recipientId === Number(userDetails.id)
+      ) {
+        setMessages((prev) => {
+          // avoid duplicates by id
+          if (prev.some((x) => x.id === m.id)) return prev;
+          return [...prev, m];
+        });
+        // Auto-read when chat is open with this partner
+        const partnerId = m.senderId === Number(userDetails.id) ? m.recipientId : m.senderId;
+        if (showChatbox && String(partnerId) === String(selectedRecipient)) {
+          // optimistically mark as read in UI
+          setMessages((prev) => prev.map((x) => (x.id === m.id ? { ...x, status: "read" } : x)));
+          // best-effort notify server
+          fetch("/api/others/chat", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ messageId: m.id, status: "read" }),
+          }).catch(() => {});
+        }
+      }
+    };
+    const onTyping = ({ userId, isTyping }) => {
+      setTypingMap((prev) => ({ ...prev, [userId]: !!isTyping }));
+    };
+    socket.on("message", onMessage);
+    socket.on("typing", onTyping);
+    return () => {
+      socket.off("message", onMessage);
+      socket.off("typing", onTyping);
+    };
+  }, [socket, userDetails?.id, showChatbox, selectedRecipient]);
+
+  // Emit typing events when composing
+  const emitTyping = useCallback((isTyping) => {
+    try {
+      if (!socket || !selectedRecipient) return;
+      socket.emit("typing", { userId: Number(userDetails.id), isTyping });
+    } catch {}
+  }, [socket, selectedRecipient, userDetails?.id]);
 
   useEffect(() => {
     if (showChatbox && selectedRecipient) markReadForPartner(Number(selectedRecipient));
@@ -436,7 +491,8 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
           (m.senderId === Number(selectedRecipient) &&
             m.recipientId === Number(userDetails.id))
       )
-      .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+      .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+      .slice(-MAX_RENDER_MESSAGES);
   }, [messages, selectedRecipient, userDetails?.id]);
 
   return (
@@ -624,19 +680,21 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
                                   }`}
                                 >
                                   {!isOwnMessage && (
-                                    <img
-                                      src={getValidImageUrl(sender.image)}
-                                      alt={`${sender.name}'s profile`}
-                                      className="w-6 h-6 sm:w-7 sm:h-7 rounded-full object-cover flex-shrink-0"
-                                      onError={(e) => {
-                                        console.error("Chatbox sender image failed to load:", {
-                                          senderId: m.senderId,
-                                          senderName: sender.name,
-                                          imageUrl: sender.image,
-                                        });
-                                        e.currentTarget.src = "/default-avatar.png";
-                                      }}
-                                    />
+                                    <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full overflow-hidden flex-shrink-0">
+                                      <img
+                                        src={getValidImageUrl(sender.image)}
+                                        alt={`${sender.name}'s profile`}
+                                        className="w-full h-full object-cover"
+                                        onError={(e) => {
+                                          console.error("Chatbox sender image failed to load:", {
+                                            senderId: m.senderId,
+                                            senderName: sender.name,
+                                            imageUrl: sender.image,
+                                          });
+                                          e.currentTarget.src = "/default-avatar.png";
+                                        }}
+                                      />
+                                    </div>
                                   )}
                                   <div className="min-w-0 flex flex-col">
                                     <p
@@ -656,18 +714,20 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
                                     </div>
                                   </div>
                                   {isOwnMessage && (
-                                    <img
-                                      src={myImage}
-                                      alt="Your profile"
-                                      className="w-6 h-6 sm:w-7 sm:h-7 rounded-full object-cover flex-shrink-0"
-                                      onError={(e) => {
-                                        console.error("Chatbox user image failed to load:", {
-                                          userId: userDetails?.id,
-                                          imageUrl: myImage,
-                                        });
-                                        e.currentTarget.src = "/default-avatar.png";
-                                      }}
-                                    />
+                                    <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full overflow-hidden flex-shrink-0">
+                                      <img
+                                        src={myImage}
+                                        alt="Your profile"
+                                        className="w-full h-full object-cover"
+                                        onError={(e) => {
+                                          console.error("Chatbox user image failed to load:", {
+                                            userId: userDetails?.id,
+                                            imageUrl: myImage,
+                                          });
+                                          e.currentTarget.src = "/default-avatar.png";
+                                        }}
+                                      />
+                                    </div>
                                   )}
                                 </div>
                               </li>
@@ -690,7 +750,12 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
                     className="flex-1 p-1.5 sm:p-2 border rounded-lg bg-gray-50 text-xs sm:text-sm text-gray-900 focus:ring-2 focus:ring-cyan-500"
                     placeholder="Type message..."
                     value={messageContent}
-                    onChange={(e) => setMessageContent(e.target.value)}
+                    onChange={(e) => {
+                      setMessageContent(e.target.value);
+                      emitTyping(true);
+                      clearTimeout(typingTimeoutRef.current);
+                      typingTimeoutRef.current = setTimeout(() => emitTyping(false), 1500);
+                    }}
                     onKeyDown={(e) => e.key === "Enter" && sendMessage()}
                     aria-label="Type message"
                   />
@@ -703,6 +768,9 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
                     <PaperAirplaneIcon className="h-5 w-5" />
                   </motion.button>
                 </div>
+                {!!typingMap[Number(selectedRecipient)] && (
+                  <div className="text-[11px] text-gray-500 mt-1">Typing…</div>
+                )}
 
                 <div className="flex items-center mt-1 gap-1.5">
                   <select
@@ -817,26 +885,35 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
                       }}
                       className="relative mb-2 p-2 sm:p-2.5 bg-gray-50 border rounded-lg cursor-pointer hover:bg-blue-50 flex items-center gap-2"
                     >
-                      <img
-                        src={getValidImageUrl(u.image)}
-                        alt={`${u.name}'s profile`}
-                        className="w-8 h-8 sm:w-9 sm:h-9 rounded-full object-cover"
-                        onError={(e) => {
-                          console.error("History image failed to load:", {
-                            userId: u.id,
-                            userName: u.name,
-                            imageUrl: u.image,
-                          });
-                          e.currentTarget.src = "/default-avatar.png";
-                        }}
-                      />
+                      <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full overflow-hidden flex-shrink-0">
+                        <img
+                          src={getValidImageUrl(u.image)}
+                          alt={`${u.name}'s profile`}
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            console.error("History image failed to load:", {
+                              userId: u.id,
+                              userName: u.name,
+                              imageUrl: u.image,
+                            });
+                            e.currentTarget.src = "/default-avatar.png";
+                          }}
+                        />
+                      </div>
                       <div className="flex-1 min-w-0">
                         <p className="font-semibold truncate text-xs sm:text-sm text-gray-900">
                           {u.name} ({getRole(u)})
                         </p>
                         <p
                           className="text-xs text-gray-600 break-words"
-                          style={{ wordBreak: "break-word", overflowWrap: "break-word" }}
+                          style={{
+                            wordBreak: "break-word",
+                            overflowWrap: "break-word",
+                            display: "-webkit-box",
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: "vertical",
+                            overflow: "hidden",
+                          }}
                           dangerouslySetInnerHTML={{
                             __html: linkify(lastMsg?.content || "No messages yet"),
                           }}

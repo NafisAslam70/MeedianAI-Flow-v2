@@ -15,7 +15,7 @@ export default function ManageMeedian() {
     <div className="p-6 space-y-3">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-lg font-bold text-gray-900">ManageMeedian</h1>
+          <h1 className="text-lg font-bold text-gray-900">Manage Meedian</h1>
           <p className="text-sm text-gray-600">Use the sidebar or quick buttons to jump to schedules.</p>
         </div>
         <div className="flex items-center gap-2">
@@ -44,6 +44,7 @@ export default function ManageMeedian() {
           )}
         </div>
       </div>
+  {/* Meta Roles management lives at /dashboard/admin/manageMeedian/meta-roles */}
     </div>
   );
 }

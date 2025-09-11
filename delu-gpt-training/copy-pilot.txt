@@ -1,0 +1,12 @@
+# Copy Pilot Log
+
+This file tracks all the planning, changes, and implementations related to DeluGPT.
+
+## 8 September 2025
+- Renamed `training-data` to `delu-gpt-training`.
+- Planned the training process for DeluGPT with stages:
+  - Stage 1: Base Context Training.
+  - Stage 2: Specialized Training.
+  - Stage 3: Continuous Updates.
+- Decided to use cloud storage (e.g., Vercel Blob or AWS S3) for storing training data.
+- Planned to create a frontend for managing DeluGPT training.

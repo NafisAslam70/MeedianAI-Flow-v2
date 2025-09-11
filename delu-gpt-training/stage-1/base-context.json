@@ -1,0 +1,149 @@
+{
+  "description": "Base context training data for DeluGPT.",
+  "data": [
+    {
+      "type": "research_paper",
+      "title": "Base Paper",
+      "content": "This is the foundational research paper for DeluGPT."
+    },
+    {
+      "type": "blueprint",
+      "title": "Meedian Blueprint",
+      "content": "This document outlines the Meedian system's architecture and workflows."
+    },
+    {
+      "type": "general_knowledge",
+      "title": "School Roles and Tasks",
+      "content": "Details about the roles and tasks within the school system."
+    },
+    {
+      "type": "blueprint",
+      "title": "MEED Blueprint",
+      "content": {
+        "overview": {
+          "purpose": "The MEED Blueprint serves as the intellectual and spiritual cornerstone of MEED Public School, rooted in the philosophy of holistic education for dual success. It emphasizes the dual responsibility of education: preparing students for worldly realities while anchoring their souls to the eternal horizon of the akhirah.",
+          "foundations": "Education must be holistic, cultivating intellect, character, and spirit together. The MEED model integrates Islamic tradition, contemporary pedagogy, and cognitive science to shape students into individuals who excel academically and morally."
+        },
+        "framework": {
+          "pillars": [
+            {
+              "name": "Enlightenment",
+              "description": "Provides students with a clear sense of purpose, identity, and moral direction. It aligns education with faith and higher goals, fostering intellectual curiosity and spiritual clarity."
+            },
+            {
+              "name": "Empowerment",
+              "description": "Equips students with 21st-century skills, critical thinking, and confidence. It emphasizes rigorous academics, project-based learning, and the development of soft skills like communication and teamwork."
+            },
+            {
+              "name": "Dedication",
+              "description": "Instills discipline, focus, and spiritual devotion through consistent rituals. It emphasizes the importance of routines, deep work, and perseverance in achieving greatness."
+            },
+            {
+              "name": "Mastery",
+              "description": "Combines academic achievement with moral depth and spiritual steadiness. It represents the culmination of the MEED framework, producing graduates who excel in their fields and embody strong character."
+            }
+          ]
+        },
+        "operations": {
+          "daily_routines": {
+            "AMRIs": "Structured academic program slots that focus on immersive learning and skill development.",
+            "NMRIs": "Non-academic slots dedicated to character building, health, recreation, rest, and spirituality."
+          },
+          "pledges": "Students pledge to embody strength of character, sincerity, discipline, and perseverance. The pledge emphasizes values like honesty, dedication, and gratitude, aligning daily actions with the school’s philosophy."
+        },
+        "principles": [
+          {
+            "name": "Vision with Depth",
+            "value": "Encourages purposeful dreams and expansive goals, preparing students for life in both Dunya and Akhirah."
+          },
+          {
+            "name": "Sincerity and Objectivity",
+            "value": "Promotes sincere intention (Ikhlas) and balanced thinking (Adl) in every action."
+          },
+          {
+            "name": "Depth in Knowledge",
+            "value": "Cultivates precision and excellence in learning through contemplation (Tadabbur) and investigation (Tahqiq)."
+          },
+          {
+            "name": "Discipline over Outcome",
+            "value": "Upholds rituals and systems as keys to growth, emphasizing consistent actions over short-term results."
+          },
+          {
+            "name": "Perseverance and Sustainability",
+            "value": "Nurtures patience (Sabr) and steadfastness (Istiqamah), fostering long-term commitment to growth."
+          }
+        ],
+        "case_studies": [
+          {
+            "name": "Rahmani-30",
+            "description": "A program that combines rigorous academic coaching with a religious environment, achieving outstanding results. Students are nurtured with discipline, focus, and spiritual grounding."
+          },
+          {
+            "name": "Tarbiyah Project Schools",
+            "description": "These schools integrate faith and academics, emphasizing character development and holistic education. Students outperform peers academically while staying grounded in their Islamic identity."
+          },
+          {
+            "name": "GEMS Education",
+            "description": "A values-led education model that blends academic excellence with personal growth. Students develop strong character and achieve high academic standards."
+          },
+          {
+            "name": "Aligarh Muslim University (AMU)",
+            "description": "A legacy institution that integrates modern education with Islamic ethos. AMU’s schools provide a balanced environment for academic and spiritual growth."
+          },
+          {
+            "name": "Finland’s Education System",
+            "description": "A student-centric model that emphasizes whole-child development, creativity, and well-being. Finnish schools demonstrate that holistic education can achieve excellent academic outcomes."
+          }
+        ],
+        "challenges_and_solutions": {
+          "resource_constraints": "Seek community sponsorships, leverage technology for cost-effective learning, and implement phased rollouts to manage limited budgets.",
+          "curriculum_design": "Streamline content by identifying overlaps between secular and Islamic studies, integrating themes, and prioritizing essential knowledge.",
+          "teacher_training": "Conduct workshops, mentoring, and professional development programs to help teachers adapt to integrated methods. Reward and recognize innovative teaching practices.",
+          "parental_expectations": "Communicate the dual benefits of holistic education to parents and society. Highlight success stories and involve parents in the educational process."
+        },
+        "pledges": {
+          "student_pledge": "I pledge to embody strength of character, sincerity, discipline, and perseverance. I will honor my Creator, my parents, and my school by striving for excellence in both Dunya and Akhirah."
+        },
+        "daily_schedule": {
+          "blocks": [
+            {
+              "block": "Opening Ritual",
+              "time": "Pre-Fajr",
+              "description": "Day opens with intention, honoring parents, and setting focus for the day."
+            },
+            {
+              "block": "Morning Coaching",
+              "time": "4:00 AM - 5:45 AM",
+              "description": "Fajr prayer, reflection, and academic preparation."
+            },
+            {
+              "block": "School Assembly",
+              "time": "7:00 AM - 7:25 AM",
+              "description": "Quran recitation, values capsule, and daily notices."
+            },
+            {
+              "block": "Academic Immersion",
+              "time": "7:25 AM - 12:30 PM",
+              "description": "Structured academic sessions with breaks for tiffin and reflection."
+            },
+            {
+              "block": "Afternoon Depth",
+              "time": "3:30 PM - 6:20 PM",
+              "description": "Homework urgencies, enrichment activities, and skill development."
+            },
+            {
+              "block": "Evening Transformation",
+              "time": "6:20 PM - 8:30 PM",
+              "description": "Maghrib prayer, enrichment programs, and day shutdown rituals."
+            },
+            {
+              "block": "Night Anchors",
+              "time": "8:30 PM - 10:00 PM",
+              "description": "Isha prayer, dinner, and journaling before lights-out."
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

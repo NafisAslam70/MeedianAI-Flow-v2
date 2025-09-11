@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+export const runtime = "nodejs"; // if you’ll upload files
 export const dynamic = "force-dynamic";
 import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
@@ -38,8 +39,11 @@ import {
   programScheduleCells,
   programScheduleDays,
 } from "@/lib/schema";
-import { eq, or, inArray, and } from "drizzle-orm";
+import { eq, or, inArray, and, ne } from "drizzle-orm";
 import bcrypt from "bcrypt";
+import formidable from 'formidable';
+import fetch from 'node-fetch';
+import { v2 as cloudinary } from 'cloudinary';
 
 /* ============================== GET ============================== */
 export async function GET(req) {
@@ -69,6 +73,18 @@ export async function GET(req) {
   }
 
   try {
+    if (section === "classes") {
+      const track = (searchParams.get("track") || "").toLowerCase();
+      const rows = await db
+        .select({ id: Classes.id, name: Classes.name, section: Classes.section, track: Classes.track, active: Classes.active })
+        .from(Classes);
+      let filtered = rows;
+      if (track) {
+        filtered = rows.filter(r => ((r.track || "").toLowerCase() === track) || !r.track);
+        if (filtered.length === 0) filtered = rows; // fallback to avoid empty UI if DB not backfilled yet
+      }
+      return NextResponse.json({ classes: filtered }, { status: 200 });
+    }
     if (section === "team") {
       const userData = await db
         .select({
@@ -266,6 +282,8 @@ export async function GET(req) {
           title: mriRoleTasks.title,
           description: mriRoleTasks.description,
           active: mriRoleTasks.active,
+          submissables: mriRoleTasks.submissables, // Include submissables
+          action: mriRoleTasks.action, // Include action
           createdAt: mriRoleTasks.createdAt,
           updatedAt: mriRoleTasks.updatedAt,
         })
@@ -386,6 +404,12 @@ export async function GET(req) {
 }
 
 /* ============================== POST ============================== */
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
 export async function POST(req) {
   const session = await auth();
   if (!session || !["admin", "team_manager"].includes(session.user?.role)) {
@@ -395,8 +419,143 @@ export async function POST(req) {
   const { searchParams } = new URL(req.url);
   const section = searchParams.get("section");
 
+  if (section === "upload") {
+    try {
+      const formData = await req.formData();
+      const files = formData.getAll("files");
+
+      console.log("Received files:", files);
+
+      const uploadResults = [];
+      for (const file of files) {
+        const uploadResponse = await cloudinary.uploader.upload(file.path, {
+          folder: "uploads",
+        });
+        uploadResults.push(uploadResponse);
+      }
+
+      return NextResponse.json({ message: "Files uploaded successfully!", uploads: uploadResults });
+    } catch (error) {
+      console.error("Error uploading files to Cloudinary:", error);
+      return NextResponse.json({ error: "Failed to upload files to Cloudinary." }, { status: 500 });
+    }
+  }
+
   try {
     const body = await req.json();
+    if (section === "classesNormalize") {
+      try {
+        const rows = await db.select().from(Classes);
+        const byKey = new Map(); // key: name|track
+        rows.forEach(r => {
+          const k = `${String(r.name)}|${(r.track||'').toLowerCase()}`;
+          byKey.set(k, r);
+        });
+
+        const romanMap = new Map([
+          ['I','1'], ['II','2'], ['III','3'], ['IV','4'],
+          ['V','5'], ['VI','6'], ['VII','7'], ['VIII','8'],
+        ]);
+        const toOps = [];
+
+        for (const r of rows) {
+          const name = String(r.name || '').trim();
+          const upper = name.toUpperCase();
+          // Normalize NUR -> Nursery (pre_primary)
+          if (upper === 'NUR') {
+            const k = `Nursery|pre_primary`;
+            if (!byKey.has(k)) {
+              toOps.push(db.insert(Classes).values({ name: 'Nursery', track: 'pre_primary', section: r.section || null, active: true }));
+            }
+            toOps.push(db.update(Classes).set({ active: false }).where(eq(Classes.id, r.id)));
+            continue;
+          }
+          if (upper === 'LKG' || upper === 'UKG') {
+            toOps.push(db.update(Classes).set({ track: 'pre_primary', active: true }).where(eq(Classes.id, r.id)));
+            continue;
+          }
+          if (romanMap.has(upper)) {
+            // Keep Roman numerals as valid Elementary class names; ensure track set and active
+            toOps.push(db.update(Classes).set({ track: 'elementary', active: true }).where(eq(Classes.id, r.id)));
+            continue;
+          }
+          // If numeric and track missing, mark as elementary
+          if (/^\d+$/.test(name) && (!r.track || r.track.toLowerCase() !== 'elementary')) {
+            toOps.push(db.update(Classes).set({ track: 'elementary', active: true }).where(eq(Classes.id, r.id)));
+          }
+          // If Nursery/LKG/UKG and track missing, mark as pre_primary
+          if ((name === 'Nursery' || name === 'LKG' || name === 'UKG') && (!r.track || r.track.toLowerCase() !== 'pre_primary')) {
+            toOps.push(db.update(Classes).set({ track: 'pre_primary', active: true }).where(eq(Classes.id, r.id)));
+          }
+        }
+
+        for (const op of toOps) { await op; }
+        return NextResponse.json({ ok: true, updated: toOps.length });
+      } catch (e) {
+        return NextResponse.json({ error: e.message || 'Normalize failed' }, { status: 500 });
+      }
+    }
+    if (section === "classes") {
+      try {
+        const name = String(body?.name || "").trim();
+        const oldName = body?.oldName ? String(body.oldName).trim() : null;
+        const oldTrack = body?.oldTrack ? String(body.oldTrack).trim() : null;
+        const track = String(body?.track || "").trim();
+        const sectionVal = body?.section ? String(body.section).trim() : null;
+        const active = typeof body?.active === 'boolean' ? body.active : true;
+        if (!track) return NextResponse.json({ error: "track required" }, { status: 400 });
+        if (!name && !oldName) return NextResponse.json({ error: "name or oldName required" }, { status: 400 });
+        // Validate name by track
+        const isPre = track === 'pre_primary';
+        const isEle = track === 'elementary';
+        if (isPre) {
+          const allowed = new Set(['Nursery','LKG','UKG']);
+          if (name && !allowed.has(name)) return NextResponse.json({ error: "Pre-Primary name must be Nursery/LKG/UKG" }, { status: 400 });
+        }
+        if (isEle) {
+          const isNumeric = name ? /^\d+$/.test(name) : false;
+          const isRoman = name ? /^(i|ii|iii|iv|v|vi|vii|viii)$/i.test(name) : false;
+          if (name && !(isNumeric || isRoman)) {
+            return NextResponse.json({ error: "Elementary name must be numeric (1..8) or Roman (I..VIII)" }, { status: 400 });
+          }
+        }
+        // Rename if oldName provided
+        if (oldName || oldTrack) {
+          await db.update(Classes)
+            .set({ name, section: sectionVal ?? null, active, track })
+            .where(and(eq(Classes.name, oldName || name), eq(Classes.track, oldTrack || track)));
+          return NextResponse.json({ ok: true, renamed: true });
+        }
+        // Upsert by (name, track)
+        try {
+          await db.insert(Classes).values({ name, track, section: sectionVal ?? null, active });
+        } catch (e) {
+          await db.update(Classes)
+            .set({ section: sectionVal ?? null, active })
+            .where(and(eq(Classes.name, name), eq(Classes.track, track)));
+        }
+        return NextResponse.json({ ok: true });
+      } catch (e) {
+        return NextResponse.json({ error: e.message || 'Failed' }, { status: 500 });
+      }
+    }
+    // Create a role definition (used by admin meta-roles page and ensuring built-in roleKey)
+    if (section === "metaRoleDefs") {
+      const { roleKey, name, category = "rmri", active = true } = body || {};
+      if (!roleKey || !name) {
+        return NextResponse.json({ error: "roleKey and name required" }, { status: 400 });
+      }
+      const normalizedKey = String(roleKey).trim();
+      const existing = await db.select().from(mriRoleDefs).where(eq(mriRoleDefs.roleKey, normalizedKey));
+      if (existing.length) {
+        return NextResponse.json({ roleDef: existing[0], message: "Role already exists" }, { status: 200 });
+      }
+      const [row] = await db
+        .insert(mriRoleDefs)
+        .values({ roleKey: normalizedKey, name: String(name).trim(), category: String(category).trim(), active: !!active })
+        .returning();
+      return NextResponse.json({ roleDef: row, message: "Role created" }, { status: 201 });
+    }
 
     if (section === "schoolCalendar") {
       const { majorTerm, minorTerm, startDate, endDate, name, weekNumber, isMajorTermBoundary } = body;
@@ -474,23 +633,122 @@ export async function POST(req) {
       return NextResponse.json({ inserted: rows.length }, { status: 201 });
     }
 
-    // Create Role Task
+    // Create/Update Role Tasks
     if (section === "metaRoleTasks") {
-      const { roleDefId, title, description, active = true } = body || {};
-      if (!roleDefId || !title) return NextResponse.json({ error: "roleDefId and title required" }, { status: 400 });
+      // Support batch updates shape from UI
+      if (Array.isArray(body?.updates)) {
+        let updated = 0;
+        for (const u of body.updates) {
+          const id = Number(u?.id);
+          if (!id) continue;
+          const setObj = {};
+          if (u.title !== undefined) setObj.title = String(u.title).trim();
+          if (u.description !== undefined) setObj.description = u.description ? String(u.description).trim() : null;
+          if (u.action !== undefined) setObj.action = u.action ? String(u.action).trim() : null;
+          if (u.active !== undefined) setObj.active = !!u.active;
+          if (u.submissables !== undefined) {
+            const raw = u.submissables;
+            let arr = null;
+            if (Array.isArray(raw)) arr = raw.map((s) => String(s).trim()).filter(Boolean);
+            else if (typeof raw === 'string') arr = raw.split(/\n|,/).map((s) => s.trim()).filter(Boolean);
+            else if (raw && typeof raw === 'object') arr = Object.values(raw).map((s) => String(s).trim()).filter(Boolean);
+            setObj.submissables = arr && arr.length ? JSON.stringify(arr) : null;
+          }
+          if (Object.keys(setObj).length === 0) continue;
+          await db.update(mriRoleTasks).set(setObj).where(eq(mriRoleTasks.id, id));
+          updated += 1;
+        }
+        return NextResponse.json({ updated }, { status: 200 });
+      }
+
+      const { roleDefId, title, description, active, submissables, action } = body || {};
+      if (!roleDefId || !title) {
+        return NextResponse.json({ error: "roleDefId and title are required" }, { status: 400 });
+      }
+
+      // Validate roleDefId exists
+      const roleExists = await db
+        .select({ id: mriRoleDefs.id })
+        .from(mriRoleDefs)
+        .where(eq(mriRoleDefs.id, roleDefId));
+      if (!roleExists.length) {
+        return NextResponse.json({ error: "Invalid roleDefId: Role definition does not exist" }, { status: 400 });
+      }
+
+      // Normalize submissables to JSON text
+      const normalizeSubs = (raw) => {
+        if (!raw) return null;
+        if (Array.isArray(raw)) return raw.map((s) => String(s).trim()).filter(Boolean);
+        if (typeof raw === 'string') return raw.split(/\n|,/).map((s) => s.trim()).filter(Boolean);
+        if (typeof raw === 'object') return Object.values(raw).map((s) => String(s).trim()).filter(Boolean);
+        return null;
+      };
+      const subsArr = normalizeSubs(submissables);
+
+      // Insert or update the task
       const [row] = await db
         .insert(mriRoleTasks)
-        .values({ roleDefId: Number(roleDefId), title: String(title).trim(), description: description ? String(description) : null, active: !!active })
+        .values({
+          roleDefId: Number(roleDefId),
+          title: String(title).trim(),
+          description: description ? String(description).trim() : null,
+          active: !!active,
+          submissables: subsArr && subsArr.length ? JSON.stringify(subsArr) : null,
+          action: action ? String(action).trim() : null,
+        })
+        .onConflictDoUpdate({
+          target: [mriRoleTasks.roleDefId, mriRoleTasks.title],
+          set: {
+            description: description ? String(description).trim() : null,
+            active: !!active,
+            submissables: subsArr && subsArr.length ? JSON.stringify(subsArr) : null,
+            action: action ? String(action).trim() : null,
+            updatedAt: new Date(),
+          },
+        })
         .returning({
           id: mriRoleTasks.id,
           roleDefId: mriRoleTasks.roleDefId,
           title: mriRoleTasks.title,
           description: mriRoleTasks.description,
           active: mriRoleTasks.active,
+          submissables: mriRoleTasks.submissables,
+          action: mriRoleTasks.action,
           createdAt: mriRoleTasks.createdAt,
           updatedAt: mriRoleTasks.updatedAt,
         });
-      return NextResponse.json({ task: row, message: "Role task created" }, { status: 201 });
+
+      return NextResponse.json({ task: row, message: "Role task created or updated successfully" }, { status: 201 });
+    }
+
+    // Create MSP Code
+    if (section === "mspCodes") {
+      const { code, program = "MSP", familyKey = "", track = "", title = "", parentSlice = "", active = true } = body || {};
+      if (!code) return NextResponse.json({ error: "code required" }, { status: 400 });
+      const [row] = await db.insert(mspCodes).values({ code: String(code).trim(), program: String(program).trim(), familyKey: String(familyKey).trim(), track: String(track).trim(), title: String(title).trim() || null, parentSlice: String(parentSlice).trim() || null, active: !!active }).returning({ id: mspCodes.id, code: mspCodes.code, program: mspCodes.program, familyKey: mspCodes.familyKey, track: mspCodes.track, title: mspCodes.title, parentSlice: mspCodes.parentSlice, active: mspCodes.active, createdAt: mspCodes.createdAt });
+      return NextResponse.json({ code: row, message: "MSP code created" }, { status: 201 });
+    }
+
+    // Create MSP Code Assignment
+    if (section === "mspCodeAssignments") {
+      const { mspCodeId, userId, startDate = null, endDate = null, isPrimary = true, active = true } = body || {};
+      if (!mspCodeId || !userId) return NextResponse.json({ error: "mspCodeId and userId required" }, { status: 400 });
+      const [row] = await db.insert(mspCodeAssignments).values({ mspCodeId: Number(mspCodeId), userId: Number(userId), startDate: startDate ? String(startDate) : null, endDate: endDate ? String(endDate) : null, isPrimary: !!isPrimary, active: !!active }).returning({ id: mspCodeAssignments.id, mspCodeId: mspCodeAssignments.mspCodeId, userId: mspCodeAssignments.userId, startDate: mspCodeAssignments.startDate, endDate: mspCodeAssignments.endDate, isPrimary: mspCodeAssignments.isPrimary, active: mspCodeAssignments.active, createdAt: mspCodeAssignments.createdAt });
+      return NextResponse.json({ assignment: row, message: "Assignment created" }, { status: 201 });
+    }
+
+    // Create MRI Family (used by mri-families admin UI)
+    if (section === "metaFamilies") {
+      const { key, name, active = true } = body || {};
+      if (!key || !name) return NextResponse.json({ error: "key and name required" }, { status: 400 });
+      const normalizedKey = String(key).trim();
+      // Prevent duplicates by key
+      const existing = await db.select().from(mriFamilies).where(eq(mriFamilies.key, normalizedKey));
+      if (existing.length) {
+        return NextResponse.json({ family: existing[0], message: "Family already exists" }, { status: 200 });
+      }
+      const [row] = await db.insert(mriFamilies).values({ key: normalizedKey, name: String(name).trim(), active: !!active }).returning();
+      return NextResponse.json({ family: row, message: "Family created" }, { status: 201 });
     }
 
     if (section === "slots") {
@@ -549,488 +807,22 @@ export async function POST(req) {
       return NextResponse.json({ message: "Program schedule cells saved" }, { status: 200 });
     }
 
-    // Update Role Tasks (batch)
-    if (section === "metaRoleTasks") {
-      const { updates } = body || {};
-      if (!Array.isArray(updates) || updates.length === 0) return NextResponse.json({ error: "updates[] required" }, { status: 400 });
-      for (const u of updates) {
-        const { id, title, description, active } = u || {};
-        if (!id) return NextResponse.json({ error: "Each update requires id" }, { status: 400 });
-        await db
-          .update(mriRoleTasks)
-          .set({
-            ...(title !== undefined ? { title: String(title).trim() } : {}),
-            ...(description !== undefined ? { description: description === null ? null : String(description) } : {}),
-            ...(active !== undefined ? { active: !!active } : {}),
-            updatedAt: new Date(),
-          })
-          .where(eq(mriRoleTasks.id, Number(id)));
-      }
-      return NextResponse.json({ message: "Role tasks updated" }, { status: 200 });
-    }
-
-    // Seed helper for MSP (requires existing MSP codes and Classes rows)
-    if (section === "seedMSPSchedule") {
-      const { programId, track, customPeriods, customMatrix } = body || {};
-      if (!programId || !track) return NextResponse.json({ error: "programId and track required" }, { status: 400 });
-      // Period templates
-      const prePeriods = [
-        ["P1", "07:25", "08:00"], ["P2", "08:00", "08:30"], ["P3", "08:30", "09:00"], ["P4", "09:00", "09:30"],
-        ["P5", "10:00", "10:30"], ["P6", "10:30", "11:00"], ["P7", "11:00", "11:30"], ["P8", "11:30", "12:00"],
-      ];
-      const elePeriods = [
-        ["P1", "07:35", "08:10"], ["P2", "08:10", "08:40"], ["P3", "08:40", "09:10"], ["P4", "09:10", "09:40"],
-        ["P5", "10:00", "10:30"], ["P6", "10:30", "11:00"], ["P7", "11:00", "11:30"], ["P8", "11:30", "12:00"],
-      ];
-      let periodTriples = track === "pre_primary" ? prePeriods : elePeriods;
-      if (Array.isArray(customPeriods) && customPeriods.length) {
-        // Accept [[key,start,end]] or [{periodKey,startTime,endTime}]
-        if (Array.isArray(customPeriods[0])) {
-          periodTriples = customPeriods;
-        } else if (typeof customPeriods[0] === "object") {
-          periodTriples = customPeriods.map((p) => [p.periodKey, (p.startTime || "").slice(0,5), (p.endTime || "").slice(0,5)]);
-        }
-      }
-      const periods = periodTriples.map(([k, s, e]) => ({ track, periodKey: k, startTime: String(s).includes(":") ? s + (String(s).length === 5 ? ":00" : "") : `${s}:00`, endTime: String(e).includes(":") ? e + (String(e).length === 5 ? ":00" : "") : `${e}:00` }));
-      await db.delete(programPeriods).where(and(eq(programPeriods.programId, Number(programId)), eq(programPeriods.track, track)));
-      for (const p of periods) await db.insert(programPeriods).values({ programId: Number(programId), ...p });
-
-      // Class names map to ids; ensure classes exist
-      const classNames = track === "pre_primary" ? ["Nursery", "LKG", "UKG"] : ["1", "2", "3", "4", "5", "6", "7"];
-      const classRows = await db.select().from(Classes);
-      const nameToId = new Map(classRows.map((c) => [String(c.name), c.id]));
-      for (const name of classNames) {
-        if (!nameToId.has(name)) {
-          const [row] = await db.insert(Classes).values({ name }).returning();
-          nameToId.set(name, row.id);
-        }
-      }
-
-      // Helper to resolve msp_codes by code
-      const codeRows = await db.select().from(mspCodes);
-      const codeToId = new Map(codeRows.map((r) => [String(r.code), r.id]));
-      const get = (code) => (code && codeToId.get(code)) || null;
-
-      // Build cells from provided matrices (subjects inline)
-      const cells = [];
-      if (track === "pre_primary") {
-        const matrix = customMatrix || {
-          Nursery: {
-            P1: ["PGL1", "English"], P2: ["PGL1", "Eng-Writing"], P3: ["PGL1", "GK"], P4: ["PRL1", "Hindi"],
-            P5: ["PRL2", "Hindi-Writing"], P6: ["PRL1", "Urdu"], P7: ["PGL3", "Math"], P8: ["PGL1", "Table Math"],
-          },
-          LKG: {
-            P1: ["PRL1", "Hindi"], P2: ["PRL1", "Hindi"], P3: ["PGL2", "GK"], P4: ["PGL2", "Math"],
-            P5: ["PGL2", "Math"], P6: ["PGL1", "English"], P7: ["PRL1", "Urdu"], P8: [null, null],
-          },
-          UKG: {
-            P1: ["PGL2", "Math"], P2: ["PGL2", "Math"], P3: ["PGL3", "GK"], P4: ["PGL3", "English"],
-            P5: ["PGL3", "English"], P6: ["PRL2", "Hindi"], P7: ["PRL2", "Hindi"], P8: ["PRL2", "Urdu"],
-          },
-        };
-        for (const [className, row] of Object.entries(matrix)) {
-          const classId = nameToId.get(className);
-          for (const [periodKey, [code, subject]] of Object.entries(row)) {
-            cells.push({ programId: Number(programId), track, classId, periodKey, mspCodeId: get(code), subject });
-          }
-        }
-      } else {
-        // Elementary matrix (finalized): ESL1=English; S.St split ESL2(1)/(2); EHO2(1)=GK; EHO2(2)=Computer
-        const matrix = customMatrix || {
-          "1": { P1: ["EHO1","Hin"], P2: ["EMS1","Sci"], P3: ["EUA1","Arb"], P4: ["ESL1","English"],
-                 P5: ["EHO2(1)","GK"], P6: ["EUA1","U/QT"], P7: ["EMS1","Math"], P8: ["ESL2(1)","S.St"] },
-
-          "2": { P1: ["ESL2(2)","S.St"], P2: ["EHO1","Hin"], P3: ["EMS1","Sci"], P4: ["EUA2","Arb"],
-                 P5: ["ESL1","English"], P6: ["EHO2(2)","Computer"], P7: ["EUA1","U/QT"], P8: ["EMS2","Math"] },
-
-          "3": { P1: ["EMS2","Math"], P2: ["ESL2(1)","S.St"], P3: ["EHO1","Hin"], P4: ["EHO2(1)","GK"],
-                 P5: ["EMS2","Sci"], P6: ["ESL1","English"], P7: ["EUA2","Arb"], P8: ["EUA1","U/QT"] },
-
-          "4": { P1: ["EUA1","U/QT"], P2: ["EMS2","Math"], P3: ["ESL2(2)","S.St"], P4: ["EHO1","Hin"],
-                 P5: ["EUA2","Arb"], P6: ["EMS1","Sci"], P7: ["ESL1","English"], P8: ["EHO2(2)","Computer"] },
-
-          "5": { P1: ["EMS1","Sci"], P2: ["EUA1","U/QT"], P3: ["EMS2","Math"], P4: ["ESL2(1)","S.St"],
-                 P5: ["EHO1","Hin"], P6: ["EUA2","Arb"], P7: ["EHO2(1)","GK"], P8: ["ESL1","English"] },
-
-          "6": { P1: ["ESL1","English"], P2: ["EHO2(2)","Computer"], P3: ["EUA2","U/QT"], P4: ["EMS2","Math"],
-                 P5: ["ESL2(2)","S.St"], P6: ["EHO1","Hin"], P7: ["EMS2","Sci"], P8: ["EUA2","Arb"] },
-
-          "7": { P1: ["EUA2","Arb"], P2: ["ESL1","English"], P3: ["EHO2(1)","GK"], P4: ["EUA1","U/QT"],
-                 P5: ["EMS1","Math"], P6: ["ESL2(1)","S.St"], P7: ["EHO1","Hin"], P8: ["EMS1","Sci"] },
-        };
-        for (const [className, row] of Object.entries(matrix)) {
-          const classId = nameToId.get(className);
-          for (const [periodKey, val] of Object.entries(row)) {
-            let code = null, subject = null;
-            if (Array.isArray(val)) {
-              [code, subject] = val;
-            } else if (typeof val === "string" || val === null) {
-              code = val;
-            } else if (typeof val === "object" && val) {
-              code = val.code ?? null;
-              subject = val.subject ?? null;
-            }
-            cells.push({ programId: Number(programId), track, classId, periodKey, mspCodeId: get(code), subject });
-          }
-        }
-      }
-
-      await db.delete(programScheduleCells).where(and(eq(programScheduleCells.programId, Number(programId)), eq(programScheduleCells.track, track)));
-      for (const c of cells) await db.insert(programScheduleCells).values(c);
-
-      return NextResponse.json({ message: "MSP schedule seeded", periods: periods.length, cells: cells.length }, { status: 200 });
-    }
-    if (section === "posts") {
-      return NextResponse.json({ error: "Removed: use mspCodes" }, { status: 410 });
-    }
-
-    if (section === "postAssignments") {
-      return NextResponse.json({ error: "Removed: use mspCodeAssignments" }, { status: 410 });
-    }
-
-    if (section === "mspCodes") {
-      const { code, program = "MSP", familyKey, track, title, parentSlice, active = true } = body || {};
-      if (!code || !familyKey || !track || !title) {
-        return NextResponse.json({ error: "Missing required fields: code, familyKey, track, title" }, { status: 400 });
-      }
-      const [row] = await db
-        .insert(mspCodes)
-        .values({ code: String(code).trim(), program, familyKey, track, title, parentSlice: parentSlice || null, active: !!active })
-        .returning({
-          id: mspCodes.id,
-          code: mspCodes.code,
-          program: mspCodes.program,
-          familyKey: mspCodes.familyKey,
-          track: mspCodes.track,
-          title: mspCodes.title,
-          parentSlice: mspCodes.parentSlice,
-          active: mspCodes.active,
-          createdAt: mspCodes.createdAt,
-        });
-      return NextResponse.json({ code: row, message: "MSP code created" }, { status: 201 });
-    }
-
-    if (section === "seedMSPCodes") {
-      // Idempotent seeding for standard MSP role codes
-      const standard = [
-        // Pre-Primary (unchanged)
-        { code: "PGL1", familyKey: "PGL", track: "pre_primary", title: "Pre-Primary General 1" },
-        { code: "PGL2", familyKey: "PGL", track: "pre_primary", title: "Pre-Primary General 2" },
-        { code: "PGL3", familyKey: "PGL", track: "pre_primary", title: "Pre-Primary General 3" },
-        { code: "PRL1", familyKey: "PRL", track: "pre_primary", title: "Pre-Primary Regional 1" },
-        { code: "PRL2", familyKey: "PRL", track: "pre_primary", title: "Pre-Primary Regional 2" },
-        // Elementary (finalized)
-        { code: "EMS1", familyKey: "EMS", track: "elementary", title: "Elementary Science" },
-        { code: "EMS2", familyKey: "EMS", track: "elementary", title: "Elementary Math" },
-
-        { code: "ESL1", familyKey: "ESL", track: "elementary", title: "Elementary English" },
-        // Social Studies split
-        { code: "ESL2(1)", familyKey: "ESL", track: "elementary", title: "Elementary Social Studies (Part 1)", parentSlice: "S.St" },
-        { code: "ESL2(2)", familyKey: "ESL", track: "elementary", title: "Elementary Social Studies (Part 2)", parentSlice: "S.St" },
-
-        { code: "EUA1", familyKey: "EUA", track: "elementary", title: "Elementary Urdu / QT" },
-        { code: "EUA2", familyKey: "EUA", track: "elementary", title: "Elementary Arabic" },
-
-        { code: "EHO1", familyKey: "EHO", track: "elementary", title: "Elementary Hindi" },
-        // GK / Computer split
-        { code: "EHO2(1)", familyKey: "EHO", track: "elementary", title: "General Knowledge", parentSlice: "GK" },
-        { code: "EHO2(2)", familyKey: "EHO", track: "elementary", title: "Computer", parentSlice: "Computer" },
-      ];
-
-      const existing = await db.select({ id: mspCodes.id, code: mspCodes.code }).from(mspCodes);
-      const have = new Set(existing.map((r) => String(r.code)));
-      let created = 0;
-      for (const s of standard) {
-        if (!have.has(s.code)) {
-          await db.insert(mspCodes).values({ program: "MSP", ...s, active: true });
-          created += 1;
-        }
-      }
-
-      // Deactivate legacy base codes if present
-      try {
-        await db.update(mspCodes).set({ active: false }).where(inArray(mspCodes.code, ["ESLC1","ESLC2","EHO2"]));
-      } catch (_) {}
-
-      return NextResponse.json({ message: `Seeded MSP codes (${created} new, ${standard.length - created} existing)` }, { status: 200 });
-    }
-
-    // Expand base matrix to day-wise overlay (simple replication utility)
-    if (section === "expandBaseToDays") {
-      const { programId, track, days = ["Mon","Tue","Wed","Thu","Fri"] } = body || {};
-      if (!programId || !track) return NextResponse.json({ error: "programId and track required" }, { status: 400 });
-      const dayList = Array.isArray(days) && days.length ? days : ["Mon","Tue","Wed","Thu","Fri"];
-      const base = await db
-        .select({ classId: programScheduleCells.classId, periodKey: programScheduleCells.periodKey, mspCodeId: programScheduleCells.mspCodeId, subject: programScheduleCells.subject })
-        .from(programScheduleCells)
-        .where(and(eq(programScheduleCells.programId, Number(programId)), eq(programScheduleCells.track, String(track))));
-      if (!base.length) return NextResponse.json({ error: "No base matrix found" }, { status: 404 });
-      // Replace existing for provided days
-      await db
-        .delete(programScheduleDays)
-        .where(and(eq(programScheduleDays.programId, Number(programId)), eq(programScheduleDays.track, String(track)), inArray(programScheduleDays.dayName, dayList)));
-      const rows = [];
-      for (const d of dayList) {
-        for (const c of base) {
-          rows.push({ programId: Number(programId), track: String(track), classId: c.classId, dayName: d, periodKey: c.periodKey, mspCodeId: c.mspCodeId || null, subject: c.subject || null, active: true });
-        }
-      }
-      await db.insert(programScheduleDays).values(rows);
-      return NextResponse.json({ inserted: rows.length }, { status: 201 });
-    }
-
-    if (section === "expandBaseToDaysAdvanced") {
-      const { programId, track, days = ["Mon","Tue","Wed","Thu","Fri"] } = body || {};
-      if (!programId || !track) return NextResponse.json({ error: "programId and track required" }, { status: 400 });
-      const dayList = Array.isArray(days) && days.length ? days : ["Mon","Tue","Wed","Thu","Fri"];
-
-      // Helpers: resolve code ids
-      const wantedCodes = ["EUA1","EUA3","ESL2(2)","EHO2(1)","EHO2(2)"];
-      const codeRows = await db.select({ id: mspCodes.id, code: mspCodes.code }).from(mspCodes).where(inArray(mspCodes.code, wantedCodes));
-      const codeId = (c) => codeRows.find((r) => r.code === c)?.id || null;
-      const EUA1 = codeId("EUA1");
-      const EUA3 = codeId("EUA3");
-      const ESL2_2 = codeId("ESL2(2)");
-      const EHO2_1 = codeId("EHO2(1)");
-      const EHO2_2 = codeId("EHO2(2)");
-
-      // Collect base cells and periods
-      const base = await db
-        .select({ classId: programScheduleCells.classId, periodKey: programScheduleCells.periodKey, mspCodeId: programScheduleCells.mspCodeId, subject: programScheduleCells.subject })
-        .from(programScheduleCells)
-        .where(and(eq(programScheduleCells.programId, Number(programId)), eq(programScheduleCells.track, String(track))));
-      if (!base.length) return NextResponse.json({ error: "No base matrix found" }, { status: 404 });
-
-      // Determine periods P1..P8 and split pre/post tiffin (assume P1..P3 pre)
-      const pkeys = Array.from(new Set(base.map((b) => b.periodKey))).sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
-      const preTiffin = new Set(pkeys.filter((pk) => Number(pk.slice(1)) <= 3));
-      const postTiffin = new Set(pkeys.filter((pk) => Number(pk.slice(1)) > 3));
-      const chosenPost = pkeys.find((pk) => postTiffin.has(pk)) || pkeys[pkeys.length - 1];
-
-      // Wipe target days then insert
-      await db
-        .delete(programScheduleDays)
-        .where(and(eq(programScheduleDays.programId, Number(programId)), eq(programScheduleDays.track, String(track)), inArray(programScheduleDays.dayName, dayList)));
-
-      const rows = [];
-      for (const d of dayList) {
-        for (const c of base) {
-          let mspCodeId = c.mspCodeId || null;
-          let subject = c.subject || null;
-
-          // Pre‑tiffin blocks force EUA1 U/QT
-          if (preTiffin.has(c.periodKey) && EUA1) {
-            mspCodeId = EUA1;
-            subject = "U/QT";
-          }
-
-          // QT Mon/Tue vs Urdu otherwise on chosen post‑tiffin period
-          if (c.periodKey === chosenPost) {
-            if ((d === "Mon" || d === "Tue") && EUA1) {
-              mspCodeId = EUA1;
-              subject = "QT";
-            } else if (EUA3) {
-              mspCodeId = EUA3;
-              subject = "Urdu";
-            }
-          }
-
-          // ESL2 split: avoid P1 for ESL2(1) by flipping to ESL2(2) if needed
-          // We detect by subject/code text via base (not joined) — rely on subject containing S.St or code id mapping not available; best effort: if ESL2_2 exists and this is P1 and not pre‑tiffin override
-          if (c.periodKey === "P1" && !preTiffin.has(c.periodKey) && ESL2_2 && mspCodeId && mspCodeId !== ESL2_2) {
-            // If base intends S.St (heuristic: subject contains 'S' or 'St'), we can flip
-            if ((subject || '').toLowerCase().includes('st')) {
-              mspCodeId = ESL2_2;
-            }
-          }
-
-          // EHO2 split: Mon/Thu = GK(EHO2(1)), Tue/Fri = Computer(EHO2(2))
-          if (mspCodeId && (mspCodeId === EHO2_1 || mspCodeId === EHO2_2)) {
-            if (d === "Mon" || d === "Thu") { if (EHO2_1) { mspCodeId = EHO2_1; subject = "GK"; } }
-            if (d === "Tue" || d === "Fri") { if (EHO2_2) { mspCodeId = EHO2_2; subject = "Computer"; } }
-          }
-
-          rows.push({ programId: Number(programId), track: String(track), classId: c.classId, dayName: d, periodKey: c.periodKey, mspCodeId, subject, active: true });
-        }
-      }
-      await db.insert(programScheduleDays).values(rows);
-      return NextResponse.json({ inserted: rows.length, days: dayList.length, chosenPost }, { status: 201 });
-    }
-
-    if (section === "mspCodeAssignments") {
-      const { mspCodeId, userId, startDate, endDate, isPrimary = true, active = true } = body || {};
-      if (!mspCodeId || !userId || !startDate) {
-        return NextResponse.json({ error: "Missing required fields: mspCodeId, userId, startDate" }, { status: 400 });
-      }
-      const [row] = await db
-        .insert(mspCodeAssignments)
-        .values({
-          mspCodeId: Number(mspCodeId),
-          userId: Number(userId),
-          startDate: new Date(startDate),
-          endDate: endDate ? new Date(endDate) : null,
-          isPrimary: !!isPrimary,
-          active: !!active,
-        })
-        .returning({
-          id: mspCodeAssignments.id,
-           mspCodeId: mspCodeAssignments.mspCodeId,
-          userId: mspCodeAssignments.userId,
-          startDate: mspCodeAssignments.startDate,
-          endDate: mspCodeAssignments.endDate,
-          isPrimary: mspCodeAssignments.isPrimary,
-          active: mspCodeAssignments.active,
-          createdAt: mspCodeAssignments.createdAt,
-        });
-      return NextResponse.json({ assignment: row, message: "MSP code assignment created" }, { status: 201 });
-    }
-    if (section === "metaFamilies") {
-      const { key, name, active = true } = body || {};
-      if (!key || !name) return NextResponse.json({ error: "key and name required" }, { status: 400 });
-      const [row] = await db.insert(mriFamilies).values({ key, name, active: !!active }).returning();
-      return NextResponse.json({ family: row }, { status: 201 });
-    }
-    if (section === "metaPrograms") {
-      let { familyId, programKey, name, scope = "both", aims, sop, active = true } = body || {};
-      if (!familyId || !programKey || !name) return NextResponse.json({ error: "familyId, programKey, name required" }, { status: 400 });
-      // Normalize
-      familyId = Number(familyId);
-      programKey = String(programKey).trim().toUpperCase();
-
-      // Guard: family exists
-      const [fam] = await db.select({ id: mriFamilies.id }).from(mriFamilies).where(eq(mriFamilies.id, familyId));
-      if (!fam) return NextResponse.json({ error: `Family ${familyId} not found` }, { status: 400 });
-
-      // Upsert-friendly behavior: if programKey exists, return 409 with existing row
-      const existing = await db.select().from(mriPrograms).where(eq(mriPrograms.programKey, programKey));
-      if (existing.length) {
-        return NextResponse.json({ error: `Program ${programKey} already exists`, program: existing[0] }, { status: 409 });
-      }
-
-      const [row] = await db
-        .insert(mriPrograms)
-        .values({ familyId, programKey, name, scope, aims: aims || null, sop: sop || null, active: !!active })
-        .returning();
-      return NextResponse.json({ program: row }, { status: 201 });
-    }
+    // Save program SOP (selfSchedulerDraft / selfSchedulerSeeds etc.)
     if (section === "programSOP") {
       const { programId, sop } = body || {};
-      if (!programId || sop === undefined) return NextResponse.json({ error: "programId and sop required" }, { status: 400 });
+      if (!programId || typeof sop !== "object") return NextResponse.json({ error: "programId and sop required" }, { status: 400 });
+      // Ensure program exists
+      const prog = await db.select().from(mriPrograms).where(eq(mriPrograms.id, Number(programId)));
+      if (!prog || !prog.length) return NextResponse.json({ error: "program not found" }, { status: 404 });
       await db.update(mriPrograms).set({ sop }).where(eq(mriPrograms.id, Number(programId)));
-      return NextResponse.json({ ok: true }, { status: 200 });
-    }
-    if (section === "metaProgramRoles") {
-      const { programId, action, roleKey } = body || {};
-      if (!programId || !action || !roleKey) return NextResponse.json({ error: "programId, action, roleKey required" }, { status: 400 });
-      const res = await db
-        .insert(mriProgramRoles)
-        .values({ programId: Number(programId), action, roleKey })
-        .onConflictDoNothing({ target: [mriProgramRoles.programId, mriProgramRoles.action, mriProgramRoles.roleKey] })
-        .returning();
-      return NextResponse.json({ programRole: res?.[0] || null, deduped: !res?.length }, { status: 201 });
+      return NextResponse.json({ programId: Number(programId), sop }, { status: 200 });
     }
 
-    if (section === "dedupeProgramRoles") {
-      // Remove duplicate program role grants leaving the lowest id per (programId, action, roleKey)
-      const rows = await db.select().from(mriProgramRoles);
-      const seen = new Set();
-      const dupIds = [];
-      for (const r of rows.sort((a, b) => a.id - b.id)) {
-        const key = `${r.programId}|${r.action}|${r.roleKey}`;
-        if (seen.has(key)) dupIds.push(r.id); else seen.add(key);
-      }
-      if (dupIds.length) {
-        await db.delete(mriProgramRoles).where(inArray(mriProgramRoles.id, dupIds));
-      }
-      return NextResponse.json({ message: `Removed ${dupIds.length} duplicate grants` }, { status: 200 });
-    }
-    if (section === "metaRoleDefs") {
-      const { roleKey, name, category = "rmri", active = true } = body || {};
-      if (!roleKey || !name) return NextResponse.json({ error: "roleKey and name required" }, { status: 400 });
-      const [row] = await db
-        .insert(mriRoleDefs)
-        .values({ roleKey, name, category, active: !!active })
-        .returning();
-      return NextResponse.json({ roleDef: row }, { status: 201 });
-    }
-
-    if (section === "classTeachers") {
-      const { classId, userId, startDate, endDate, active = true } = body || {};
-      if (!classId || !userId) {
-        return NextResponse.json({ error: "Missing required fields: classId, userId" }, { status: 400 });
-      }
-
-      // deactivate previous active teacher for this class
-      await db
-        .update(classParentTeachers)
-        .set({ active: false, endDate: endDate ? new Date(endDate) : new Date() })
-        .where(eq(classParentTeachers.classId, Number(classId)));
-
-      const [row] = await db
-        .insert(classParentTeachers)
-        .values({
-          classId: Number(classId),
-          userId: Number(userId),
-          startDate: startDate ? new Date(startDate) : new Date(),
-          endDate: endDate ? new Date(endDate) : null,
-          active: !!active,
-        })
-        .returning({
-          id: classParentTeachers.id,
-          classId: classParentTeachers.classId,
-          userId: classParentTeachers.userId,
-          startDate: classParentTeachers.startDate,
-          endDate: classParentTeachers.endDate,
-          active: classParentTeachers.active,
-          createdAt: classParentTeachers.createdAt,
-        });
-
-      // ensure pt_moderator role exists for the teacher
-      try {
-        await db
-          .insert(userMriRoles)
-          .values({ userId: Number(userId), role: "pt_moderator", active: true })
-          .onConflictDoNothing();
-      } catch (_) {}
-
-      return NextResponse.json({ classTeacher: row, message: "Class teacher assigned" }, { status: 201 });
-    }
-
-    if (section === "slots") {
-      const { slotId, memberId } = body;
-      if (!slotId || !memberId) {
-        return NextResponse.json({ error: "Missing required fields: slotId or memberId" }, { status: 400 });
-      }
-
-      const slotExists = await db
-        .select({ id: dailySlots.id })
-        .from(dailySlots)
-        .where(eq(dailySlots.id, slotId));
-      if (slotExists.length === 0) {
-        return NextResponse.json({ error: `Invalid slotId: ${slotId}` }, { status: 400 });
-      }
-
-      const userIds = new Set((await db.select({ id: users.id }).from(users)).map((u) => u.id));
-      if (!userIds.has(memberId)) {
-        return NextResponse.json({ error: `Invalid memberId: ${memberId}` }, { status: 400 });
-      }
-
-      const [assignment] = await db
-        .insert(dailySlotAssignments)
-        .values({ slotId, memberId })
-        .returning({
-          id: dailySlotAssignments.id,
-          slotId: dailySlotAssignments.slotId,
-          memberId: dailySlotAssignments.memberId,
-        });
-
-      return NextResponse.json({ assignment, message: "Slot assignment added successfully" }, { status: 201 });
-    }
-
+    // If no branch matched, return a helpful error instead of falling through
     return NextResponse.json({ error: "Invalid section" }, { status: 400 });
   } catch (error) {
-    console.error(`Error adding ${section}:`, error);
-    return NextResponse.json({ error: `Failed to add ${section}: ${error.message}` }, { status: 500 });
+    console.error(`Error in POST handler:`, error);
+    return NextResponse.json({ error: `Failed to process POST: ${error.message}` }, { status: 500 });
   }
 }
 
@@ -1042,590 +834,195 @@ export async function PATCH(req) {
   }
 
   const { searchParams } = new URL(req.url);
-  const section = searchParams.get("section");
+  const section = String(searchParams.get("section") || "").trim();
 
   try {
     const body = await req.json();
 
+    // Batch update Users (team management)
     if (section === "team") {
-      const { updates } = body;
-      if (!Array.isArray(updates) || updates.length === 0) {
-        return NextResponse.json({ error: "Invalid or empty updates" }, { status: 400 });
-      }
-
-      const allUsers = await db.select({ id: users.id, email: users.email }).from(users);
-      const userIds = new Set(allUsers.map((u) => u.id));
-
-      for (const user of updates) {
-        if (!user.id || !user.name || !user.email || !user.role || !user.type || !user.whatsapp_number || !user.member_scope) {
-          return NextResponse.json({ error: `Missing required user fields for user ${user.id}` }, { status: 400 });
+      const updates = Array.isArray(body.updates) ? body.updates : [];
+      if (!updates.length) return NextResponse.json({ error: "updates[] required" }, { status: 400 });
+      let updated = 0;
+      for (const u of updates) {
+        const id = Number(u.id);
+        if (!id) continue;
+        const setObj = {};
+        if (u.name !== undefined) setObj.name = String(u.name);
+        if (u.email !== undefined) setObj.email = String(u.email);
+        if (u.role !== undefined) setObj.role = String(u.role);
+        if (u.team_manager_type !== undefined) setObj.team_manager_type = u.team_manager_type ? String(u.team_manager_type) : null;
+        if (u.type !== undefined) setObj.type = String(u.type);
+        if (u.member_scope !== undefined) setObj.member_scope = String(u.member_scope);
+        if (u.whatsapp_number !== undefined) setObj.whatsapp_number = u.whatsapp_number ? String(u.whatsapp_number) : null;
+        if (u.immediate_supervisor !== undefined) setObj.immediate_supervisor = u.immediate_supervisor ? Number(u.immediate_supervisor) : null;
+        if (u.password !== undefined && String(u.password).trim() !== "") {
+          setObj.password = await bcrypt.hash(String(u.password), 10);
         }
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(user.email)) {
-          return NextResponse.json({ error: `Invalid email format for user ${user.id}` }, { status: 400 });
-        }
-        if (!/^\+?\d{10,15}$/.test(user.whatsapp_number)) {
-          return NextResponse.json({ error: `Invalid WhatsApp number format for user ${user.id}` }, { status: 400 });
-        }
-        if (!["admin", "team_manager", "member"].includes(user.role)) {
-          return NextResponse.json({ error: `Invalid role for user ${user.id}` }, { status: 400 });
-        }
-        if (!["residential", "non_residential", "semi_residential"].includes(user.type)) {
-          return NextResponse.json({ error: `Invalid user type for user ${user.id}` }, { status: 400 });
-        }
-        if (!["o_member", "i_member", "s_member"].includes(user.member_scope)) {
-          return NextResponse.json({ error: `Invalid member scope for user ${user.id}` }, { status: 400 });
-        }
-        if (user.role === "team_manager" && !["head_incharge", "coordinator", "accountant", "chief_counsellor", "hostel_incharge", "principal"].includes(user.team_manager_type)) {
-          return NextResponse.json({ error: `Invalid team manager type for user ${user.id}` }, { status: 400 });
+        if (Object.keys(setObj).length) {
+          await db.update(users).set(setObj).where(eq(users.id, id));
+          updated += 1;
         }
 
-        if (user.immediate_supervisor !== null && user.immediate_supervisor !== undefined) {
-          if (!userIds.has(user.immediate_supervisor)) {
-            return NextResponse.json({ error: `Invalid immediate_supervisor ID for user ${user.id}` }, { status: 400 });
-          }
-          if (user.immediate_supervisor === user.id) {
-            return NextResponse.json({ error: `User cannot be their own supervisor for user ${user.id}` }, { status: 400 });
-          }
-        }
-
-        const normalizedEmail = String(user.email).toLowerCase();
-
-        const updateData = {
-          name: user.name,
-          email: normalizedEmail,
-          role: user.role,
-          type: user.type,
-          whatsapp_number: user.whatsapp_number,
-          member_scope: user.member_scope,
-          team_manager_type: user.role === "team_manager" ? user.team_manager_type : null,
-          immediate_supervisor: user.immediate_supervisor ?? null,
-        };
-        if (user.password) {
-          updateData.password = await bcrypt.hash(user.password, 10);
-        }
-
-        const existingUser = await db
-          .select({ id: users.id })
-          .from(users)
-          .where(eq(users.email, normalizedEmail));
-        if (existingUser.length > 0 && existingUser[0].id !== user.id) {
-          return NextResponse.json({ error: `Email already in use for user ${user.id}` }, { status: 400 });
-        }
-
-        await db.update(users).set(updateData).where(eq(users.id, user.id));
-
-        if (Array.isArray(user.mriRoles)) {
-          const currentRoles = await db
-            .select({ role: userMriRoles.role })
-            .from(userMriRoles)
-            .where(and(eq(userMriRoles.userId, user.id), eq(userMriRoles.active, true)))
-            .then((rows) => rows.map((r) => r.role));
-
-          const newRoles = user.mriRoles;
-          const rolesToAdd = newRoles.filter((role) => !currentRoles.includes(role));
-          const rolesToRemove = currentRoles.filter((role) => !newRoles.includes(role));
-
-          if (rolesToAdd.length > 0) {
-            await db.insert(userMriRoles).values(
-              rolesToAdd.map((role) => ({
-                userId: user.id,
-                role,
-                active: true,
-              }))
-            );
-          }
-
-          if (rolesToRemove.length > 0) {
+        // MRI roles: allow multiple; ensure exclusivity per role across users
+        if (Array.isArray(u.mriRoles)) {
+          const desired = new Set(u.mriRoles.map(String));
+          // Deactivate same role on other users
+          for (const r of desired) {
             await db
               .update(userMriRoles)
               .set({ active: false })
-              .where(and(eq(userMriRoles.userId, user.id), inArray(userMriRoles.role, rolesToRemove)));
+              .where(and(eq(userMriRoles.role, r), eq(userMriRoles.active, true), ne(userMriRoles.userId, id)));
+            // Upsert current user role active
+            try {
+              await db.insert(userMriRoles).values({ userId: id, role: r, active: true });
+            } catch {
+              await db
+                .update(userMriRoles)
+                .set({ active: true })
+                .where(and(eq(userMriRoles.userId, id), eq(userMriRoles.role, r)));
+            }
+          }
+          // Deactivate roles not desired
+          await db
+            .update(userMriRoles)
+            .set({ active: false })
+            .where(and(eq(userMriRoles.userId, id), eq(userMriRoles.active, true)));
+          // Reactivate only desired ones (done above); ensure others remain false
+          for (const r of desired) {
+            await db
+              .update(userMriRoles)
+              .set({ active: true })
+              .where(and(eq(userMriRoles.userId, id), eq(userMriRoles.role, r)));
           }
         }
       }
-
-      return NextResponse.json({ message: "Team updated successfully" }, { status: 200 });
+      return NextResponse.json({ updated }, { status: 200 });
     }
 
-    if (section === "openCloseTimes") {
-      const { times } = body;
-      if (!Array.isArray(times) || times.length === 0) {
-        return NextResponse.json({ error: "Invalid or empty times" }, { status: 400 });
-      }
-
-      for (const timeRow of times) {
-        const { userType, dayOpenedAt, dayClosedAt, closingWindowStart, closingWindowEnd } = timeRow;
-        if (!userType || !dayOpenedAt || !dayClosedAt || !closingWindowStart || !closingWindowEnd) {
-          return NextResponse.json({ error: `Missing required time fields for userType ${userType}` }, { status: 400 });
-        }
-
-        await db
-          .update(openCloseTimes)
-          .set({
-            dayOpenTime: dayOpenedAt,
-            dayCloseTime: dayClosedAt,
-            closingWindowStart,
-            closingWindowEnd,
-          })
-          .where(eq(openCloseTimes.userType, userType));
-      }
-
-      return NextResponse.json({ message: "Times updated successfully" }, { status: 200 });
-    }
-
+    // Batch update per-user open/close times
     if (section === "userOpenCloseTimes") {
-      const { updates } = body || {};
-      if (!Array.isArray(updates) || updates.length === 0) {
-        return NextResponse.json({ error: "Invalid or empty updates" }, { status: 400 });
-      }
-
-      const allUsers = await db.select({ id: users.id }).from(users);
-      const userIdSet = new Set(allUsers.map((u) => u.id));
-      const ensureSeconds = (t) => (t && /^\d{2}:\d{2}$/.test(t) ? `${t}:00` : t || null);
-
+      const updates = Array.isArray(body.updates) ? body.updates : [];
+      if (!updates.length) return NextResponse.json({ error: "updates[] required" }, { status: 400 });
+      let upserts = 0, deletes = 0;
       for (const u of updates) {
         const userId = Number(u.userId);
-        const useCustomTimes = !!u.useCustomTimes;
-        const dayOpenedAt = ensureSeconds(u.dayOpenedAt);
-        const dayClosedAt = ensureSeconds(u.dayClosedAt);
-
-        if (!userIdSet.has(userId)) {
-          return NextResponse.json({ error: `Invalid userId: ${userId}` }, { status: 400 });
-        }
-        if (useCustomTimes && !dayOpenedAt) {
-          return NextResponse.json({ error: `dayOpenedAt is required when useCustomTimes is true for user ${userId}` }, { status: 400 });
-        }
-
-        const existing = await db
-          .select({ id: userOpenCloseTimes.id })
-          .from(userOpenCloseTimes)
-          .where(eq(userOpenCloseTimes.userId, userId));
-
-        if (useCustomTimes) {
-          if (existing.length) {
+        if (!userId) continue;
+        const useCustom = !!u.useCustomTimes;
+        if (!useCustom) {
+          // Remove override row if exists
+          await db.delete(userOpenCloseTimes).where(eq(userOpenCloseTimes.userId, userId));
+          deletes += 1;
+        } else {
+          const dayOpenedAt = String(u.dayOpenedAt || "").trim();
+          const dayClosedAt = String(u.dayClosedAt || "").trim();
+          if (!dayOpenedAt || !dayClosedAt) continue; // require both when custom
+          try {
+            await db.insert(userOpenCloseTimes).values({ userId, dayOpenedAt, dayClosedAt, useCustomTimes: true });
+          } catch {
             await db
               .update(userOpenCloseTimes)
-              .set({ useCustomTimes: true, dayOpenedAt, dayClosedAt: dayClosedAt ?? null })
+              .set({ dayOpenedAt, dayClosedAt, useCustomTimes: true })
               .where(eq(userOpenCloseTimes.userId, userId));
-          } else {
-            await db.insert(userOpenCloseTimes).values({ userId, useCustomTimes: true, dayOpenedAt, dayClosedAt: dayClosedAt ?? null });
           }
-        } else if (existing.length) {
-          await db.update(userOpenCloseTimes).set({ useCustomTimes: false }).where(eq(userOpenCloseTimes.userId, userId));
+          upserts += 1;
         }
       }
-
-      return NextResponse.json({ message: "Per-user open/close times updated" }, { status: 200 });
+      return NextResponse.json({ upserts, deletes }, { status: 200 });
     }
 
-    if (section === "slots") {
-      const { updates } = body;
-      if (!Array.isArray(updates) || updates.length === 0) {
-        return NextResponse.json({ error: "Invalid or empty updates" }, { status: 400 });
-      }
-
-      const userIds = new Set((await db.select({ id: users.id }).from(users)).map((u) => u.id));
-      const slotIds = new Set((await db.select({ id: dailySlots.id }).from(dailySlots)).map((s) => s.id));
-
-      const updatedAssignments = [];
-      for (const update of updates) {
-        const { slotId, memberId, startTime, endTime, name, dayOfWeek, role } = update;
-        if (!slotId || (!memberId && !startTime && !endTime)) {
-          // allow name-only update as well
-          if (!(name && slotId)) {
-            return NextResponse.json({ error: `Missing required fields for slot update: slotId or memberId/startTime/endTime/name` }, { status: 400 });
-          }
-        }
-        if (!slotIds.has(slotId)) return NextResponse.json({ error: `Invalid slotId: ${slotId}` }, { status: 400 });
-        if (memberId && !userIds.has(memberId)) return NextResponse.json({ error: `Invalid memberId: ${memberId}` }, { status: 400 });
-
-        if (memberId !== undefined) {
-          // If day/role provided, do day-wise role-wise upsert; else global per-slot assignment
-          if (dayOfWeek || role) {
-            const day = dayOfWeek ? String(dayOfWeek).toLowerCase() : null;
-            const rl = role ? String(role).toLowerCase() : null;
-            const where = and(
-              eq(dailySlotAssignments.slotId, slotId),
-              day ? eq(dailySlotAssignments.dayOfWeek, day) : eq(dailySlotAssignments.dayOfWeek, null),
-              rl ? eq(dailySlotAssignments.role, rl) : eq(dailySlotAssignments.role, null)
-            );
-            const existing = await db
-              .select({ id: dailySlotAssignments.id })
-              .from(dailySlotAssignments)
-              .where(where);
-            if (existing.length) {
-              await db.update(dailySlotAssignments).set({ memberId: memberId ?? null }).where(eq(dailySlotAssignments.id, existing[0].id));
-            } else {
-              await db.insert(dailySlotAssignments).values({ slotId, memberId: memberId ?? null, dayOfWeek: day, role: rl });
-            }
-            updatedAssignments.push({ slotId, memberId, dayOfWeek: day, role: rl });
-          } else {
-            const existing = await db
-              .select({ id: dailySlotAssignments.id })
-              .from(dailySlotAssignments)
-              .where(eq(dailySlotAssignments.slotId, slotId));
-            if (existing.length) {
-              await db.update(dailySlotAssignments).set({ memberId }).where(eq(dailySlotAssignments.slotId, slotId));
-            } else {
-              await db.insert(dailySlotAssignments).values({ slotId, memberId });
-            }
-            updatedAssignments.push({ slotId, memberId });
-          }
-        }
-
-        if (startTime && endTime) {
-          await db.update(dailySlots).set({ startTime, endTime }).where(eq(dailySlots.id, slotId));
-          updatedAssignments.push({ slotId, startTime, endTime });
-        }
-
-        if (typeof name === "string") {
-          await db.update(dailySlots).set({ name: String(name).trim() }).where(eq(dailySlots.id, slotId));
-          updatedAssignments.push({ slotId, name: String(name).trim() });
-        }
-      }
-
-      return NextResponse.json({ message: "Slot assignments updated successfully", assignments: updatedAssignments }, { status: 200 });
-    }
-    
-    if (section === "schoolCalendar") {
-      const { updates } = body;
-      if (!Array.isArray(updates) || updates.length === 0) {
-        return NextResponse.json({ error: "Invalid or empty updates" }, { status: 400 });
-      }
-
-      for (const update of updates) {
-        const { id, majorTerm, minorTerm, startDate, endDate, name, weekNumber, isMajorTermBoundary } = update;
-        if (!id || !majorTerm || !minorTerm || !startDate || !endDate || !name) {
-          return NextResponse.json({ error: `Missing required fields for calendar entry ${id}` }, { status: 400 });
-        }
-
-        await db
-          .update(schoolCalendar)
-          .set({
-            major_term: majorTerm,
-            minor_term: minorTerm,
-            start_date: new Date(startDate),
-            end_date: new Date(endDate),
-            name,
-            week_number: weekNumber ?? null,
-            is_major_term_boundary: isMajorTermBoundary || false,
-          })
-          .where(eq(schoolCalendar.id, id));
-      }
-
-      return NextResponse.json({ message: "Calendar updated successfully" }, { status: 200 });
-    }
-
-    if (section === "metaFamilies") {
-      const { id } = body || {};
-      if (!id) return NextResponse.json({ error: "Missing required field: id" }, { status: 400 });
-      await db.delete(mriFamilies).where(eq(mriFamilies.id, Number(id)));
-      return NextResponse.json({ message: "Family deleted" }, { status: 200 });
-    }
-    if (section === "metaPrograms") {
-      const idParam = new URL(req.url).searchParams.get("id");
-      const { id: idBody } = body || {};
-      const id = idBody ?? (idParam ? Number(idParam) : undefined);
-      if (!id) return NextResponse.json({ error: "Missing required field: id" }, { status: 400 });
-      await db.delete(mriPrograms).where(eq(mriPrograms.id, Number(id)));
-      return NextResponse.json({ message: "Program deleted" }, { status: 200 });
-    }
-    if (
-      section === "metaProgramRoles" ||
-      section === "programRoles" ||
-      section === "mriProgramRoles" ||
-      /programroles/i.test(section)
-    ) {
-      const idParam = new URL(req.url).searchParams.get("id");
-      const { id: idBody } = body || {};
-      const id = idBody ?? (idParam ? Number(idParam) : undefined);
-      if (!id) return NextResponse.json({ error: "Missing required field: id" }, { status: 400 });
-      await db.delete(mriProgramRoles).where(eq(mriProgramRoles.id, Number(id)));
-      return NextResponse.json({ message: "Program role deleted" }, { status: 200 });
-    }
-    if (section === "metaRoleDefs") {
-      const { id } = body || {};
-      if (!id) return NextResponse.json({ error: "Missing required field: id" }, { status: 400 });
-      await db.delete(mriRoleDefs).where(eq(mriRoleDefs.id, Number(id)));
-      return NextResponse.json({ message: "Role def deleted" }, { status: 200 });
-    }
-
+    // Batch update MSP Codes
     if (section === "mspCodes") {
-      const { updates } = body || {};
-      if (!Array.isArray(updates) || updates.length === 0) {
-        return NextResponse.json({ error: "Invalid or empty updates" }, { status: 400 });
-      }
+      const updates = Array.isArray(body.updates) ? body.updates : [];
+      if (!updates.length) return NextResponse.json({ error: "updates[] required" }, { status: 400 });
+      let updated = 0;
       for (const u of updates) {
-        const { id, code, program, familyKey, track, title, parentSlice, active } = u || {};
-        if (!id) return NextResponse.json({ error: "Missing id in updates" }, { status: 400 });
-        await db.update(mspCodes).set({
-          ...(code ? { code: String(code).trim() } : {}),
-          ...(program ? { program } : {}),
-          ...(familyKey ? { familyKey } : {}),
-          ...(track ? { track } : {}),
-          ...(title ? { title } : {}),
-          ...(parentSlice !== undefined ? { parentSlice: parentSlice || null } : {}),
-          ...(active !== undefined ? { active: !!active } : {}),
-        }).where(eq(mspCodes.id, Number(id)));
+        const id = Number(u.id);
+        if (!id) continue;
+        const allowed = ["code", "program", "familyKey", "track", "title", "parentSlice", "active"];
+        const setObj = {};
+        for (const k of allowed) if (u[k] !== undefined) setObj[k] = u[k];
+        if (Object.keys(setObj).length === 0) continue;
+        await db.update(mspCodes).set(setObj).where(eq(mspCodes.id, id));
+        updated += 1;
       }
-      return NextResponse.json({ message: "MSP codes updated" }, { status: 200 });
+      return NextResponse.json({ updated }, { status: 200 });
     }
 
+    // Batch update MSP Code Assignments
     if (section === "mspCodeAssignments") {
-      const { updates } = body || {};
-      if (!Array.isArray(updates) || updates.length === 0) {
-        return NextResponse.json({ error: "Invalid or empty updates" }, { status: 400 });
-      }
+      const updates = Array.isArray(body.updates) ? body.updates : [];
+      if (!updates.length) return NextResponse.json({ error: "updates[] required" }, { status: 400 });
+      let updated = 0;
       for (const u of updates) {
-        const { id, endDate, isPrimary, active } = u || {};
-        if (!id) return NextResponse.json({ error: "Missing id in updates" }, { status: 400 });
-        await db.update(mspCodeAssignments).set({
-          ...(endDate !== undefined ? { endDate: endDate ? new Date(endDate) : null } : {}),
-          ...(isPrimary !== undefined ? { isPrimary: !!isPrimary } : {}),
-          ...(active !== undefined ? { active: !!active } : {}),
-        }).where(eq(mspCodeAssignments.id, Number(id)));
+        const id = Number(u.id);
+        if (!id) continue;
+        const allowed = ["mspCodeId", "userId", "startDate", "endDate", "isPrimary", "active"];
+        const setObj = {};
+        for (const k of allowed) if (u[k] !== undefined) setObj[k] = u[k];
+        if (Object.keys(setObj).length === 0) continue;
+        await db.update(mspCodeAssignments).set(setObj).where(eq(mspCodeAssignments.id, id));
+        updated += 1;
       }
-      return NextResponse.json({ message: "MSP code assignments updated" }, { status: 200 });
+      return NextResponse.json({ updated }, { status: 200 });
     }
 
+    // Other PATCH sections can be added here (metaFamilies, metaPrograms, etc.)
     if (section === "metaFamilies") {
-      const { updates } = body || {};
-      if (!Array.isArray(updates) || updates.length === 0) return NextResponse.json({ error: "Invalid or empty updates" }, { status: 400 });
+      const updates = Array.isArray(body.updates) ? body.updates : [];
+      if (!updates.length) return NextResponse.json({ error: "updates[] required" }, { status: 400 });
+      let updated = 0;
       for (const u of updates) {
-        const { id, key, name, active } = u || {};
-        if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
-        await db
-          .update(mriFamilies)
-          .set({ ...(key ? { key } : {}), ...(name ? { name } : {}), ...(active !== undefined ? { active: !!active } : {}) })
-          .where(eq(mriFamilies.id, Number(id)));
+        const id = Number(u.id);
+        if (!id) continue;
+        const setObj = {};
+        if (u.active !== undefined) setObj.active = !!u.active;
+        if (u.name !== undefined) setObj.name = String(u.name);
+        if (Object.keys(setObj).length === 0) continue;
+        await db.update(mriFamilies).set(setObj).where(eq(mriFamilies.id, id));
+        updated += 1;
       }
-      return NextResponse.json({ message: "Families updated" }, { status: 200 });
+      return NextResponse.json({ updated }, { status: 200 });
     }
-
-    if (section === "metaPrograms") {
-      const { updates } = body || {};
-      if (!Array.isArray(updates) || updates.length === 0) return NextResponse.json({ error: "Invalid or empty updates" }, { status: 400 });
-      for (const u of updates) {
-        const { id, familyId, programKey, name, scope, aims, sop, active } = u || {};
-        if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
-        await db
-          .update(mriPrograms)
-          .set({
-            ...(familyId ? { familyId: Number(familyId) } : {}),
-            ...(programKey ? { programKey } : {}),
-            ...(name ? { name } : {}),
-            ...(scope ? { scope } : {}),
-            ...(aims !== undefined ? { aims } : {}),
-            ...(sop !== undefined ? { sop } : {}),
-            ...(active !== undefined ? { active: !!active } : {}),
-          })
-          .where(eq(mriPrograms.id, Number(id)));
-      }
-      return NextResponse.json({ message: "Programs updated" }, { status: 200 });
-    }
-
-    if (section === "metaProgramRoles") {
-      const { updates } = body || {};
-      if (!Array.isArray(updates) || updates.length === 0) return NextResponse.json({ error: "Invalid or empty updates" }, { status: 400 });
-      for (const u of updates) {
-        const { id, action, roleKey } = u || {};
-        if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
-        await db
-          .update(mriProgramRoles)
-          .set({ ...(action ? { action } : {}), ...(roleKey ? { roleKey } : {}) })
-          .where(eq(mriProgramRoles.id, Number(id)));
-      }
-      return NextResponse.json({ message: "Program roles updated" }, { status: 200 });
-    }
-
-    if (section === "metaRoleDefs") {
-      const { updates } = body || {};
-      if (!Array.isArray(updates) || updates.length === 0) return NextResponse.json({ error: "Invalid or empty updates" }, { status: 400 });
-      for (const u of updates) {
-        const { id, roleKey, name, category, active } = u || {};
-        if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
-        await db
-          .update(mriRoleDefs)
-          .set({
-            ...(roleKey ? { roleKey } : {}),
-            ...(name ? { name } : {}),
-            ...(category ? { category } : {}),
-            ...(active !== undefined ? { active: !!active } : {}),
-          })
-          .where(eq(mriRoleDefs.id, Number(id)));
-      }
-      return NextResponse.json({ message: "Role defs updated" }, { status: 200 });
-    }
-
-    if (section === "posts") {
-      const { updates } = body || {};
-      if (!Array.isArray(updates) || updates.length === 0) {
-        return NextResponse.json({ error: "Invalid or empty updates" }, { status: 400 });
-      }
-      for (const u of updates) {
-        const { id, code, title, family, notes, active } = u || {};
-        if (!id) return NextResponse.json({ error: "Missing id in updates" }, { status: 400 });
-        await db
-          .update(postCodes)
-          .set({
-            ...(code ? { code: String(code).trim() } : {}),
-            ...(title ? { title: String(title).trim() } : {}),
-            ...(family !== undefined ? { family: family ? String(family).trim() : null } : {}),
-            ...(notes !== undefined ? { notes } : {}),
-            ...(active !== undefined ? { active: !!active } : {}),
-          })
-          .where(eq(postCodes.id, Number(id)));
-      }
-      return NextResponse.json({ message: "Posts updated" }, { status: 200 });
-    }
-
-    if (section === "postAssignments") {
-      return NextResponse.json({ error: "Removed: use mspCodeAssignments" }, { status: 410 });
-    }
-
-    if (section === "classTeachers") {
-      const { updates } = body || {};
-      if (!Array.isArray(updates) || updates.length === 0) {
-        return NextResponse.json({ error: "Invalid or empty updates" }, { status: 400 });
-      }
-      for (const u of updates) {
-        const { id, endDate, active } = u || {};
-        if (!id) return NextResponse.json({ error: "Missing id in updates" }, { status: 400 });
-        await db
-          .update(classParentTeachers)
-          .set({
-            ...(endDate !== undefined ? { endDate: endDate ? new Date(endDate) : null } : {}),
-            ...(active !== undefined ? { active: !!active } : {}),
-          })
-          .where(eq(classParentTeachers.id, Number(id)));
-      }
-      return NextResponse.json({ message: "Class teacher assignments updated" }, { status: 200 });
-    }
-
-    return NextResponse.json({ error: "Invalid section" }, { status: 400 });
+    return NextResponse.json({ error: "Invalid section for PATCH" }, { status: 400 });
   } catch (error) {
-    console.error(`Error updating ${section}:`, error);
-    return NextResponse.json({ error: `Failed to update ${section}: ${error.message}` }, { status: 500 });
+    console.error(`Error in PATCH handler:`, error);
+    return NextResponse.json({ error: `Failed to process PATCH: ${error.message}` }, { status: 500 });
   }
 }
 
-/* ============================== DELETE ============================== */
+// Delete handler: support deleting metaFamilies and other deletions
 export async function DELETE(req) {
   const session = await auth();
   if (!session || !["admin", "team_manager"].includes(session.user?.role)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-
-  const { searchParams } = new URL(req.url);
-  const section = searchParams.get("section");
-
   try {
-    // DELETE requests may not include a body; parse defensively
-    let body = {};
-    try {
-      body = await req.json();
-    } catch (_) {
-      body = {};
-    }
+    const { searchParams } = new URL(req.url);
+    const section = String(searchParams.get("section") || "").trim();
+    const body = await req.json().catch(() => ({}));
 
-    if (section === "schoolCalendar") {
-      const { id } = body || {};
-      if (!id) return NextResponse.json({ error: "Missing required field: id" }, { status: 400 });
-      await db.delete(schoolCalendar).where(eq(schoolCalendar.id, id));
-      return NextResponse.json({ message: "Calendar entry deleted successfully" }, { status: 200 });
-    }
-
-    if (section === "slots") {
-      const { slotId, deleteSlot = false } = body || {};
-      if (!slotId) return NextResponse.json({ error: "Missing required field: slotId" }, { status: 400 });
-      await db.delete(dailySlotAssignments).where(eq(dailySlotAssignments.slotId, slotId));
-      if (deleteSlot) {
-        await db.delete(dailySlots).where(eq(dailySlots.id, slotId));
-        return NextResponse.json({ message: "Slot deleted successfully" }, { status: 200 });
-      }
-      return NextResponse.json({ message: "Slot assignment deleted successfully" }, { status: 200 });
+    if (section === "metaFamilies") {
+      const id = Number(body.id);
+      if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+      await db.delete(mriFamilies).where(eq(mriFamilies.id, id));
+      return NextResponse.json({ deleted: 1 }, { status: 200 });
     }
 
     if (section === "team") {
-      const { userId } = body || {};
-      if (!userId) return NextResponse.json({ error: "Missing required field: userId" }, { status: 400 });
-
-      const me = Number(session.user?.id);
-      if (Number(userId) === me) {
-        return NextResponse.json({ error: "You cannot delete your own account." }, { status: 400 });
-      }
-
-      const [target] = await db.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, userId));
-      if (!target) return NextResponse.json({ error: `User ${userId} not found` }, { status: 404 });
-      if (session.user?.role === "team_manager" && target.role === "admin") {
-        return NextResponse.json({ error: "Insufficient privileges to delete an admin." }, { status: 403 });
-      }
-
-      await db.delete(dailySlotAssignments).where(eq(dailySlotAssignments.memberId, userId));
-      await db.update(dailySlots).set({ assignedMemberId: null }).where(eq(dailySlots.assignedMemberId, userId));
-      await db.update(dailySlotLogs).set({ createdBy: null }).where(eq(dailySlotLogs.createdBy, userId));
-
-      const taskRows = await db.select({ id: routineTasks.id }).from(routineTasks).where(eq(routineTasks.memberId, userId));
-      if (taskRows.length) {
-        const taskIds = taskRows.map((t) => t.id);
-        await db.delete(routineTaskDailyStatuses).where(inArray(routineTaskDailyStatuses.routineTaskId, taskIds));
-        await db.delete(routineTaskLogs).where(inArray(routineTaskLogs.routineTaskId, taskIds));
-        await db.delete(routineTasks).where(inArray(routineTasks.id, taskIds));
-      }
-      await db.delete(routineTaskLogs).where(eq(routineTaskLogs.userId, userId));
-
-      await db.update(assignedTaskStatus).set({ verifiedBy: null }).where(eq(assignedTaskStatus.verifiedBy, userId));
-      await db.update(assignedTaskLogs).set({ userId: null }).where(eq(assignedTaskLogs.userId, userId));
-      await db.update(sprints).set({ verifiedBy: null }).where(eq(sprints.verifiedBy, userId));
-
-      await db.delete(messages).where(or(eq(messages.senderId, userId), eq(messages.recipientId, userId)));
-
-      await db.delete(generalLogs).where(eq(generalLogs.userId, userId));
-      await db.delete(memberHistory).where(eq(memberHistory.memberId, userId));
-      await db.delete(notCompletedTasks).where(eq(notCompletedTasks.userId, userId));
-      await db.delete(userOpenCloseTimes).where(eq(userOpenCloseTimes.userId, userId));
-
-      await db.update(dayCloseRequests).set({ approvedBy: null }).where(eq(dayCloseRequests.approvedBy, userId));
-      await db.delete(dayCloseRequests).where(eq(dayCloseRequests.userId, userId));
-
-      await db
-        .update(leaveRequests)
-        .set({ approvedBy: null, transferTo: null })
-        .where(or(eq(leaveRequests.approvedBy, userId), eq(leaveRequests.transferTo, userId)));
-      await db.delete(leaveRequests).where(or(eq(leaveRequests.userId, userId), eq(leaveRequests.submittedTo, userId)));
-
-      await db.update(users).set({ immediate_supervisor: null }).where(eq(users.immediate_supervisor, userId));
-
+      const userId = Number(body.userId);
+      if (!userId) return NextResponse.json({ error: "userId required" }, { status: 400 });
       await db.delete(users).where(eq(users.id, userId));
-
-      return NextResponse.json({ message: "User deleted successfully" }, { status: 200 });
+      // Also clean user-specific overrides and roles (foreign keys may cascade, but be explicit if not)
+      try { await db.delete(userOpenCloseTimes).where(eq(userOpenCloseTimes.userId, userId)); } catch {}
+      try { await db.delete(userMriRoles).where(eq(userMriRoles.userId, userId)); } catch {}
+      return NextResponse.json({ deleted: 1 }, { status: 200 });
     }
 
-    if (section === "posts") {
-      return NextResponse.json({ error: "Removed: use mspCodes" }, { status: 410 });
-    }
-
-    if (section === "postAssignments") {
-      return NextResponse.json({ error: "Removed: use mspCodeAssignments" }, { status: 410 });
-    }
-
-    if (section === "classTeachers") {
-      const { id } = body || {};
-      if (!id) return NextResponse.json({ error: "Missing required field: id" }, { status: 400 });
-      await db.delete(classParentTeachers).where(eq(classParentTeachers.id, Number(id)));
-      return NextResponse.json({ message: "Class teacher assignment deleted" }, { status: 200 });
-    }
-
-    if (section === "metaRoleTasks") {
-      const { id } = body || {};
-      if (!id) return NextResponse.json({ error: "Missing required field: id" }, { status: 400 });
-      await db.delete(mriRoleTasks).where(eq(mriRoleTasks.id, Number(id)));
-      return NextResponse.json({ message: "Role task deleted" }, { status: 200 });
-    }
-
-    return NextResponse.json({ error: "Invalid section" }, { status: 400 });
+    // default
+    return NextResponse.json({ error: "Invalid section for DELETE" }, { status: 400 });
   } catch (error) {
-    console.error(`Error deleting ${section}:`, error);
-    return NextResponse.json({ error: `Failed to delete ${section}: ${error.message}` }, { status: 500 });
+    console.error(`Error in DELETE handler:`, error);
+    return NextResponse.json({ error: `Failed to process DELETE: ${error.message}` }, { status: 500 });
   }
 }
