@@ -26,6 +26,24 @@ export async function GET(req) {
       const sig = sign(p, SECRET);
       return NextResponse.json({ token: `${p}.${sig}` });
     }
+    if (section === "sessionEvents") {
+      const sessionId = Number(searchParams.get('sessionId'));
+      if (!sessionId) return NextResponse.json({ error: 'sessionId required' }, { status: 400 });
+      // fetch latest attendance events for this session
+      const rows = await db
+        .select({
+          id: attendanceEvents.id,
+          userId: attendanceEvents.userId,
+          at: attendanceEvents.at,
+          name: users.name,
+        })
+        .from(attendanceEvents)
+        .leftJoin(users, eq(users.id, attendanceEvents.userId))
+        .where(eq(attendanceEvents.sessionId, sessionId));
+      // sort ascending by time
+      rows.sort((a,b)=> new Date(a.at) - new Date(b.at));
+      return NextResponse.json({ events: rows }, { status: 200 });
+    }
     return NextResponse.json({ error: "Invalid section" }, { status: 400 });
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 500 });
@@ -89,4 +107,3 @@ export async function POST(req) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
-

@@ -40,6 +40,7 @@ export default function MyMRIs() {
   const [selectedRoleBundle, setSelectedRoleBundle] = useState(null); // { roleKey, roleName, tasks: [] }
   const [selectedRTask, setSelectedRTask] = useState(null); // { roleName, task }
   const [scanPanel, setScanPanel] = useState({ session: null, sessionToken: "", userTokenInput: "", logs: [] , starting: false, ingesting: false});
+  const [sessionEvents, setSessionEvents] = useState([]);
   const [showSessionQR, setShowSessionQR] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [error, setError] = useState(null);
@@ -141,6 +142,22 @@ export default function MyMRIs() {
       console.warn("Failed to load role tasks:", roleTasksError);
     }
   }, [session, todayMRIsData, todayMRIsError, weeklyMRIsData, weeklyMRIsError, assignedTasksData, assignedTasksError, routineTasksData, routineTasksError, roleTasksError]);
+
+  // Poll session attendance list when a session exists (moderator view)
+  useEffect(() => {
+    if (!scanPanel.session?.id) return;
+    let active = true;
+    const poll = async () => {
+      try {
+        const r = await fetch(`/api/attendance?section=sessionEvents&sessionId=${scanPanel.session.id}`);
+        const j = await r.json();
+        if (active && r.ok) setSessionEvents(j.events || []);
+      } catch {}
+    };
+    poll();
+    const id = setInterval(poll, 3000);
+    return () => { active = false; clearInterval(id); };
+  }, [scanPanel.session?.id]);
 
   const today = format(new Date("2025-07-28T21:45:00+08:00"), "EEEE, MMMM d, yyyy");
 
@@ -531,29 +548,46 @@ export default function MyMRIs() {
                       {scanPanel.session && (
                         <div className="text-xs text-gray-700 space-y-2">
                           <div><span className="font-medium">Session:</span> #{scanPanel.session.id} — expires {new Date(scanPanel.session.expiresAt).toLocaleTimeString()}</div>
-                      <div className="bg-rose-50 border border-rose-100 rounded p-2">
-                        <div className="font-semibold text-rose-900 mb-1">Session Code</div>
-                        {scanPanel.sessionToken ? (
-                          <div className="flex flex-col sm:flex-row gap-3 items-center">
-                            <QrCode value={scanPanel.sessionToken} size={160} className="bg-white rounded p-2 border" />
-                            <div className="text-[11px] text-gray-700 break-all font-mono max-w-full">
-                              {scanPanel.sessionToken}
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
+                            <div className="bg-rose-50 border border-rose-100 rounded p-2">
+                              <div className="font-semibold text-rose-900 mb-1">Session Code</div>
+                              {scanPanel.sessionToken ? (
+                                <div className="flex flex-col sm:flex-row gap-3 items-center">
+                                  <QrCode value={scanPanel.sessionToken} size={160} className="bg-white rounded p-2 border" />
+                                  <div className="text-[11px] text-gray-700 break-all font-mono max-w-full">
+                                    {scanPanel.sessionToken}
+                                  </div>
+                                </div>
+                              ) : null}
+                              <div className="mt-2 flex items-center justify-between gap-2">
+                                <div className="text-[11px] text-gray-600">Show this QR on your screen for members to scan, or paste their personal code below.</div>
+                                {scanPanel.sessionToken && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowSessionQR(true)}
+                                    className="text-xs px-2 py-1 rounded bg-rose-600 text-white hover:bg-rose-700"
+                                  >
+                                    Fullscreen QR
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                            <div className="bg-white border border-rose-100 rounded p-2">
+                              <div className="font-semibold text-gray-900 mb-1">Attendance</div>
+                              {sessionEvents.length === 0 ? (
+                                <div className="text-[11px] text-gray-600">No scans yet.</div>
+                              ) : (
+                                <ul className="max-h-40 overflow-auto text-[12px] list-disc pl-4">
+                                  {sessionEvents.map(ev => (
+                                    <li key={ev.id} className="text-gray-800">
+                                      <span className="font-medium">{ev.name || ev.userId}</span>
+                                      <span className="text-gray-500"> — {new Date(ev.at).toLocaleTimeString()}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
                             </div>
                           </div>
-                        ) : null}
-                        <div className="mt-2 flex items-center justify-between gap-2">
-                          <div className="text-[11px] text-gray-600">Show this QR on your screen for members to scan, or paste their personal code below.</div>
-                          {scanPanel.sessionToken && (
-                            <button
-                              type="button"
-                              onClick={() => setShowSessionQR(true)}
-                              className="text-xs px-2 py-1 rounded bg-rose-600 text-white hover:bg-rose-700"
-                            >
-                              Fullscreen QR
-                            </button>
-                          )}
-                        </div>
-                      </div>
                           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
                             <div className="sm:col-span-2">
                               <label className="block text-[11px] text-gray-600">Member Code (paste from member’s phone)</label>

@@ -649,6 +649,19 @@ export default function Navbar() {
             <ArrowRight size={16} className="mrn-go" />
           </button>
 
+          {/* Open Day quick action */}
+          <button
+            className="action-row"
+            onClick={() => { setIsProfileOpen(false); router.push("/dashboard/member#open-day"); }}
+          >
+            <span className="row-icon"><Clock size={18} /></span>
+            <span className="row-main">
+              <span className="row-title">Open Your Day</span>
+              <span className="row-sub">Scan moderator’s session or share your code</span>
+            </span>
+            <ArrowRight size={16} className="row-go" />
+          </button>
+
           <button
             className="action-row"
             onClick={() => { setIsProfileOpen(false); router.push(profilePath); }}

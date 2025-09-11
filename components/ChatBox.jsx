@@ -173,12 +173,35 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
       return;
     }
     try {
-      const [uRes, mRes] = await Promise.all([
-        fetch("/api/member/users"),
-        fetch(`/api/others/chat?userId=${userDetails.id}`),
+      const ctl = new AbortController();
+      const timeout = setTimeout(() => ctl.abort(), 15000);
+      const [uRes, mRes] = await Promise.allSettled([
+        fetch("/api/member/users", { headers: { "Content-Type": "application/json" }, cache: "no-store", signal: ctl.signal }),
+        fetch(`/api/others/chat?userId=${encodeURIComponent(userDetails.id)}` , { headers: { "Content-Type": "application/json" }, cache: "no-store", signal: ctl.signal }),
       ]);
-      const { users: fetchedUsers = [] } = await uRes.json();
-      const { messages: fetchedMsgs = [] } = await mRes.json();
+      clearTimeout(timeout);
+
+      let fetchedUsers = [];
+      if (uRes.status === "fulfilled") {
+        try {
+          const uj = await uRes.value.json();
+          fetchedUsers = uj?.users || [];
+        } catch {}
+      }
+      let fetchedMsgs = [];
+      if (mRes.status === "fulfilled") {
+        if (mRes.value.ok) {
+          try {
+            const mj = await mRes.value.json();
+            fetchedMsgs = mj?.messages || [];
+          } catch {}
+        } else {
+          // surface server error text for debugging in dev
+          if (process.env.NODE_ENV !== "production") {
+            console.warn("/api/others/chat non-OK:", mRes.value.status);
+          }
+        }
+      }
       setUsers(fetchedUsers);
       setMessages(fetchedMsgs.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)));
 

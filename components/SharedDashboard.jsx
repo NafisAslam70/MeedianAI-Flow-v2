@@ -659,7 +659,7 @@ function CompactMore({ onOpenNotes }) {
         ⋯
       </button>
       {open && (
-        <div className="absolute right-0 mt-2 w-44 rounded-xl bg-white dark:bg-slate-800 border border-gray-200/60 dark:border-white/10 shadow-lg z-10">
+        <div className="absolute right-0 mt-2 w-44 rounded-xl bg-white dark:bg-slate-800 border border-gray-200/60 dark:border-white/10 shadow-lg z-[80]">
           <button
             onClick={() => { setOpen(false); onOpenNotes?.(); }}
             className="w-full text-left px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700 rounded-t-xl flex items-center gap-2"
@@ -717,12 +717,43 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
   const [myPersonalToken, setMyPersonalToken] = useState('');
   const [ingesting, setIngesting] = useState(false);
   const [scannerActive, setScannerActive] = useState(false);
+  const [showOpenDaySuccess, setShowOpenDaySuccess] = useState(false);
+
+  // Soft beep on success (no asset required)
+  const playBeep = () => {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(880, ctx.currentTime);
+      g.gain.setValueAtTime(0.0001, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.01);
+      o.connect(g).connect(ctx.destination);
+      o.start();
+      // quick decay
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.18);
+      o.stop(ctx.currentTime + 0.2);
+    } catch {}
+  };
 
   // force dark theme on this view
   useEffect(() => {
     const root = document.documentElement;
     root.classList.add("dark");
     return () => {};
+  }, []);
+
+  // Auto-open Open Day modal if URL hash requests it (from profile quick action)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (window.location.hash === '#open-day') {
+      handleOpenDay();
+      // clean hash
+      try { window.history.replaceState(null, '', window.location.pathname + window.location.search); } catch {}
+    }
   }, []);
 
   // data hook
@@ -796,8 +827,8 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
       setShowOpenDayModal(false);
       setDayPack((p) => ({ ...(p || {}), openedAt: Date.now() }));
-      setSuccess('Day opened via scanner');
-      setTimeout(()=> setSuccess(''), 2500);
+      setShowOpenDaySuccess(true);
+      playBeep();
     } catch(e) {
       setError(e.message || 'Failed to mark present');
       setTimeout(()=> setError(''), 3500);
@@ -1314,7 +1345,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
 
         {/* Header */}
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}
-          className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 sm:mb-6 gap-4 relative z-[1] min-w-0"
+          className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 sm:mb-6 gap-4 relative z-[40] min-w-0"
         >
           <div className="flex items-center gap-3 min-w-0">
             <Sparkles className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
@@ -1323,18 +1354,18 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
             </h1>
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-3 flex-wrap min-w-0">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             {/* Segmented tabs with date + opened inline */}
-            <div className="flex items-center bg-white/70 dark:bg-slate-800/60 border border-gray-200/40 dark:border-white/10 rounded-2xl p-1 flex-wrap gap-1">
+            <div className="flex items-center bg-white/70 dark:bg-slate-800/60 border border-gray-200/40 dark:border-white/10 rounded-2xl p-1 gap-0.5 flex-nowrap whitespace-nowrap">
               {/* Date + Opened inline (placed first) */}
-              <div className="flex items-center gap-2 px-1 py-1 mr-2">
+              <div className="flex items-center gap-1.5 px-1 py-1 mr-2 flex-shrink-0">
                 <input
                   type="date"
                   value={selectedDate}
                   onChange={(e) => setSelectedDate(e.target.value)}
-                  className="px-3 py-1.5 rounded-xl text-xs sm:text-[13px] bg-white/80 dark:bg-slate-800/70 border border-gray-200/50 dark:border-white/10 focus:ring-2 focus:ring-indigo-500 text-gray-700 dark:text-gray-200"
+                  className="px-2 py-1 rounded-xl text-[11px] md:text-[13px] bg-white/80 dark:bg-slate-800/70 border border-gray-200/50 dark:border-white/10 focus:ring-2 focus:ring-indigo-500 text-gray-700 dark:text-gray-200 w-[9.5rem] md:w-auto"
                 />
-                <div className="hidden sm:flex items-center gap-2 px-2 py-1 rounded-xl text-[11px] bg-white/80 dark:bg-slate-800/70 border border-gray-200/50 dark:border-white/10 text-gray-700 dark:text-gray-200">
+                <div className="hidden lg:flex items-center gap-2 px-2 py-1 rounded-xl text-[11px] bg-white/80 dark:bg-slate-800/70 border border-gray-200/50 dark:border-white/10 text-gray-700 dark:text-gray-200">
                   <Clock className="w-3.5 h-3.5 text-emerald-600" />
                   <span>Opened: {dayPack?.openedAt ? fmtHM(dayPack.openedAt) : "Not opened yet"}</span>
                   {!dayPack?.openedAt && (
@@ -1365,14 +1396,14 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                   onClick={() => setActiveTab(key)}
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
-                  className={`flex items-center gap-2 px-2 sm:px-3 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all ${
+                  className={`flex items-center gap-1.5 px-1.5 md:px-3 py-1.5 rounded-xl text-[11px] md:text-sm font-medium transition-all flex-shrink-0 ${
                     activeTab === key
                       ? "bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow"
                       : "text-gray-700 dark:text-gray-200 hover:bg-gray-100/60 dark:hover:bg-slate-700/60"
                   }`}
                 >
                   <Icon className="w-4 h-4" />
-                  <span className="hidden sm:inline">{label}</span>
+                  <span className="hidden md:inline">{label}</span>
                 </motion.button>
               ))}
               {/* Secondary actions: show full on sm+, compact menu on xs */}
@@ -1398,7 +1429,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                 </motion.a>
               </div>
               {/* Compact overflow menu for xs */}
-              <div className="sm:hidden ml-1 relative">
+              <div className="sm:hidden ml-1 relative z-[60]">
                 <CompactMore
                   onOpenNotes={() => setShowNotesModal(true)}
                 />
@@ -1715,6 +1746,33 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
 
         {/* Modals */}
         <AnimatePresence>
+          {showOpenDaySuccess && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-[100]"
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl p-6 w-full max-w-md border border-gray-200/60 dark:border-white/10"
+              >
+                <div className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-2">Day Opened</div>
+                <div className="text-sm text-gray-700 dark:text-gray-300 mb-4">
+                  Your day is opened. Please get into MRN with your current MRI (MSP).
+                </div>
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    onClick={() => setShowOpenDaySuccess(false)}
+                    className="px-4 py-2 rounded-lg bg-teal-600 text-white hover:bg-teal-700 text-sm"
+                  >OK</button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
           {showOpenDayModal && (
             <motion.div
               initial={{ opacity: 0 }}
@@ -1749,17 +1807,46 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                 {scanTab === 'scan' ? (
                   <div className="space-y-3">
                     <div>
-                      <div className="text-xs font-semibold text-gray-800 dark:text-gray-200 mb-1">Scan Session QR</div>
-                      <QrScanner
-                        onDecode={(txt)=> ingestScan(txt)}
-                        onError={()=>{}}
-                        width={320}
-                        height={240}
-                        scanBox={220}
-                        className="rounded-xl overflow-hidden border border-gray-200 dark:border-white/10"
-                        autoStopOnDecode
-                        active={scannerActive}
-                      />
+                      <div className="text-xs font-semibold text-gray-800 dark:text-gray-200 mb-2">Scan Session QR</div>
+                      <div className="relative" style={{ width: 480, height: 360 }}>
+                        <QrScanner
+                          onDecode={(txt)=> ingestScan(txt)}
+                          onError={()=>{}}
+                          width={480}
+                          height={360}
+                          scanBox={320}
+                          className="rounded-xl overflow-hidden border border-gray-200 dark:border-white/10"
+                          autoStopOnDecode
+                          active={scannerActive}
+                        />
+                        {/* Centered scan guide box */}
+                        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                          <div className="relative border-2 border-teal-400/90 rounded-xl" style={{ width: 320, height: 320 }}>
+                            {/* scan line */}
+                            <div className="absolute inset-0 overflow-hidden">
+                              <motion.div
+                                initial={{ y: -2 }}
+                                animate={{ y: [ -2, 316, -2 ] }}
+                                transition={{ duration: 2.2, ease: "easeInOut", repeat: Infinity }}
+                                className="absolute left-0 right-0 h-0.5"
+                                style={{
+                                  background: "linear-gradient(90deg, rgba(20,184,166,0) 0%, rgba(20,184,166,0.9) 20%, rgba(20,184,166,0.9) 80%, rgba(20,184,166,0) 100%)",
+                                  boxShadow: "0 0 12px rgba(45,212,191,0.85), 0 0 24px rgba(45,212,191,0.35)",
+                                }}
+                              />
+                            </div>
+                            {/* corner markers */}
+                            <span className="absolute -top-1 -left-1 w-6 h-1 bg-teal-400" />
+                            <span className="absolute -top-1 -left-1 w-1 h-6 bg-teal-400" />
+                            <span className="absolute -top-1 -right-1 w-6 h-1 bg-teal-400" />
+                            <span className="absolute -top-1 -right-1 w-1 h-6 bg-teal-400" />
+                            <span className="absolute -bottom-1 -left-1 w-6 h-1 bg-teal-400" />
+                            <span className="absolute -bottom-1 -left-1 w-1 h-6 bg-teal-400" />
+                            <span className="absolute -bottom-1 -right-1 w-6 h-1 bg-teal-400" />
+                            <span className="absolute -bottom-1 -right-1 w-1 h-6 bg-teal-400" />
+                          </div>
+                        </div>
+                      </div>
                     </div>
                     <div className="text-[11px] text-gray-500 dark:text-gray-400">If camera fails, paste the code manually.</div>
                     <div>
