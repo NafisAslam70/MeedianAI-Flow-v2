@@ -645,7 +645,7 @@ const CompletionRing = ({ pct = 0, size = 44, stroke = 5 }) => {
 };
 
 /* Compact overflow menu for small screens */
-function CompactMore({ onOpenNotes }) {
+function CompactMore({ onOpenNotes, onSelectTab }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="relative">
@@ -660,16 +660,41 @@ function CompactMore({ onOpenNotes }) {
         ⋯
       </button>
       {open && (
-        <div className="absolute right-0 mt-2 w-44 rounded-xl bg-white dark:bg-slate-800 border border-gray-200/60 dark:border-white/10 shadow-lg z-[80]">
+        <div className="absolute right-0 mt-2 w-48 rounded-xl bg-white dark:bg-slate-800 border border-gray-200/60 dark:border-white/10 shadow-lg z-[80] overflow-hidden">
+          <button
+            onClick={() => { setOpen(false); onSelectTab?.('dashboard'); }}
+            className="w-full text-left px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700 flex items-center gap-2"
+          >
+            <Calendar className="w-4 h-4" /> Dashboard
+          </button>
+          <button
+            onClick={() => { setOpen(false); onSelectTab?.('assigned'); }}
+            className="w-full text-left px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700 flex items-center gap-2"
+          >
+            <CheckSquare className="w-4 h-4" /> Assigned
+          </button>
+          <button
+            onClick={() => { setOpen(false); onSelectTab?.('routine'); }}
+            className="w-full text-left px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700 flex items-center gap-2"
+          >
+            <List className="w-4 h-4" /> Routine
+          </button>
+          <button
+            onClick={() => { setOpen(false); onSelectTab?.('deepLife'); }}
+            className="w-full text-left px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700 flex items-center gap-2"
+          >
+            <FileText className="w-4 h-4" /> DeepLife
+          </button>
+          <div className="h-px bg-gray-200 dark:bg-white/10 my-1" />
           <button
             onClick={() => { setOpen(false); onOpenNotes?.(); }}
-            className="w-full text-left px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700 rounded-t-xl flex items-center gap-2"
+            className="w-full text-left px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700 flex items-center gap-2"
           >
             <FilePlus className="w-4 h-4" /> Notes
           </button>
           <a
             href="/dashboard/member/meed-repo"
-            className="block px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700 rounded-b-xl flex items-center gap-2"
+            className="block px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700 flex items-center gap-2"
             onClick={() => setOpen(false)}
           >
             <FileText className="w-4 h-4" /> Meed Repo
@@ -1386,6 +1411,8 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
               {/* Divider */}
               <div className="hidden sm:block w-px h-6 mx-2 bg-gray-200 dark:bg-white/10 rounded" />
 
+              {/* Tabs (hidden on mobile; use dropdown there) */}
+              <div className="hidden sm:flex items-center">
               {[
                 { key: "dashboard", label: "Dashboard", Icon: Calendar },
                 { key: "assigned", label: "Assigned", Icon: CheckSquare },
@@ -1415,29 +1442,28 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                       <span className="hidden md:inline">{label}</span>
                     </span>
                   </motion.button>
-                  {key === 'dashboard' && (
-                    <motion.button
-                      type="button"
-                      onClick={() => {
-                        try {
-                          window.dispatchEvent(new Event('open-execute'));
-                        } catch {}
-                      }}
-                      whileHover={{ scale: 1.03 }}
-                      whileTap={{ scale: 0.97 }}
-                      className="ml-1 relative flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 rounded-xl text-[11px] md:text-sm font-extrabold text-white shadow-md hover:shadow-lg flex-shrink-0 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 ring-1 ring-emerald-300/40 hover:ring-emerald-200/60"
-                      title="Execute Now"
-                    >
-                      {/* Lightning bolt icon */}
-                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-                        <path d="M13 2L3 14h7l-1 8 11-14h-7l0-6z" />
-                      </svg>
-                      <span className="hidden md:inline">Execute Now</span>
-                      <span className="md:hidden">Execute</span>
-                    </motion.button>
-                  )}
                 </div>
               ))}
+              </div>
+              {/* Execute Now: always visible (mobile and desktop) */}
+              <motion.button
+                type="button"
+                onClick={() => {
+                  try {
+                    window.dispatchEvent(new Event('open-execute'));
+                  } catch {}
+                }}
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
+                className="ml-1 relative flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 rounded-xl text-[11px] md:text-sm font-extrabold text-white shadow-md hover:shadow-lg flex-shrink-0 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 ring-1 ring-emerald-300/40 hover:ring-emerald-200/60"
+                title="Execute Now"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                  <path d="M13 2L3 14h7l-1 8 11-14h-7l0-6z" />
+                </svg>
+                <span className="hidden md:inline">Execute Now</span>
+                <span className="md:hidden">Execute</span>
+              </motion.button>
               {/* Secondary actions: show full on sm+, compact menu on xs */}
               <div className="hidden sm:flex items-center">
                 <motion.button
@@ -1464,6 +1490,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
               <div className="sm:hidden ml-1 relative z-[60]">
                 <CompactMore
                   onOpenNotes={() => setShowNotesModal(true)}
+                  onSelectTab={(k) => setActiveTab(k)}
                 />
               </div>
             </div>
