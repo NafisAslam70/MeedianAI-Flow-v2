@@ -1350,7 +1350,9 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
         >
           <div className="flex items-center gap-2 min-w-0">
             <Sparkles className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-            <span className="text-xs sm:text-sm font-semibold text-gray-800 dark:text-gray-200">Hey {session?.user?.name || "User"}!</span>
+            <span className="text-[13px] sm:text-sm md:text-base font-extrabold text-blue-700 dark:text-blue-300 whitespace-nowrap tracking-tight">
+              Hey {session?.user?.name || "User"}!
+            </span>
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
@@ -1390,44 +1392,52 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                 { key: "routine", label: "Routine", Icon: List },
                 { key: "deepLife", label: "DeepLife", Icon: FileText },
               ].map(({ key, label, Icon }) => (
-                <motion.button
-                  key={key}
-                  onClick={() => setActiveTab(key)}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  className={`relative flex items-center gap-1.5 px-2 md:px-3 py-1.5 rounded-xl text-[11px] md:text-sm font-medium transition-all flex-shrink-0 ${
-                    activeTab === key
-                      ? "text-white"
-                      : "text-gray-700 dark:text-gray-200 hover:bg-gray-100/60 dark:hover:bg-slate-700/60"
-                  }`}
-                >
-                  {activeTab === key && (
-                    <motion.span
-                      layoutId="tabActive"
-                      className="absolute inset-0 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 shadow"
-                      transition={{ type: "spring", stiffness: 500, damping: 40, mass: 1 }}
-                    />
+                <div key={key} className="inline-flex items-center">
+                  <motion.button
+                    onClick={() => setActiveTab(key)}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    className={`relative flex items-center gap-1.5 px-2 md:px-3 py-1.5 rounded-xl text-[11px] md:text-sm font-medium transition-all flex-shrink-0 ${
+                      activeTab === key
+                        ? "text-white"
+                        : "text-gray-700 dark:text-gray-200 hover:bg-gray-100/60 dark:hover:bg-slate-700/60"
+                    }`}
+                  >
+                    {activeTab === key && (
+                      <motion.span
+                        layoutId="tabActive"
+                        className="absolute inset-0 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 shadow"
+                        transition={{ type: "spring", stiffness: 500, damping: 40, mass: 1 }}
+                      />
+                    )}
+                    <span className="relative z-10 inline-flex items-center gap-1.5">
+                      <Icon className="w-4 h-4" />
+                      <span className="hidden md:inline">{label}</span>
+                    </span>
+                  </motion.button>
+                  {key === 'dashboard' && (
+                    <motion.button
+                      type="button"
+                      onClick={() => {
+                        try {
+                          window.dispatchEvent(new Event('open-execute'));
+                        } catch {}
+                      }}
+                      whileHover={{ scale: 1.03 }}
+                      whileTap={{ scale: 0.97 }}
+                      className="ml-1 relative flex items-center gap-1.5 px-2.5 md:px-3 py-1.5 rounded-xl text-[11px] md:text-sm font-extrabold text-white shadow-md hover:shadow-lg flex-shrink-0 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 ring-1 ring-emerald-300/40 hover:ring-emerald-200/60"
+                      title="Execute Now"
+                    >
+                      {/* Lightning bolt icon */}
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                        <path d="M13 2L3 14h7l-1 8 11-14h-7l0-6z" />
+                      </svg>
+                      <span className="hidden md:inline">Execute Now</span>
+                      <span className="md:hidden">Execute</span>
+                    </motion.button>
                   )}
-                  <span className="relative z-10 inline-flex items-center gap-1.5">
-                    <Icon className="w-4 h-4" />
-                    <span className="hidden md:inline">{label}</span>
-                  </span>
-                </motion.button>
+                </div>
               ))}
-              {/* Dive In for Execution */}
-              <Link
-                href={"?execute=1"}
-                className="ml-1 relative flex items-center gap-1.5 px-2 md:px-3 py-1.5 rounded-xl text-[11px] md:text-sm font-semibold text-white shadow flex-shrink-0 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500"
-                title="Dive In for Execution"
-              >
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                  <path d="M3 11l3-3 3 3" />
-                  <path d="M12 21V3" />
-                  <path d="M18 13l3 3-3 3" />
-                </svg>
-                <span className="hidden md:inline">Dive In for Execution</span>
-                <span className="md:hidden">Dive In</span>
-              </Link>
               {/* Secondary actions: show full on sm+, compact menu on xs */}
               <div className="hidden sm:flex items-center">
                 <motion.button

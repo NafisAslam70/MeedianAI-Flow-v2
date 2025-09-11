@@ -291,6 +291,13 @@ export default function Navbar() {
     return () => { aborted = true; };
   }, [isAllMeediansOpen, status]);
 
+  // Allow other components to open Execute via a custom event
+  useEffect(() => {
+    const handler = () => setIsExecuteOpen(true);
+    window.addEventListener('open-execute', handler);
+    return () => window.removeEventListener('open-execute', handler);
+  }, []);
+
   // Fetch today's MRIs when MRIs sheet opens
   useEffect(() => {
     if (!isMRISheetOpen || status !== "authenticated") return;
