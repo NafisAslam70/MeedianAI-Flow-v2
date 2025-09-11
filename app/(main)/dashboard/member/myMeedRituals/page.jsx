@@ -4,6 +4,7 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Clock, Calendar, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
+import RoutineTrackerModal from "@/components/member/RoutineTrackerModal";
 import QrCode from "@/components/QrCode";
 import { format } from "date-fns";
 import useSWR from "swr";
@@ -743,59 +744,9 @@ export default function MyMRIs() {
           )}
         </AnimatePresence>
 
-        <AnimatePresence>
-          {isRoutineTasksModalOpen && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50"
-            >
-              <motion.div
-                initial={{ scale: 0.95, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.95, opacity: 0 }}
-                transition={{ duration: 0.3 }}
-                className="bg-white/90 backdrop-blur-md rounded-3xl shadow-xl p-6 w-full max-w-md border border-teal-100/50"
-              >
-                <div className="flex justify-between items-center mb-6">
-                  <h2 className="text-xl font-bold text-gray-800">Routine Tasks</h2>
-                  <motion.button
-                    onClick={() => setIsRoutineTasksModalOpen(false)}
-                    className="text-gray-500 hover:text-gray-700 p-2 rounded-full hover:bg-gray-100 transition-all duration-200"
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.95 }}
-                  >
-                    <X size={24} />
-                  </motion.button>
-                </div>
-                <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-2">
-                  {routineTasks.length === 0 ? (
-                    <p className="text-sm text-gray-600 text-center">No routine tasks for today.</p>
-                  ) : (
-                    routineTasks.map((task) => (
-                      <div key={task.id} className="bg-gray-50/80 rounded-xl p-4">
-                        <p className="text-sm font-semibold text-gray-800">{task.description}</p>
-                        <span className={`text-xs font-medium px-2 py-1 rounded-full ${getStatusColor(task.status)}`}>
-                          Status: {task.status}
-                        </span>
-                        {task.comment && <p className="text-xs text-gray-600 mt-2">Comment: {task.comment}</p>}
-                      </div>
-                    ))
-                  )}
-                </div>
-                <motion.button
-                  onClick={() => setIsRoutineTasksModalOpen(false)}
-                  className="w-full bg-gray-600 text-white py-3 rounded-xl font-semibold hover:bg-gray-500 transition-all duration-300 mt-6"
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  Close
-                </motion.button>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {isRoutineTasksModalOpen && (
+          <RoutineTrackerModal open={true} onClose={() => setIsRoutineTasksModalOpen(false)} />
+        )}
 
         <AnimatePresence>
           {isAMRIsModalOpen && (
