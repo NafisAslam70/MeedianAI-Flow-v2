@@ -4,6 +4,7 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Clock, Calendar, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
+import QrCode from "@/components/QrCode";
 import { format } from "date-fns";
 import useSWR from "swr";
 
@@ -529,11 +530,18 @@ export default function MyMRIs() {
                       {scanPanel.session && (
                         <div className="text-xs text-gray-700 space-y-2">
                           <div><span className="font-medium">Session:</span> #{scanPanel.session.id} — expires {new Date(scanPanel.session.expiresAt).toLocaleTimeString()}</div>
-                          <div className="bg-rose-50 border border-rose-100 rounded p-2">
-                            <div className="font-semibold text-rose-900">Session Code</div>
-                            <div className="font-mono break-all text-[11px] text-rose-800">{scanPanel.sessionToken}</div>
-                            <div className="text-[11px] text-gray-600 mt-1">Show this on your screen. Each member should open their personal code and you paste/scan below.</div>
+                      <div className="bg-rose-50 border border-rose-100 rounded p-2">
+                        <div className="font-semibold text-rose-900 mb-1">Session Code</div>
+                        {scanPanel.sessionToken ? (
+                          <div className="flex flex-col sm:flex-row gap-3 items-center">
+                            <QrCode value={scanPanel.sessionToken} size={160} className="bg-white rounded p-2 border" />
+                            <div className="text-[11px] text-gray-700 break-all font-mono max-w-full">
+                              {scanPanel.sessionToken}
+                            </div>
                           </div>
+                        ) : null}
+                        <div className="text-[11px] text-gray-600 mt-1">Show this QR on your screen for members to scan, or paste their personal code below.</div>
+                      </div>
                           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
                             <div className="sm:col-span-2">
                               <label className="block text-[11px] text-gray-600">Member Code (paste from member’s phone)</label>

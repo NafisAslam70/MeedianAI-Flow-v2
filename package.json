@@ -64,7 +64,9 @@
     "three": "^0.179.1",
     "translate": "^3.0.1",
     "translatte": "^3.0.1",
-    "twilio": "^5.8.0"
+    "twilio": "^5.8.0",
+    "qrcode": "^1.5.3",
+    "html5-qrcode": "^2.3.10"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

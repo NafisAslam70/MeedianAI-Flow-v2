@@ -17,6 +17,7 @@ import {
   Activity,
   Clock,
 } from "lucide-react";
+import QrScanner from "@/components/QrScanner";
 
 import AssignedTaskDetails from "@/components/assignedTaskCardDetailForAll";
 import UpdateStatusForAll from "@/components/UpdateStatusForAll";
@@ -710,6 +711,11 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
   const [isRecording, setIsRecording] = useState(false);
   const [tokenInput, setTokenInput] = useState("");
   const [openingDay, setOpeningDay] = useState(false);
+  const [showOpenDayModal, setShowOpenDayModal] = useState(false);
+  const [scanTab, setScanTab] = useState('scan'); // scan | token
+  const [scanSessionToken, setScanSessionToken] = useState('');
+  const [myPersonalToken, setMyPersonalToken] = useState('');
+  const [ingesting, setIngesting] = useState(false);
 
   // force dark theme on this view
   useEffect(() => {
@@ -757,25 +763,42 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
   const [currentBlockGD, setCurrentBlockGD] = useState(null);
 
   async function handleOpenDay() {
+    // Open modal to scan manager's session QR or share personal token
+    setShowOpenDayModal(true);
+    setScanTab('scan');
+    setScanSessionToken('');
+    setMyPersonalToken('');
+  }
+
+  async function ensurePersonalToken() {
+    if (myPersonalToken) return myPersonalToken;
+    const r = await fetch('/api/attendance?section=personalToken');
+    const j = await r.json().catch(()=>({}));
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    setMyPersonalToken(j.token || '');
+    return j.token || '';
+  }
+
+  async function ingestScan(sessionToken) {
     try {
-      setOpeningDay(true);
-      const todayStr = new Date().toISOString().slice(0, 10);
-      const res = await fetch('/api/member/startDay', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date: selectedDate || todayStr })
+      setIngesting(true);
+      const userToken = await ensurePersonalToken();
+      if (!sessionToken || !userToken) throw new Error('Missing codes');
+      const r = await fetch('/api/attendance?section=ingest', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionToken, userToken })
       });
-      const j = await res.json().catch(()=>({}));
-      if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
-      const nowMs = Date.now();
-      setDayPack((p) => ({ ...(p || {}), openedAt: nowMs }));
-      setSuccess('Day opened successfully');
+      const j = await r.json().catch(()=>({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      setShowOpenDayModal(false);
+      setDayPack((p) => ({ ...(p || {}), openedAt: Date.now() }));
+      setSuccess('Day opened via scanner');
       setTimeout(()=> setSuccess(''), 2500);
     } catch(e) {
-      setError(e.message || 'Failed to open day');
+      setError(e.message || 'Failed to mark present');
       setTimeout(()=> setError(''), 3500);
     } finally {
-      setOpeningDay(false);
+      setIngesting(false);
     }
   }
   const [timeLeftGD, setTimeLeftGD] = useState(null);
@@ -1681,6 +1704,97 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
         </AnimatePresence>
 
         {/* Modals */}
+        <AnimatePresence>
+          {showOpenDayModal && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[100]"
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl p-4 sm:p-6 w-full max-w-lg border border-gray-200/60 dark:border-white/10"
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <div className="text-base sm:text-lg font-bold text-gray-900 dark:text-gray-100">Open Day</div>
+                  <button onClick={()=> setShowOpenDayModal(false)} className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-slate-700">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                <div className="mb-3 text-xs text-gray-600 dark:text-gray-300">Scan your moderator's Session Code or share your Personal Code.</div>
+                <div className="flex items-center gap-2 mb-3">
+                  <button
+                    className={`px-3 py-1.5 text-xs rounded-lg border ${scanTab==='scan'?'bg-teal-600 text-white border-teal-700':'bg-white dark:bg-slate-700 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-white/10'}`}
+                    onClick={()=> setScanTab('scan')}
+                  >Scan Session</button>
+                  <button
+                    className={`px-3 py-1.5 text-xs rounded-lg border ${scanTab==='token'?'bg-teal-600 text-white border-teal-700':'bg-white dark:bg-slate-700 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-white/10'}`}
+                    onClick={()=> setScanTab('token')}
+                  >My Personal Code</button>
+                </div>
+                {scanTab === 'scan' ? (
+                  <div className="space-y-3">
+                    <div>
+                      <div className="text-xs font-semibold text-gray-800 dark:text-gray-200 mb-1">Scan Session QR</div>
+                      <QrScanner
+                        onDecode={(txt)=> ingestScan(txt)}
+                        onError={()=>{}}
+                        width={320}
+                        height={240}
+                        scanBox={220}
+                        className="rounded-xl overflow-hidden border border-gray-200 dark:border-white/10"
+                      />
+                    </div>
+                    <div className="text-[11px] text-gray-500 dark:text-gray-400">If camera fails, paste the code manually.</div>
+                    <div>
+                      <label className="block text-xs text-gray-600 dark:text-gray-300">Or paste Session Code</label>
+                      <input
+                        value={scanSessionToken}
+                        onChange={(e)=> setScanSessionToken(e.target.value)}
+                        placeholder="paste-session-code"
+                        className="w-full border rounded-xl px-3 py-2 text-sm bg-white dark:bg-slate-900 border-gray-200 dark:border-white/10 text-gray-800 dark:text-gray-100"
+                      />
+                      <div className="flex items-center justify-end gap-2 mt-2">
+                        <button
+                          onClick={()=> ingestScan(scanSessionToken)}
+                          disabled={!scanSessionToken || ingesting}
+                          className="px-4 py-2 text-xs rounded-lg bg-emerald-600 text-white disabled:opacity-60"
+                        >
+                          {ingesting ? 'Marking…' : 'Mark Present'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <label className="block text-xs text-gray-600 dark:text-gray-300">Your Personal Code</label>
+                    <textarea
+                      value={myPersonalToken}
+                      onChange={()=>{}}
+                      readOnly
+                      className="w-full border rounded-xl px-3 py-2 text-[11px] bg-white dark:bg-slate-900 border-gray-200 dark:border-white/10 text-gray-800 dark:text-gray-100 h-20"
+                    />
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        onClick={async()=>{ const t = await ensurePersonalToken(); navigator.clipboard?.writeText(t).catch(()=>{}); setMyPersonalToken(t);} }
+                        className="px-3 py-1.5 text-xs rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-gray-800 dark:text-gray-100"
+                      >Copy</button>
+                      <button
+                        onClick={async()=>{ const t = await ensurePersonalToken(); setMyPersonalToken(t); }}
+                        className="px-3 py-1.5 text-xs rounded-lg bg-emerald-600 text-white"
+                      >Generate</button>
+                    </div>
+                    <div className="text-[11px] text-gray-500 dark:text-gray-400">Share this with your moderator; they can paste it into their scanner panel.</div>
+                  </div>
+                )}
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
         <AnimatePresence>
           {showStatusModal && (
             <UpdateStatusForAll
