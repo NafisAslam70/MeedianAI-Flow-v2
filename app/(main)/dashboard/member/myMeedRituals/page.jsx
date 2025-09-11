@@ -40,6 +40,7 @@ export default function MyMRIs() {
   const [selectedRoleBundle, setSelectedRoleBundle] = useState(null); // { roleKey, roleName, tasks: [] }
   const [selectedRTask, setSelectedRTask] = useState(null); // { roleName, task }
   const [scanPanel, setScanPanel] = useState({ session: null, sessionToken: "", userTokenInput: "", logs: [] , starting: false, ingesting: false});
+  const [showSessionQR, setShowSessionQR] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [error, setError] = useState(null);
   const [todayAMRIs, setTodayAMRIs] = useState([]);
@@ -540,7 +541,18 @@ export default function MyMRIs() {
                             </div>
                           </div>
                         ) : null}
-                        <div className="text-[11px] text-gray-600 mt-1">Show this QR on your screen for members to scan, or paste their personal code below.</div>
+                        <div className="mt-2 flex items-center justify-between gap-2">
+                          <div className="text-[11px] text-gray-600">Show this QR on your screen for members to scan, or paste their personal code below.</div>
+                          {scanPanel.sessionToken && (
+                            <button
+                              type="button"
+                              onClick={() => setShowSessionQR(true)}
+                              className="text-xs px-2 py-1 rounded bg-rose-600 text-white hover:bg-rose-700"
+                            >
+                              Fullscreen QR
+                            </button>
+                          )}
+                        </div>
                       </div>
                           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
                             <div className="sm:col-span-2">
@@ -896,6 +908,36 @@ export default function MyMRIs() {
                 >
                   Close
                 </motion.button>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Fullscreen Session QR Modal (Moderator) */}
+        <AnimatePresence>
+          {showSessionQR && scanPanel.sessionToken && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-[70]"
+              onClick={() => setShowSessionQR(false)}
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="bg-white rounded-2xl p-4 border shadow-xl max-w-full"
+                onClick={(e)=> e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-sm font-semibold text-gray-800">Session QR</div>
+                  <button onClick={()=> setShowSessionQR(false)} className="text-gray-500 hover:text-gray-700" aria-label="Close">×</button>
+                </div>
+                <div className="flex items-center justify-center">
+                  <QrCode value={scanPanel.sessionToken} size={380} className="bg-white rounded p-3 border" />
+                </div>
               </motion.div>
             </motion.div>
           )}

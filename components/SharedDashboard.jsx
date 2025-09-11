@@ -716,6 +716,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
   const [scanSessionToken, setScanSessionToken] = useState('');
   const [myPersonalToken, setMyPersonalToken] = useState('');
   const [ingesting, setIngesting] = useState(false);
+  const [scannerActive, setScannerActive] = useState(false);
 
   // force dark theme on this view
   useEffect(() => {
@@ -768,6 +769,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
     setScanTab('scan');
     setScanSessionToken('');
     setMyPersonalToken('');
+    setScannerActive(true);
   }
 
   async function ensurePersonalToken() {
@@ -782,6 +784,8 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
   async function ingestScan(sessionToken) {
     try {
       setIngesting(true);
+      // stop scanner first to avoid DOM racing during modal close
+      setScannerActive(false);
       const userToken = await ensurePersonalToken();
       if (!sessionToken || !userToken) throw new Error('Missing codes');
       const r = await fetch('/api/attendance?section=ingest', {
@@ -806,6 +810,12 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
   useEffect(() => {
     if (slotData && Array.isArray(slotData.slots)) setSlotsGD(slotData.slots);
   }, [slotData]);
+
+  // keep scannerActive in sync with tab/modal visibility
+  useEffect(() => {
+    const shouldBeActive = showOpenDayModal && scanTab === 'scan';
+    setScannerActive(shouldBeActive);
+  }, [showOpenDayModal, scanTab]);
 
   useEffect(() => {
     let intervalId = null;
@@ -1748,7 +1758,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                         scanBox={220}
                         className="rounded-xl overflow-hidden border border-gray-200 dark:border-white/10"
                         autoStopOnDecode
-                        active={showOpenDayModal && scanTab==='scan'}
+                        active={scannerActive}
                       />
                     </div>
                     <div className="text-[11px] text-gray-500 dark:text-gray-400">If camera fails, paste the code manually.</div>
