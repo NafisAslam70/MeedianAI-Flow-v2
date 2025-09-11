@@ -642,6 +642,42 @@ const CompletionRing = ({ pct = 0, size = 44, stroke = 5 }) => {
   );
 };
 
+/* Compact overflow menu for small screens */
+function CompactMore({ onOpenNotes }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="px-3 py-2 rounded-xl text-xs font-medium bg-gray-100/70 dark:bg-slate-700/60 text-gray-700 dark:text-gray-200 border border-gray-200/60 dark:border-white/10"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="More actions"
+      >
+        ⋯
+      </button>
+      {open && (
+        <div className="absolute right-0 mt-2 w-44 rounded-xl bg-white dark:bg-slate-800 border border-gray-200/60 dark:border-white/10 shadow-lg z-10">
+          <button
+            onClick={() => { setOpen(false); onOpenNotes?.(); }}
+            className="w-full text-left px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700 rounded-t-xl flex items-center gap-2"
+          >
+            <FilePlus className="w-4 h-4" /> Notes
+          </button>
+          <a
+            href="/dashboard/member/meed-repo"
+            className="block px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700 rounded-b-xl flex items-center gap-2"
+            onClick={() => setOpen(false)}
+          >
+            <FileText className="w-4 h-4" /> Meed Repo
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /*  Main component                                                     */
 /* ------------------------------------------------------------------ */
@@ -1256,7 +1292,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
 
           <div className="flex items-center gap-2 sm:gap-3 flex-wrap min-w-0">
             {/* Segmented tabs with date + opened inline */}
-            <div className="flex items-center bg-white/70 dark:bg-slate-800/60 border border-gray-200/40 dark:border-white/10 rounded-2xl p-1 flex-nowrap whitespace-nowrap overflow-x-auto custom-scrollbar">
+            <div className="flex items-center bg-white/70 dark:bg-slate-800/60 border border-gray-200/40 dark:border-white/10 rounded-2xl p-1 flex-wrap gap-1">
               {/* Date + Opened inline (placed first) */}
               <div className="flex items-center gap-2 px-1 py-1 mr-2">
                 <input
@@ -1296,7 +1332,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                   onClick={() => setActiveTab(key)}
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
-                  className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all ${
+                  className={`flex items-center gap-2 px-2 sm:px-3 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all ${
                     activeTab === key
                       ? "bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow"
                       : "text-gray-700 dark:text-gray-200 hover:bg-gray-100/60 dark:hover:bg-slate-700/60"
@@ -1306,25 +1342,34 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                   <span className="hidden sm:inline">{label}</span>
                 </motion.button>
               ))}
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => setShowNotesModal(true)}
-                className="ml-1 flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100/60 dark:hover:bg-slate-700/60 flex-shrink-0"
-              >
-                <FilePlus className="w-4 h-4" />
-                <span className="hidden sm:inline">Notes</span>
-              </motion.button>
-              <motion.a
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                href="/dashboard/member/meed-repo"
-                className="ml-1 flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold tracking-wide text-amber-800 dark:text-amber-300 bg-amber-200/70 dark:bg-amber-700/30 border border-amber-300/70 dark:border-amber-600/50 hover:bg-amber-200/90 dark:hover:bg-amber-700/40 flex-shrink-0"
-                title="Submit for verification / archive"
-              >
-                <FileText className="w-4 h-4" />
-                <span className="hidden sm:inline">Meed Repo</span>
-              </motion.a>
+              {/* Secondary actions: show full on sm+, compact menu on xs */}
+              <div className="hidden sm:flex items-center">
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => setShowNotesModal(true)}
+                  className="ml-1 flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100/60 dark:hover:bg-slate-700/60 flex-shrink-0"
+                >
+                  <FilePlus className="w-4 h-4" />
+                  <span className="hidden sm:inline">Notes</span>
+                </motion.button>
+                <motion.a
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  href="/dashboard/member/meed-repo"
+                  className="ml-1 flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold tracking-wide text-amber-800 dark:text-amber-300 bg-amber-200/70 dark:bg-amber-700/30 border border-amber-300/70 dark:border-amber-600/50 hover:bg-amber-200/90 dark:hover:bg-amber-700/40 flex-shrink-0"
+                  title="Submit for verification / archive"
+                >
+                  <FileText className="w-4 h-4" />
+                  <span className="hidden sm:inline">Meed Repo</span>
+                </motion.a>
+              </div>
+              {/* Compact overflow menu for xs */}
+              <div className="sm:hidden ml-1 relative">
+                <CompactMore
+                  onOpenNotes={() => setShowNotesModal(true)}
+                />
+              </div>
             </div>
           </div>
         </motion.div>
