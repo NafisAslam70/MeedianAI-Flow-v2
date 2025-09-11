@@ -10,6 +10,7 @@ export default function QrScanner({
   scanBox = 200,
   fps = 10,
   autoStopOnDecode = true,
+  active = true,
 }) {
   const divId = useId().replace(/[:]/g, "");
   const containerRef = useRef(null);
@@ -21,6 +22,7 @@ export default function QrScanner({
     let cancelled = false;
     async function start() {
       try {
+        if (!active) return; // don't start unless active
         if (!navigator?.mediaDevices?.getUserMedia || !window.isSecureContext) {
           throw new Error("Camera not available or insecure context");
         }
@@ -56,7 +58,8 @@ export default function QrScanner({
         try { onError?.(e); } catch {}
       }
     }
-    start();
+    // Defer start to next tick to let modal/layout settle
+    const tid = setTimeout(start, 0);
     return () => {
       cancelled = true;
       const s = scannerRef.current;
@@ -64,8 +67,9 @@ export default function QrScanner({
         try { s.stop().catch(()=>{}); } catch {}
         try { s.clear().catch(()=>{}); } catch {}
       }
+      clearTimeout(tid);
     };
-  }, [divId, onDecode, onError, scanBox, fps]);
+  }, [divId, onDecode, onError, scanBox, fps, active, autoStopOnDecode]);
 
   return (
     <div className={className}>
