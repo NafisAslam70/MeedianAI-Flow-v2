@@ -6,10 +6,31 @@ const TaskForm = ({ task, onSubmit }) => {
   const [description, setDescription] = useState(task?.description || "");
   const [submissables, setSubmissables] = useState(task?.submissables || ""); // New field
   const [action, setAction] = useState(task?.action || ""); // New field
+  const [timeSensitive, setTimeSensitive] = useState(!!task?.timeSensitive);
+  // mode: none | timestamp | window
+  const initialMode = task?.execAt ? 'timestamp' : (task?.windowStart || task?.windowEnd ? 'window' : 'none');
+  const [timeMode, setTimeMode] = useState(initialMode);
+  const [execAt, setExecAt] = useState(task?.execAt ? new Date(task.execAt).toISOString().slice(0,16) : "");
+  const [windowStart, setWindowStart] = useState(task?.windowStart ? new Date(task.windowStart).toISOString().slice(0,16) : "");
+  const [windowEnd, setWindowEnd] = useState(task?.windowEnd ? new Date(task.windowEnd).toISOString().slice(0,16) : "");
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    onSubmit({ title, description, submissables, action });
+    const payload = { title, description, submissables, action, timeSensitive };
+    if (timeSensitive) {
+      if (timeMode === 'timestamp') {
+        payload.execAt = execAt ? new Date(execAt).toISOString() : null;
+        payload.windowStart = null;
+        payload.windowEnd = null;
+      } else if (timeMode === 'window') {
+        payload.execAt = null;
+        payload.windowStart = windowStart ? new Date(windowStart).toISOString() : null;
+        payload.windowEnd = windowEnd ? new Date(windowEnd).toISOString() : null;
+      }
+    } else {
+      payload.execAt = null; payload.windowStart = null; payload.windowEnd = null;
+    }
+    onSubmit(payload);
   };
 
   return (
@@ -37,7 +58,39 @@ const TaskForm = ({ task, onSubmit }) => {
         onChange={(e) => setAction(e.target.value)}
         placeholder="Action"
       />
-      <button type="submit">Submit</button>
+      <div style={{ marginTop: 8 }}>
+        <label style={{ display: 'block', marginBottom: 4 }}>
+          <input type="checkbox" checked={timeSensitive} onChange={(e)=> setTimeSensitive(e.target.checked)} /> Time sensitive
+        </label>
+        {timeSensitive && (
+          <div style={{ border: '1px solid #ddd', padding: 8, borderRadius: 8, marginBottom: 8 }}>
+            <div style={{ display: 'flex', gap: 16, marginBottom: 8 }}>
+              <label><input type="radio" name="tm" checked={timeMode==='timestamp'} onChange={()=> setTimeMode('timestamp')} /> Exact time</label>
+              <label><input type="radio" name="tm" checked={timeMode==='window'} onChange={()=> setTimeMode('window')} /> Time window</label>
+              <label><input type="radio" name="tm" checked={timeMode==='none'} onChange={()=> setTimeMode('none')} /> None</label>
+            </div>
+            {timeMode === 'timestamp' && (
+              <div>
+                <label>Execute at (local): </label>
+                <input type="datetime-local" value={execAt} onChange={(e)=> setExecAt(e.target.value)} />
+              </div>
+            )}
+            {timeMode === 'window' && (
+              <div style={{ display: 'flex', gap: 12 }}>
+                <div>
+                  <label>Window start: </label>
+                  <input type="datetime-local" value={windowStart} onChange={(e)=> setWindowStart(e.target.value)} />
+                </div>
+                <div>
+                  <label>Window end: </label>
+                  <input type="datetime-local" value={windowEnd} onChange={(e)=> setWindowEnd(e.target.value)} />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        <button type="submit">Submit</button>
+      </div>
     </form>
   );
 };
@@ -49,8 +102,15 @@ const TaskList = ({ tasks, onEdit }) => {
         <div key={task.id}>
           <h3>{task.title}</h3>
           <p>{task.description}</p>
-          <p><strong>Submissables:</strong> {task.submissables}</p> {/* Display submissables */}
+          <p><strong>Submissables:</strong> {task.submissables}</p>
           <p><strong>Action:</strong> {task.action}</p> {/* Display action */}
+          {task.timeSensitive && (
+            <div>
+              <p><strong>Time Sensitive:</strong> Yes</p>
+              {task.execAt && <p><strong>Exec At:</strong> {new Date(task.execAt).toLocaleString()}</p>}
+              {task.windowStart && <p><strong>Window:</strong> {new Date(task.windowStart).toLocaleString()} – {task.windowEnd ? new Date(task.windowEnd).toLocaleString() : ''}</p>}
+            </div>
+          )}
           <button onClick={() => onEdit(task)}>Edit</button>
         </div>
       ))}

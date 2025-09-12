@@ -284,6 +284,10 @@ export async function GET(req) {
           active: mriRoleTasks.active,
           submissables: mriRoleTasks.submissables, // Include submissables
           action: mriRoleTasks.action, // Include action
+          timeSensitive: mriRoleTasks.timeSensitive,
+          execAt: mriRoleTasks.execAt,
+          windowStart: mriRoleTasks.windowStart,
+          windowEnd: mriRoleTasks.windowEnd,
           createdAt: mriRoleTasks.createdAt,
           updatedAt: mriRoleTasks.updatedAt,
         })
@@ -646,6 +650,10 @@ export async function POST(req) {
           if (u.description !== undefined) setObj.description = u.description ? String(u.description).trim() : null;
           if (u.action !== undefined) setObj.action = u.action ? String(u.action).trim() : null;
           if (u.active !== undefined) setObj.active = !!u.active;
+          if (u.timeSensitive !== undefined) setObj.timeSensitive = !!u.timeSensitive;
+          if (u.execAt !== undefined) setObj.execAt = u.execAt ? new Date(u.execAt) : null;
+          if (u.windowStart !== undefined) setObj.windowStart = u.windowStart ? new Date(u.windowStart) : null;
+          if (u.windowEnd !== undefined) setObj.windowEnd = u.windowEnd ? new Date(u.windowEnd) : null;
           if (u.submissables !== undefined) {
             const raw = u.submissables;
             let arr = null;
@@ -661,7 +669,7 @@ export async function POST(req) {
         return NextResponse.json({ updated }, { status: 200 });
       }
 
-      const { roleDefId, title, description, active, submissables, action } = body || {};
+      const { roleDefId, title, description, active, submissables, action, timeSensitive = false, execAt = null, windowStart = null, windowEnd = null } = body || {};
       if (!roleDefId || !title) {
         return NextResponse.json({ error: "roleDefId and title are required" }, { status: 400 });
       }
@@ -695,6 +703,10 @@ export async function POST(req) {
           active: !!active,
           submissables: subsArr && subsArr.length ? JSON.stringify(subsArr) : null,
           action: action ? String(action).trim() : null,
+          timeSensitive: !!timeSensitive,
+          execAt: execAt ? new Date(execAt) : null,
+          windowStart: windowStart ? new Date(windowStart) : null,
+          windowEnd: windowEnd ? new Date(windowEnd) : null,
         })
         .onConflictDoUpdate({
           target: [mriRoleTasks.roleDefId, mriRoleTasks.title],
@@ -703,6 +715,10 @@ export async function POST(req) {
             active: !!active,
             submissables: subsArr && subsArr.length ? JSON.stringify(subsArr) : null,
             action: action ? String(action).trim() : null,
+            timeSensitive: !!timeSensitive,
+            execAt: execAt ? new Date(execAt) : null,
+            windowStart: windowStart ? new Date(windowStart) : null,
+            windowEnd: windowEnd ? new Date(windowEnd) : null,
             updatedAt: new Date(),
           },
         })
@@ -714,6 +730,10 @@ export async function POST(req) {
           active: mriRoleTasks.active,
           submissables: mriRoleTasks.submissables,
           action: mriRoleTasks.action,
+          timeSensitive: mriRoleTasks.timeSensitive,
+          execAt: mriRoleTasks.execAt,
+          windowStart: mriRoleTasks.windowStart,
+          windowEnd: mriRoleTasks.windowEnd,
           createdAt: mriRoleTasks.createdAt,
           updatedAt: mriRoleTasks.updatedAt,
         });

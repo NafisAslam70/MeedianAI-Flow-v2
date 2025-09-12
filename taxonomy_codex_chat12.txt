@@ -1,0 +1,56 @@
+Taxonomy Codex Chat 12 — Summary of Changes
+
+1) Scanner UX and Dashboard Tabs
+- Added scan-line animation overlay to the Open Day QR scanner guide box (SharedDashboard.jsx).
+- Enlarged scan area (480x360, 320px guide) and centered it on mobile.
+- Added a congrats chime (playCongrats) and an updated “Day Opened” celebration modal.
+- Tabs now stay on one line without a scroller; compact sizing and responsive label visibility.
+- Moved long welcome text into Spotlight; added compact header greeting: “Hey {name}!”.
+- Mobile header shows only Execute Now; other tabs moved into CompactMore dropdown (Dashboard/Assigned/Routine/DeepLife/Notes/Meed Repo). Increased dropdown z-index and header z-index for layering correctness.
+- Execute Now pill added; uses a shared ‘open-execute’ event to open the navbar Execute modal.
+
+2) Notes (My Notes) — Stability and Layout
+- Landscape/two-pane modal: list (left) + editor (right) in a wide modal.
+- Kept the modal open on save and on error (no auto-close).
+- Fixed infinite “Loading notes…” by removing setError dependency and adding an abort guard.
+- Prevented rapid double-submit adds using a ref guard; de-dupe on append by ID.
+
+3) MyMRIs — Moderator Flow and Execution
+- Persisted moderator scanner session in localStorage and restored on reopen (until expiry).
+- Created a true landscape, two-column layout: left = Day Opening task + session QR; right = full-height Attendance (scrollable). Ensured modal fits below navbar/footer with internal scrolling.
+- Placed N‑MRI role definition above Day Opening scanner area.
+- Role details in Today’s Rituals → R‑MRIs now mirror All Rituals styling (title, description, labeled Submissables, labeled Action).
+- Each role task card has its own “Execute Task” button; cards scroll horizontally (snap) for landscape feel.
+- Execute modal per task: shows task title in header. For MSP Ele Moderator Day Opening, displays scanner + attendance; otherwise shows Action and a placeholder (future execution flows).
+- Routing helper getExecutionKind added (temporary heuristic by roleKey/title). New state: selectedExecTask, selectedExecKind.
+- Enforced time windows on Execute Task button (disabled outside exact time +/-15m or defined window start/end).
+
+4) Admin ManageMeedian — Role Tasks Time Sensitivity
+- Schema: mri_role_tasks extended with time fields: time_sensitive (bool), exec_at (timestamp), window_start (timestamp), window_end (timestamp). File: lib/schema.js.
+- Migration added: drizzle/0003_add_time_fields_role_tasks.sql.
+- API (manageMeedian route):
+  - GET metaRoleTasks: includes new time fields.
+  - POST/PATCH metaRoleTasks: accepts time fields; normalizes submissables to JSON; upserts with time fields.
+- Admin UI (meta-roles page):
+  - Task form supports Time Sensitive checkbox and mode selection (None | Exact time | Time window) with datetime-local controls.
+  - Task list shows Time Sensitive/Exec At/Window alongside Submissables and Action.
+
+5) Navbar/Profile and Misc Fixes
+- Fixed runtime error by importing Clock icon in Navbar (used in profile chip quick actions).
+- Added global ‘open-execute’ event listener in Navbar to open Execute modal from anywhere.
+- Small UI refinements: headers z-index, dropdown z-index, compact greetings.
+
+Files Touched (high level)
+- components/SharedDashboard.jsx: scanner UI, Execute Now, mobile header changes, congrats chime/modal, scanner centering.
+- components/MyNotes.jsx: layout, stability, double-submit guard, fetch abort.
+- components/Navbar.jsx: Clock import fix, execute event listener.
+- app/(main)/dashboard/member/myMeedRituals/page.jsx: role details cards (horizontal), per-task execute modal, moderator session persist/restore, landscape attendance layout, time-window enforcement.
+- app/(main)/api/admin/manageMeedian/route.js: metaRoleTasks GET/POST/PATCH updated with time fields.
+- app/(main)/dashboard/meta-roles/page.jsx: task form extended with time-sensitive UI; list displays time data.
+- lib/schema.js: mriRoleTasks time-sensitive fields.
+- drizzle/0003_add_time_fields_role_tasks.sql: migration for new columns.
+
+Operational Notes
+- Run the new SQL migration to add time-sensitive fields.
+- Consider adding execution_type and execution_payload to mri_role_tasks to drive per-task execution flows (scanner|checklist|form|link). Current router uses a heuristic for MSP Ele Moderator Day Opening.
+

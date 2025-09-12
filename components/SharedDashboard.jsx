@@ -765,6 +765,28 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
     } catch {}
   };
 
+  // Congrats chime (slightly richer than beep)
+  const playCongrats = () => {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      const notes = [660, 880, 1320];
+      notes.forEach((f, i) => {
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = 'sine'; o.frequency.setValueAtTime(f, ctx.currentTime);
+        g.gain.setValueAtTime(0.0001, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.18, ctx.currentTime + 0.02);
+        o.connect(g).connect(ctx.destination);
+        const start = ctx.currentTime + i * 0.12;
+        o.start(start);
+        g.gain.exponentialRampToValueAtTime(0.0001, start + 0.18);
+        o.stop(start + 0.2);
+      });
+    } catch {}
+  };
+
   // force dark theme on this view
   useEffect(() => {
     const root = document.documentElement;
@@ -854,7 +876,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
       setShowOpenDayModal(false);
       setDayPack((p) => ({ ...(p || {}), openedAt: Date.now() }));
       setShowOpenDaySuccess(true);
-      playBeep();
+      playCongrats();
     } catch(e) {
       setError(e.message || 'Failed to mark present');
       setTimeout(()=> setError(''), 3500);
@@ -1828,16 +1850,21 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.95, opacity: 0 }}
                 transition={{ duration: 0.2 }}
-                className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl p-6 w-full max-w-md border border-gray-200/60 dark:border-white/10"
+                className="relative overflow-hidden bg-gradient-to-br from-emerald-50 via-white to-teal-50 dark:from-slate-800 dark:via-slate-900 dark:to-emerald-900 rounded-3xl shadow-2xl p-6 w-full max-w-md border border-emerald-200/60 dark:border-emerald-700/40"
               >
-                <div className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-2">Day Opened</div>
-                <div className="text-sm text-gray-700 dark:text-gray-300 mb-4">
-                  Your day is opened. Please get into MRN with your current MRI (MSP).
+                <div className="absolute -top-24 -right-24 w-64 h-64 rounded-full bg-emerald-300/30 blur-3xl" />
+                <div className="absolute -bottom-28 -left-24 w-72 h-72 rounded-full bg-teal-300/30 blur-3xl" />
+                <div className="relative">
+                  <div className="text-xl font-extrabold text-emerald-800 dark:text-emerald-300 mb-1">Good Morning!</div>
+                  <div className="text-2xl font-black text-emerald-700 dark:text-emerald-200 mb-2">Your day is opened 🎉</div>
+                  <div className="text-sm text-gray-700 dark:text-gray-300 mb-4">
+                    Continue with MRN and keep momentum. You can view your <span className="font-semibold">Day</span> and <span className="font-semibold">Current Block</span> in the dashboard.
+                  </div>
                 </div>
                 <div className="flex items-center justify-end gap-2">
                   <button
                     onClick={() => setShowOpenDaySuccess(false)}
-                    className="px-4 py-2 rounded-lg bg-teal-600 text-white hover:bg-teal-700 text-sm"
+                    className="px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 text-sm"
                   >OK</button>
                 </div>
               </motion.div>
@@ -1878,20 +1905,21 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                   <div className="space-y-3">
                     <div>
                       <div className="text-xs font-semibold text-gray-800 dark:text-gray-200 mb-2">Scan Session QR</div>
-                      <div className="relative" style={{ width: 480, height: 360 }}>
-                        <QrScanner
-                          onDecode={(txt)=> ingestScan(txt)}
-                          onError={()=>{}}
-                          width={480}
-                          height={360}
-                          scanBox={320}
-                          className="rounded-xl overflow-hidden border border-gray-200 dark:border-white/10"
-                          autoStopOnDecode
-                          active={scannerActive}
-                        />
-                        {/* Centered scan guide box */}
-                        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                          <div className="relative border-2 border-teal-400/90 rounded-xl" style={{ width: 320, height: 320 }}>
+                      <div className="flex justify-center">
+                        <div className="relative" style={{ width: 480, height: 360, maxWidth: '100%' }}>
+                          <QrScanner
+                            onDecode={(txt)=> ingestScan(txt)}
+                            onError={()=>{}}
+                            width={480}
+                            height={360}
+                            scanBox={320}
+                            className="rounded-xl overflow-hidden border border-gray-200 dark:border-white/10"
+                            autoStopOnDecode
+                            active={scannerActive}
+                          />
+                          {/* Centered scan guide box */}
+                          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                            <div className="relative border-2 border-teal-400/90 rounded-xl" style={{ width: 320, height: 320 }}>
                             {/* scan line */}
                             <div className="absolute inset-0 overflow-hidden">
                               <motion.div
@@ -1915,8 +1943,9 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                             <span className="absolute -bottom-1 -right-1 w-6 h-1 bg-teal-400" />
                             <span className="absolute -bottom-1 -right-1 w-1 h-6 bg-teal-400" />
                           </div>
-                        </div>
+                          </div>
                       </div>
+                    </div>
                     </div>
                     <div className="text-[11px] text-gray-500 dark:text-gray-400">If camera fails, paste the code manually.</div>
                     <div>
