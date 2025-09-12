@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Instagram } from "lucide-react";
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import useSWR from "swr";
 import {
   Menu,
   X,
@@ -547,6 +548,28 @@ export default function Navbar() {
         </div>
 
         <div className="sheet-content">
+          {(() => {
+            // fetch escalation counts only when open
+            // eslint-disable-next-line react-hooks/rules-of-hooks
+            const { data } = useSWR(isManagerialOpen ? "/api/managersCommon/escalations?section=counts" : null, (u)=>fetch(u).then(r=>r.json()));
+            const openCount = role === 'admin' ? (data?.openTotalCount ?? 0) : (data?.forYouCount ?? 0);
+            return (
+              <button
+                className="action-row"
+                onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/managersCommon/escalations"); }}
+              >
+                <span className="row-icon"><AlertTriangle size={18} /></span>
+                <span className="row-main">
+                  <span className="row-title">Escalations</span>
+                  <span className="row-sub">Raise, act, and review matters</span>
+                </span>
+                <span className="ml-2 inline-flex min-w-[20px] justify-center rounded-full bg-teal-600 text-white text-[11px] px-2 py-0.5">
+                  {openCount}
+                </span>
+                <ArrowRight size={16} className="row-go" />
+              </button>
+            );
+          })()}
           <button
             className="action-row"
             onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/managersCommon/routineTasks"); }}
@@ -622,17 +645,6 @@ export default function Navbar() {
             <ArrowRight size={16} className="row-go" />
           </button>
 
-          <button
-            className="action-row"
-            onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/managersCommon/escalations"); }}
-          >
-            <span className="row-icon"><AlertTriangle size={18} /></span>
-            <span className="row-main">
-              <span className="row-title">Escalations</span>
-              <span className="row-sub">Raise, act, and review matters</span>
-            </span>
-            <ArrowRight size={16} className="row-go" />
-          </button>
         </div>
       </aside>
     </div>

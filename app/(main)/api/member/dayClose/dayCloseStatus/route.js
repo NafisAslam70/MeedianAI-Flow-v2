@@ -45,10 +45,14 @@ export async function GET() {
       FROM ${escalationsMatters} em
       JOIN ${escalationsMatterMembers} mm ON mm.matter_id = em.id
       WHERE mm.user_id = ${userId} AND em.status <> 'CLOSED'`);
-    const overrideActive = await db.query.dayCloseOverrides.findFirst({ where: (t,{eq})=>eq(t.userId, userId) }).then(r=> r && r.active);
+    const overrides = await db
+      .select()
+      .from(dayCloseOverrides)
+      .where(and(eq(dayCloseOverrides.userId, userId), eq(dayCloseOverrides.active, true)));
+    const overrideActive = overrides.length > 0;
     const paused = Number(count) > 0 && !overrideActive;
 
-    return NextResponse.json({ ...(request ?? { status: "none" }), paused, openEscalations: Number(count), overrideActive: !!overrideActive }, { status: 200 });
+    return NextResponse.json({ ...(request ?? { status: "none" }), paused, openEscalations: Number(count), overrideActive }, { status: 200 });
   } catch (err) {
     console.error("[dayCloseStatus] GET error:", err);
     return NextResponse.json(

@@ -84,11 +84,13 @@ export async function POST(req) {
       FROM ${escalationsMatters} em
       JOIN ${escalationsMatterMembers} mm ON mm.matter_id = em.id
       WHERE mm.user_id = ${userId} AND em.status <> 'CLOSED'`);
-    const overrideActive = await db.query.dayCloseOverrides.findFirst({
-      where: (t, { eq }) => eq(t.userId, userId),
-    }).then(r => r && r.active);
+    const overrides = await db
+      .select()
+      .from(dayCloseOverrides)
+      .where(and(eq(dayCloseOverrides.userId, userId), eq(dayCloseOverrides.active, true)));
+    const overrideActive = overrides.length > 0;
     if (Number(count) > 0 && !overrideActive) {
-      return NextResponse.json({ error: "Day Close paused due to active escalation(s). Contact admin for override." }, { status: 403 });
+      return NextResponse.json({ error: "Day Close paused due to an active escalation involving you. Please resolve the escalation or contact your immediate supervisor/superintendent for an override." }, { status: 403 });
     }
 
     // Check for existing pending request

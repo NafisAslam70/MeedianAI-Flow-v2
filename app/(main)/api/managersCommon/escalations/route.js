@@ -66,6 +66,16 @@ export async function GET(req) {
       const rows = await db.select().from(escalationsMatters).orderBy(desc(escalationsMatters.createdAt));
       return NextResponse.json({ matters: rows }, { status: 200 });
     }
+    if (section === "counts") {
+      // Count open items assigned to me; and total open (admin only)
+      const [{ count: forYouCount }] = await db.execute(sql`SELECT COUNT(*)::int as count FROM ${escalationsMatters} em WHERE em.current_assignee_id = ${uid} AND em.status <> 'CLOSED'`);
+      let openTotalCount = null;
+      if (isAdmin) {
+        const [{ count }] = await db.execute(sql`SELECT COUNT(*)::int as count FROM ${escalationsMatters} em WHERE em.status <> 'CLOSED'`);
+        openTotalCount = Number(count);
+      }
+      return NextResponse.json({ forYouCount: Number(forYouCount), openTotalCount }, { status: 200 });
+    }
     if (section === "detail") {
       if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
       const matterRows = await db.select().from(escalationsMatters).where(eq(escalationsMatters.id, id));
