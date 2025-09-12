@@ -629,16 +629,16 @@ export default function Navbar() {
   const ProfileSheet = () => (
     <div className={`sheet-overlay ${isProfileOpen ? "open" : ""}`} aria-hidden={!isProfileOpen} onClick={() => setIsProfileOpen(false)}>
       <aside className={`sheet-panel ${isProfileOpen ? "open" : ""}`} role="dialog" aria-modal="true" aria-label="Profile Widgets" onClick={(e) => e.stopPropagation()}>
-        <div className="sheet-header">
+        <div className="sheet-header sticky top-0 z-[2] bg-slate-900/95 backdrop-blur supports-[backdrop-filter]:bg-slate-900/80">
           <h3 className="sheet-title">My Widgets</h3>
           <button className="nav-icon-button" aria-label="Close" onClick={() => setIsProfileOpen(false)}>
             <X size={18} />
           </button>
         </div>
-        <div className="sheet-content">
+        <div className="sheet-content overflow-y-auto max-h-[calc(100vh-56px)]">
           {/* Current MRN quick status (distinct design) */}
           <button
-            className={`current-mrn-row ${currentMRN ? "active" : "rest"}`}
+            className={`current-mrn-row ${currentMRN ? "active" : "rest"} sm:py-3 sm:px-3 py-2 px-2`}
             onClick={() => { setIsProfileOpen(false); setIsMeNowOpen(true); }}
             title="View or update your current MRN"
           >
@@ -673,57 +673,57 @@ export default function Navbar() {
 
           {/* Open Day quick action */}
           <button
-            className="action-row"
+            className="action-row sm:py-3 sm:px-3 py-2 px-2"
             onClick={() => { setIsProfileOpen(false); router.push("/dashboard/member#open-day"); }}
           >
             <span className="row-icon"><Clock size={18} /></span>
             <span className="row-main">
-              <span className="row-title">Open Your Day</span>
-              <span className="row-sub">Scan moderator’s session or share your code</span>
+              <span className="row-title text-sm sm:text-base">Open Your Day</span>
+              <span className="row-sub text-[11px] sm:text-xs">Scan moderator’s session or share your code</span>
             </span>
             <ArrowRight size={16} className="row-go" />
           </button>
 
           <button
-            className="action-row"
+            className="action-row sm:py-3 sm:px-3 py-2 px-2"
             onClick={() => { setIsProfileOpen(false); router.push(profilePath); }}
           >
             <span className="row-icon"><User size={18} /></span>
             <span className="row-main">
-              <span className="row-title">Profile Settings</span>
-              <span className="row-sub">Update your info and preferences</span>
+              <span className="row-title text-sm sm:text-base">Profile Settings</span>
+              <span className="row-sub text-[11px] sm:text-xs">Update your info and preferences</span>
             </span>
             <ArrowRight size={16} className="row-go" />
           </button>
 
           <button
-            className="action-row"
+            className="action-row sm:py-3 sm:px-3 py-2 px-2"
             onClick={() => { setIsProfileOpen(false); router.push(performancePath); }}
           >
             <span className="row-icon"><BarChart2 size={18} /></span>
             <span className="row-main">
-              <span className="row-title">My Performance</span>
-              <span className="row-sub">See your metrics and progress</span>
+              <span className="row-title text-sm sm:text-base">My Performance</span>
+              <span className="row-sub text-[11px] sm:text-xs">See your metrics and progress</span>
             </span>
             <ArrowRight size={16} className="row-go" />
           </button>
 
           <button
-            className="action-row"
+            className="action-row sm:py-3 sm:px-3 py-2 px-2"
             onClick={() => { setIsProfileOpen(false); router.push(`${profilePath}?open=leave`); }}
           >
             <span className="row-icon"><CalendarCheck2 size={18} /></span>
             <span className="row-main">
-              <span className="row-title">Leave Request</span>
-              <span className="row-sub">Submit leave for approval</span>
+              <span className="row-title text-sm sm:text-base">Leave Request</span>
+              <span className="row-sub text-[11px] sm:text-xs">Submit leave for approval</span>
             </span>
             <ArrowRight size={16} className="row-go" />
           </button>
 
-          <button
-            className="action-row"
-            onClick={() => { setIsProfileOpen(false); router.push(`${profilePath}?open=talk`); }}
-          >
+            <button
+              className="action-row sm:py-3 sm:px-3 py-2 px-2"
+              onClick={() => { setIsProfileOpen(false); router.push(`${profilePath}?open=talk`); }}
+            >
             <span className="row-icon"><MessageSquare size={18} /></span>
             <span className="row-main">
               <span className="row-title">Talk to Superintendent</span>
@@ -734,7 +734,7 @@ export default function Navbar() {
 
           {(role === "admin" || role === "team_manager") && (
             <button
-              className="action-row"
+              className="action-row sm:py-3 sm:px-3 py-2 px-2"
               onClick={() => { setIsProfileOpen(false); router.push(`${profilePath}?open=direct`); }}
             >
               <span className="row-icon"><Send size={18} /></span>
@@ -748,7 +748,7 @@ export default function Navbar() {
 
           {(role === "admin" || role === "team_manager") && (
             <button
-              className="action-row"
+              className="action-row sm:py-3 sm:px-3 py-2 px-2"
               onClick={() => { setIsProfileOpen(false); router.push(`${profilePath}?open=sent`); }}
             >
               <span className="row-icon"><ClipboardCheck size={18} /></span>

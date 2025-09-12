@@ -201,6 +201,7 @@ export default function MyMRIs() {
       return null;
     } catch { return null; }
   };
+  const clearModeratorSession = () => { try { localStorage.removeItem(SESSION_KEY); } catch {} };
 
   // When role modal opens for MSP Elementary Moderator, attempt to restore session
   useEffect(() => {
@@ -238,20 +239,239 @@ export default function MyMRIs() {
     }
   };
 
-  // Helper: is current time within task's allowed window (if any)
+  // Helpers for time-sensitive execution (with recurrence support)
+  const deriveWindow = (task) => {
+    // consider time-sensitive if explicit or if any time field is present
+    const tsFlag = (v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : !!v);
+    const hasTimeFields = !!(task?.execAt || task?.windowStart || task?.windowEnd);
+    if (!(tsFlag(task?.timeSensitive) || hasTimeFields)) return null;
+    const rec = String(task.recurrence || '').toLowerCase();
+    const now = new Date();
+    const todayStr = now.toDateString();
+    const toTodaysTime = (src) => {
+      const d = new Date(src);
+      const res = new Date(todayStr + ' ' + d.toTimeString());
+      return res;
+    };
+    const weekdayMatch = (src) => new Date(src).getDay() === now.getDay();
+    const monthdayMatch = (src) => new Date(src).getDate() === now.getDate();
+
+    if (task.execAt) {
+      if (rec === 'daily') {
+        const at = toTodaysTime(task.execAt);
+        return { type: 'point', at };
+      }
+      if (rec === 'weekly') {
+        if (!weekdayMatch(task.execAt)) return { type: 'point', at: null }; // not today
+        const at = toTodaysTime(task.execAt);
+        return { type: 'point', at };
+      }
+      if (rec === 'monthly') {
+        if (!monthdayMatch(task.execAt)) return { type: 'point', at: null };
+        const at = toTodaysTime(task.execAt);
+        return { type: 'point', at };
+      }
+      // no recurrence: use exact timestamp
+      return { type: 'point', at: new Date(task.execAt) };
+    }
+
+    // window
+    const wsP = task.windowStart ? new Date(task.windowStart) : null;
+    const weP = task.windowEnd ? new Date(task.windowEnd) : null;
+    if (rec === 'daily') {
+      const start = wsP ? toTodaysTime(wsP) : null;
+      const end = weP ? toTodaysTime(weP) : null;
+      return { type: 'window', start, end };
+    }
+    if (rec === 'weekly') {
+      if ((wsP && !weekdayMatch(wsP)) || (weP && !weekdayMatch(weP))) return { type: 'window', start: null, end: null };
+      const start = wsP ? toTodaysTime(wsP) : null;
+      const end = weP ? toTodaysTime(weP) : null;
+      return { type: 'window', start, end };
+    }
+    if (rec === 'monthly') {
+      if ((wsP && !monthdayMatch(wsP)) || (weP && !monthdayMatch(weP))) return { type: 'window', start: null, end: null };
+      const start = wsP ? toTodaysTime(wsP) : null;
+      const end = weP ? toTodaysTime(weP) : null;
+      return { type: 'window', start, end };
+    }
+    // no recurrence
+    return { type: 'window', start: wsP, end: weP };
+  };
+
   const isWithinTaskWindow = (task) => {
     if (!task?.timeSensitive) return true;
+    const win = deriveWindow(task);
     const now = Date.now();
-    if (task.execAt) {
-      const at = new Date(task.execAt).getTime();
-      return Math.abs(now - at) <= 15 * 60 * 1000; // ±15 min leeway
+    if (!win) return true;
+    if (win.type === 'point') {
+      if (!win.at) return false;
+      const at = win.at.getTime();
+      return Math.abs(now - at) <= 15 * 60 * 1000;
     }
-    const ws = task.windowStart ? new Date(task.windowStart).getTime() : null;
-    const we = task.windowEnd ? new Date(task.windowEnd).getTime() : null;
-    if (ws && we) return now >= ws && now <= we;
-    if (ws && !we) return now >= ws;
-    if (!ws && we) return now <= we;
+    if (win.type === 'window') {
+      const start = win.start ? win.start.getTime() : null;
+      const end = win.end ? win.end.getTime() : null;
+      if (start && end) return now >= start && now <= end;
+      if (start && !end) return now >= start;
+      if (!start && end) return now <= end;
+      return true;
+    }
     return true;
+  };
+
+  const availabilityBadge = (task) => {
+    const tsFlag = (v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : !!v);
+    const hasTimeFields = !!(task?.execAt || task?.windowStart || task?.windowEnd);
+    if (!(tsFlag(task?.timeSensitive) || hasTimeFields)) return { label: 'Anytime', tone: 'gray' };
+    const win = deriveWindow(task);
+    const now = Date.now();
+    const fmt = (d) => new Date(d).toLocaleString();
+    if (!win) return { label: 'Anytime', tone: 'gray' };
+    if (win.type === 'point') {
+      if (!win.at) return { label: 'Not today', tone: 'gray' };
+      const at = win.at.getTime();
+      if (Math.abs(now - at) <= 15*60*1000) return { label: 'Available now', tone: 'green' };
+      return { label: (at>now? `Starts ${fmt(at)}` : `Past ${fmt(at)}`), tone: at>now? 'amber':'gray' };
+    } else {
+      const s = win.start ? win.start.getTime() : null;
+      const e = win.end ? win.end.getTime() : null;
+      const inWin = (s? now>=s:true) && (e? now<=e:true);
+      if (inWin) return { label: 'Available now', tone: 'green' };
+      return { label: `${s? fmt(s):'—'} – ${e? fmt(e):'—'}`, tone: 'amber' };
+    }
+  };
+
+  // Local component to render a task card with hooks safely
+  const TaskCard = ({ task: t, roleKey }) => {
+    const cd = useTaskCountdown(t);
+    const badge = availabilityBadge(t);
+    const bcls = badge.tone==='green' ? 'bg-emerald-100 text-emerald-800' : badge.tone==='amber' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-800';
+    return (
+      <div className="bg-rose-50/70 border border-rose-100 rounded-xl p-3 snap-start">
+        <div className="font-semibold text-rose-900 flex items-center gap-2">
+          <span className="truncate">{t.title}</span>
+          <span className={`text-[10px] px-2 py-0.5 rounded-full ${bcls}`}>{badge.label}</span>
+        </div>
+        {t.description && <div className="text-xs text-gray-700 mt-1">{t.description}</div>}
+        {t.timeSensitive && (
+          <div className="text-[11px] text-rose-900/90 mt-1">
+            {t.execAt ? (
+              <div><span className="font-semibold">Exec At:</span> {new Date(t.execAt).toLocaleString()}</div>
+            ) : (
+              (t.windowStart || t.windowEnd) ? (
+                <div><span className="font-semibold">Window:</span> {t.windowStart ? new Date(t.windowStart).toLocaleString() : '—'} – {t.windowEnd ? new Date(t.windowEnd).toLocaleString() : '—'}</div>
+              ) : null
+            )}
+            {t.recurrence && <div><span className="font-semibold">Recurs:</span> {String(t.recurrence).toUpperCase()}</div>}
+            {cd.text && <div className="mt-0.5">{cd.text}</div>}
+          </div>
+        )}
+        {Array.isArray(t.submissables) && t.submissables.length > 0 && (
+          <div className="mt-2">
+            <div className="text-[11px] font-semibold text-gray-700">Submissables</div>
+            <ol className="list-decimal pl-5 text-xs text-gray-800 mt-1 space-y-1">
+              {t.submissables.map((s, i) => (<li key={i}>{String(s)}</li>))}
+            </ol>
+          </div>
+        )}
+        {t.action && <div className="text-[12px] text-gray-700 mt-2"><span className="font-semibold">Action:</span> {t.action}</div>}
+        <div className="mt-2">
+          <button
+            className="px-3 py-1.5 rounded text-white text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ backgroundColor: isWithinTaskWindow(t) ? '#e11d48' : '#9ca3af' }}
+            disabled={!isWithinTaskWindow(t)}
+            title={isWithinTaskWindow(t) ? 'Execute this task' : 'Outside allowed time window'}
+            onClick={() => {
+              setSelectedExecTask(t);
+              setSelectedExecKind(getExecutionKind(roleKey, t));
+              setRRoleModalOpen(false);
+              setIsRoleExecuteOpen(true);
+            }}
+          >
+            Execute Task
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  // Normalize task shape coming from various endpoints (snake_case vs camelCase, strings)
+  const normalizeTask = (raw) => {
+    const pick = (obj, keys) => keys.reduce((a,k)=>{ if (obj[k]!==undefined && obj[k]!==null && obj[k]!=='' && String(obj[k]).toLowerCase()!=='null') a[k]=obj[k]; return a; }, {});
+    const tsFlag = (v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : !!v);
+    const r = { ...raw };
+    // map snake_case to camelCase if present
+    if (r.exec_at && !r.execAt) r.execAt = r.exec_at;
+    if (r.window_start && !r.windowStart) r.windowStart = r.window_start;
+    if (r.window_end && !r.windowEnd) r.windowEnd = r.window_end;
+    if (r.time_sensitive !== undefined && r.timeSensitive === undefined) r.timeSensitive = r.time_sensitive;
+    // clean empty strings
+    const times = pick(r, ['execAt','windowStart','windowEnd']);
+    Object.assign(r, times);
+    // coerce booleans
+    r.timeSensitive = tsFlag(r.timeSensitive);
+    // keep recurrence as lower-case string if present
+    if (r.recurrence) r.recurrence = String(r.recurrence).toLowerCase();
+    // ensure submissables is array if possible
+    if (r.submissables && !Array.isArray(r.submissables)) {
+      try {
+        const arr = JSON.parse(r.submissables);
+        if (Array.isArray(arr)) r.submissables = arr;
+      } catch {}
+    }
+    return r;
+  };
+
+  // Live countdown for a task: returns { mode: 'starts'|'ends'|'ended'|'idle', seconds, text }
+  const useTaskCountdown = (task) => {
+    const [state, setState] = useState({ mode: 'idle', seconds: 0, text: '' });
+    useEffect(() => {
+      let id;
+      const update = () => {
+        if (!task?.timeSensitive) { setState({ mode: 'idle', seconds: 0, text: '' }); return; }
+        const win = deriveWindow(task);
+        const now = Date.now();
+        const fmt = (s) => {
+          const a = Math.max(0, Math.floor(s));
+          const h = Math.floor(a/3600), m = Math.floor((a%3600)/60), q = a%60;
+          return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(q).padStart(2,'0')}`;
+        };
+        if (!win) { setState({ mode: 'idle', seconds: 0, text: '' }); return; }
+        if (win.type === 'point') {
+          if (!win.at) { setState({ mode: 'ended', seconds: 0, text: 'Not today' }); return; }
+          const at = win.at.getTime();
+          const start = at - 15*60*1000; // early window
+          const end = at + 15*60*1000;   // late window
+          if (now < start) {
+            const secs = (start - now)/1000; setState({ mode: 'starts', seconds: secs, text: `Starts in ${fmt(secs)}` });
+          } else if (now >= start && now <= end) {
+            const secs = (end - now)/1000; setState({ mode: 'ends', seconds: secs, text: `Ends in ${fmt(secs)}` });
+          } else {
+            setState({ mode: 'ended', seconds: 0, text: 'Ended' });
+          }
+          return;
+        }
+        // window
+        const s = win.start ? win.start.getTime() : null;
+        const e = win.end ? win.end.getTime() : null;
+        if (s && now < s) {
+          const secs = (s - now)/1000; setState({ mode: 'starts', seconds: secs, text: `Starts in ${fmt(secs)}` });
+          return;
+        }
+        if ((s? now>=s:true) && (e? now<=e:true)) {
+          const target = e ?? now; // if no end, no countdown
+          const secs = e ? (e - now)/1000 : 0; setState({ mode: e ? 'ends' : 'idle', seconds: secs, text: e ? `Ends in ${fmt(secs)}` : '' });
+          return;
+        }
+        setState({ mode: 'ended', seconds: 0, text: 'Ended' });
+      };
+      update();
+      id = setInterval(update, 1000);
+      return () => id && clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [task?.timeSensitive, task?.execAt, task?.windowStart, task?.windowEnd, task?.recurrence]);
+    return state;
   };
 
   const blocks = [
@@ -376,26 +596,51 @@ export default function MyMRIs() {
                 <div className="text-xs text-gray-600 mb-3">Task execution surface. For MSP Ele Moderator Day Opening, the scanner and attendance are side-by-side.</div>
                 <div className="space-y-3 flex-1 min-h-0 overflow-hidden">
                   <div className="flex items-center justify-between mb-2">
-                    <div className="text-sm font-semibold text-gray-900">
-                      {selectedExecTask ? selectedExecTask.title : 'Task'} — Execution
+                    <div className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                      <span>{selectedExecTask ? normalizeTask(selectedExecTask).title : 'Task'} — Execution</span>
+                      {selectedExecTask && (()=>{ const i=availabilityBadge(normalizeTask(selectedExecTask)); const cls=i.tone==='green'?'bg-emerald-100 text-emerald-800': i.tone==='amber'?'bg-amber-100 text-amber-800':'bg-gray-100 text-gray-800'; return (<span className={`text-[10px] px-2 py-0.5 rounded-full ${cls}`}>{i.label}</span>); })()}
                     </div>
-                    <button
-                      className="px-2 py-1 text-xs rounded bg-rose-600 text-white disabled:opacity-60"
-                      disabled={scanPanel.starting}
-                      onClick={async ()=>{
-                        try {
-                          setScanPanel((p)=>({ ...p, starting: true }));
-                          const r = await fetch('/api/attendance?section=sessionStart', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ roleKey: 'msp_ele_moderator', programKey: 'MSP', track: 'elementary' })});
-                          const j = await r.json();
-                          if(!r.ok) throw new Error(j.error||`HTTP ${r.status}`);
-                          setScanPanel((p)=>({ ...p, starting: false, session: j.session, sessionToken: j.token }));
-                          try { saveModeratorSession(j.session, j.token); } catch {}
-                        } catch(e){
-                          setScanPanel((p)=>({ ...p, starting: false }));
-                          alert('Failed to start scanner: '+(e.message||e));
-                        }
-                      }}
-                    >{scanPanel.session ? 'Restart' : 'Start'} Session</button>
+                    <div className="flex items-center gap-2">
+                      {scanPanel.session && (
+                        <button
+                          className="px-2 py-1 text-xs rounded bg-gray-700 text-white disabled:opacity-60"
+                          disabled={scanPanel.ending}
+                          title="End current session"
+                          onClick={async ()=>{
+                            try {
+                              setScanPanel((p)=>({ ...p, ending: true }));
+                              const r = await fetch('/api/attendance?section=sessionEnd', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ sessionId: scanPanel.session.id })});
+                              const j = await r.json().catch(()=>({}));
+                              if(!r.ok) throw new Error(j.error||`HTTP ${r.status}`);
+                              setScanPanel((p)=>({ ...p, ending: false, session: null, sessionToken: '', logs: [] }));
+                              setSessionEvents([]);
+                              clearModeratorSession();
+                            } catch(e){
+                              setScanPanel((p)=>({ ...p, ending: false }));
+                              alert('Failed to end session: '+(e.message||e));
+                            }
+                          }}
+                        >End Session</button>
+                      )}
+                      <button
+                        className="px-2 py-1 text-xs rounded bg-rose-600 text-white disabled:opacity-60"
+                        disabled={scanPanel.starting || (selectedExecKind==='scanner' && selectedExecTask && !isWithinTaskWindow(normalizeTask(selectedExecTask)))}
+                        title={selectedExecKind==='scanner' && selectedExecTask && !isWithinTaskWindow(normalizeTask(selectedExecTask)) ? 'Outside allowed time window' : 'Start scanner session'}
+                        onClick={async ()=>{
+                          try {
+                            setScanPanel((p)=>({ ...p, starting: true }));
+                            const r = await fetch('/api/attendance?section=sessionStart', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ roleKey: 'msp_ele_moderator', programKey: 'MSP', track: 'elementary' })});
+                            const j = await r.json();
+                            if(!r.ok) throw new Error(j.error||`HTTP ${r.status}`);
+                            setScanPanel((p)=>({ ...p, starting: false, session: j.session, sessionToken: j.token }));
+                            try { saveModeratorSession(j.session, j.token); } catch {}
+                          } catch(e){
+                            setScanPanel((p)=>({ ...p, starting: false }));
+                            alert('Failed to start scanner: '+(e.message||e));
+                          }
+                        }}
+                      >{scanPanel.session ? 'Restart' : 'Start'} Session</button>
+                    </div>
                   </div>
                   {selectedExecKind === 'scanner' && scanPanel.session ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-stretch h-[60vh]">
@@ -459,7 +704,8 @@ export default function MyMRIs() {
                           </div>
                           <button
                             className="px-3 py-2 rounded bg-rose-600 text-white text-xs disabled:opacity-60"
-                            disabled={!scanPanel.userTokenInput || scanPanel.ingesting}
+                            disabled={!scanPanel.userTokenInput || scanPanel.ingesting || (selectedExecKind==='scanner' && selectedExecTask && !isWithinTaskWindow(normalizeTask(selectedExecTask)))}
+                            title={(selectedExecKind==='scanner' && selectedExecTask && !isWithinTaskWindow(normalizeTask(selectedExecTask))) ? 'Outside allowed time window' : 'Mark present'}
                             onClick={async ()=>{
                               try{
                                 setScanPanel((p)=>({ ...p, ingesting: true }));
@@ -755,36 +1001,12 @@ export default function MyMRIs() {
                   <>
                     {Array.isArray(selectedRoleBundle.tasks) && selectedRoleBundle.tasks.length > 0 ? (
                       <div className="grid grid-flow-col auto-cols-[minmax(280px,1fr)] gap-3 overflow-x-auto snap-x pr-1">
-                        {selectedRoleBundle.tasks.map((t) => (
-                        <div key={t.id} className="bg-rose-50/70 border border-rose-100 rounded-xl p-3 snap-start">
-                          <div className="font-semibold text-rose-900">{t.title}</div>
-                          {t.description && <div className="text-xs text-gray-700 mt-1">{t.description}</div>}
-                          {Array.isArray(t.submissables) && t.submissables.length > 0 && (
-                            <div className="mt-2">
-                              <div className="text-[11px] font-semibold text-gray-700">Submissables</div>
-                              <ol className="list-decimal pl-5 text-xs text-gray-800 mt-1 space-y-1">
-                                {t.submissables.map((s, i) => (<li key={i}>{String(s)}</li>))}
-                              </ol>
-                            </div>
-                          )}
-                          {t.action && <div className="text-[12px] text-gray-700 mt-2"><span className="font-semibold">Action:</span> {t.action}</div>}
-                          <div className="mt-2">
-                            <button
-                              className="px-3 py-1.5 rounded text-white text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-                              style={{ backgroundColor: isWithinTaskWindow(t) ? '#e11d48' : '#9ca3af' }}
-                              disabled={!isWithinTaskWindow(t)}
-                              title={isWithinTaskWindow(t) ? 'Execute this task' : 'Outside allowed time window'}
-                              onClick={() => {
-                                setSelectedExecTask(t);
-                                setSelectedExecKind(getExecutionKind(selectedRoleBundle.roleKey, t));
-                                setRRoleModalOpen(false);
-                                setIsRoleExecuteOpen(true);
-                              }}
-                            >
-                              Execute Task
-                            </button>
-                          </div>
-                        </div>))}
+                        {selectedRoleBundle.tasks.map((t) => {
+                          const nt = normalizeTask(t);
+                          return (
+                            <TaskCard key={nt.id ?? t.id} task={nt} roleKey={selectedRoleBundle.roleKey} />
+                          );
+                        })}
                       </div>
                     ) : (
                       <div className="text-sm text-gray-600">No tasks defined for this role.</div>

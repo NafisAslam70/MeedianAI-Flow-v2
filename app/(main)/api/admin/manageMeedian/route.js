@@ -97,6 +97,7 @@ export async function GET(req) {
           member_scope: users.member_scope,
           team_manager_type: users.team_manager_type,
           immediate_supervisor: users.immediate_supervisor,
+          isTeacher: users.isTeacher,
         })
         .from(users);
 
@@ -884,6 +885,7 @@ export async function PATCH(req) {
         if (u.member_scope !== undefined) setObj.member_scope = String(u.member_scope);
         if (u.whatsapp_number !== undefined) setObj.whatsapp_number = u.whatsapp_number ? String(u.whatsapp_number) : null;
         if (u.immediate_supervisor !== undefined) setObj.immediate_supervisor = u.immediate_supervisor ? Number(u.immediate_supervisor) : null;
+        if (u.isTeacher !== undefined) setObj.isTeacher = u.isTeacher === null ? null : !!u.isTeacher;
         if (u.password !== undefined && String(u.password).trim() !== "") {
           setObj.password = await bcrypt.hash(String(u.password), 10);
         }
@@ -926,6 +928,38 @@ export async function PATCH(req) {
         }
       }
       return NextResponse.json({ updated }, { status: 200 });
+    }
+
+    // Bulk assign one MRI role to multiple users
+    if (section === "bulkAssignMriRole") {
+      const role = String(body.role || "").trim();
+      const userIds = Array.isArray(body.userIds) ? body.userIds.map((x) => Number(x)).filter(Boolean) : [];
+      const teacherFlag = body.teacherFlag || "none"; // 'none' | 'true' | 'false'
+      if (!role) return NextResponse.json({ error: "role required" }, { status: 400 });
+      if (!MRI_ROLE_OPTIONS.includes(role)) return NextResponse.json({ error: "invalid role" }, { status: 400 });
+      if (!userIds.length) return NextResponse.json({ error: "userIds[] required" }, { status: 400 });
+
+      // Deactivate this role for all users first (exclusivity)
+      await db.update(userMriRoles).set({ active: false }).where(eq(userMriRoles.role, role));
+
+      // Upsert active for provided users
+      for (const uid of userIds) {
+        try {
+          await db.insert(userMriRoles).values({ userId: uid, role, active: true });
+        } catch {
+          await db.update(userMriRoles).set({ active: true }).where(and(eq(userMriRoles.userId, uid), eq(userMriRoles.role, role)));
+        }
+      }
+
+      // Optionally set teacher flag for these users
+      if (teacherFlag === "true" || teacherFlag === "false") {
+        const val = teacherFlag === "true";
+        for (const uid of userIds) {
+          await db.update(users).set({ isTeacher: val }).where(eq(users.id, uid));
+        }
+      }
+
+      return NextResponse.json({ role, assignedTo: userIds.length }, { status: 200 });
     }
 
     // Batch update per-user open/close times

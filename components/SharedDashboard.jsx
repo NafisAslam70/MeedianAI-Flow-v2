@@ -418,21 +418,23 @@ const useSlotTiming = (mriData) => {
 /* ------------------------------------------------------------------ */
 /*  Modal                                                              */
 /* ------------------------------------------------------------------ */
-const Modal = ({ isOpen, onClose, title, children, wide = false }) => (
-  <AnimatePresence>
-    {isOpen && (
+const Modal = ({ isOpen, onClose, title, children, wide = false }) => {
+  if (!isOpen) return null;
+  const overlay = (
+    <AnimatePresence>
       <motion.div
+        key="modal-portal"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 sm:p-8 z-[60]"
+        className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 sm:p-8 z-[9999]"
       >
         <motion.div
           initial={{ y: 30, opacity: 0, scale: 0.98 }}
           animate={{ y: 0, opacity: 1, scale: 1 }}
           exit={{ y: 30, opacity: 0, scale: 0.98 }}
           transition={{ duration: 0.35, ease: "easeOut" }}
-          className={`bg-white/90 dark:bg-slate-900/80 backdrop-blur-xl rounded-3xl shadow-2xl p-4 sm:p-8 w-full ${wide ? 'max-w-[95vw] sm:max-w-5xl' : 'max-w-[95vw] sm:max-w-lg'} border border-gray-100/30`}
+          className={`relative bg-white/90 dark:bg-slate-900/80 backdrop-blur-xl rounded-3xl shadow-2xl p-4 sm:p-8 w-full ${wide ? 'max-w-[95vw] sm:max-w-5xl' : 'max-w-[95vw] sm:max-w-lg'} border border-gray-100/30 max-h-[90vh] overflow-auto`}
         >
           <motion.button
             whileHover={{ scale: 1.08, rotate: 90 }}
@@ -447,9 +449,16 @@ const Modal = ({ isOpen, onClose, title, children, wide = false }) => (
           {children}
         </motion.div>
       </motion.div>
-    )}
-  </AnimatePresence>
-);
+    </AnimatePresence>
+  );
+  try {
+    if (typeof window !== 'undefined') {
+      const { createPortal } = require('react-dom');
+      return createPortal(overlay, document.body);
+    }
+  } catch {}
+  return overlay;
+};
 
 /* ------------------------------------------------------------------ */
 /*  Close Day Modal Content                                            */

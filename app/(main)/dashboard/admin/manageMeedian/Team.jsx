@@ -24,11 +24,17 @@ export default function Team({
   handleUserTimeToggle,
   handleUserTimeChange,
   handleUserMriRoleChange,
+  refreshTeam,
 }) {
   const [teamFilter, setTeamFilter] = useState("members");
   const [search, setSearch] = useState("");
   const [expandedCard, setExpandedCard] = useState(null);
   const [showPasswords, setShowPasswords] = useState({});
+  const [showBulkModal, setShowBulkModal] = useState(false);
+  const [bulkRole, setBulkRole] = useState("");
+  const [bulkUserIds, setBulkUserIds] = useState([]);
+  const [bulkTeacherFlag, setBulkTeacherFlag] = useState("none"); // none | true | false
+  const [bulkSaving, setBulkSaving] = useState(false);
 
   const saveAllChanges = async () => {
     await saveTeamChanges();
@@ -79,7 +85,7 @@ export default function Team({
               <button
                 type="button"
                 onClick={() => {
-                  const headers = ["id","name","email","role","type","member_scope","whatsapp_number","immediate_supervisor"]; 
+                  const headers = ["id","name","email","role","type","member_scope","whatsapp_number","immediate_supervisor","is_teacher"]; 
                   const rows = users.map((u) => headers.map((h) => u[h] ?? ""));
                   const csv = [headers.join(","), ...rows.map((r) => r.map((v) => String(v).replaceAll('"','""')).join(","))].join("\n");
                   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
@@ -90,6 +96,14 @@ export default function Team({
                 className="p-2 border border-gray-200 rounded-lg bg-white hover:bg-gray-50"
               >
                 Export CSV
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowBulkModal(true)}
+                className="p-2 border border-teal-500 text-teal-700 rounded-lg bg-white hover:bg-teal-50"
+                title="Assign one MRI role to many users"
+              >
+                Bulk Assign MRI Role
               </button>
             </div>
           </div>
@@ -145,6 +159,9 @@ export default function Team({
                             </p>
                             <p className="text-sm text-gray-500">
                               MRI Roles: {effectiveMriRoles.length > 0 ? effectiveMriRoles.map(toRoleLabel).join(", ") : "None"}
+                            </p>
+                            <p className="text-sm text-gray-500">
+                              Teacher: {user.isTeacher === true ? "Yes" : user.isTeacher === false ? "No" : "—"}
                             </p>
                           </div>
                           <div className="flex items-center gap-2">
@@ -260,6 +277,27 @@ export default function Team({
                                     </option>
                                   ))}
                                 </select>
+                              </div>
+                              {/* Teacher (tri-state) */}
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700">Teacher</label>
+                                <select
+                                  value={user.isTeacher === true ? "true" : user.isTeacher === false ? "false" : ""}
+                                  onChange={(e) => {
+                                    const v = e.target.value;
+                                    handleUserChange(
+                                      user.id,
+                                      "isTeacher",
+                                      v === "" ? null : v === "true"
+                                    );
+                                  }}
+                                  className="mt-1 w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-base"
+                                >
+                                  <option value="">—</option>
+                                  <option value="true">Yes</option>
+                                  <option value="false">No</option>
+                                </select>
+                                <p className="text-xs text-gray-500 mt-1">Blank means not set (null).</p>
                               </div>
                               {/* Team Manager Type */}
                               {user.role === "team_manager" && (
@@ -415,6 +453,92 @@ export default function Team({
               </motion.button>
             </>
           )}
+        </div>
+      )}
+      {showBulkModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-2xl">
+            <h2 className="text-xl font-bold text-gray-800 mb-2">Bulk Assign MRI Role</h2>
+            <p className="text-sm text-gray-600 mb-4">Pick one role and assign it to multiple users at once. Existing holders not selected will be unassigned for this role.</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Role</label>
+                <select
+                  value={bulkRole}
+                  onChange={(e) => setBulkRole(e.target.value)}
+                  className="mt-1 w-full p-2 border border-gray-200 rounded-lg bg-white"
+                >
+                  <option value="">Select a role…</option>
+                  {mriRoles.map((r) => (
+                    <option key={r} value={r}>{r.replaceAll("_"," ").toUpperCase()}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Teacher flag</label>
+                <select
+                  value={bulkTeacherFlag}
+                  onChange={(e) => setBulkTeacherFlag(e.target.value)}
+                  className="mt-1 w-full p-2 border border-gray-200 rounded-lg bg-white"
+                >
+                  <option value="none">No change</option>
+                  <option value="true">Set as Teacher</option>
+                  <option value="false">Set as Non-Teacher</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">Optional: update Teacher flag for selected users.</p>
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-sm font-medium text-gray-700">Users</label>
+                <select
+                  multiple
+                  value={bulkUserIds.map(String)}
+                  onChange={(e) => setBulkUserIds(Array.from(e.target.selectedOptions, (o) => parseInt(o.value)))}
+                  className="mt-1 w-full p-2 border border-gray-200 rounded-lg bg-white h-48"
+                >
+                  {users.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name} — {u.email}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">Hold Ctrl/Cmd to select multiple users.</p>
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <button onClick={() => setShowBulkModal(false)} className="px-4 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-800">Cancel</button>
+              <button
+                onClick={async () => {
+                  if (!bulkRole || bulkUserIds.length === 0) {
+                    setError("Select a role and at least one user.");
+                    return;
+                  }
+                  setBulkSaving(true);
+                  setError("");
+                  setSuccess("");
+                  try {
+                    const res = await fetch("/api/admin/manageMeedian?section=bulkAssignMriRole", {
+                      method: "PATCH",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ role: bulkRole, userIds: bulkUserIds, teacherFlag: bulkTeacherFlag }),
+                    });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.error || `Failed: ${res.status}`);
+                    setSuccess(`Assigned ${bulkRole.replaceAll('_',' ').toUpperCase()} to ${bulkUserIds.length} users`);
+                    setShowBulkModal(false);
+                    try { if (typeof refreshTeam === 'function') await refreshTeam(); } catch {}
+                  } catch (e) {
+                    setError(e.message);
+                  } finally {
+                    setBulkSaving(false);
+                  }
+                }}
+                disabled={bulkSaving}
+                className="px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white disabled:opacity-60"
+              >
+                {bulkSaving ? "Assigning…" : "Assign Role"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

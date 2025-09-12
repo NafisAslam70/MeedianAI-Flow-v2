@@ -54,3 +54,15 @@ Operational Notes
 - Run the new SQL migration to add time-sensitive fields.
 - Consider adding execution_type and execution_payload to mri_role_tasks to drive per-task execution flows (scanner|checklist|form|link). Current router uses a heuristic for MSP Ele Moderator Day Opening.
 
+6) Team Management — Teacher Flag + Bulk MRI Role Assign
+- Schema: users table gains nullable boolean is_teacher (lib/schema.js field is isTeacher). Migration file: drizzle/0005_add_is_teacher_to_users.sql.
+- API (manageMeedian route):
+  - GET team now includes isTeacher in the user payload.
+  - PATCH team accepts isTeacher (true|false|null) per user and persists to users.is_teacher.
+  - PATCH bulkAssignMriRole: accepts { role, userIds[], teacherFlag: 'none'|'true'|'false' }.
+    • Deactivates the role for all users, then activates it for provided userIds (exclusivity set to selected list).
+    • Optionally updates is_teacher for selected users based on teacherFlag.
+- Admin UI (Manage Team):
+  - Added tri-state Teacher selector (—|Yes|No) on each user card and a summary line showing Teacher status.
+  - CSV export now includes is_teacher.
+  - New “Bulk Assign MRI Role” button opens a modal to select one MRI role, pick multiple users, and optionally set their Teacher flag. Submits to the new API and refreshes the team list on success.

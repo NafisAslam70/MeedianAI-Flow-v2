@@ -121,6 +121,10 @@ export default function TeamPage() {
     }
   };
 
+  const refreshTeam = async () => {
+    await mutate("/api/admin/manageMeedian?section=team");
+  };
+
   const saveUserTimesChanges = async () => {
     setSaving((p) => ({ ...p, userTimes: true }));
     setError("");
@@ -175,6 +179,7 @@ export default function TeamPage() {
         handleUserTimeToggle={handleUserTimeToggle}
         handleUserTimeChange={handleUserTimeChange}
         handleUserMriRoleChange={handleUserMriRoleChange}
+        refreshTeam={refreshTeam}
       />
 
       {confirmDeleteUser && (
