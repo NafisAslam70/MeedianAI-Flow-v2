@@ -1,0 +1,49 @@
+MeedianAI Flow — Mobile Port (Expo) Summary
+
+Overview
+- Created a standalone Expo app under `meedianAI-Flow-Mobile/` that consumes the existing web API.
+- Uses expo-router with tabs: Dashboard, My MRIs, Account.
+- Reads API base from `EXPO_PUBLIC_API_BASE` (e.g., https://meedian-ai-flow-v1.vercel.app).
+
+Structure
+- package.json: Expo SDK 51, expo-router v3, RN 0.74.
+- app.json: app metadata, scheme, iOS/Android identifiers.
+- eas.json: preview (APK) and production profiles; both set EXPO_PUBLIC_API_BASE.
+- .env.example: EXPO_PUBLIC_API_BASE default.
+- App.js: expo-router entry.
+- app/_layout.js: global AuthProvider.
+- app/(auth)/signin.js: opens web login (NextAuth) in a browser tab; returns and then checks session via API.
+- app/(tabs)/_layout.js: Tabs layout for Dashboard / MRIs / Account.
+- app/(tabs)/dashboard.js: loads `/api/member/meRightNow` and lists current tasks.
+- app/(tabs)/mris.js: loads `/api/member/mris/roles` and lists role keys.
+- app/(tabs)/account.js: shows API base; opens web login and web dashboard; local sign-out.
+- lib/config.js: reads API base from env/extra.
+- lib/api.js: fetchJson with credentials: 'include' and JSON handling.
+- lib/auth.js: minimal session check via `/api/auth/session` and local sign-out helper.
+
+Auth Notes
+- This app relies on NextAuth cookies set via the web login flow. The Sign In screen opens `${API_BASE}/login` in the system browser; after authenticating, switch back to the app and it attempts to read session via `/api/auth/session` with `credentials: 'include'`.
+- If mobile `fetch` does not forward cookies to your API domain by default in your environment, consider adding one of:
+  1) A dedicated mobile credentials endpoint that returns a token (JWT) for use in `Authorization: Bearer` headers; or
+  2) An in-app WebView flow that sets cookies on the native networking stack; or
+  3) Expo cookie helpers to synchronize cookies.
+
+Environment
+- Set `EXPO_PUBLIC_API_BASE=https://meedian-ai-flow-v1.vercel.app` in `.env` or via EAS profiles.
+
+How to Run
+- cd meedianAI-Flow-Mobile
+- npm install
+- echo "EXPO_PUBLIC_API_BASE=https://meedian-ai-flow-v1.vercel.app" > .env (or use EAS)
+- npm run start (Expo Go / simulator)
+- EAS APK: `eas build -p android --profile preview`
+
+Next Steps (Optional)
+- Add QR scanning flows (expo-camera) mirroring web QrScanner.jsx.
+- Add My Notes, Announcements, and Attendance screens using existing member endpoints.
+- Improve auth UX by adding a dedicated mobile sign-in API returning a token, then update lib/api.js to send Bearer tokens.
+
+Status (Paused)
+- Initial Expo project created and configured (SDK 51; iOS/Android/Web enabled).
+- Basic tabs and API wiring working; icons/splash are placeholders to be added later.
+- Development is paused now; resume from this file and current structure.

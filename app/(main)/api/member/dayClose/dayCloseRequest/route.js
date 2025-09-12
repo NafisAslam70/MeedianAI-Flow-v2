@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
-import { dayCloseRequests, users, openCloseTimes } from "@/lib/schema";
+import { dayCloseRequests, users, openCloseTimes, escalationsMatters, escalationsMatterMembers, dayCloseOverrides } from "@/lib/schema";
 import { eq, and } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 
 export async function POST(req) {
   const session = await auth();
@@ -76,6 +77,18 @@ export async function POST(req) {
       if (now < closingStart || now > closingEnd) {
         return NextResponse.json({ error: "Not within closing window" }, { status: 400 });
       }
+    }
+
+    // Day-Close pause check: if user is involved in any open escalation and no active override, block
+    const [{ count }] = await db.execute(sql`SELECT COUNT(*)::int as count
+      FROM ${escalationsMatters} em
+      JOIN ${escalationsMatterMembers} mm ON mm.matter_id = em.id
+      WHERE mm.user_id = ${userId} AND em.status <> 'CLOSED'`);
+    const overrideActive = await db.query.dayCloseOverrides.findFirst({
+      where: (t, { eq }) => eq(t.userId, userId),
+    }).then(r => r && r.active);
+    if (Number(count) > 0 && !overrideActive) {
+      return NextResponse.json({ error: "Day Close paused due to active escalation(s). Contact admin for override." }, { status: 403 });
     }
 
     // Check for existing pending request

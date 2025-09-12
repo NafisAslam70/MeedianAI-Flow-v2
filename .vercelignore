@@ -1,0 +1,7 @@
+# Exclude the Expo mobile app from Vercel uploads/build context
+meedianAI-Flow-Mobile/
+**/*.apk
+**/*.aab
+**/build/
+**/dist/
+

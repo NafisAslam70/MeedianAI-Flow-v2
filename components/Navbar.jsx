@@ -14,6 +14,7 @@ import {
   Mountain,
   ClipboardList,
   ClipboardCheck,
+  AlertTriangle,
   CalendarCheck2,
   CalendarX2,
   Calendar,
@@ -617,6 +618,18 @@ export default function Navbar() {
             <span className="row-main">
               <span className="row-title">Resource Management</span>
               <span className="row-sub">Track equipment, rooms, and assets</span>
+            </span>
+            <ArrowRight size={16} className="row-go" />
+          </button>
+
+          <button
+            className="action-row"
+            onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/managersCommon/escalations"); }}
+          >
+            <span className="row-icon"><AlertTriangle size={18} /></span>
+            <span className="row-main">
+              <span className="row-title">Escalations</span>
+              <span className="row-sub">Raise, act, and review matters</span>
             </span>
             <ArrowRight size={16} className="row-go" />
           </button>

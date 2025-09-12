@@ -66,3 +66,8 @@ Operational Notes
   - Added tri-state Teacher selector (—|Yes|No) on each user card and a summary line showing Teacher status.
   - CSV export now includes is_teacher.
   - New “Bulk Assign MRI Role” button opens a modal to select one MRI role, pick multiple users, and optionally set their Teacher flag. Submits to the new API and refreshes the team list on success.
+
+Status Update (Pause)
+- The above schema/API/UI changes are completed and verified locally.
+- Mobile port scaffolding created under `meedianAI-Flow-Mobile/` and initial screens wired.
+- Development is paused for now; will resume later from this checkpoint.

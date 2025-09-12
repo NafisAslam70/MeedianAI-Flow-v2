@@ -2,8 +2,9 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
-import { dayCloseRequests, users } from "@/lib/schema";
+import { dayCloseRequests, users, escalationsMatters, escalationsMatterMembers, dayCloseOverrides } from "@/lib/schema";
 import { eq, and, gte, lte } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { startOfDay, endOfDay } from "date-fns";
 
 export async function GET() {
@@ -39,7 +40,15 @@ export async function GET() {
       )
       .limit(1);
 
-    return NextResponse.json(request ?? { status: "none" }, { status: 200 });
+    // pause info
+    const [{ count }] = await db.execute(sql`SELECT COUNT(*)::int as count
+      FROM ${escalationsMatters} em
+      JOIN ${escalationsMatterMembers} mm ON mm.matter_id = em.id
+      WHERE mm.user_id = ${userId} AND em.status <> 'CLOSED'`);
+    const overrideActive = await db.query.dayCloseOverrides.findFirst({ where: (t,{eq})=>eq(t.userId, userId) }).then(r=> r && r.active);
+    const paused = Number(count) > 0 && !overrideActive;
+
+    return NextResponse.json({ ...(request ?? { status: "none" }), paused, openEscalations: Number(count), overrideActive: !!overrideActive }, { status: 200 });
   } catch (err) {
     console.error("[dayCloseStatus] GET error:", err);
     return NextResponse.json(
