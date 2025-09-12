@@ -22,11 +22,14 @@ export default function EscalationsPage() {
   const { data: usersData } = useSWR("/api/managersCommon/users", fetcher);
   const users = usersData?.users || [];
   const assignableUsers = users.filter((u) => u.role === 'admin' || u.role === 'team_manager');
+  const [openDetailId, setOpenDetailId] = useState(null);
+  const { data: detail } = useSWR(openDetailId ? `/api/managersCommon/escalations?section=detail&id=${openDetailId}` : null, fetcher);
+  const [progressNote, setProgressNote] = useState("");
 
   const BasicList = ({ rows, actions = false }) => (
     <div className="space-y-3">
       {(rows || []).map((m) => (
-        <div key={m.id} className="p-3 bg-white border border-gray-200 rounded-lg">
+        <div key={m.id} className="p-3 bg-white border border-gray-200 rounded-lg cursor-pointer" onClick={()=>{ setOpenDetailId(m.id); setErr(""); setMsg(""); }}>
           <div className="flex items-center justify-between">
             <div className="font-semibold text-gray-800">{m.title}</div>
             <div className="text-xs px-2 py-0.5 rounded border border-gray-300 text-gray-700">{m.status} L{m.level}</div>
@@ -178,6 +181,61 @@ export default function EscalationsPage() {
       {tab === 'forYou' && <BasicList rows={forYou?.matters} actions />}
       {tab === 'mine' && <BasicList rows={mine?.matters} />}
       {tab === 'all' && <BasicList rows={all?.matters} />}
+      {openDetailId && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={()=>setOpenDetailId(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] overflow-auto" onClick={(e)=>e.stopPropagation()}>
+            <div className="p-4 border-b flex items-center justify-between">
+              <div>
+                <div className="text-lg font-semibold text-gray-800">{detail?.matter?.title || 'Matter'}</div>
+                <div className="text-xs text-gray-500">Status: {detail?.matter?.status} • Level {detail?.matter?.level} • #{detail?.matter?.id}</div>
+              </div>
+              <button className="px-3 py-1 rounded border" onClick={()=>setOpenDetailId(null)}>Close</button>
+            </div>
+            <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="md:col-span-2">
+                <div className="font-semibold mb-2">Timeline</div>
+                <div className="space-y-2">
+                  {(detail?.steps||[]).map((s,idx)=> (
+                    <div key={idx} className="p-2 border rounded bg-gray-50">
+                      <div className="text-xs text-gray-600">{new Date(s.createdAt).toLocaleString()}</div>
+                      <div className="text-sm"><span className="font-semibold">{s.action}</span> {s.note ? `— ${s.note}`: ''}</div>
+                    </div>
+                  ))}
+                  {(!detail?.steps || detail.steps.length===0) && <div className="text-sm text-gray-500">No steps yet</div>}
+                </div>
+              </div>
+              <div className="md:col-span-1">
+                <div className="font-semibold mb-2">Members Involved</div>
+                <div className="space-y-1">
+                  {(detail?.members||[]).map((m,idx)=> (
+                    <div key={idx} className="text-sm text-gray-700">User #{m.userId}</div>
+                  ))}
+                  {(!detail?.members || detail.members.length===0) && <div className="text-sm text-gray-500">None</div>}
+                </div>
+                <div className="mt-4">
+                  <div className="font-semibold mb-1">Add Progress</div>
+                  <textarea value={progressNote} onChange={(e)=>setProgressNote(e.target.value)} className="w-full p-2 border rounded" rows={4} placeholder="Add an update for this matter" />
+                  <div className="mt-2 flex gap-2">
+                    <button className="px-3 py-1 rounded bg-teal-600 text-white" onClick={async ()=>{
+                      if (!progressNote.trim()) return;
+                      setErr(''); setMsg('');
+                      try {
+                        const res = await fetch('/api/managersCommon/escalations?section=progress', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: openDetailId, note: progressNote.trim() }) });
+                        const d = await res.json();
+                        if (!res.ok) throw new Error(d.error || `Failed (${res.status})`);
+                        setProgressNote('');
+                        // simple reload of detail
+                        location.reload();
+                      } catch(e){ setErr(e.message); }
+                    }}>Add Update</button>
+                    <button className="px-3 py-1 rounded border" onClick={()=>setProgressNote('')}>Clear</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

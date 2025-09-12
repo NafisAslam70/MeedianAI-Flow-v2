@@ -44,3 +44,6 @@ next-env.d.ts
 codex_chat*.txt
 DELU-GPT_NOTES.txt
 MEEDIANAI_FLOW_NOTES.txt
+
+# exclude Expo mobile app from Git
+meedianAI-Flow-Mobile/

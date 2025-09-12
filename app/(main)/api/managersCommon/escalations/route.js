@@ -71,7 +71,7 @@ export async function GET(req) {
       const matterRows = await db.select().from(escalationsMatters).where(eq(escalationsMatters.id, id));
       if (!matterRows.length) return NextResponse.json({ error: "not found" }, { status: 404 });
       const members = await db.select().from(escalationsMatterMembers).where(eq(escalationsMatterMembers.matterId, id));
-      const steps = await db.select().from(escalationsSteps).where(eq(escalationsSteps.matterId, id)).orderBy(desc(escalationsSteps.createdAt));
+      const steps = await db.select().from(escalationsSteps).where(eq(escalationsSteps.matterId, id)).orderBy(escalationsSteps.createdAt);
       return NextResponse.json({ matter: matterRows[0], members, steps }, { status: 200 });
     }
     if (section === "isPaused") {
@@ -176,6 +176,18 @@ export async function PATCH(req) {
       await db.update(escalationsMatters).set({ status: "CLOSED", currentAssigneeId: null, updatedAt: new Date() }).where(eq(escalationsMatters.id, id));
       await db.insert(escalationsSteps).values({ matterId: id, level: m.level, action: "CLOSE", fromUserId: uid, toUserId: null, note });
       return NextResponse.json({ updated: 1 }, { status: 200 });
+    }
+
+    if (section === "progress") {
+      const id = Number(body.id);
+      const note = String(body.note || "").trim();
+      if (!id || note.length === 0) return NextResponse.json({ error: "id and note required" }, { status: 400 });
+      const [m] = await db.select().from(escalationsMatters).where(eq(escalationsMatters.id, id));
+      if (!m) return NextResponse.json({ error: "not found" }, { status: 404 });
+      if (!(isAdmin || m.currentAssigneeId === uid)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      await db.insert(escalationsSteps).values({ matterId: id, level: m.level, action: "PROGRESS", fromUserId: uid, toUserId: m.currentAssigneeId, note });
+      await db.update(escalationsMatters).set({ updatedAt: new Date() }).where(eq(escalationsMatters.id, id));
+      return NextResponse.json({ ok: true }, { status: 200 });
     }
 
     if (section === "override") {
