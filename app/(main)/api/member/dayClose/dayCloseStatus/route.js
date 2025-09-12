@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { dayCloseRequests, users, escalationsMatters, escalationsMatterMembers, dayCloseOverrides } from "@/lib/schema";
-import { eq, and, gte, lte } from "drizzle-orm";
+import { eq, and, gte, lte, ne } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import { startOfDay, endOfDay } from "date-fns";
 
@@ -41,18 +41,23 @@ export async function GET() {
       .limit(1);
 
     // pause info
-    const [{ count }] = await db.execute(sql`SELECT COUNT(*)::int as count
-      FROM ${escalationsMatters} em
-      JOIN ${escalationsMatterMembers} mm ON mm.matter_id = em.id
-      WHERE mm.user_id = ${userId} AND em.status <> 'CLOSED'`);
+    const cntRows = await db
+      .select({ value: sql`COUNT(*)::int` })
+      .from(escalationsMatters)
+      .innerJoin(
+        escalationsMatterMembers,
+        eq(escalationsMatterMembers.matterId, escalationsMatters.id)
+      )
+      .where(and(eq(escalationsMatterMembers.userId, userId), ne(escalationsMatters.status, 'CLOSED')));
+    const count = Number(cntRows?.[0]?.value ?? 0);
     const overrides = await db
       .select()
       .from(dayCloseOverrides)
       .where(and(eq(dayCloseOverrides.userId, userId), eq(dayCloseOverrides.active, true)));
     const overrideActive = overrides.length > 0;
-    const paused = Number(count) > 0 && !overrideActive;
+    const paused = count > 0 && !overrideActive;
 
-    return NextResponse.json({ ...(request ?? { status: "none" }), paused, openEscalations: Number(count), overrideActive }, { status: 200 });
+    return NextResponse.json({ ...(request ?? { status: "none" }), paused, openEscalations: count, overrideActive }, { status: 200 });
   } catch (err) {
     console.error("[dayCloseStatus] GET error:", err);
     return NextResponse.json(

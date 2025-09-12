@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { dayCloseRequests, users, openCloseTimes, escalationsMatters, escalationsMatterMembers, dayCloseOverrides } from "@/lib/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, ne } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 
 export async function POST(req) {
@@ -80,16 +80,21 @@ export async function POST(req) {
     }
 
     // Day-Close pause check: if user is involved in any open escalation and no active override, block
-    const [{ count }] = await db.execute(sql`SELECT COUNT(*)::int as count
-      FROM ${escalationsMatters} em
-      JOIN ${escalationsMatterMembers} mm ON mm.matter_id = em.id
-      WHERE mm.user_id = ${userId} AND em.status <> 'CLOSED'`);
+    const cntRows = await db
+      .select({ value: sql`COUNT(*)::int` })
+      .from(escalationsMatters)
+      .innerJoin(
+        escalationsMatterMembers,
+        eq(escalationsMatterMembers.matterId, escalationsMatters.id)
+      )
+      .where(and(eq(escalationsMatterMembers.userId, userId), ne(escalationsMatters.status, 'CLOSED')));
+    const count = Number(cntRows?.[0]?.value ?? 0);
     const overrides = await db
       .select()
       .from(dayCloseOverrides)
       .where(and(eq(dayCloseOverrides.userId, userId), eq(dayCloseOverrides.active, true)));
     const overrideActive = overrides.length > 0;
-    if (Number(count) > 0 && !overrideActive) {
+    if (count > 0 && !overrideActive) {
       return NextResponse.json({ error: "Day Close paused due to an active escalation involving you. Please resolve the escalation or contact your immediate supervisor/superintendent for an override." }, { status: 403 });
     }
 
