@@ -38,6 +38,20 @@ export default function MainLayout({ children }) {
     }
   }, [session]);
 
+  // Global event to open ChatBox with a recipient
+  useEffect(() => {
+    function handleOpenChat(e) {
+      const rid = e?.detail?.recipientId;
+      if (!rid) return;
+      setChatRecipient(String(rid));
+      setChatboxOpen(true);
+    }
+    if (typeof window !== 'undefined') {
+      window.addEventListener('open-chat', handleOpenChat);
+      return () => window.removeEventListener('open-chat', handleOpenChat);
+    }
+  }, []);
+
   // Define routes where ChatBox should be hidden
   const hideChatBoxRoutes = [
     "/dashboard/admin/profile",

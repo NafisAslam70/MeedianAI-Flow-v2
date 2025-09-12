@@ -391,9 +391,16 @@ export default function CloseMyDay() {
                 <div className="flex items-start gap-3">
                   <AlertCircle className="text-amber-600 flex-shrink-0" />
                   <div>
-                    <h3 className="text-lg font-semibold text-gray-800">Day Close Paused</h3>
-                    <p className="text-sm text-gray-700 mt-1">{escalationMsg || "An active escalation involving you is open."}</p>
-                    <p className="text-xs text-gray-500 mt-2">Resolve the escalation or contact your Immediate Supervisor (IS) / Superintendent for an override.</p>
+                    <h3 className="text-lg font-semibold text-gray-800">Day Close Not Allowed</h3>
+                    <p className="text-sm text-gray-700 mt-1">
+                      You are NOT allowed to close your day due to an active escalation involving you. There may be ADs in your day operations that are strictly not allowed or were requested to be followed.
+                    </p>
+                    <p className="text-sm text-gray-700 mt-2">
+                      Kindly contact your Immediate Supervisor (IS) or the Superintendent for an override.
+                    </p>
+                    {escalationMsg && (
+                      <p className="text-xs text-gray-500 mt-2">System note: {escalationMsg}</p>
+                    )}
                   </div>
                 </div>
                 <div className="mt-5 flex flex-wrap gap-2 justify-end">
@@ -406,8 +413,9 @@ export default function CloseMyDay() {
                         const data = await res.json();
                         const isId = data?.user?.immediate_supervisor;
                         if (isId) {
-                          // open chat with IS in new tab
-                          window.open(`/dashboard/managersCommon/assignTask?to=${isId}`, '_blank');
+                          // open embedded chatbox to IS
+                          window.dispatchEvent(new CustomEvent('open-chat', { detail: { recipientId: isId } }));
+                          setShowEscalationModal(false);
                         } else {
                           alert('No immediate supervisor set.');
                         }
@@ -416,12 +424,10 @@ export default function CloseMyDay() {
                   >Talk to IS</button>
                   <button
                     className="px-4 py-2 rounded-lg bg-indigo-600 text-white"
-                    onClick={async () => {
-                      try {
-                        // superintendent hard-coded pattern used in Profile.jsx (id 43)
-                        const superId = 43;
-                        window.open(`/dashboard/managersCommon/assignTask?to=${superId}`, '_blank');
-                      } catch {}
+                    onClick={() => {
+                      const superId = 43; // as used in Profile.jsx
+                      window.dispatchEvent(new CustomEvent('open-chat', { detail: { recipientId: superId } }));
+                      setShowEscalationModal(false);
                     }}
                   >Talk to Superintendent</button>
                 </div>
