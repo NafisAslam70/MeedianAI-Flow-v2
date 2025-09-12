@@ -66,9 +66,9 @@ export default function RoleDefinitionsPage() {
   const [message, setMessage] = useState(null);
   const [families, setFamilies] = useState([]);
   const [taskModal, setTaskModal] = useState({ open: false, role: null, tasks: [], loading: false });
-  const [taskForm, setTaskForm] = useState({ title: "", description: "", submissables: "", action: "" });
+  const [taskForm, setTaskForm] = useState({ title: "", description: "", submissables: "", action: "", timeSensitive: false, timeMode: 'none', execAt: '', windowStart: '', windowEnd: '' });
   const [editingTaskId, setEditingTaskId] = useState(null);
-  const [editForm, setEditForm] = useState({ title: "", description: "", submissables: "", action: "", active: true });
+  const [editForm, setEditForm] = useState({ title: "", description: "", submissables: "", action: "", active: true, timeSensitive: false, timeMode: 'none', execAt: '', windowStart: '', windowEnd: '' });
   const [submissablesList, setSubmissablesList] = useState([]);
 
   // derive category options from families (active only); fallback to defaults
@@ -274,6 +274,15 @@ export default function RoleDefinitionsPage() {
           .map((s) => s.trim())
           .filter(Boolean);
       }
+      // time fields
+      let execAt = null, windowStart = null, windowEnd = null;
+      if (taskForm.timeSensitive) {
+        if (taskForm.timeMode === 'timestamp') execAt = taskForm.execAt ? new Date(taskForm.execAt).toISOString() : null;
+        if (taskForm.timeMode === 'window') {
+          windowStart = taskForm.windowStart ? new Date(taskForm.windowStart).toISOString() : null;
+          windowEnd = taskForm.windowEnd ? new Date(taskForm.windowEnd).toISOString() : null;
+        }
+      }
       const res = await fetch(`/api/admin/manageMeedian?section=metaRoleTasks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -283,11 +292,15 @@ export default function RoleDefinitionsPage() {
           description: taskForm.description,
           submissables: subs,
           action: taskForm.action || null,
+          timeSensitive: !!taskForm.timeSensitive,
+          execAt,
+          windowStart,
+          windowEnd,
         }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Failed to create task");
-      setTaskForm({ title: "", description: "", submissables: "", action: "" });
+      setTaskForm({ title: "", description: "", submissables: "", action: "", timeSensitive: false, timeMode: 'none', execAt: '', windowStart: '', windowEnd: '' });
       await openTaskModal(taskModal.role);
     } catch (err) {
       console.error("Failed to create task:", err);
@@ -472,7 +485,7 @@ export default function RoleDefinitionsPage() {
           <div className="text-sm text-gray-500">No role selected.</div>
         ) : (
           <div className="space-y-4">
-            <form onSubmit={createTask} className="space-y-2">
+            <form onSubmit={createTask} className="space-y-3">
               <Input label="Task Title" value={taskForm.title} onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })} required />
               <Input label="Description" value={taskForm.description} onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })} />
               <div>
@@ -493,6 +506,38 @@ export default function RoleDefinitionsPage() {
                 ))}
               </ul>
               <Input label="Action (optional)" value={taskForm.action} onChange={(e) => setTaskForm({ ...taskForm, action: e.target.value })} />
+              <div className="border border-gray-200 rounded-lg p-3">
+                <label className="text-sm font-medium text-gray-700 inline-flex items-center gap-2">
+                  <input type="checkbox" checked={taskForm.timeSensitive} onChange={(e)=> setTaskForm({ ...taskForm, timeSensitive: e.target.checked })} /> Time sensitive
+                </label>
+                {taskForm.timeSensitive && (
+                  <div className="mt-2 space-y-2">
+                    <div className="flex items-center gap-3 text-sm">
+                      <label className="inline-flex items-center gap-1"><input type="radio" checked={taskForm.timeMode==='timestamp'} onChange={()=> setTaskForm({ ...taskForm, timeMode: 'timestamp' })} /> Exact time</label>
+                      <label className="inline-flex items-center gap-1"><input type="radio" checked={taskForm.timeMode==='window'} onChange={()=> setTaskForm({ ...taskForm, timeMode: 'window' })} /> Time window</label>
+                      <label className="inline-flex items-center gap-1"><input type="radio" checked={taskForm.timeMode==='none'} onChange={()=> setTaskForm({ ...taskForm, timeMode: 'none' })} /> None</label>
+                    </div>
+                    {taskForm.timeMode === 'timestamp' && (
+                      <div className="text-sm">
+                        <label className="block">Execute at (local)</label>
+                        <input type="datetime-local" className="border rounded px-2 py-1" value={taskForm.execAt} onChange={(e)=> setTaskForm({ ...taskForm, execAt: e.target.value })} />
+                      </div>
+                    )}
+                    {taskForm.timeMode === 'window' && (
+                      <div className="flex items-center gap-3 text-sm">
+                        <div>
+                          <label className="block">Window start</label>
+                          <input type="datetime-local" className="border rounded px-2 py-1" value={taskForm.windowStart} onChange={(e)=> setTaskForm({ ...taskForm, windowStart: e.target.value })} />
+                        </div>
+                        <div>
+                          <label className="block">Window end</label>
+                          <input type="datetime-local" className="border rounded px-2 py-1" value={taskForm.windowEnd} onChange={(e)=> setTaskForm({ ...taskForm, windowEnd: e.target.value })} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
               <div className="flex items-center justify-end">
                 <Button type="button" onClick={handleGenerateWithAI} disabled={taskModal.loading}>
                   {taskModal.loading ? "Generating..." : "Generate with AI"}
@@ -515,6 +560,38 @@ export default function RoleDefinitionsPage() {
                           <Input label="Description" value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} />
                           <Input label="Submissables (comma/newline separated)" value={editForm.submissables} onChange={(e) => setEditForm({ ...editForm, submissables: e.target.value })} />
                           <Input label="Action" value={editForm.action} onChange={(e) => setEditForm({ ...editForm, action: e.target.value })} />
+                          <div className="border border-gray-200 rounded-lg p-3">
+                            <label className="text-sm font-medium text-gray-700 inline-flex items-center gap-2">
+                              <input type="checkbox" checked={editForm.timeSensitive} onChange={(e)=> setEditForm({ ...editForm, timeSensitive: e.target.checked })} /> Time sensitive
+                            </label>
+                            {editForm.timeSensitive && (
+                              <div className="mt-2 space-y-2">
+                                <div className="flex items-center gap-3 text-sm">
+                                  <label className="inline-flex items-center gap-1"><input type="radio" checked={editForm.timeMode==='timestamp'} onChange={()=> setEditForm({ ...editForm, timeMode: 'timestamp' })} /> Exact time</label>
+                                  <label className="inline-flex items-center gap-1"><input type="radio" checked={editForm.timeMode==='window'} onChange={()=> setEditForm({ ...editForm, timeMode: 'window' })} /> Time window</label>
+                                  <label className="inline-flex items-center gap-1"><input type="radio" checked={editForm.timeMode==='none'} onChange={()=> setEditForm({ ...editForm, timeMode: 'none' })} /> None</label>
+                                </div>
+                                {editForm.timeMode === 'timestamp' && (
+                                  <div className="text-sm">
+                                    <label className="block">Execute at (local)</label>
+                                    <input type="datetime-local" className="border rounded px-2 py-1" value={editForm.execAt} onChange={(e)=> setEditForm({ ...editForm, execAt: e.target.value })} />
+                                  </div>
+                                )}
+                                {editForm.timeMode === 'window' && (
+                                  <div className="flex items-center gap-3 text-sm">
+                                    <div>
+                                      <label className="block">Window start</label>
+                                      <input type="datetime-local" className="border rounded px-2 py-1" value={editForm.windowStart} onChange={(e)=> setEditForm({ ...editForm, windowStart: e.target.value })} />
+                                    </div>
+                                    <div>
+                                      <label className="block">Window end</label>
+                                      <input type="datetime-local" className="border rounded px-2 py-1" value={editForm.windowEnd} onChange={(e)=> setEditForm({ ...editForm, windowEnd: e.target.value })} />
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
                           <div className="flex items-center gap-2 justify-end">
                             <Button
                               onClick={async () => {
@@ -525,13 +602,15 @@ export default function RoleDefinitionsPage() {
                                     .map((s) => s.trim())
                                     .filter(Boolean);
                                 }
-                                await updateTask(t.id, {
-                                  title: editForm.title,
-                                  description: editForm.description,
-                                  submissables: subs,
-                                  action: editForm.action || null,
-                                  active: !!editForm.active,
-                                });
+                                let patch = { title: editForm.title, description: editForm.description, submissables: subs, action: editForm.action || null, active: !!editForm.active, timeSensitive: !!editForm.timeSensitive };
+                                if (editForm.timeSensitive) {
+                                  if (editForm.timeMode === 'timestamp') patch.execAt = editForm.execAt ? new Date(editForm.execAt).toISOString() : null;
+                                  if (editForm.timeMode === 'window') {
+                                    patch.windowStart = editForm.windowStart ? new Date(editForm.windowStart).toISOString() : null;
+                                    patch.windowEnd = editForm.windowEnd ? new Date(editForm.windowEnd).toISOString() : null;
+                                  }
+                                } else { patch.execAt = null; patch.windowStart = null; patch.windowEnd = null; }
+                                await updateTask(t.id, patch);
                                 setEditingTaskId(null);
                               }}
                               variant="primary"
@@ -572,6 +651,18 @@ export default function RoleDefinitionsPage() {
                             {t.action ? (
                               <div className="text-gray-600 text-xs"><span className="font-medium">Action:</span> {t.action}</div>
                             ) : null}
+                            {t.timeSensitive ? (
+                              <div className="text-gray-600 text-xs mt-1">
+                                <span className="font-medium">Time Sensitive:</span> Yes
+                                {t.execAt ? (
+                                  <span className="ml-2"><span className="font-medium">Exec At:</span> {new Date(t.execAt).toLocaleString()}</span>
+                                ) : (
+                                  t.windowStart ? (
+                                    <span className="ml-2"><span className="font-medium">Window:</span> {new Date(t.windowStart).toLocaleString()} – {t.windowEnd ? new Date(t.windowEnd).toLocaleString() : ''}</span>
+                                  ) : null
+                                )}
+                              </div>
+                            ) : null}
                           </div>
                           <div className="flex items-center gap-2">
                             <Button onClick={() => updateTask(t.id, { active: !t.active })} variant={t.active ? "secondary" : "primary"}>
@@ -586,6 +677,11 @@ export default function RoleDefinitionsPage() {
                                   submissables: (() => { try { const arr = JSON.parse(t.submissables || "null"); return Array.isArray(arr) ? arr.join(", ") : String(t.submissables || ""); } catch { return String(t.submissables || ""); } })(),
                                   action: t.action || "",
                                   active: !!t.active,
+                                  timeSensitive: !!t.timeSensitive,
+                                  timeMode: t.execAt ? 'timestamp' : ((t.windowStart || t.windowEnd) ? 'window' : 'none'),
+                                  execAt: t.execAt ? new Date(t.execAt).toISOString().slice(0,16) : '',
+                                  windowStart: t.windowStart ? new Date(t.windowStart).toISOString().slice(0,16) : '',
+                                  windowEnd: t.windowEnd ? new Date(t.windowEnd).toISOString().slice(0,16) : '',
                                 });
                               }}
                               variant="secondary"
