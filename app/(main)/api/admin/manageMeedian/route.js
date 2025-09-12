@@ -288,6 +288,7 @@ export async function GET(req) {
           execAt: mriRoleTasks.execAt,
           windowStart: mriRoleTasks.windowStart,
           windowEnd: mriRoleTasks.windowEnd,
+          recurrence: mriRoleTasks.recurrence,
           createdAt: mriRoleTasks.createdAt,
           updatedAt: mriRoleTasks.updatedAt,
         })
@@ -654,6 +655,10 @@ export async function POST(req) {
           if (u.execAt !== undefined) setObj.execAt = u.execAt ? new Date(u.execAt) : null;
           if (u.windowStart !== undefined) setObj.windowStart = u.windowStart ? new Date(u.windowStart) : null;
           if (u.windowEnd !== undefined) setObj.windowEnd = u.windowEnd ? new Date(u.windowEnd) : null;
+          if (u.recurrence !== undefined) {
+            const v = String(u.recurrence || '').toLowerCase();
+            setObj.recurrence = ['daily','weekly','monthly','none',''].includes(v) ? (v==='none'?'':v) : null;
+          }
           if (u.submissables !== undefined) {
             const raw = u.submissables;
             let arr = null;
@@ -669,7 +674,7 @@ export async function POST(req) {
         return NextResponse.json({ updated }, { status: 200 });
       }
 
-      const { roleDefId, title, description, active, submissables, action, timeSensitive = false, execAt = null, windowStart = null, windowEnd = null } = body || {};
+      const { roleDefId, title, description, active, submissables, action, timeSensitive = false, execAt = null, windowStart = null, windowEnd = null, recurrence = null } = body || {};
       if (!roleDefId || !title) {
         return NextResponse.json({ error: "roleDefId and title are required" }, { status: 400 });
       }
@@ -707,6 +712,7 @@ export async function POST(req) {
           execAt: execAt ? new Date(execAt) : null,
           windowStart: windowStart ? new Date(windowStart) : null,
           windowEnd: windowEnd ? new Date(windowEnd) : null,
+          recurrence: recurrence ? String(recurrence).toLowerCase() : null,
         })
         .onConflictDoUpdate({
           target: [mriRoleTasks.roleDefId, mriRoleTasks.title],
@@ -719,6 +725,7 @@ export async function POST(req) {
             execAt: execAt ? new Date(execAt) : null,
             windowStart: windowStart ? new Date(windowStart) : null,
             windowEnd: windowEnd ? new Date(windowEnd) : null,
+            recurrence: recurrence ? String(recurrence).toLowerCase() : null,
             updatedAt: new Date(),
           },
         })
@@ -734,6 +741,7 @@ export async function POST(req) {
           execAt: mriRoleTasks.execAt,
           windowStart: mriRoleTasks.windowStart,
           windowEnd: mriRoleTasks.windowEnd,
+          recurrence: mriRoleTasks.recurrence,
           createdAt: mriRoleTasks.createdAt,
           updatedAt: mriRoleTasks.updatedAt,
         });

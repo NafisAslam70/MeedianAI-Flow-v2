@@ -66,9 +66,9 @@ export default function RoleDefinitionsPage() {
   const [message, setMessage] = useState(null);
   const [families, setFamilies] = useState([]);
   const [taskModal, setTaskModal] = useState({ open: false, role: null, tasks: [], loading: false });
-  const [taskForm, setTaskForm] = useState({ title: "", description: "", submissables: "", action: "", timeSensitive: false, timeMode: 'none', execAt: '', windowStart: '', windowEnd: '' });
+  const [taskForm, setTaskForm] = useState({ title: "", description: "", submissables: "", action: "", timeSensitive: false, timeMode: 'none', execAt: '', windowStart: '', windowEnd: '', recurrence: 'none' });
   const [editingTaskId, setEditingTaskId] = useState(null);
-  const [editForm, setEditForm] = useState({ title: "", description: "", submissables: "", action: "", active: true, timeSensitive: false, timeMode: 'none', execAt: '', windowStart: '', windowEnd: '' });
+  const [editForm, setEditForm] = useState({ title: "", description: "", submissables: "", action: "", active: true, timeSensitive: false, timeMode: 'none', execAt: '', windowStart: '', windowEnd: '', recurrence: 'none' });
   const [submissablesList, setSubmissablesList] = useState([]);
 
   // derive category options from families (active only); fallback to defaults
@@ -296,11 +296,12 @@ export default function RoleDefinitionsPage() {
           execAt,
           windowStart,
           windowEnd,
+          recurrence: taskForm.recurrence && taskForm.recurrence !== 'none' ? taskForm.recurrence : null,
         }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Failed to create task");
-      setTaskForm({ title: "", description: "", submissables: "", action: "", timeSensitive: false, timeMode: 'none', execAt: '', windowStart: '', windowEnd: '' });
+      setTaskForm({ title: "", description: "", submissables: "", action: "", timeSensitive: false, timeMode: 'none', execAt: '', windowStart: '', windowEnd: '', recurrence: 'none' });
       await openTaskModal(taskModal.role);
     } catch (err) {
       console.error("Failed to create task:", err);
@@ -517,6 +518,15 @@ export default function RoleDefinitionsPage() {
                       <label className="inline-flex items-center gap-1"><input type="radio" checked={taskForm.timeMode==='window'} onChange={()=> setTaskForm({ ...taskForm, timeMode: 'window' })} /> Time window</label>
                       <label className="inline-flex items-center gap-1"><input type="radio" checked={taskForm.timeMode==='none'} onChange={()=> setTaskForm({ ...taskForm, timeMode: 'none' })} /> None</label>
                     </div>
+                    <div className="text-sm">
+                      <label className="block">Recurrence</label>
+                      <select className="border rounded px-2 py-1" value={taskForm.recurrence} onChange={(e)=> setTaskForm({ ...taskForm, recurrence: e.target.value })}>
+                        <option value="none">None</option>
+                        <option value="daily">Daily</option>
+                        <option value="weekly">Weekly</option>
+                        <option value="monthly">Monthly</option>
+                      </select>
+                    </div>
                     {taskForm.timeMode === 'timestamp' && (
                       <div className="text-sm">
                         <label className="block">Execute at (local)</label>
@@ -571,6 +581,15 @@ export default function RoleDefinitionsPage() {
                                   <label className="inline-flex items-center gap-1"><input type="radio" checked={editForm.timeMode==='window'} onChange={()=> setEditForm({ ...editForm, timeMode: 'window' })} /> Time window</label>
                                   <label className="inline-flex items-center gap-1"><input type="radio" checked={editForm.timeMode==='none'} onChange={()=> setEditForm({ ...editForm, timeMode: 'none' })} /> None</label>
                                 </div>
+                                <div className="text-sm">
+                                  <label className="block">Recurrence</label>
+                                  <select className="border rounded px-2 py-1" value={editForm.recurrence} onChange={(e)=> setEditForm({ ...editForm, recurrence: e.target.value })}>
+                                    <option value="none">None</option>
+                                    <option value="daily">Daily</option>
+                                    <option value="weekly">Weekly</option>
+                                    <option value="monthly">Monthly</option>
+                                  </select>
+                                </div>
                                 {editForm.timeMode === 'timestamp' && (
                                   <div className="text-sm">
                                     <label className="block">Execute at (local)</label>
@@ -602,7 +621,7 @@ export default function RoleDefinitionsPage() {
                                     .map((s) => s.trim())
                                     .filter(Boolean);
                                 }
-                                let patch = { title: editForm.title, description: editForm.description, submissables: subs, action: editForm.action || null, active: !!editForm.active, timeSensitive: !!editForm.timeSensitive };
+                                let patch = { title: editForm.title, description: editForm.description, submissables: subs, action: editForm.action || null, active: !!editForm.active, timeSensitive: !!editForm.timeSensitive, recurrence: editForm.recurrence && editForm.recurrence !== 'none' ? editForm.recurrence : null };
                                 if (editForm.timeSensitive) {
                                   if (editForm.timeMode === 'timestamp') patch.execAt = editForm.execAt ? new Date(editForm.execAt).toISOString() : null;
                                   if (editForm.timeMode === 'window') {
