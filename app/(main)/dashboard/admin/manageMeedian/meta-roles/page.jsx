@@ -25,17 +25,17 @@ const builtinCategoryMap = {
   pt_moderator: "amri",
 };
 
-function Modal({ open, title, onClose, children }) {
+function Modal({ open, title, onClose, children, wide = false }) {
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/30" onClick={onClose} />
-      <div className="relative w-full max-w-lg rounded-xl bg-white shadow-xl border border-gray-200">
+      <div className={`relative w-full ${wide ? 'max-w-5xl' : 'max-w-lg'} max-h-[85vh] overflow-hidden rounded-xl bg-white shadow-xl border border-gray-200 flex flex-col`}>
         <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-700">✕</button>
         </div>
-        <div className="p-4">{children}</div>
+        <div className="p-4 overflow-auto">{children}</div>
       </div>
     </div>
   );
@@ -69,6 +69,8 @@ export default function RoleDefinitionsPage() {
   const [taskForm, setTaskForm] = useState({ title: "", description: "", submissables: "", action: "", timeSensitive: false, timeMode: 'none', execAt: '', windowStart: '', windowEnd: '', recurrence: 'none' });
   const [editingTaskId, setEditingTaskId] = useState(null);
   const [editForm, setEditForm] = useState({ title: "", description: "", submissables: "", action: "", active: true, timeSensitive: false, timeMode: 'none', execAt: '', windowStart: '', windowEnd: '', recurrence: 'none' });
+  const [taskTab, setTaskTab] = useState('create'); // create | list
+  const [editModal, setEditModal] = useState({ open: false, task: null });
   const [submissablesList, setSubmissablesList] = useState([]);
 
   // derive category options from families (active only); fallback to defaults
@@ -251,6 +253,7 @@ export default function RoleDefinitionsPage() {
 
   const openTaskModal = (role) => {
     setTaskModal({ open: true, role, tasks: [], loading: true });
+    setTaskTab('create');
     fetch(`/api/admin/manageMeedian?section=metaRoleTasks&roleDefId=${role.id}`)
       .then((res) => res.json())
       .then((data) => {
@@ -260,6 +263,27 @@ export default function RoleDefinitionsPage() {
         console.error("Failed to fetch tasks:", err);
         setTaskModal((prev) => ({ ...prev, loading: false }));
       });
+  };
+
+  // Availability badge (admin-side preview)
+  const availabilityInfo = (t) => {
+    if (!t?.timeSensitive) return { label: 'Anytime', tone: 'gray' };
+    const now = Date.now();
+    const fmt = (d) => new Date(d).toLocaleString();
+    if (t.execAt) {
+      const at = new Date(t.execAt).getTime();
+      const diff = at - now;
+      if (Math.abs(diff) <= 15*60*1000) return { label: 'Available now', tone: 'green' };
+      return { label: (diff > 0 ? `Starts ${fmt(t.execAt)}` : `Past ${fmt(t.execAt)}`), tone: diff > 0 ? 'amber' : 'gray' };
+    }
+    if (t.windowStart || t.windowEnd) {
+      const ws = t.windowStart ? new Date(t.windowStart).getTime() : null;
+      const we = t.windowEnd ? new Date(t.windowEnd).getTime() : null;
+      const inWin = (ws ? now >= ws : true) && (we ? now <= we : true);
+      if (inWin) return { label: 'Available now', tone: 'green' };
+      return { label: `${t.windowStart ? fmt(t.windowStart) : '—'} – ${t.windowEnd ? fmt(t.windowEnd) : '—'}`, tone: 'amber' };
+    }
+    return { label: 'Anytime', tone: 'gray' };
   };
 
   const createTask = async (e) => {
@@ -481,7 +505,7 @@ export default function RoleDefinitionsPage() {
         </form>
       </Modal>
 
-      <Modal open={taskModal.open} title={taskModal.role ? `Tasks: ${taskModal.role.roleKey || taskModal.role.name}` : "Tasks"} onClose={() => { setTaskModal({ open: false, role: null, tasks: [], loading: false }); setEditingTaskId(null); }}>
+      <Modal open={taskModal.open} wide title={taskModal.role ? `Tasks: ${taskModal.role.roleKey || taskModal.role.name}` : "Tasks"} onClose={() => { setTaskModal({ open: false, role: null, tasks: [], loading: false }); setEditingTaskId(null); }}>
         {!taskModal.role ? (
           <div className="text-sm text-gray-500">No role selected.</div>
         ) : (
@@ -642,7 +666,10 @@ export default function RoleDefinitionsPage() {
                       ) : (
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex-1">
-                            <div className="text-gray-900 font-medium">{t.title}</div>
+                            <div className="text-gray-900 font-medium flex items-center gap-2">
+                              <span className="truncate">{t.title}</span>
+                              {(() => { const i = availabilityInfo(t); const tone = i.tone==='green'?'bg-emerald-100 text-emerald-800': i.tone==='amber'?'bg-amber-100 text-amber-800':'bg-gray-100 text-gray-800'; return (<span className={`text-[10px] px-2 py-0.5 rounded-full ${tone}`}>{i.label}</span>); })()}
+                            </div>
                             {t.description ? <div className="text-gray-600 text-sm">{t.description}</div> : null}
                             {/* Display submissables and action if present */}
                             {t.submissables ? (
