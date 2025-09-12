@@ -70,7 +70,15 @@ export async function GET(req) {
       if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
       const matterRows = await db.select().from(escalationsMatters).where(eq(escalationsMatters.id, id));
       if (!matterRows.length) return NextResponse.json({ error: "not found" }, { status: 404 });
-      const members = await db.select().from(escalationsMatterMembers).where(eq(escalationsMatterMembers.matterId, id));
+      const members = await db
+        .select({
+          id: escalationsMatterMembers.id,
+          userId: escalationsMatterMembers.userId,
+          userName: users.name,
+        })
+        .from(escalationsMatterMembers)
+        .leftJoin(users, eq(escalationsMatterMembers.userId, users.id))
+        .where(eq(escalationsMatterMembers.matterId, id));
       const steps = await db.select().from(escalationsSteps).where(eq(escalationsSteps.matterId, id)).orderBy(escalationsSteps.createdAt);
       return NextResponse.json({ matter: matterRows[0], members, steps }, { status: 200 });
     }

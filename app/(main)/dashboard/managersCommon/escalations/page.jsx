@@ -208,7 +208,7 @@ export default function EscalationsPage() {
                 <div className="font-semibold mb-2">Members Involved</div>
                 <div className="space-y-1">
                   {(detail?.members||[]).map((m,idx)=> (
-                    <div key={idx} className="text-sm text-gray-700">User #{m.userId}</div>
+                    <div key={idx} className="text-sm text-gray-700">{m.userName || `User #${m.userId}`}</div>
                   ))}
                   {(!detail?.members || detail.members.length===0) && <div className="text-sm text-gray-500">None</div>}
                 </div>
