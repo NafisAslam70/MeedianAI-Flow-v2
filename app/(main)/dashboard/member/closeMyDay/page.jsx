@@ -50,6 +50,8 @@ export default function CloseMyDay() {
   const [generalLog, setGeneralLog] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [showEscalationModal, setShowEscalationModal] = useState(false);
+  const [escalationMsg, setEscalationMsg] = useState("");
   const [success, setSuccess] = useState("");
   const [isPortrait, setIsPortrait] = useState(false);
   const [isBypass, setIsBypass] = useState(false);
@@ -275,7 +277,13 @@ export default function CloseMyDay() {
 
       if (!dayCloseRes.ok) {
         const errorData = await dayCloseRes.json();
-        throw new Error(errorData.error || "Failed to submit day close request");
+        const msg = errorData?.error || "Failed to submit day close request";
+        if (dayCloseRes.status === 403 && msg.toLowerCase().includes("day close paused")) {
+          setEscalationMsg(msg);
+          setShowEscalationModal(true);
+          return; // don't proceed further
+        }
+        throw new Error(msg);
       }
 
       // Notify admins/managers
@@ -358,6 +366,66 @@ export default function CloseMyDay() {
             >
               <CheckCircle size={20} />
               <p className="text-sm font-medium">{success} (Click to dismiss)</p>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Escalation Blocker Modal */}
+        <AnimatePresence>
+          {showEscalationModal && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[100]"
+              onClick={() => setShowEscalationModal(false)}
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="bg-white w-full max-w-lg rounded-2xl shadow-2xl p-6"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="text-amber-600 flex-shrink-0" />
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-800">Day Close Paused</h3>
+                    <p className="text-sm text-gray-700 mt-1">{escalationMsg || "An active escalation involving you is open."}</p>
+                    <p className="text-xs text-gray-500 mt-2">Resolve the escalation or contact your Immediate Supervisor (IS) / Superintendent for an override.</p>
+                  </div>
+                </div>
+                <div className="mt-5 flex flex-wrap gap-2 justify-end">
+                  <button className="px-4 py-2 rounded-lg border" onClick={() => setShowEscalationModal(false)}>Close</button>
+                  <button
+                    className="px-4 py-2 rounded-lg bg-teal-600 text-white"
+                    onClick={async () => {
+                      try {
+                        const res = await fetch('/api/member/profile');
+                        const data = await res.json();
+                        const isId = data?.user?.immediate_supervisor;
+                        if (isId) {
+                          // open chat with IS in new tab
+                          window.open(`/dashboard/managersCommon/assignTask?to=${isId}`, '_blank');
+                        } else {
+                          alert('No immediate supervisor set.');
+                        }
+                      } catch { alert('Unable to fetch supervisor'); }
+                    }}
+                  >Talk to IS</button>
+                  <button
+                    className="px-4 py-2 rounded-lg bg-indigo-600 text-white"
+                    onClick={async () => {
+                      try {
+                        // superintendent hard-coded pattern used in Profile.jsx (id 43)
+                        const superId = 43;
+                        window.open(`/dashboard/managersCommon/assignTask?to=${superId}`, '_blank');
+                      } catch {}
+                    }}
+                  >Talk to Superintendent</button>
+                </div>
+              </motion.div>
             </motion.div>
           )}
         </AnimatePresence>
