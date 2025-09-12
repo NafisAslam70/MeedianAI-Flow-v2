@@ -510,6 +510,12 @@ export default function RoleDefinitionsPage() {
           <div className="text-sm text-gray-500">No role selected.</div>
         ) : (
           <div className="space-y-4">
+            <div className="flex items-center gap-2 border-b pb-2">
+              {['create','list'].map(k => (
+                <button key={k} type="button" onClick={()=> setTaskTab(k)} className={`px-3 py-1.5 rounded-lg text-sm ${taskTab===k? 'bg-gray-900 text-white':'bg-gray-100 text-gray-800'}`}>{k==='create'?'Create Task':'Existing Tasks'}</button>
+              ))}
+            </div>
+            {taskTab === 'create' && (
             <form onSubmit={createTask} className="space-y-3">
               <Input label="Task Title" value={taskForm.title} onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })} required />
               <Input label="Description" value={taskForm.description} onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })} />
@@ -579,6 +585,8 @@ export default function RoleDefinitionsPage() {
                 <Button type="submit" variant="primary">Add Task</Button>
               </div>
             </form>
+            )}
+            {taskTab === 'list' && (
             <div>
               {taskModal.loading ? (
                 <div className="text-sm text-gray-500">Loading...</div>
@@ -743,6 +751,7 @@ export default function RoleDefinitionsPage() {
                 </ul>
               )}
             </div>
+            )}
           </div>
         )}
       </Modal>
