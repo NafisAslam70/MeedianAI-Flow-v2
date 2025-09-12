@@ -645,6 +645,18 @@ export default function Navbar() {
             <ArrowRight size={16} className="row-go" />
           </button>
 
+          <button
+            className="action-row"
+            onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/managersCommon/attendance-report"); }}
+          >
+            <span className="row-icon"><ClipboardCheck size={18} /></span>
+            <span className="row-main">
+              <span className="row-title">Daily Attendance Report</span>
+              <span className="row-sub">View and export present/absent lists</span>
+            </span>
+            <ArrowRight size={16} className="row-go" />
+          </button>
+
         </div>
       </aside>
     </div>

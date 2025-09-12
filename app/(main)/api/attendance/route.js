@@ -44,6 +44,65 @@ export async function GET(req) {
       rows.sort((a,b)=> new Date(a.at) - new Date(b.at));
       return NextResponse.json({ events: rows }, { status: 200 });
     }
+
+    if (section === "report") {
+      const dateStr = String(searchParams.get('date') || '').trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return NextResponse.json({ error: 'date (YYYY-MM-DD) required' }, { status: 400 });
+      const programKey = (searchParams.get('programKey') || '').toUpperCase() || null;
+      const track = (searchParams.get('track') || '').toLowerCase() || null;
+      const dateOnly = new Date(`${dateStr}T00:00:00.000Z`);
+
+      // Build base filters
+      const filters = [eq(finalDailyAttendance.date, dateOnly)];
+      const filtersAbs = [eq(finalDailyAbsentees.date, dateOnly)];
+      if (programKey) {
+        filters.push(eq(finalDailyAttendance.programKey, programKey));
+        filtersAbs.push(eq(finalDailyAbsentees.programKey, programKey));
+      }
+      if (track) {
+        filters.push(eq(finalDailyAttendance.track, track));
+        filtersAbs.push(eq(finalDailyAbsentees.track, track));
+      }
+
+      // Fetch presents
+      const presents = await db
+        .select({ userId: finalDailyAttendance.userId, name: finalDailyAttendance.name, at: finalDailyAttendance.at, isTeacher: users.isTeacher })
+        .from(finalDailyAttendance)
+        .leftJoin(users, eq(users.id, finalDailyAttendance.userId))
+        .where(and(...filters));
+      // Fetch absentees
+      const abs = await db
+        .select({ userId: finalDailyAbsentees.userId, name: finalDailyAbsentees.name, isTeacher: users.isTeacher })
+        .from(finalDailyAbsentees)
+        .leftJoin(users, eq(users.id, finalDailyAbsentees.userId))
+        .where(and(...filtersAbs));
+
+      // Sort for readability
+      presents.sort((a,b)=> (a.name||'').localeCompare(b.name||''));
+      abs.sort((a,b)=> (a.name||'').localeCompare(b.name||''));
+
+      // Partition by isTeacher
+      const presTeachers = presents.filter(p => p.isTeacher === true);
+      const presNonTeachers = presents.filter(p => p.isTeacher !== true);
+      const absTeachers = abs.filter(p => p.isTeacher === true);
+      const absNonTeachers = abs.filter(p => p.isTeacher !== true);
+
+      return NextResponse.json({
+        date: dateStr,
+        programKey: programKey || null,
+        track: track || null,
+        totals: {
+          present: presents.length,
+          absent: abs.length,
+          presentTeachers: presTeachers.length,
+          presentNonTeachers: presNonTeachers.length,
+          absentTeachers: absTeachers.length,
+          absentNonTeachers: absNonTeachers.length,
+        },
+        presents,
+        absentees: abs,
+      }, { status: 200 });
+    }
     return NextResponse.json({ error: "Invalid section" }, { status: 400 });
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 500 });

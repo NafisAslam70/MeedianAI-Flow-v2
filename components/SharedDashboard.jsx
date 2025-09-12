@@ -850,6 +850,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
   const [slotsGD, setSlotsGD] = useState([]);
   const [currentSlotGD, setCurrentSlotGD] = useState(null);
   const [currentBlockGD, setCurrentBlockGD] = useState(null);
+  const [showOpenedBanner, setShowOpenedBanner] = useState(false);
 
   async function handleOpenDay() {
     // Open modal to scan manager's session QR or share personal token
@@ -883,6 +884,11 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
       const j = await r.json().catch(()=>({}));
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
       setShowOpenDayModal(false);
+      // Persist day-open server-side (bypass window since scan validated presence)
+      try {
+        const today = new Date().toISOString().split('T')[0];
+        await fetch('/api/member/startDay', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ date: today, bypass: true }) });
+      } catch {}
       setDayPack((p) => ({ ...(p || {}), openedAt: Date.now() }));
       setShowOpenDaySuccess(true);
       playCongrats();
@@ -898,6 +904,16 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
   useEffect(() => {
     if (slotData && Array.isArray(slotData.slots)) setSlotsGD(slotData.slots);
   }, [slotData]);
+
+  // Show a lightweight banner on load if day is already opened (persisted)
+  useEffect(() => {
+    try {
+      if (!dayPack?.openedAt || !selectedDate) return;
+      const key = `openedBanner:${selectedDate}:${session?.user?.id || ''}`;
+      const seen = typeof window !== 'undefined' ? sessionStorage.getItem(key) : '1';
+      if (!seen) setShowOpenedBanner(true);
+    } catch {}
+  }, [dayPack?.openedAt, selectedDate, session?.user?.id]);
 
   // keep scannerActive in sync with tab/modal visibility
   useEffect(() => {
@@ -1397,6 +1413,32 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
             >
               {error}
             </motion.p>
+          )}
+        </AnimatePresence>
+
+        {/* Opened status banner (lightweight) */}
+        <AnimatePresence>
+          {showOpenedBanner && dayPack?.openedAt && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="mb-3 flex items-center justify-between px-3 py-2 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200"
+            >
+              <div className="text-[12px]">
+                Opened at {fmtHM(dayPack.openedAt)}. Have a productive day!
+              </div>
+              <button
+                className="text-[12px] px-2 py-1 rounded-md hover:bg-emerald-100"
+                onClick={() => {
+                  try {
+                    const key = `openedBanner:${selectedDate}:${session?.user?.id || ''}`;
+                    if (typeof window !== 'undefined') sessionStorage.setItem(key, '1');
+                  } catch {}
+                  setShowOpenedBanner(false);
+                }}
+              >Dismiss</button>
+            </motion.div>
           )}
         </AnimatePresence>
 
