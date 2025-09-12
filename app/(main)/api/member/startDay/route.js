@@ -12,7 +12,7 @@ export async function POST(req) {
     }
 
     const userId = Number(session.user.id);
-    const { date, bypass = false } = await req.json();
+    const { date } = await req.json();
     if (!date) {
       return NextResponse.json({ error: "date param required" }, { status: 400 });
     }
@@ -35,19 +35,17 @@ export async function POST(req) {
       return NextResponse.json({ error: "Open/close times not found" }, { status: 404 });
     }
 
-    // Check if within 10 minutes of dayOpenTime (unless bypass)
+    // Check if within 10 minutes of dayOpenTime
     const now = new Date();
     const today = now.toISOString().split("T")[0];
     if (date !== today) {
       return NextResponse.json({ error: "Can only start the current day" }, { status: 400 });
     }
 
-    if (!bypass) {
-      const dayOpenDateTime = new Date(`${date}T${openClose.dayOpenTime}`);
-      const tenMinutesLater = new Date(dayOpenDateTime.getTime() + 10 * 60 * 1000);
-      if (now < dayOpenDateTime || now > tenMinutesLater) {
-        return NextResponse.json({ error: "Outside day open window" }, { status: 403 });
-      }
+    const dayOpenDateTime = new Date(`${date}T${openClose.dayOpenTime}`);
+    const tenMinutesLater = new Date(dayOpenDateTime.getTime() + 10 * 60 * 1000);
+    if (now < dayOpenDateTime || now > tenMinutesLater) {
+      return NextResponse.json({ error: "Outside day open window" }, { status: 403 });
     }
 
     // Check if day already started
