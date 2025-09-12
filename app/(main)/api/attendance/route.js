@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { users, userMriRoles, scannerSessions, attendanceEvents } from "@/lib/schema";
-import { and, eq } from "drizzle-orm";
+import { users, userMriRoles, scannerSessions, attendanceEvents, finalDailyAttendance, finalDailyAbsentees } from "@/lib/schema";
+import { and, eq, inArray } from "drizzle-orm";
 import crypto from "crypto";
 
 const b64u = (s) => Buffer.from(s).toString("base64").replace(/=+$/,'').replace(/\+/g,'-').replace(/\//g,'_');
@@ -99,6 +99,52 @@ export async function POST(req) {
         // duplicate → ok
       }
       return NextResponse.json({ ok: true });
+    }
+
+    if (section === "sessionEnd") {
+      const sessionId = Number(body.sessionId);
+      if (!sessionId) return NextResponse.json({ error: "sessionId required" }, { status: 400 });
+      await db.update(scannerSessions).set({ active: false }).where(eq(scannerSessions.id, sessionId));
+      return NextResponse.json({ ended: true });
+    }
+
+    if (section === "finalize") {
+      const sessionId = Number(body.sessionId);
+      const expectedUserIds = Array.isArray(body.expectedUserIds) ? body.expectedUserIds.map(Number).filter(Boolean) : null;
+      if (!sessionId) return NextResponse.json({ error: "sessionId required" }, { status: 400 });
+      // Load session and events
+      const [sess] = await db.select().from(scannerSessions).where(eq(scannerSessions.id, sessionId));
+      if (!sess) return NextResponse.json({ error: "session not found" }, { status: 404 });
+      const evs = await db
+        .select({ userId: attendanceEvents.userId, at: attendanceEvents.at, name: users.name })
+        .from(attendanceEvents)
+        .leftJoin(users, eq(users.id, attendanceEvents.userId))
+        .where(eq(attendanceEvents.sessionId, sessionId));
+      const presentIds = Array.from(new Set(evs.map(e => Number(e.userId))));
+      const today = new Date();
+      const dateOnly = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
+      // Insert presents
+      for (const e of evs) {
+        try {
+          await db.insert(finalDailyAttendance).values({ sessionId, userId: e.userId, name: e.name || null, at: e.at, date: dateOnly, programKey: sess.programKey, track: sess.track, roleKey: sess.roleKey });
+        } catch {}
+      }
+      // Compute expected list
+      let expected = expectedUserIds;
+      if (!expected) {
+        const rows = await db.select({ id: users.id }).from(users);
+        expected = rows.map(r => Number(r.id));
+      }
+      const absentees = expected.filter(id => !presentIds.includes(Number(id)));
+      if (absentees.length) {
+        // fetch names
+        const names = await db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, absentees));
+        const nameMap = new Map(names.map(n => [Number(n.id), n.name]));
+        for (const uid of absentees) {
+          try { await db.insert(finalDailyAbsentees).values({ sessionId, userId: uid, name: nameMap.get(Number(uid)) || null, date: dateOnly, programKey: sess.programKey, track: sess.track, roleKey: sess.roleKey }); } catch {}
+        }
+      }
+      return NextResponse.json({ finalized: { presents: presentIds.length, absentees: absentees.length } }, { status: 200 });
     }
 
     return NextResponse.json({ error: "Invalid section" }, { status: 400 });

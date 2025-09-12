@@ -622,6 +622,26 @@ export default function MyMRIs() {
                           }}
                         >End Session</button>
                       )}
+                      {scanPanel.session && (
+                        <button
+                          className="px-2 py-1 text-xs rounded bg-emerald-700 text-white disabled:opacity-60"
+                          disabled={scanPanel.finalizing}
+                          title="Finalize today's attendance"
+                          onClick={async ()=>{
+                            try {
+                              setScanPanel((p)=>({ ...p, finalizing: true }));
+                              const r = await fetch('/api/attendance?section=finalize', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ sessionId: scanPanel.session.id })});
+                              const j = await r.json().catch(()=>({}));
+                              if(!r.ok) throw new Error(j.error||`HTTP ${r.status}`);
+                              alert(`Finalized: ${j?.finalized?.presents||0} present, ${j?.finalized?.absentees||0} absent`);
+                            } catch(e){
+                              alert('Failed to finalize: '+(e.message||e));
+                            } finally {
+                              setScanPanel((p)=>({ ...p, finalizing: false }));
+                            }
+                          }}
+                        >Finalize Today</button>
+                      )}
                       <button
                         className="px-2 py-1 text-xs rounded bg-rose-600 text-white disabled:opacity-60"
                         disabled={scanPanel.starting || (selectedExecKind==='scanner' && selectedExecTask && !isWithinTaskWindow(normalizeTask(selectedExecTask)))}

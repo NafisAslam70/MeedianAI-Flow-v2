@@ -65,7 +65,49 @@ Operational Notes
 - Admin UI (Manage Team):
   - Added tri-state Teacher selector (—|Yes|No) on each user card and a summary line showing Teacher status.
   - CSV export now includes is_teacher.
-  - New “Bulk Assign MRI Role” button opens a modal to select one MRI role, pick multiple users, and optionally set their Teacher flag. Submits to the new API and refreshes the team list on success.
+- New “Bulk Assign MRI Role” button opens a modal to select one MRI role, pick multiple users, and optionally set their Teacher flag. Submits to the new API and refreshes the team list on success.
+
+7) Escalations (Managerial) — L1/L2 workflow with Timeline
+- Schema: Added enums/tables for escalations
+  - Enums: escalation_status (OPEN, ESCALATED, CLOSED), escalation_action (CREATED, ESCALATE, PROGRESS, CLOSE)
+  - Tables: escalations_matters, escalations_matter_members, escalations_steps, day_close_overrides
+  - Migrations: drizzle/0006_escalations.sql, drizzle/0007_escalations_progress.sql
+- API: app/(main)/api/managersCommon/escalations/route.js
+  - GET forYou | raisedByMe | all (admin) | detail (matter + members + steps) | counts (badges)
+  - POST create (L1) → writes CREATED step, pauses involved users’ Day Close
+  - PATCH escalate (L1→L2), progress (append PROGRESS notes), close (CLOSE step)
+    • Escalate/Close allowed for current assignee or admin
+    • Progress allowed for current assignee, creator, any involved member, or admin
+- UI: app/(main)/dashboard/managersCommon/escalations/page.jsx
+  - Tabs: New | For You | Raised by Me | All (Admin)
+  - New: dropdowns for L1/L2 assignees (managers/admins only) and multi‑select for involved members
+  - Description supports voice input (English)
+  - For You: cards with Escalate to L2 and Close
+  - Detail modal (click a card): header, involved member names, full timeline (with who/when and notes), and “Add Progress” textbox
+
+8) Day‑Close Integration — Pause and UI
+- Request guard: app/(main)/api/member/dayClose/dayCloseRequest/route.js
+  - Blocks with 403 if user is involved in any open escalation and has no active override
+  - Message: “Day Close Not Allowed … contact IS/Superintendent for an override”
+- Status banner data: app/(main)/api/member/dayClose/dayCloseStatus/route.js → returns paused, openEscalations, overrideActive
+- Close‑My‑Day modal: app/(main)/dashboard/member/closeMyDay/page.jsx
+  - On 403 (pause), show a warning modal (not a toast)
+  - Buttons: Close, Talk to IS, Talk to Superintendent
+  - Talk buttons open the in‑app ChatBox pre‑selected to the right recipient via a global ‘open‑chat’ event (wired in app/(main)/layout.jsx)
+
+9) Managerial Sheet — Escalations badge
+- components/Navbar.jsx: Escalations row shows a badge with count of open items
+  - Admins: total open; Managers: open assigned to me
+  - Uses /api/managersCommon/escalations?section=counts when the sheet is open
+
+10) Serverless hardening — COUNT queries
+- Replaced array destructuring of db.execute() results with driver‑agnostic patterns
+  - Day Close endpoints now use Drizzle select + COUNT(*)::int
+  - Prevented “(intermediate value) is not iterable” on Vercel
+
+Operational Notes (new)
+- Apply new migrations: 0006_escalations.sql and 0007_escalations_progress.sql
+- After deploy, verify Day Close status/submit endpoints and Escalations pages
 
 Status Update (Pause)
 - The above schema/API/UI changes are completed and verified locally.

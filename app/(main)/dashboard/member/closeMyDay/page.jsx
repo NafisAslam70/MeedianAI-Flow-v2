@@ -288,7 +288,7 @@ export default function CloseMyDay() {
 
       // Notify admins/managers
       const adminsAndManagersRes = await fetch("/api/member/dayClose/adminsAndManagers");
-      if (!adminsAndManagersRes.ok) throw new Error("Failed to fetch admins and team managers");
+      if (!adminsAndManagersRes.ok) throw new Error("Failed to fetch admins and IS");
 
       const { users: adminsAndManagers } = await adminsAndManagersRes.json();
       const message = `Day close request submitted by ${userName} for ${format(new Date(), "yyyy-MM-dd")}. Please review.`;
