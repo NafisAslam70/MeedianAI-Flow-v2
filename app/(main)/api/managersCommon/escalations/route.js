@@ -79,7 +79,33 @@ export async function GET(req) {
         .from(escalationsMatterMembers)
         .leftJoin(users, eq(escalationsMatterMembers.userId, users.id))
         .where(eq(escalationsMatterMembers.matterId, id));
-      const steps = await db.select().from(escalationsSteps).where(eq(escalationsSteps.matterId, id)).orderBy(escalationsSteps.createdAt);
+      const rawSteps = await db
+        .select({
+          id: escalationsSteps.id,
+          matterId: escalationsSteps.matterId,
+          level: escalationsSteps.level,
+          action: escalationsSteps.action,
+          fromUserId: escalationsSteps.fromUserId,
+          toUserId: escalationsSteps.toUserId,
+          note: escalationsSteps.note,
+          createdAt: escalationsSteps.createdAt,
+        })
+        .from(escalationsSteps)
+        .where(eq(escalationsSteps.matterId, id))
+        .orderBy(escalationsSteps.createdAt);
+      const idSet = new Set();
+      rawSteps.forEach(s => { if (s.fromUserId) idSet.add(s.fromUserId); if (s.toUserId) idSet.add(s.toUserId); });
+      let nameMap = new Map();
+      if (idSet.size > 0) {
+        const arr = Array.from(idSet);
+        const rows = await db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, arr));
+        nameMap = new Map(rows.map(r => [r.id, r.name]));
+      }
+      const steps = rawSteps.map(s => ({
+        ...s,
+        fromUserName: s.fromUserId ? (nameMap.get(s.fromUserId) || null) : null,
+        toUserName: s.toUserId ? (nameMap.get(s.toUserId) || null) : null,
+      }));
       return NextResponse.json({ matter: matterRows[0], members, steps }, { status: 200 });
     }
     if (section === "isPaused") {
@@ -192,7 +218,16 @@ export async function PATCH(req) {
       if (!id || note.length === 0) return NextResponse.json({ error: "id and note required" }, { status: 400 });
       const [m] = await db.select().from(escalationsMatters).where(eq(escalationsMatters.id, id));
       if (!m) return NextResponse.json({ error: "not found" }, { status: 404 });
-      if (!(isAdmin || m.currentAssigneeId === uid)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      // Allow progress by: current assignee, creator, any involved member, or admin
+      let allowed = isAdmin || m.currentAssigneeId === uid || m.createdById === uid;
+      if (!allowed) {
+        const involved = await db
+          .select({ id: escalationsMatterMembers.id })
+          .from(escalationsMatterMembers)
+          .where(and(eq(escalationsMatterMembers.matterId, id), eq(escalationsMatterMembers.userId, uid)));
+        if (involved && involved.length > 0) allowed = true;
+      }
+      if (!allowed) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       await db.insert(escalationsSteps).values({ matterId: id, level: m.level, action: "PROGRESS", fromUserId: uid, toUserId: m.currentAssigneeId, note });
       await db.update(escalationsMatters).set({ updatedAt: new Date() }).where(eq(escalationsMatters.id, id));
       return NextResponse.json({ ok: true }, { status: 200 });

@@ -198,7 +198,12 @@ export default function EscalationsPage() {
                   {(detail?.steps||[]).map((s,idx)=> (
                     <div key={idx} className="p-2 border rounded bg-gray-50">
                       <div className="text-xs text-gray-600">{new Date(s.createdAt).toLocaleString()}</div>
-                      <div className="text-sm"><span className="font-semibold">{s.action}</span> {s.note ? `— ${s.note}`: ''}</div>
+                      <div className="text-sm">
+                        <span className="font-semibold">{s.action}</span>
+                        {s.fromUserName ? <span> by {s.fromUserName}</span> : null}
+                        {s.toUserName && s.action !== 'CLOSE' ? <span> → {s.toUserName}</span> : null}
+                        {s.note ? <span> — {s.note}</span> : null}
+                      </div>
                     </div>
                   ))}
                   {(!detail?.steps || detail.steps.length===0) && <div className="text-sm text-gray-500">No steps yet</div>}
