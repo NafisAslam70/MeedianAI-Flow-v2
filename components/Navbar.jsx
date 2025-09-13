@@ -196,18 +196,7 @@ export default function Navbar() {
   // keyboard shortcuts (keep BEFORE any returns for stable hook order)
   useEffect(() => {
     const handler = (e) => {
-      // Execute: Ctrl/Cmd + C
-      if ((e.key === "c" || e.key === "C") && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault();
-        setIsExecuteOpen(true);
-      }
-      // Managerial: Ctrl/Cmd + M
-      if ((e.key === "m" || e.key === "M") && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault();
-        if (role === "admin" || role === "team_manager") {
-          setIsManagerialOpen(true);
-        }
-      }
+      // Removed Ctrl/Cmd shortcuts to avoid interfering with copy/paste
       // quick-enter MeRightNow if Execute modal is open and user hits Enter
       if (e.key === "Enter" && isExecuteOpen) {
         setIsExecuteOpen(false);

@@ -31,6 +31,10 @@ html, body {
   color: var(--color-foreground);
 }
 
+/* Prevent layout shift when the vertical scrollbar appears/disappears */
+html { scrollbar-gutter: stable both-edges; }
+body { scrollbar-gutter: stable; }
+
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;

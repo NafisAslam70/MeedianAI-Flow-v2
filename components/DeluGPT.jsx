@@ -19,6 +19,7 @@ export default function DeluGPT() {
   const modalRef = useRef(null);
   const [pos, setPos] = useState({ x: 16, y: 100 });
   const dragRef = useRef({ mx: 0, my: 0, x: 0, y: 0 });
+  const dragRAF = useRef(null);
   const [dragging, setDragging] = useState(false);
   const synthRef = useRef(null);
   const recogRef = useRef(null);
@@ -131,7 +132,11 @@ export default function DeluGPT() {
       const h = modalRef.current?.offsetHeight || 420;
       nx = Math.max(0, Math.min(nx, window.innerWidth - w));
       ny = Math.max(0, Math.min(ny, window.innerHeight - h));
-      setPos({ x: nx, y: ny });
+      if (dragRAF.current) return;
+      dragRAF.current = requestAnimationFrame(() => {
+        setPos({ x: nx, y: ny });
+        dragRAF.current = null;
+      });
     };
     const onUp = () => {
       setDragging(false);

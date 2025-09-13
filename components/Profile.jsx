@@ -1,9 +1,9 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Camera, Check, X, User, Calendar, MessageSquare, BookOpen, FileText, BarChart, Send, UserCircle, Phone } from "lucide-react";
+import { Camera, Check, X, User, Calendar, MessageSquare, BookOpen, FileText, BarChart, Send, UserCircle, Phone, Mic, MicOff } from "lucide-react";
 import Link from "next/link";
 import AllMessageHistory from "./AllMessageHistory";
 
@@ -112,9 +112,27 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiTone, setAiTone] = useState("friendly"); // friendly | professional | reminder | urgent | appreciation
   const [aiBusy, setAiBusy] = useState(false);
+  const aiPromptRef = useRef(null);
+  // Voice-to-text for AI Assist
+  const recogRef = useRef(null);
+  const [sttSupported, setSttSupported] = useState(false);
+  const [recognizing, setRecognizing] = useState(false);
   // Recipient filtering (modern UX)
   const [recipientQuery, setRecipientQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("all"); // all | admin | team_manager | member
+  // Recipient selection UX
+  const [selectionMode, setSelectionMode] = useState("single"); // single | multiple
+  const [showMultiPicker, setShowMultiPicker] = useState(false);
+  const selectedNames = useMemo(() => {
+    try {
+      const ids = new Set((messageData.recipientIds || []).map(Number));
+      return (users || [])
+        .filter((u) => ids.has(Number(u.id)))
+        .map((u) => String(u.name || u.id));
+    } catch {
+      return [];
+    }
+  }, [users, messageData.recipientIds]);
   // Current MRN widget removed from Profile
   // removed selectedWidget (widgets moved to right sidebar quick actions)
 
@@ -297,6 +315,61 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
 
   const handleClearSelection = () => {
     setMessageData((prev) => ({ ...prev, recipientIds: [], recipientId: "" }));
+    if (selectedTemplate) applyTemplate(selectedTemplate);
+  };
+
+  const toggleRecipient = (id) => {
+    setMessageData((prev) => {
+      const set = new Set(prev.recipientIds || []);
+      if (set.has(id)) set.delete(id); else set.add(id);
+      const list = Array.from(set);
+      return { ...prev, recipientIds: list, recipientId: list.length === 1 ? list[0] : "" };
+    });
+  };
+
+  // Init browser SpeechRecognition for AI Assist (voice-to-text)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return;
+    setSttSupported(true);
+    const recog = new SR();
+    recog.lang = "en-IN";
+    recog.interimResults = false;
+    recog.maxAlternatives = 1;
+    recog.onresult = (e) => {
+      const t = e?.results?.[0]?.[0]?.transcript || "";
+      if (t) {
+        setAiPrompt((prev) => (prev ? prev + " " : "") + t);
+        setTimeout(() => {
+          try {
+            const el = aiPromptRef.current;
+            if (el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 220) + 'px'; }
+          } catch {}
+        }, 0);
+      }
+    };
+    recog.onend = () => setRecognizing(false);
+    recog.onerror = () => setRecognizing(false);
+    recogRef.current = recog;
+    return () => {
+      try { if (recognizing) recogRef.current?.stop(); } catch {}
+    };
+  }, [recognizing]);
+
+  const resizeAiPrompt = () => {
+    try {
+      const el = aiPromptRef.current;
+      if (!el) return;
+      el.style.height = 'auto';
+      el.style.height = Math.min(el.scrollHeight, 220) + 'px';
+    } catch {}
+  };
+  useEffect(() => { resizeAiPrompt(); }, [aiPrompt]);
+
+  const handleSelectTeachersFiltered = () => {
+    const list = getFilteredUsers().filter((u) => u.isTeacher).map((u) => u.id);
+    setMessageData((prev) => ({ ...prev, recipientIds: list, recipientId: list.length === 1 ? list[0] : "" }));
     if (selectedTemplate) applyTemplate(selectedTemplate);
   };
 
@@ -1227,13 +1300,13 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.8, opacity: 0 }}
                 transition={{ duration: 0.3 }}
-                className="bg-white/85 dark:bg-slate-900/75 rounded-2xl shadow-xl w-full max-w-6xl border border-teal-200/70 dark:border-slate-700 backdrop-blur-xl flex flex-col max-h-[78vh]"
+                className="bg-white/85 dark:bg-slate-900/75 rounded-2xl shadow-xl w-full max-w-6xl border border-teal-200/70 dark:border-slate-700 backdrop-blur-xl flex flex-col max-h-[66vh]"
               >
-                <h2 className="text-base font-bold text-gray-800 dark:text-white px-5 pt-5 pb-3 flex items-center gap-2 border-b border-teal-200/40 dark:border-slate-700/60 sticky top-0 bg-white/80 dark:bg-slate-900/70 z-10">
+                <h2 className="text-base font-bold text-gray-800 dark:text-white px-5 pt-5 pb-4 flex items-center gap-2 border-b border-teal-200/40 dark:border-slate-700/60 sticky top-0 bg-white/85 dark:bg-slate-900/75 z-10">
                   <Send className="w-4 h-4 text-teal-600" />
                   Send Direct WhatsApp Message
                 </h2>
-                <div className="px-5 pb-5 overflow-y-auto flex-1">
+                <div className="px-5 pt-3 pb-5 overflow-y-auto flex-1">
                 <form onSubmit={handleMessageSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-3">
                     <div className="flex items-center gap-3 mb-3">
@@ -1264,52 +1337,107 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                     </div>
                     {messageData.recipientType === "existing" ? (
                       <div>
-                    <div className="flex items-end justify-between gap-2 mb-1">
-                      <label className="block text-xs font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-1.5">
-                        <UserCircle className="w-3.5 h-3.5 text-teal-600" />
-                        Recipients
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="text"
-                          value={recipientQuery}
-                          onChange={(e) => setRecipientQuery(e.target.value)}
-                          placeholder="Search name, role, WhatsApp"
-                          className="px-2.5 py-1.5 text-xs rounded-lg border bg-gray-50/90 dark:bg-slate-800/90 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700 focus:ring-2 focus:ring-teal-500"
-                        />
-                        <select
-                          value={roleFilter}
-                          onChange={(e) => setRoleFilter(e.target.value)}
-                          className="px-2 py-1.5 text-xs rounded-lg border bg-gray-50/90 dark:bg-slate-800/90 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700 focus:ring-2 focus:ring-teal-500"
-                        >
-                          <option value="all">All roles</option>
-                          <option value="member">Member</option>
-                          <option value="team_manager">Team Manager</option>
-                          <option value="admin">Admin</option>
-                        </select>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="text-[11px] text-gray-500 dark:text-gray-400">Selected: {(messageData.recipientIds || []).length || 0}</div>
-                      <div className="flex items-center gap-1.5">
-                        <button type="button" onClick={handleSelectAllFiltered} className="px-2 py-1 text-[11px] rounded-lg border bg-white/70 dark:bg-slate-800/70 border-gray-200 dark:border-slate-700 hover:bg-white/90">Select all filtered</button>
-                        <button type="button" onClick={handleClearSelection} className="px-2 py-1 text-[11px] rounded-lg border bg-white/70 dark:bg-slate-800/70 border-gray-200 dark:border-slate-700 hover:bg-white/90">Clear</button>
-                      </div>
-                    </div>
-                    <select
-                      multiple
-                      size={8}
-                      value={(messageData.recipientIds || []).map(String)}
-                      onChange={handleRecipientsChange}
-                      className="w-full px-2 py-2 border rounded-xl bg-white/80 dark:bg-slate-950/40 focus:ring-2 focus:ring-teal-500 text-sm text-gray-800 dark:text-gray-100 border-gray-200 dark:border-slate-700 min-h-[220px] shadow-inner"
-                      disabled={isLoading}
-                    >
-                      {getFilteredUsers().map((user) => (
-                        <option key={user.id} value={user.id}>
-                          {user.name} ({user.role})
-                        </option>
-                      ))}
-                    </select>
+                        <label className="block text-xs font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-1.5 mb-1">
+                          <UserCircle className="w-3.5 h-3.5 text-teal-600" />
+                          Recipient Selection
+                        </label>
+                        <div className="flex items-center gap-3 mb-2">
+                          <label className="inline-flex items-center gap-1 text-[11px] font-semibold text-gray-700 dark:text-gray-200">
+                            <input type="radio" name="selectionMode" value="single" checked={selectionMode === 'single'} onChange={() => { setSelectionMode('single'); setShowMultiPicker(false); }} className="h-3 w-3 text-teal-600" />
+                            Single
+                          </label>
+                          <label className="inline-flex items-center gap-1 text-[11px] font-semibold text-gray-700 dark:text-gray-200">
+                            <input type="radio" name="selectionMode" value="multiple" checked={selectionMode === 'multiple'} onChange={() => setSelectionMode('multiple')} className="h-3 w-3 text-teal-600" />
+                            Multiple
+                          </label>
+                        </div>
+
+                        {selectionMode === 'single' ? (
+                          <div>
+                            <select
+                              name="recipientId"
+                              value={messageData.recipientId}
+                              onChange={handleMessageChange}
+                              className="w-full px-3 py-2 border rounded-lg bg-white/90 dark:bg-slate-950/40 focus:ring-2 focus:ring-teal-500 text-sm text-gray-800 dark:text-gray-100 border-gray-200 dark:border-slate-700"
+                              disabled={isLoading}
+                            >
+                              <option value="">Select user…</option>
+                              {users
+                                .filter((u) => u.id !== parseInt(session?.user?.id))
+                                .map((user) => (
+                                  <option key={user.id} value={user.id}>
+                                    {user.name} ({user.role})
+                                  </option>
+                                ))}
+                            </select>
+                          </div>
+                        ) : (
+                          <div>
+                            <div className="flex items-center justify-between mb-1">
+                              <div className="text-[11px] text-gray-600 dark:text-gray-300">
+                                {(() => {
+                                  const count = (messageData.recipientIds || []).length || 0;
+                                  if (!count) return <>Selected: 0</>;
+                                  const names = selectedNames;
+                                  const preview = names.slice(0, 3).join(', ');
+                                  const extra = names.length > 3 ? ` +${names.length - 3} more` : '';
+                                  return <>Selected: {count} ({preview}{extra})</>;
+                                })()}
+                              </div>
+                              <button type="button" onClick={() => setShowMultiPicker((v) => !v)} className="px-2.5 py-1.5 text-xs rounded-lg border bg-white/80 dark:bg-slate-800/70 border-gray-200 dark:border-slate-700 hover:bg-white/95">
+                                {showMultiPicker ? 'Hide list' : 'Choose recipients'}
+                              </button>
+                            </div>
+                            {showMultiPicker && (
+                              <div className="rounded-xl border bg-white/85 dark:bg-slate-950/40 border-gray-200 dark:border-slate-700 p-2 space-y-2 shadow-inner">
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="text"
+                                    value={recipientQuery}
+                                    onChange={(e) => setRecipientQuery(e.target.value)}
+                                    placeholder="Search name, role, WhatsApp"
+                                    className="flex-1 px-2.5 py-1.5 text-xs rounded-lg border bg-gray-50/90 dark:bg-slate-900/60 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700 focus:ring-2 focus:ring-teal-500"
+                                  />
+                                  <select
+                                    value={roleFilter}
+                                    onChange={(e) => setRoleFilter(e.target.value)}
+                                    className="px-2 py-1.5 text-xs rounded-lg border bg-gray-50/90 dark:bg-slate-900/60 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700 focus:ring-2 focus:ring-teal-500"
+                                  >
+                                    <option value="all">All roles</option>
+                                    <option value="member">Member</option>
+                                    <option value="team_manager">Team Manager</option>
+                                    <option value="admin">Admin</option>
+                                  </select>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <div className="text-[11px] text-gray-500 dark:text-gray-400">Filtered: {getFilteredUsers().length}</div>
+                                  <div className="flex items-center gap-2">
+                                    <button type="button" onClick={handleSelectAllFiltered} className="px-2 py-1 text-[11px] rounded-lg border bg-white/90 dark:bg-slate-900/60 border-gray-200 dark:border-slate-700 hover:bg-white">Select all</button>
+                                    <button type="button" onClick={handleSelectTeachersFiltered} className="px-2 py-1 text-[11px] rounded-lg border bg-white/90 dark:bg-slate-900/60 border-gray-200 dark:border-slate-700 hover:bg-white">Select teachers</button>
+                                    <button type="button" onClick={handleClearSelection} className="px-2 py-1 text-[11px] rounded-lg border bg-white/90 dark:bg-slate-900/60 border-gray-200 dark:border-slate-700 hover:bg-white">Clear</button>
+                                  </div>
+                                </div>
+                                <div className="max-h-56 overflow-auto rounded-lg border border-gray-100 dark:border-slate-800 divide-y divide-gray-100/60 dark:divide-slate-800/60">
+                                  {getFilteredUsers().map((u) => {
+                                    const checked = (messageData.recipientIds || []).includes(u.id);
+                                    return (
+                                      <label key={u.id} className="flex items-center justify-between gap-2 px-2 py-1.5 text-xs cursor-pointer hover:bg-gray-50/80 dark:hover:bg-slate-900/60">
+                                        <div className="flex items-center gap-2">
+                                          <input type="checkbox" checked={checked} onChange={() => toggleRecipient(u.id)} className="h-3.5 w-3.5 text-teal-600" />
+                                          <span className="text-gray-800 dark:text-gray-100">{u.name}</span>
+                                        </div>
+                                        <span className="text-[11px] text-gray-500">{u.role}</span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                                <div className="flex justify-end">
+                                  <button type="button" onClick={() => setShowMultiPicker(false)} className="px-3 py-1.5 text-xs rounded-lg bg-teal-600 text-white hover:bg-teal-700">Done</button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <>
@@ -1351,15 +1479,34 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                     <div className="rounded-lg border border-teal-200/70 dark:border-slate-700 bg-white/70 dark:bg-slate-800/70 p-3">
                       <div className="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-2">AI Assist</div>
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-start">
-                        <div className="sm:col-span-2">
-                          <input
-                            type="text"
+                        <div className="sm:col-span-2 flex items-start gap-2">
+                          <textarea
+                            ref={aiPromptRef}
+                            rows={2}
                             value={aiPrompt}
                             onChange={(e) => setAiPrompt(e.target.value)}
-                            className="w-full px-3 py-1.5 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 focus:ring-2 focus:ring-teal-500 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
+                            onInput={resizeAiPrompt}
+                            className="flex-1 px-3 py-1.5 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 focus:ring-2 focus:ring-teal-500 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700 resize-none leading-5"
                             placeholder="Describe intent (e.g., gentle reminder about attendance form)"
                             disabled={aiBusy}
+                            style={{ overflow: 'hidden' }}
                           />
+                          {sttSupported && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                try {
+                                  if (!recognizing) { recogRef.current?.start(); setRecognizing(true); }
+                                  else { recogRef.current?.stop(); }
+                                } catch {}
+                              }}
+                              title={recognizing ? "Stop recording" : "Speak"}
+                              className={`px-2 py-2 rounded-xl ${recognizing ? "bg-rose-600 hover:bg-rose-700" : "bg-white/10 hover:bg-white/20 border border-gray-200 dark:border-slate-700"}`}
+                              disabled={aiBusy}
+                            >
+                              {recognizing ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                            </button>
+                          )}
                         </div>
                         <div>
                           <select

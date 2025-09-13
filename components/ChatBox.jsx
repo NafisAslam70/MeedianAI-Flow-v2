@@ -94,6 +94,7 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
   // position + drag
   const [pos, setPos] = useState({ x: 16, y: -16 });
   const [dragging, setDragging] = useState(false);
+  const dragRAF = useRef(null);
   const dragStart = useRef({ x: 0, y: 0 });
 
   const router = useRouter();
@@ -299,26 +300,30 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
   }, [selectedRecipient, messageContent, userDetails?.id, scrollBottom, playSend]);
 
   const mouseDown = useCallback((e) => {
-    // Left-click only; allow dragging from almost anywhere in the dock
+    // Start dragging only from the explicit handle to avoid confusion with clicks
     if (e.button !== 0) return;
-    const interactive = e.target.closest(
-      'input, textarea, select, button, a, [role="button"], .no-drag'
-    );
-    // Keep chat panel text fields/clicks intact
-    if (interactive && !e.target.classList.contains('drag-handle')) return;
     setDragging(true);
     dragStart.current = { x: e.clientX - pos.x, y: e.clientY - pos.y };
   }, [pos]);
 
   const mouseMove = useCallback((e) => {
-    if (dragging) {
-      const newX = Math.max(0, Math.min(e.clientX - dragStart.current.x, window.innerWidth - 380));
-      const newY = Math.max(-window.innerHeight + 72, Math.min(e.clientY - dragStart.current.y, -40));
+    if (!dragging) return;
+    const newX = Math.max(0, Math.min(e.clientX - dragStart.current.x, window.innerWidth - 380));
+    const newY = Math.max(-window.innerHeight + 72, Math.min(e.clientY - dragStart.current.y, -40));
+    if (dragRAF.current) return; // throttle to next frame
+    dragRAF.current = requestAnimationFrame(() => {
       setPos({ x: newX, y: newY });
-    }
+      dragRAF.current = null;
+    });
   }, [dragging]);
 
-  const mouseUp = useCallback(() => setDragging(false), []);
+  const mouseUp = useCallback(() => {
+    setDragging(false);
+    if (dragRAF.current) {
+      cancelAnimationFrame(dragRAF.current);
+      dragRAF.current = null;
+    }
+  }, []);
 
   const dispatchOpenTask = useCallback((taskId, sprintId) => {
     window.dispatchEvent(
@@ -545,8 +550,7 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.3 }}
         className="fixed z-50 chatbox-container"
-        style={{ right: `${pos.x}px`, bottom: `${-pos.y + 40}px`, cursor: dragging ? 'grabbing' : 'grab' }}
-        onMouseDown={mouseDown}
+        style={{ right: `${pos.x}px`, bottom: `${-pos.y + 40}px`, willChange: 'right, bottom' }}
       >
         {error && (
           <motion.p
@@ -560,6 +564,24 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
         )}
 
         <div className="flex gap-2 items-center flex-wrap">
+          {/* Drag handle (explicit, avoids conflict with buttons) */}
+          <div
+            className={`drag-handle select-none inline-flex items-center justify-center w-9 h-9 rounded-full border ${dragging ? 'bg-gray-200 border-gray-300' : 'bg-white border-gray-200 hover:bg-gray-50'} shadow cursor-${dragging ? 'grabbing' : 'grab'}`}
+            title="Drag dock"
+            aria-label="Drag dock"
+            onMouseDown={mouseDown}
+            role="button"
+            tabIndex={0}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-500">
+              <circle cx="9" cy="7" r="1"></circle>
+              <circle cx="15" cy="7" r="1"></circle>
+              <circle cx="9" cy="12" r="1"></circle>
+              <circle cx="15" cy="12" r="1"></circle>
+              <circle cx="9" cy="17" r="1"></circle>
+              <circle cx="15" cy="17" r="1"></circle>
+            </svg>
+          </div>
           {/* Dock toggle (always visible) */}
           <motion.button
             whileTap={{ scale: 0.95 }}
