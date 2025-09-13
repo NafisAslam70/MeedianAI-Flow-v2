@@ -30,6 +30,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
   const [messageData, setMessageData] = useState({
     recipientType: "existing",
     recipientId: "",
+    recipientIds: [],
     customName: "",
     customWhatsappNumber: "",
     subject: "",
@@ -68,7 +69,10 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
   const getRecipientName = () => {
     try {
       if (messageData.recipientType === "existing") {
-        const u = users.find((x) => x.id === parseInt(messageData.recipientId));
+        const ids = Array.isArray(messageData.recipientIds) ? messageData.recipientIds : [];
+        if (ids.length > 1) return "there";
+        const id = ids[0] || messageData.recipientId;
+        const u = users.find((x) => x.id === parseInt(id));
         return u?.name || "there";
       }
       return messageData.customName?.trim() || "there";
@@ -104,6 +108,10 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
   const [sentMessages, setSentMessages] = useState([]);
   const [users, setUsers] = useState([]);
   const [immediateSupervisor, setImmediateSupervisor] = useState(null);
+  // AI assist state for Direct Message modal
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiTone, setAiTone] = useState("friendly"); // friendly | professional | reminder | urgent | appreciation
+  const [aiBusy, setAiBusy] = useState(false);
   // Current MRN widget removed from Profile
   // removed selectedWidget (widgets moved to right sidebar quick actions)
 
@@ -247,6 +255,19 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
     if (name === "recipientId" || name === "customName" || name === "contact") {
       if (selectedTemplate) applyTemplate(selectedTemplate);
     }
+  };
+
+  // Multi-select change handler for recipients (existing users)
+  const handleRecipientsChange = (e) => {
+    const ids = Array.from(e.target.selectedOptions || [])
+      .map((o) => parseInt(o.value))
+      .filter((v) => !Number.isNaN(v));
+    setMessageData((prev) => ({
+      ...prev,
+      recipientIds: ids,
+      recipientId: ids.length === 1 ? ids[0] : "",
+    }));
+    if (selectedTemplate) applyTemplate(selectedTemplate);
   };
 
   const handleImageChange = (e) => {
@@ -432,13 +453,16 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
     setError("");
     setSuccess("");
     
-    const { recipientType, recipientId, customName, customWhatsappNumber, subject, message, note, contact } = messageData;
+    const { recipientType, recipientId, recipientIds, customName, customWhatsappNumber, subject, message, note, contact } = messageData;
 
     // Input validation
-    if (recipientType === "existing" && (isNaN(parseInt(recipientId)) || !subject.trim() || !message.trim() || !contact.trim())) {
-      setError("Please fill in all required fields for existing user");
-      setTimeout(() => setError(""), 3000);
-      return;
+    if (recipientType === "existing") {
+      const ids = Array.isArray(recipientIds) && recipientIds.length ? recipientIds : (!isNaN(parseInt(recipientId)) ? [parseInt(recipientId)] : []);
+      if (!ids.length || !subject.trim() || !message.trim() || !contact.trim()) {
+        setError("Please select at least one recipient and fill all fields");
+        setTimeout(() => setError(""), 3000);
+        return;
+      }
     }
     if (recipientType === "custom" && (!customName.trim() || !customWhatsappNumber.trim() || !subject.trim() || !message.trim() || !contact.trim())) {
       setError("Please fill in all required fields for custom recipient");
@@ -454,8 +478,13 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
     // Get recipient name for compiled message
     let recipientName = "";
     if (recipientType === "existing") {
-      const recipient = users.find((u) => u.id === parseInt(recipientId));
-      recipientName = recipient?.name || "User";
+      const ids = Array.isArray(recipientIds) && recipientIds.length ? recipientIds : (recipientId ? [parseInt(recipientId)] : []);
+      if (ids.length > 1) {
+        recipientName = "there";
+      } else {
+        const recipient = users.find((u) => u.id === parseInt(ids[0]));
+        recipientName = recipient?.name || "User";
+      }
     } else {
       recipientName = customName.trim();
     }
@@ -476,29 +505,59 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
     setSuccess("");
 
     try {
-      const { recipientType, recipientId, customName, customWhatsappNumber, subject, message, note, contact } = messageData;
-      const response = await fetch("/api/managersCommon/direct-message", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          recipientId: recipientType === "existing" ? parseInt(recipientId) : undefined,
-          customName: recipientType === "custom" ? customName : undefined,
-          customWhatsappNumber: recipientType === "custom" ? customWhatsappNumber : undefined,
-          subject,
-          message,
-          note: note ?? "",
-          contact,
-          includeFooter,
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to send message");
+      const { recipientType, recipientId, recipientIds, customName, customWhatsappNumber, subject, message, note, contact } = messageData;
+      if (recipientType === "existing") {
+        const ids = Array.isArray(recipientIds) && recipientIds.length ? recipientIds : (recipientId ? [parseInt(recipientId)] : []);
+        const failures = [];
+        for (const id of ids) {
+          try {
+            const res = await fetch("/api/managersCommon/direct-message", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                recipientId: id,
+                subject,
+                message,
+                note: note ?? "",
+                contact,
+                includeFooter,
+              }),
+            });
+            const j = await res.json();
+            if (!res.ok) throw new Error(j?.error || `HTTP ${res.status}`);
+          } catch (e) {
+            failures.push({ id, error: e.message || String(e) });
+          }
+        }
+        if (failures.length) {
+          setError(`${failures.length} of ${ids.length} failed. First error: ${failures[0].error}`);
+        } else {
+          setSuccess(`Message sent to ${ids.length} recipient${ids.length > 1 ? 's' : ''}!`);
+        }
+      } else {
+        const response = await fetch("/api/managersCommon/direct-message", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            customName,
+            customWhatsappNumber,
+            subject,
+            message,
+            note: note ?? "",
+            contact,
+            includeFooter,
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || "Failed to send message");
+        }
+        setSuccess("Message sent successfully!");
       }
-      setSuccess("Message sent successfully!");
       setMessageData({
         recipientType: "existing",
         recipientId: "",
+        recipientIds: [],
         customName: "",
         customWhatsappNumber: "",
         subject: "",
@@ -521,6 +580,99 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
       setTimeout(() => setError(""), 3000);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Generate subject/message draft with AI and prefill form
+  const generateAIDraft = async () => {
+    if (aiBusy) return;
+    try {
+      setAiBusy(true);
+      setError("");
+
+      // Figure recipient meta for better prompts
+      let recipientName = "there";
+      let recipientRole = "";
+      let toNumber = "";
+      if (messageData.recipientType === "existing") {
+        const ids = Array.isArray(messageData.recipientIds) && messageData.recipientIds.length
+          ? messageData.recipientIds
+          : (messageData.recipientId ? [parseInt(messageData.recipientId)] : []);
+        if (ids.length > 1) {
+          recipientName = "multiple recipients";
+          recipientRole = "mixed";
+          toNumber = "";
+        } else {
+          const u = users.find((x) => x.id === parseInt(ids[0]));
+          recipientName = u?.name || recipientName;
+          recipientRole = u?.role || recipientRole;
+          toNumber = u?.whatsapp_number || "";
+        }
+      } else {
+        recipientName = messageData.customName?.trim() || recipientName;
+        toNumber = messageData.customWhatsappNumber?.trim() || "";
+      }
+
+      const senderName = session?.user?.name || "Admin";
+      const contact = (messageData.contact || "").trim();
+      const note = (messageData.note || "").trim();
+
+      // Build a strong instruction so the API returns JSON we can parse
+      const instruction = [
+        `You are drafting a concise WhatsApp message in a ${aiTone} tone.`,
+        `Audience: ${recipientName}${recipientRole ? ` (${recipientRole})` : ""}.`,
+        toNumber ? `Recipient WhatsApp: ${toNumber}.` : "",
+        `Sender: ${senderName}.`,
+        contact ? `Support contact: ${contact}.` : "",
+        note ? `Include this note if helpful: "${note}".` : "",
+        aiPrompt ? `Intent/context: ${aiPrompt}` : "",
+        "Return ONLY compact JSON with keys subject and message, no explanations.",
+        "Message should be 1–3 short sentences (max ~80 words), neutral punctuation, no emojis.",
+        "Do not include salutations like 'Hi {name},' — we add that later.",
+      ].filter(Boolean).join("\n");
+
+      const res = await fetch("/api/ai/assist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: [
+            { role: "system", content: "You write crisp internal messages for school ops." },
+            { role: "user", content: instruction },
+          ],
+          model: "gpt-4o-mini",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "AI request failed");
+
+      let reply = String(data.reply || "").trim();
+      // Try to extract JSON from code fences if present
+      const fence = reply.match(/```json\s*([\s\S]*?)\s*```/i) || reply.match(/```\s*([\s\S]*?)\s*```/i);
+      if (fence) reply = fence[1].trim();
+      let parsed;
+      try { parsed = JSON.parse(reply); } catch (_) {
+        // Fallback: naive extract lines like Subject: ...\nMessage: ...
+        const subj = (reply.match(/subject\s*[:\-]\s*(.+)/i) || [null, ""])[1].trim();
+        const msg = (reply.match(/message\s*[:\-]\s*([\s\S]*)/i) || [null, ""])[1].trim();
+        parsed = { subject: subj || messageData.subject, message: msg || messageData.message };
+      }
+
+      const nextSubject = (parsed?.subject || "").replace(/^"|"$/g, "").slice(0, 140);
+      const nextMessage = (parsed?.message || "").replace(/^"|"$/g, "").slice(0, 800);
+      if (!nextSubject && !nextMessage) throw new Error("AI did not return a usable draft");
+
+      setMessageData((prev) => ({
+        ...prev,
+        subject: nextSubject || prev.subject,
+        message: nextMessage || prev.message,
+      }));
+      setSuccess("AI draft applied. Review and adjust if needed.");
+      setTimeout(() => setSuccess(""), 2000);
+    } catch (e) {
+      setError(e.message || "Failed to generate draft");
+      setTimeout(() => setError(""), 3000);
+    } finally {
+      setAiBusy(false);
     }
   };
 
@@ -1045,12 +1197,13 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.8, opacity: 0 }}
                 transition={{ duration: 0.3 }}
-                className="bg-white/80 dark:bg-slate-900/70 rounded-xl shadow-md p-5 w-full max-w-3xl border border-teal-200/70 dark:border-slate-700 backdrop-blur-xl"
+                className="bg-white/80 dark:bg-slate-900/70 rounded-xl shadow-md w-full max-w-6xl border border-teal-200/70 dark:border-slate-700 backdrop-blur-xl flex flex-col max-h-[82vh]"
               >
-                <h2 className="text-base font-bold text-gray-800 dark:text-white mb-3 flex items-center gap-2">
+                <h2 className="text-base font-bold text-gray-800 dark:text-white px-5 pt-5 pb-3 flex items-center gap-2 border-b border-teal-200/40 dark:border-slate-700/60 sticky top-0 bg-white/80 dark:bg-slate-900/70 z-10">
                   <Send className="w-4 h-4 text-teal-600" />
                   Send Direct WhatsApp Message
                 </h2>
+                <div className="px-5 pb-5 overflow-y-auto flex-1">
                 <form onSubmit={handleMessageSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-3">
                     <div className="flex items-center gap-3 mb-3">
@@ -1081,27 +1234,29 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                     </div>
                     {messageData.recipientType === "existing" ? (
                       <div>
-                        <label className="block text-xs font-medium text-gray-700 dark:text-gray-200 flex items-center gap-1.5">
-                          <UserCircle className="w-3.5 h-3.5 text-teal-600" />
-                          Recipient
-                        </label>
-                        <select
-                          name="recipientId"
-                          value={messageData.recipientId}
-                          onChange={handleMessageChange}
-                          className="w-full px-3 py-1.5 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 focus:ring-2 focus:ring-teal-500 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
-                          required
-                          disabled={isLoading}
-                        >
-                          <option value="">Select User</option>
-                          {users
-                            .filter((u) => u.id !== parseInt(session?.user?.id))
-                            .map((user) => (
-                              <option key={user.id} value={user.id}>
-                                {user.name} ({user.role})
-                              </option>
-                            ))}
-                        </select>
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-200 flex items-center gap-1.5">
+                      <UserCircle className="w-3.5 h-3.5 text-teal-600" />
+                      Recipients (select multiple)
+                    </label>
+                    <select
+                      multiple
+                      size={8}
+                      value={(messageData.recipientIds || []).map(String)}
+                      onChange={handleRecipientsChange}
+                      className="w-full px-2 py-2 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 focus:ring-2 focus:ring-teal-500 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700 min-h-[180px]"
+                      disabled={isLoading}
+                    >
+                      {users
+                        .filter((u) => u.id !== parseInt(session?.user?.id))
+                        .map((user) => (
+                          <option key={user.id} value={user.id}>
+                            {user.name} ({user.role})
+                          </option>
+                        ))}
+                    </select>
+                    <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                      Selected: {(messageData.recipientIds || []).length || 0}
+                    </div>
                       </div>
                     ) : (
                       <>
@@ -1139,6 +1294,46 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                         </div>
                       </>
                     )}
+                    {/* AI Assist panel — moved below recipients */}
+                    <div className="rounded-lg border border-teal-200/70 dark:border-slate-700 bg-white/70 dark:bg-slate-800/70 p-3">
+                      <div className="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-2">AI Assist</div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-start">
+                        <div className="sm:col-span-2">
+                          <input
+                            type="text"
+                            value={aiPrompt}
+                            onChange={(e) => setAiPrompt(e.target.value)}
+                            className="w-full px-3 py-1.5 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 focus:ring-2 focus:ring-teal-500 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
+                            placeholder="Describe intent (e.g., gentle reminder about attendance form)"
+                            disabled={aiBusy}
+                          />
+                        </div>
+                        <div>
+                          <select
+                            className="w-full px-2 py-1.5 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 focus:ring-2 focus:ring-teal-500 text-xs text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
+                            value={aiTone}
+                            onChange={(e) => setAiTone(e.target.value)}
+                            disabled={aiBusy}
+                          >
+                            <option value="friendly">Friendly</option>
+                            <option value="professional">Professional</option>
+                            <option value="reminder">Reminder</option>
+                            <option value="urgent">Urgent</option>
+                            <option value="appreciation">Appreciation</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div className="mt-2 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={generateAIDraft}
+                          disabled={aiBusy}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold shadow-md border ${aiBusy ? "bg-gray-300 text-gray-600 border-gray-300" : "bg-teal-600 text-white border-teal-600 hover:bg-teal-700"}`}
+                        >
+                          {aiBusy ? "Generating…" : "Generate with AI"}
+                        </button>
+                      </div>
+                    </div>
                   </div>
                   <div className="space-y-3">
                     <div>
@@ -1271,6 +1466,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                     </motion.button>
                   </div>
                 </form>
+                </div>
               </motion.div>
             </motion.div>
           )}
