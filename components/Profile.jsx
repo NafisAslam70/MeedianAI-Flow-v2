@@ -112,6 +112,9 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiTone, setAiTone] = useState("friendly"); // friendly | professional | reminder | urgent | appreciation
   const [aiBusy, setAiBusy] = useState(false);
+  // Recipient filtering (modern UX)
+  const [recipientQuery, setRecipientQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState("all"); // all | admin | team_manager | member
   // Current MRN widget removed from Profile
   // removed selectedWidget (widgets moved to right sidebar quick actions)
 
@@ -267,6 +270,33 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
       recipientIds: ids,
       recipientId: ids.length === 1 ? ids[0] : "",
     }));
+    if (selectedTemplate) applyTemplate(selectedTemplate);
+  };
+
+  // Filter helpers for recipients
+  const getFilteredUsers = () => {
+    const meId = parseInt(session?.user?.id);
+    const q = recipientQuery.trim().toLowerCase();
+    return (users || [])
+      .filter((u) => u.id !== meId)
+      .filter((u) => roleFilter === "all" ? true : (String(u.role) === roleFilter))
+      .filter((u) =>
+        !q
+          ? true
+          : String(u.name || "").toLowerCase().includes(q) ||
+            String(u.role || "").toLowerCase().includes(q) ||
+            String(u.whatsapp_number || "").toLowerCase().includes(q)
+      );
+  };
+
+  const handleSelectAllFiltered = () => {
+    const list = getFilteredUsers().map((u) => u.id);
+    setMessageData((prev) => ({ ...prev, recipientIds: list, recipientId: list.length === 1 ? list[0] : "" }));
+    if (selectedTemplate) applyTemplate(selectedTemplate);
+  };
+
+  const handleClearSelection = () => {
+    setMessageData((prev) => ({ ...prev, recipientIds: [], recipientId: "" }));
     if (selectedTemplate) applyTemplate(selectedTemplate);
   };
 
@@ -1197,7 +1227,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.8, opacity: 0 }}
                 transition={{ duration: 0.3 }}
-                className="bg-white/80 dark:bg-slate-900/70 rounded-xl shadow-md w-full max-w-6xl border border-teal-200/70 dark:border-slate-700 backdrop-blur-xl flex flex-col max-h-[82vh]"
+                className="bg-white/85 dark:bg-slate-900/75 rounded-2xl shadow-xl w-full max-w-6xl border border-teal-200/70 dark:border-slate-700 backdrop-blur-xl flex flex-col max-h-[78vh]"
               >
                 <h2 className="text-base font-bold text-gray-800 dark:text-white px-5 pt-5 pb-3 flex items-center gap-2 border-b border-teal-200/40 dark:border-slate-700/60 sticky top-0 bg-white/80 dark:bg-slate-900/70 z-10">
                   <Send className="w-4 h-4 text-teal-600" />
@@ -1234,29 +1264,52 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                     </div>
                     {messageData.recipientType === "existing" ? (
                       <div>
-                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-200 flex items-center gap-1.5">
-                      <UserCircle className="w-3.5 h-3.5 text-teal-600" />
-                      Recipients (select multiple)
-                    </label>
+                    <div className="flex items-end justify-between gap-2 mb-1">
+                      <label className="block text-xs font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-1.5">
+                        <UserCircle className="w-3.5 h-3.5 text-teal-600" />
+                        Recipients
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={recipientQuery}
+                          onChange={(e) => setRecipientQuery(e.target.value)}
+                          placeholder="Search name, role, WhatsApp"
+                          className="px-2.5 py-1.5 text-xs rounded-lg border bg-gray-50/90 dark:bg-slate-800/90 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700 focus:ring-2 focus:ring-teal-500"
+                        />
+                        <select
+                          value={roleFilter}
+                          onChange={(e) => setRoleFilter(e.target.value)}
+                          className="px-2 py-1.5 text-xs rounded-lg border bg-gray-50/90 dark:bg-slate-800/90 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700 focus:ring-2 focus:ring-teal-500"
+                        >
+                          <option value="all">All roles</option>
+                          <option value="member">Member</option>
+                          <option value="team_manager">Team Manager</option>
+                          <option value="admin">Admin</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="text-[11px] text-gray-500 dark:text-gray-400">Selected: {(messageData.recipientIds || []).length || 0}</div>
+                      <div className="flex items-center gap-1.5">
+                        <button type="button" onClick={handleSelectAllFiltered} className="px-2 py-1 text-[11px] rounded-lg border bg-white/70 dark:bg-slate-800/70 border-gray-200 dark:border-slate-700 hover:bg-white/90">Select all filtered</button>
+                        <button type="button" onClick={handleClearSelection} className="px-2 py-1 text-[11px] rounded-lg border bg-white/70 dark:bg-slate-800/70 border-gray-200 dark:border-slate-700 hover:bg-white/90">Clear</button>
+                      </div>
+                    </div>
                     <select
                       multiple
                       size={8}
                       value={(messageData.recipientIds || []).map(String)}
                       onChange={handleRecipientsChange}
-                      className="w-full px-2 py-2 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 focus:ring-2 focus:ring-teal-500 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700 min-h-[180px]"
+                      className="w-full px-2 py-2 border rounded-xl bg-white/80 dark:bg-slate-950/40 focus:ring-2 focus:ring-teal-500 text-sm text-gray-800 dark:text-gray-100 border-gray-200 dark:border-slate-700 min-h-[220px] shadow-inner"
                       disabled={isLoading}
                     >
-                      {users
-                        .filter((u) => u.id !== parseInt(session?.user?.id))
-                        .map((user) => (
-                          <option key={user.id} value={user.id}>
-                            {user.name} ({user.role})
-                          </option>
-                        ))}
+                      {getFilteredUsers().map((user) => (
+                        <option key={user.id} value={user.id}>
+                          {user.name} ({user.role})
+                        </option>
+                      ))}
                     </select>
-                    <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
-                      Selected: {(messageData.recipientIds || []).length || 0}
-                    </div>
                       </div>
                     ) : (
                       <>
