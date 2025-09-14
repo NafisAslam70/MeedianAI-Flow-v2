@@ -325,6 +325,33 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
     }
   }, []);
 
+  const markAllRead = useCallback(async () => {
+    const myId = Number(userDetails.id);
+    const toMark = messages.filter((m) => m.recipientId === myId && m.status === "sent");
+    if (toMark.length === 0) {
+      setHasUnread(false);
+      setUnreadCounts({});
+      stopSound();
+      return;
+    }
+    // Optimistic UI updates
+    setMessages((prev) => prev.map((m) => (m.recipientId === myId && m.status === 'sent' ? { ...m, status: 'read' } : m)));
+    setUnreadCounts({});
+    setHasUnread(false);
+    stopSound();
+    try {
+      await Promise.all(
+        toMark.map((m) =>
+          fetch("/api/others/chat", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ messageId: m.id, status: "read" }),
+          })
+        )
+      );
+    } catch {}
+  }, [messages, userDetails?.id, stopSound]);
+
   const dispatchOpenTask = useCallback((taskId, sprintId) => {
     window.dispatchEvent(
       new CustomEvent("member-open-task", {
@@ -869,13 +896,22 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
             >
               <div className="flex justify-between items-center bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-3 py-2 sm:px-4 sm:py-3 rounded-t-2xl">
                 <h3 className="text-sm sm:text-base font-semibold">Chat History</h3>
-                <button
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={markAllRead}
+                    className="text-[11px] sm:text-xs px-2.5 py-1 rounded-md bg-white/15 hover:bg-white/25 border border-white/25"
+                    title="Mark all as read"
+                  >
+                    Read all
+                  </button>
+                  <button
                   onClick={() => setShowHistory(false)}
                   className="text-white/90 hover:text-white text-lg"
                   aria-label="Close Chat History"
                 >
                   ✕
                 </button>
+                </div>
               </div>
 
               <div className="p-2 sm:p-3 space-y-2">

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { users, userMriRoles, scannerSessions, attendanceEvents, finalDailyAttendance, finalDailyAbsentees } from "@/lib/schema";
+import { users, userMriRoles, scannerSessions, attendanceEvents, finalDailyAttendance, finalDailyAbsentees, userOpenCloseTimes } from "@/lib/schema";
 import { and, eq, inArray } from "drizzle-orm";
 import crypto from "crypto";
 
@@ -156,6 +156,23 @@ export async function POST(req) {
         await db.insert(attendanceEvents).values({ sessionId: Number(sPayload.sid), userId: Number(uPayload.uid), clientIp: clientIp || null, wifiSsid: wifiSsid || null, deviceFp: deviceFp || null });
       } catch {
         // duplicate → ok
+      }
+
+      // Also persist 'Day Opened' for this user/date if not already set
+      try {
+        const today = new Date();
+        const dateOnly = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
+        const [existing] = await db
+          .select({ id: userOpenCloseTimes.id })
+          .from(userOpenCloseTimes)
+          .where(and(eq(userOpenCloseTimes.userId, Number(uPayload.uid)), eq(userOpenCloseTimes.createdAt, dateOnly)));
+        const hhmmss = new Date().toTimeString().split(" ")[0];
+        if (!existing) {
+          await db.insert(userOpenCloseTimes).values({ userId: Number(uPayload.uid), dayOpenedAt: hhmmss, createdAt: dateOnly });
+        }
+        // if exists, we assume it's already marked; avoid overriding
+      } catch (_) {
+        // best-effort; do not fail ingest
       }
       return NextResponse.json({ ok: true });
     }
