@@ -1645,7 +1645,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] sm:text-xs opacity-95">
                         <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white/15 border border-white/20">
                           <Clock className="w-3.5 h-3.5" />
-                          Opened: {(openedAtOverride || openedAtMs) ? fmtHM(openedAtOverride || openedAtMs) : "Not opened yet"}
+                          Opened: {effectiveOpenedAt ? fmtHM(effectiveOpenedAt) : "Not opened yet"}
                         </span>
                         <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white/15 border border-white/20">
                           Now: {currentBlockGD || "—"}
@@ -1799,7 +1799,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <InfoTile label="Full Window" value={todayWindow ? `${fromMinutes(todayWindow.openMin)}–${fromMinutes(todayWindow.closeMin)}` : "—"} delay={0} />
-                  <InfoTile label="Day Opened" value={openedAtMs ? fmtHM(openedAtMs) : "Not opened yet"} delay={0.05} />
+                  <InfoTile label="Day Opened" value={effectiveOpenedAt ? fmtHM(effectiveOpenedAt) : "Not opened yet"} delay={0.05} />
                   <InfoTile label="Day Closed" value={dayPack?.shutdownAt ? fmtHM(dayPack.shutdownAt) : "Not closed yet"} delay={0.1} />
                 </div>
               </TiltCard>
