@@ -1414,7 +1414,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
 
       <div
         /* DO NOT CHANGE base size/padding */
-        className="w-full h-full bg-white/90 dark:bg-slate-900/80 backdrop-blur-xl rounded-3xl shadow-xl p-4 sm:p-6 flex flex-col relative overflow-y-auto border border-white/40 dark:border-white/10 min-w-0"
+        className="w-full h-full bg-white/90 dark:bg-slate-900/80 backdrop-blur-xl rounded-3xl shadow-xl p-4 sm:p-6 flex flex-col relative overflow-y-auto border-0 bg-clip-padding min-w-0"
       >
         {/* Top status/error/success toasts */}
         <AnimatePresence>

@@ -1,0 +1,61 @@
+Taxonomy Codex Chat 13 — Summary of Changes
+
+1) Direct Message (Profile) — AI + Multi-Recipient + Landscape UI
+- Added AI Assist to draft subject/message using existing OpenAI endpoint `/api/ai/assist` with tone selector and intent prompt.
+- Added voice-to-text for AI Assist (Web Speech API). Mic button inserts dictated text into the intent field.
+- Converted modal to a wide, landscape panel with sticky header and internal scroll; tuned height (66vh) and padding to avoid overlap under the title.
+- Recipient selection redesign:
+  • Single vs Multiple mode toggle. Single uses a clean dropdown; Multiple opens a collapsible picker.
+  • Multiple picker includes search, role filter (All/Member/Team Manager/Admin), Select all filtered, Select teachers, and Clear.
+  • Shows live “Selected: N (Name1, Name2, +X more)” summary.
+  • Sends to many recipients sequentially with clear error reporting; preview uses neutral “Hi there” for multi.
+- Moved AI Assist panel directly below recipient selection for better flow.
+
+Files: components/Profile.jsx
+
+2) Navbar — Remove conflicting shortcuts
+- Removed Ctrl/Cmd + C and Ctrl/Cmd + M keyboard shortcuts to avoid intercepting copy/paste and other system combos.
+
+Files: components/Navbar.jsx
+
+3) ChatBox Dock — Drag smoothness and clarity
+- Smoothed drag with requestAnimationFrame throttling and `will-change` hint.
+- Introduced an explicit drag handle (six-dot grip) so drag vs open actions are not confusing.
+- Added “Read all” button in Chat History to mark every incoming unread as read (optimistic UI + PUT per message) and stop the sound.
+
+Files: components/ChatBox.jsx, components/DeluGPT.jsx (minor drag smoothness for the floating assistant)
+
+4) Global scroll jitter fix
+- Applied `scrollbar-gutter: stable` on html/body to prevent layout jump when vertical scrollbar appears/disappears.
+
+Files: app/globals.css
+
+5) Day Opened — Single Source of Truth + Persist on Scan
+- Dashboard now reads “Day Opened” strictly from `/api/member/mri-status` (DB), no longer from DeepCalendar.
+- On successful attendance scan ingest, server now persists a Day Open row for the member and date if not already set.
+- UI updated to use `openedAtMs` across banner, mobile chip, header inline, and tiles.
+
+Files: 
+- components/SharedDashboard.jsx (SWR for mri-status, UI switched to openedAtMs)
+- app/(main)/api/attendance/route.js (ingest writes `user_open_close_times` if missing)
+
+6) Small fixes and helpers
+- Fixed missing React `useMemo` import in Profile and added `selectedNames` memo for summary.
+- “Select teachers” bulk action uses `users.isTeacher` from schema.
+
+Operational Notes
+- No schema migrations required for these changes (uses existing tables/columns: `users.is_teacher`, `user_open_close_times`).
+- Verify that `/api/others/chat` supports PUT to mark message status; the “Read all” feature calls it per message.
+- Voice-to-text requires browser SpeechRecognition (Chrome/Edge); the mic hides in unsupported browsers.
+
+Touched Files (high level)
+- components/Profile.jsx — DM modal AI + multi-select + layout + STT
+- components/Navbar.jsx — removed Ctrl/Cmd shortcuts
+- components/ChatBox.jsx — explicit drag handle, RAF drag, “Read all”
+- components/DeluGPT.jsx — smoother drag
+- app/globals.css — scrollbar-gutter stable
+- components/SharedDashboard.jsx — “Day Opened” via mri-status
+- app/(main)/api/attendance/route.js — ingest persists Day Open
+
+End of Chat 13
+
