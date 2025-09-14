@@ -172,6 +172,17 @@ const useDashboardData = (session, selectedDate, role, router, viewUserId = null
     fetcher,
     { refreshInterval: 10000, revalidateOnFocus: false }
   );
+  // Day open/close status (single source of truth)
+  const { data: mriStatusData } = useSWR(
+    session?.user ? `/api/member/mri-status?date=${selectedDate}` : null,
+    fetcher,
+    { refreshInterval: 15000, revalidateOnFocus: false }
+  );
+  const openedAtMs = useMemo(() => {
+    const t = mriStatusData?.dayOpenedAt;
+    if (!t) return null;
+    try { return new Date(`${selectedDate}T${t}`).getTime(); } catch { return null; }
+  }, [mriStatusData?.dayOpenedAt, selectedDate]);
 
   // DeepCalendar token
   useEffect(() => {
@@ -325,6 +336,20 @@ const useDashboardData = (session, selectedDate, role, router, viewUserId = null
       }
       if (goalsRes) setGoals(Array.isArray(goalsRes) ? goalsRes : goalsRes.goals ?? []);
       if (dayRes) setDayPack(dayRes.pack ?? null);
+      // Fallback hydration: if DC pack lacks openedAt, use our DB (mri-status)
+      try {
+        const openedMissing = !(dayRes?.pack && dayRes.pack.openedAt);
+        if (openedMissing && session?.user?.role === 'member') {
+          const ms = await fetch(`/api/member/mri-status?date=${encodeURIComponent(date)}`);
+          if (ms.ok) {
+            const mj = await ms.json();
+            if (mj?.dayOpenedAt) {
+              const opened = new Date(`${date}T${mj.dayOpenedAt}`).getTime();
+              setDayPack((p) => p ? ({ ...p, openedAt: opened }) : ({ openedAt: opened }));
+            }
+          }
+        }
+      } catch {}
       setDcLoading(false);
     };
 
@@ -343,6 +368,7 @@ const useDashboardData = (session, selectedDate, role, router, viewUserId = null
     mriData,
     mriError,
     currentMrn: currentMrnData?.current || null,
+    openedAtMs,
     openCloseTimes,
     canCloseDay,
     isLoadingAssignedTasks,
@@ -837,6 +863,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
     setDayPack,
     dcToken,
     setDcToken,
+    openedAtMs,
   } = useDashboardData(session, selectedDate, role, router, viewUserId);
 
   const { activeSlot, timeLeft } = useSlotTiming(mriData);
@@ -1413,7 +1440,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
 
         {/* Opened status banner (lightweight) */}
         <AnimatePresence>
-          {showOpenedBanner && dayPack?.openedAt && (
+          {showOpenedBanner && openedAtMs && (
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -1421,7 +1448,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
               className="mb-3 flex items-center justify-between px-3 py-2 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200"
             >
               <div className="text-[12px]">
-                Opened at {fmtHM(dayPack.openedAt)}. Have a productive day!
+                Opened at {fmtHM(openedAtMs)}. Have a productive day!
               </div>
               <button
                 className="text-[12px] px-2 py-1 rounded-md hover:bg-emerald-100"
@@ -1448,9 +1475,9 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
             </span>
             {/* Mobile inline opened status/action */}
             <div className="sm:hidden ml-2">
-              {dayPack?.openedAt ? (
+              {openedAtMs ? (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px]">
-                  <Clock className="w-3 h-3" /> Opened: {fmtHM(dayPack.openedAt)}
+                  <Clock className="w-3 h-3" /> Opened: {fmtHM(openedAtMs)}
                 </span>
               ) : (
                 <button
@@ -1478,8 +1505,8 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                 />
                 <div className="hidden lg:flex items-center gap-2 px-2 py-1 rounded-xl text-[11px] bg-white/80 dark:bg-slate-800/70 border border-gray-200/50 dark:border-white/10 text-gray-700 dark:text-gray-200">
                   <Clock className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Opened: {dayPack?.openedAt ? fmtHM(dayPack.openedAt) : "Not opened yet"}</span>
-                  {!dayPack?.openedAt && (
+                  <span>Opened: {openedAtMs ? fmtHM(openedAtMs) : "Not opened yet"}</span>
+                  {!openedAtMs && (
                     <button
                       type="button"
                       onClick={handleOpenDay}
@@ -1600,7 +1627,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] sm:text-xs opacity-95">
                         <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white/15 border border-white/20">
                           <Clock className="w-3.5 h-3.5" />
-                          Opened: {dayPack?.openedAt ? fmtHM(dayPack.openedAt) : "Not opened yet"}
+                          Opened: {openedAtMs ? fmtHM(openedAtMs) : "Not opened yet"}
                         </span>
                         <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white/15 border border-white/20">
                           Now: {currentBlockGD || "—"}
@@ -1754,7 +1781,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <InfoTile label="Full Window" value={todayWindow ? `${fromMinutes(todayWindow.openMin)}–${fromMinutes(todayWindow.closeMin)}` : "—"} delay={0} />
-                  <InfoTile label="Day Opened" value={dayPack?.openedAt ? fmtHM(dayPack.openedAt) : "Not opened yet"} delay={0.05} />
+                  <InfoTile label="Day Opened" value={openedAtMs ? fmtHM(openedAtMs) : "Not opened yet"} delay={0.05} />
                   <InfoTile label="Day Closed" value={dayPack?.shutdownAt ? fmtHM(dayPack.shutdownAt) : "Not closed yet"} delay={0.1} />
                 </div>
               </TiltCard>
