@@ -7,6 +7,8 @@ import {
   routineTaskDailyStatuses,
   users,
   openCloseTimes,
+  userOpenCloseTimes,
+  dayOpenCloseHistory,
 } from "@/lib/schema";
 import { eq, and, sql } from "drizzle-orm";
 
@@ -198,6 +200,33 @@ export async function POST(req) {
           return NextResponse.json({ error: "Invalid task data" }, { status: 400 });
         }
       }
+
+      // Persist 'dayClosedAt' for the user for this date (local start-of-day)
+      try {
+        const dateOnly = new Date(date);
+        dateOnly.setHours(0,0,0,0);
+        const hhmmss = new Date().toTimeString().split(" ")[0];
+        // If row exists, update; else insert with only dayClosedAt
+        await db
+          .update(userOpenCloseTimes)
+          .set({ dayClosedAt: hhmmss })
+          .where(and(eq(userOpenCloseTimes.userId, parseInt(userId)), eq(userOpenCloseTimes.createdAt, dateOnly)));
+        try {
+          await db.insert(userOpenCloseTimes).values({ userId: parseInt(userId), dayOpenedAt: hhmmss, dayClosedAt: hhmmss, createdAt: dateOnly });
+        } catch {}
+        // History upsert for close
+        try {
+          const [hist] = await db
+            .select({ id: dayOpenCloseHistory.id, closedAt: dayOpenCloseHistory.closedAt })
+            .from(dayOpenCloseHistory)
+            .where(and(eq(dayOpenCloseHistory.userId, parseInt(userId)), eq(dayOpenCloseHistory.date, dateOnly)));
+          if (!hist) {
+            await db.insert(dayOpenCloseHistory).values({ userId: parseInt(userId), date: dateOnly, closedAt: hhmmss, source: 'system' });
+          } else if (!hist.closedAt) {
+            await db.update(dayOpenCloseHistory).set({ closedAt: hhmmss }).where(and(eq(dayOpenCloseHistory.userId, parseInt(userId)), eq(dayOpenCloseHistory.date, dateOnly)));
+          }
+        } catch {}
+      } catch {}
 
       return NextResponse.json({ success: true }, { status: 200 });
     } catch (error) {

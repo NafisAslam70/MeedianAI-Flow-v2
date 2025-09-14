@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { users, userMriRoles, scannerSessions, attendanceEvents, finalDailyAttendance, finalDailyAbsentees, userOpenCloseTimes } from "@/lib/schema";
+import { users, userMriRoles, scannerSessions, attendanceEvents, finalDailyAttendance, finalDailyAbsentees, userOpenCloseTimes, dayOpenCloseHistory } from "@/lib/schema";
 import { and, eq, inArray } from "drizzle-orm";
 import crypto from "crypto";
 
@@ -161,7 +161,8 @@ export async function POST(req) {
       // Also persist 'Day Opened' for this user/date if not already set
       try {
         const today = new Date();
-        const dateOnly = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
+        const dateOnly = new Date(today);
+        dateOnly.setHours(0,0,0,0); // local start-of-day to match mri-status query
         const [existing] = await db
           .select({ id: userOpenCloseTimes.id })
           .from(userOpenCloseTimes)
@@ -170,6 +171,18 @@ export async function POST(req) {
         if (!existing) {
           await db.insert(userOpenCloseTimes).values({ userId: Number(uPayload.uid), dayOpenedAt: hhmmss, createdAt: dateOnly });
         }
+        // History upsert for open
+        try {
+          const [hist] = await db
+            .select({ id: dayOpenCloseHistory.id, openedAt: dayOpenCloseHistory.openedAt })
+            .from(dayOpenCloseHistory)
+            .where(and(eq(dayOpenCloseHistory.userId, Number(uPayload.uid)), eq(dayOpenCloseHistory.date, dateOnly)));
+          if (!hist) {
+            await db.insert(dayOpenCloseHistory).values({ userId: Number(uPayload.uid), date: dateOnly, openedAt: hhmmss, source: 'scan' });
+          } else if (!hist.openedAt) {
+            await db.update(dayOpenCloseHistory).set({ openedAt: hhmmss, source: 'scan' }).where(and(eq(dayOpenCloseHistory.userId, Number(uPayload.uid)), eq(dayOpenCloseHistory.date, dateOnly)));
+          }
+        } catch {}
         // if exists, we assume it's already marked; avoid overriding
       } catch (_) {
         // best-effort; do not fail ingest

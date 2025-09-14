@@ -94,7 +94,12 @@ export default function MyPerformance() {
 
   // day close
   const [dayCloseHistory, setDayCloseHistory] = useState([]);
+  const [openCloseHistory, setOpenCloseHistory] = useState([]);
   const [dcDate, setDcDate] = useState("");
+  // Open/Close filters
+  const [ocType, setOcType] = useState('both'); // open | close | both
+  const [ocFrom, setOcFrom] = useState('');
+  const [ocTo, setOcTo] = useState('');
   const [streakDays, setStreakDays] = useState(0);
   // Daily MRI Journal modal
   const [showMriJournal, setShowMriJournal] = useState(false);
@@ -187,6 +192,20 @@ export default function MyPerformance() {
     setStreakDays(streak);
   };
 
+  const fetchOpenCloseHistory = async () => {
+    try {
+      const params = new URLSearchParams();
+      if (ocFrom) params.set('from', ocFrom);
+      if (ocTo) params.set('to', ocTo);
+      if (ocType) params.set('type', ocType);
+      const url = `/api/member/dayOpenClose/history${params.toString() ? `?${params.toString()}` : ''}`;
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) return;
+      const data = await res.json();
+      setOpenCloseHistory(Array.isArray(data?.history) ? data.history : []);
+    } catch {}
+  };
+
   const fetchAssignedTasksSummary = async () => {
     setIsLoadingAssignedSummary(true);
     try {
@@ -244,6 +263,7 @@ export default function MyPerformance() {
     if (status === "authenticated") {
       fetchAssignedTasksSummary();
       fetchDayClose();
+      fetchOpenCloseHistory();
       fetchLeaveStats();
     }
   }, [status]);
@@ -430,7 +450,7 @@ export default function MyPerformance() {
                   )}
                 </div>
                 <div className="mt-3 text-right text-xs text-gray-500">
-                  Tap to view Day Close →
+                  Tap to view Day Open & Close →
                 </div>
               </motion.div>
 
@@ -513,7 +533,7 @@ export default function MyPerformance() {
               >
                 <div className="flex items-center gap-2">
                   <Calendar className="w-6 h-6 text-teal-600" />
-                  <h2 className="text-lg font-semibold">Day Close History</h2>
+                  <h2 className="text-lg font-semibold">Day Open & Close History</h2>
                 </div>
                 <p className="text-[0.95rem] text-gray-600">
                   Check approvals/rejections and timestamps.
@@ -664,7 +684,7 @@ export default function MyPerformance() {
                     ) : (
                       <>
                         <Calendar className="w-5 h-5 text-teal-600" />
-                        <h2 className="font-semibold">Day Close History</h2>
+                        <h2 className="font-semibold">Day Open & Close History</h2>
                       </>
                     )}
                   </div>
@@ -747,9 +767,25 @@ export default function MyPerformance() {
                           max={format(new Date(), "yyyy-MM-dd")}
                         />
                       </div>
+                      <div>
+                        <label className="block text-xs font-medium mb-1">Open/Close — From</label>
+                        <input type="date" value={ocFrom} onChange={(e)=>setOcFrom(e.target.value)} className="w-full px-3 py-2 rounded-lg border bg-gray-50" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium mb-1">Open/Close — To</label>
+                        <input type="date" value={ocTo} onChange={(e)=>setOcTo(e.target.value)} className="w-full px-3 py-2 rounded-lg border bg-gray-50" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium mb-1">Type</label>
+                        <select value={ocType} onChange={(e)=>setOcType(e.target.value)} className="w-full px-3 py-2 rounded-lg border bg-gray-50">
+                          <option value="both">Both</option>
+                          <option value="open">Open only</option>
+                          <option value="close">Close only</option>
+                        </select>
+                      </div>
                       <div className="flex items-end">
                         <button
-                          onClick={() => setDcDate("")}
+                          onClick={() => { setDcDate(""); setOcFrom(''); setOcTo(''); setOcType('both'); fetchOpenCloseHistory(); }}
                           className="w-full md:w-auto px-3 py-2 rounded-lg border bg-white hover:bg-gray-50"
                         >
                           Clear
@@ -770,6 +806,35 @@ export default function MyPerformance() {
                   className="p-5 overflow-auto min-h-0"
                   style={{ height: "calc(100% - 96px)" }}
                 >
+                  {activeSection === "dayclose" && (
+                    <div className="mb-5">
+                      <div className="text-sm font-semibold text-gray-700 mb-2">Day Open & Close (Actual)</div>
+                      <div className="overflow-x-auto border rounded-lg">
+                        <table className="min-w-full text-sm">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-3 py-2 text-left">Date</th>
+                              <th className="px-3 py-2 text-left">Opened</th>
+                              <th className="px-3 py-2 text-left">Closed</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {openCloseHistory.length === 0 ? (
+                              <tr><td className="px-3 py-2 text-gray-500" colSpan={3}>No open/close records</td></tr>
+                            ) : (
+                              openCloseHistory.map((r, idx) => (
+                                <tr key={idx} className="border-t">
+                                  <td className="px-3 py-2">{new Date(r.date).toLocaleDateString()}</td>
+                                  <td className="px-3 py-2">{r.openedAt || "—"}</td>
+                                  <td className="px-3 py-2">{r.closedAt || "—"}</td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
                   {activeSection === "leave" ? (
                     leaveHistory.length === 0 ? (
                       <p className="text-sm text-gray-600">
