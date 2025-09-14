@@ -85,6 +85,7 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
   const chatContainerRef = useRef(null);
   const historyContainerRef = useRef(null);
   const [jumpKey, setJumpKey] = useState(0);
+  const [isMobile, setIsMobile] = useState(false);
   // Collapsible dock for bottom chat tools
   const [dockExpanded, setDockExpanded] = useState(false);
   // Typing indicators per userId
@@ -111,6 +112,16 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
   }, [users, userDetails?.id, userDetails?.image, session?.user?.image]);
 
   // Sync showChatbox with isOpen prop
+  useEffect(() => {
+    // Track mobile vs desktop to anchor history modal appropriately
+    const onResize = () => {
+      try { setIsMobile(window.innerWidth <= 640); } catch {}
+    };
+    onResize();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
   useEffect(() => {
     setShowChatbox(isOpen);
   }, [isOpen]);
@@ -891,7 +902,7 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
               exit={{ opacity: 0, y: 20 }}
               transition={{ duration: 0.25 }}
               className="fixed bg-white rounded-2xl shadow-2xl border z-50 w-[95vw] sm:w-[340px] max-h-[75vh] overflow-y-auto mt-2 history-container"
-              style={{ right: `${pos.x}px`, bottom: `${-pos.y + 96}px` }}
+              style={isMobile ? { left: 12, right: 12, bottom: 80 } : { right: `${pos.x}px`, bottom: `${-pos.y + 96}px` }}
               ref={historyContainerRef}
             >
               <div className="flex justify-between items-center bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-3 py-2 sm:px-4 sm:py-3 rounded-t-2xl">
