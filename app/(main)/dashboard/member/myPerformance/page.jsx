@@ -332,12 +332,12 @@ export default function MyPerformance() {
       initial={{ opacity: 0, scale: 1 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.45 }}
-      /* DO NOT change base width/height/padding */
-      className="fixed inset-0 bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 p-4 sm:p-6 flex items-center justify-center"
+      /* Allow vertical scroll, especially on mobile */
+      className="fixed inset-0 bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 p-3 sm:p-6 overflow-y-auto"
     >
       <div
         /* DO NOT change base width/height/padding */
-        className="w-full h-full bg-white rounded-2xl shadow-2xl p-6 sm:p-8 flex flex-col gap-6 overflow-hidden border border-teal-100/50"
+        className="w-full min-h-full bg-white rounded-2xl shadow-2xl p-6 sm:p-8 flex flex-col gap-6 border border-teal-100/50"
       >
         <div className="flex items-center justify-between">
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">
