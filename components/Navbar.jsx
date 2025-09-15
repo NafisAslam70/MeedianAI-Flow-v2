@@ -646,6 +646,23 @@ export default function Navbar() {
             <ArrowRight size={16} className="row-go" />
           </button>
 
+          {(role === 'team_manager' || role === 'admin') && (
+            <>
+              <div className="my-2 border-t border-slate-700/40" />
+              <button
+                className="action-row"
+                onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/admin/manageMeedian"); }}
+              >
+                <span className="row-icon"><Boxes size={18} /></span>
+                <span className="row-main">
+                  <span className="row-title">Manage Meedian</span>
+                  <span className="row-sub">Open Admin sidebar (access-controlled)</span>
+                </span>
+                <ArrowRight size={16} className="row-go" />
+              </button>
+            </>
+          )}
+
         </div>
       </aside>
     </div>

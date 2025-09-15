@@ -1,0 +1,87 @@
+Taxonomy Codex Chat 14 — NMRI Weekly, Bulk Matrix, Controls Share, Grants
+
+Scope
+- NMRI Weekly multi‑TOD coverage end‑to‑end: DB, schema, admin APIs, member coverage, UI.
+- Bulk Allotments uplift to a weekly matrix with multi‑member per day/role + calendar‑range finalize.
+- Access control: “Manage Meedian” for managers, Controls Share for admins, selective per‑section and per‑program grants with read/write gating in APIs.
+
+Schema & Migrations
+- Enum: nmri_tod_role = ['nmri_moderator','nmri_guide_english','nmri_guide_discipline'].
+- Tables: nmri_slot_weekly_roles, nmri_slot_role_assignments (renamed from slot_* for clarity).
+- daily_slots: added is_high_gathering boolean (default false), description text (optional).
+- Grants: manager_section_grants with optional programId for per‑program grants.
+- Migrations added:
+  • 0010_nmri_tod_weekly.sql — create enum + weekly tables + is_high_gathering.
+  • 0011_daily_slots_description.sql — add description to daily_slots.
+  • 0012_rename_nmri_tables.sql — rename slot_weekly_roles → nmri_slot_weekly_roles; slot_role_assignments → nmri_slot_role_assignments.
+  • 0013_manager_section_grants.sql — base grants table.
+  • 0014_manager_section_grants_program.sql — add programId and unique(userId, section, programId).
+
+Schema JS
+- lib/schema.js maps Drizzle tables to the new names, exports:
+  • nmriTodRoleEnum
+  • slotWeeklyRoles → pgTable("nmri_slot_weekly_roles", …)
+  • slotRoleAssignments → pgTable("nmri_slot_role_assignments", …)
+  • dailySlots.description, dailySlots.isHighGathering
+  • managerSectionGrants with optional programId
+
+Admin API (/api/admin/manageMeedian)
+- GET section=slots: includes isHighGathering, description; returns legacy daily assignments for compat.
+- GET section=slotsWeekly: slots + nmri weekly templates + member assignments.
+- POST section=seedSlotsWeekly: seeds base roles per slot×weekday (Moderator, English, + Discipline for crowd).
+- POST section=slotsWeekly: upsert templates [{slotId, weekday, role, requiredCount, active}].
+- POST section=slotRoleAssignments: create/update one assignment (dedupe per role row+user).
+- PATCH section=slotRoleAssignments: bulk deactivate/update.
+- GET section=member/nmriCoverage (separate route): resolves weekday + active assignments for that date.
+- GET section=controlsShare (admin): { managers, sections, programs, grants }.
+- GET section=controlsShareSelf (team_manager): current manager’s grants.
+- POST section=controlsShare (admin): bulk upsert/remove grants (with optional programId).
+- Gating: team_manager reads require a grant for section; writes (POST/PATCH/DELETE) require canWrite=true. Admin bypasses.
+
+Member API
+- /api/member/nmriCoverage?date=YYYY-MM-DD → coverage per slot×role with active assignments in range.
+
+UI — Daily Slots
+- Moved “Daily Slots” under Programs in Admin sidebar; Weekly TOD is a tab within Daily Slots.
+- Tabs: Current NMRI Allotment (read‑only), Weekly TOD, N‑MRI, A‑MRI, O‑NMRI.
+- Current NMRI Allotment: block‑sorted read‑only weekly matrix (Sun–Sat) showing E (English) and D (Discipline).
+- Bulk Allotments modal → Weekly mode (matrix):
+  • Columns: Slot, Name, Time, Sun–Sat; per‑cell shows E and D with chips.
+  • Compact layout; sticky header; scroll inside modal; modal max‑h ~85vh.
+  • Default block B1 preselected; “All” placed last.
+  • Moderator handled separately (shown from user_mri_roles; not edited here).
+  • Discipline add enabled for all slots (no gating by isHighGathering).
+  • Week selector: dropdown multi‑select with week labels/dates; past weeks disabled; current week highlighted.
+  • Save Draft (localStorage) and Finalize NMRI Allotments.
+  • Finalize shows a progress modal; on success closes and switches to Current NMRI Allotment.
+  • Finalize applies optional date range spanning selected weeks to slot_role_assignments; templates remain weekday‑based.
+
+UI — Weekly TOD Page
+- Standalone route kept but not linked; renders shared component used under Daily Slots.
+
+Manage Meedian Access
+- Navbar → Managerial sheet: bottom button “Manage Meedian” (admin + team_manager).
+- AdminSidebar filters items for team_manager based on grants (slots, metaPrograms, mspCodes, classTeachers, etc.).
+- Controls Share page: Admin‑item cards with Doables and manager chips + add dropdown; plus Programs section per program with per‑program grants.
+
+Fixes/Refactors
+- Fixed several “Return statement is not allowed here” issues by ensuring handlers are inside GET/PATCH/POST blocks, not at top‑level.
+- Fixed Weekly matrix height/scroll; compacted per‑cell controls; chips + inline add minimized.
+- Fixed D (Discipline) add being disabled: removed isHighGathering gating; API already handles upserts.
+- Fixed Controls Share:
+  • Added per‑program grants and rendering.
+  • Stabilized draft init using a grant signature to prevent infinite updates.
+  • Added isProgramGranted helper and correct program‑level keys in lookups.
+
+Next Ideas
+- Optional: per‑action scopes in grants (e.g., Finalize vs Assign vs Edit) with granular API gating.
+- Filter Programs list (Admin sidebar) for managers by per‑program grants when no global metaPrograms grant.
+- One‑time backfill: legacy daily_slot_assignments → nmri_slot_role_assignments.
+
+Operational
+- Run migrations 0010 → 0014.
+- Seed Weekly templates once via POST section=seedSlotsWeekly.
+- Use Controls Share to grant sections and specific programs to managers.
+
+End of Chat 14
+

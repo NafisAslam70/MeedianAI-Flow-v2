@@ -38,6 +38,10 @@ import {
   programPeriods,
   programScheduleCells,
   programScheduleDays,
+  slotWeeklyRoles,
+  slotRoleAssignments,
+  managerSectionGrants,
+  nmriTodRoleEnum,
 } from "@/lib/schema";
 import { eq, or, inArray, and, ne } from "drizzle-orm";
 import bcrypt from "bcrypt";
@@ -61,18 +65,77 @@ export async function GET(req) {
     "metaPrograms",
     "mspCodes",
     "mspCodeAssignments",
+    "slotsWeekly",
+    "controlsShareSelf",
+  ]);
+  const grantableSections = new Set([
+    "slots",
+    "slotsWeekly",
+    "slotRoleAssignments",
+    "seedSlotsWeekly",
+    "mspCodes",
+    "mspCodeAssignments",
+    "classes",
+    "classTeachers",
+    "team",
+    "students",
+    "schoolCalendar",
+    "mriRoles",
+    "metaFamilies",
+    "metaPrograms",
+    "metaProgramRoles",
+    "metaRoleDefs",
+    "metaRoleTasks",
+    "programPeriods",
+    "programScheduleCells",
+    "openCloseTimes",
+    "userOpenCloseTimes",
   ]);
   if (memberReadable.has(section)) {
     if (!session || !["admin", "team_manager", "member"].includes(session.user?.role)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
   } else {
-    if (!session || !["admin", "team_manager"].includes(session.user?.role)) {
+    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const role = session.user?.role;
+    if (role === 'admin') {
+      // ok
+    } else if (role === 'team_manager') {
+      if (!grantableSections.has(section)) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+      const has = await db
+        .select({ id: managerSectionGrants.id })
+        .from(managerSectionGrants)
+        .where(and(eq(managerSectionGrants.userId, session.user.id), eq(managerSectionGrants.section, section)));
+      if (!has.length) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    } else {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
   }
 
   try {
+    if (section === 'controlsShareSelf') {
+      if (!session || session.user?.role !== 'team_manager') {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+      const grants = await db
+        .select({ section: managerSectionGrants.section, canWrite: managerSectionGrants.canWrite, programId: managerSectionGrants.programId })
+        .from(managerSectionGrants)
+        .where(eq(managerSectionGrants.userId, session.user.id));
+      return NextResponse.json({ grants }, { status: 200 });
+    }
+    if (section === 'controlsShare') {
+      if (!session || session.user?.role !== 'admin') {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+      const grants = await db.select().from(managerSectionGrants);
+      const mgrs = await db
+        .select({ id: users.id, name: users.name, email: users.email })
+        .from(users)
+        .where(eq(users.role, 'team_manager'));
+      return NextResponse.json({ managers: mgrs, grants, sections: Array.from(grantableSections), programs: await (async()=>{ const progs = await db.select({ id: mriPrograms.id, name: mriPrograms.name, programKey: mriPrograms.programKey }).from(mriPrograms); return progs; })() }, { status: 200 });
+    }
     if (section === "classes") {
       const track = (searchParams.get("track") || "").toLowerCase();
       const rows = await db
@@ -153,6 +216,8 @@ export async function GET(req) {
           endTime: dailySlots.endTime,
           hasSubSlots: dailySlots.hasSubSlots,
           assignedMemberId: dailySlots.assignedMemberId,
+          description: dailySlots.description,
+          isHighGathering: dailySlots.isHighGathering,
         })
         .from(dailySlots)
         .orderBy(dailySlots.id);
@@ -177,6 +242,35 @@ export async function GET(req) {
       }));
 
       return NextResponse.json({ slots: slotsWithAssignments, slotAssignments: assignments }, { status: 200 });
+    }
+
+    if (section === "slotsWeekly") {
+      // Return weekly TOD templates with member assignments per slot
+      const slots = await db
+        .select({ id: dailySlots.id, name: dailySlots.name, startTime: dailySlots.startTime, endTime: dailySlots.endTime, isHighGathering: dailySlots.isHighGathering })
+        .from(dailySlots)
+        .orderBy(dailySlots.id);
+      const roles = await db
+        .select({ id: slotWeeklyRoles.id, slotId: slotWeeklyRoles.slotId, weekday: slotWeeklyRoles.weekday, role: slotWeeklyRoles.role, requiredCount: slotWeeklyRoles.requiredCount, active: slotWeeklyRoles.active })
+        .from(slotWeeklyRoles);
+      const assigns = await db
+        .select({ id: slotRoleAssignments.id, slotWeeklyRoleId: slotRoleAssignments.slotWeeklyRoleId, userId: slotRoleAssignments.userId, active: slotRoleAssignments.active, startDate: slotRoleAssignments.startDate, endDate: slotRoleAssignments.endDate })
+        .from(slotRoleAssignments);
+      const userMap = new Map((await db.select({ id: users.id, name: users.name, role: users.role, type: users.type }).from(users)).map(u => [u.id, u]));
+
+      const rolesBySlot = new Map();
+      roles.forEach(r => {
+        if (!rolesBySlot.has(r.slotId)) rolesBySlot.set(r.slotId, []);
+        rolesBySlot.get(r.slotId).push({ ...r, members: [] });
+      });
+      const roleIndexById = new Map();
+      rolesBySlot.forEach(list => list.forEach(rr => roleIndexById.set(rr.id, rr)));
+      assigns.forEach(a => {
+        const rr = roleIndexById.get(a.slotWeeklyRoleId);
+        if (rr) rr.members.push({ id: a.id, userId: a.userId, user: userMap.get(a.userId) || null, active: a.active, startDate: a.startDate, endDate: a.endDate });
+      });
+      const out = slots.map(s => ({ slot: s, roles: (rolesBySlot.get(s.id) || []).sort((a,b)=> a.weekday-b.weekday || a.role.localeCompare(b.role)) }));
+      return NextResponse.json({ week: out, roles: roles, assignments: assigns }, { status: 200 });
     }
 
     if (section === "students") {
@@ -449,6 +543,149 @@ export async function POST(req) {
 
   try {
     const body = await req.json();
+    // Team manager write-gating across admin sections (except upload and controlsShare)
+    if (session.user?.role === 'team_manager') {
+      const sec = String(section || '').trim();
+      const allowedWrite = new Set([
+        "slots","slotsWeekly","slotRoleAssignments","seedSlotsWeekly",
+        "mspCodes","mspCodeAssignments",
+        "classes","classTeachers",
+        "metaFamilies","metaPrograms","metaProgramRoles","metaRoleDefs","metaRoleTasks",
+        "programPeriods","programScheduleCells",
+        "openCloseTimes","userOpenCloseTimes",
+      ]);
+      if (sec !== 'upload' && sec !== 'controlsShare') {
+        if (!allowedWrite.has(sec)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        const wr = await db
+          .select({ id: managerSectionGrants.id, canWrite: managerSectionGrants.canWrite })
+          .from(managerSectionGrants)
+          .where(and(eq(managerSectionGrants.userId, session.user.id), eq(managerSectionGrants.section, sec)));
+        if (!wr.length || wr[0].canWrite !== true) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+    }
+    if (section === 'controlsShare') {
+      if (session.user?.role !== 'admin') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      const items = Array.isArray(body?.grants) ? body.grants : [];
+      let upserts = 0, deletes = 0;
+      for (const g of items) {
+        const userId = Number(g?.userId);
+        const sec = String(g?.section || '').trim();
+        const programId = g?.programId ? Number(g.programId) : null;
+        if (!userId || !sec) continue;
+        if (g?.remove) {
+          if (programId) {
+            await db.delete(managerSectionGrants).where(and(eq(managerSectionGrants.userId, userId), eq(managerSectionGrants.section, sec), eq(managerSectionGrants.programId, programId)));
+          } else {
+            await db.delete(managerSectionGrants).where(and(eq(managerSectionGrants.userId, userId), eq(managerSectionGrants.section, sec), eq(managerSectionGrants.programId, null)));
+          }
+          deletes += 1;
+        } else {
+          try {
+            await db.insert(managerSectionGrants).values({ userId, section: sec, programId: programId || null, canWrite: g?.canWrite === false ? false : true });
+          } catch {
+            if (programId) {
+              await db.update(managerSectionGrants).set({ canWrite: g?.canWrite === false ? false : true }).where(and(eq(managerSectionGrants.userId, userId), eq(managerSectionGrants.section, sec), eq(managerSectionGrants.programId, programId)));
+            } else {
+              await db.update(managerSectionGrants).set({ canWrite: g?.canWrite === false ? false : true }).where(and(eq(managerSectionGrants.userId, userId), eq(managerSectionGrants.section, sec), eq(managerSectionGrants.programId, null)));
+            }
+          }
+          upserts += 1;
+        }
+      }
+      return NextResponse.json({ upserts, deletes }, { status: 200 });
+    }
+    if (section === "seedSlotsWeekly") {
+      // Seed templates for all slots and weekdays
+      const slots = await db.select({ id: dailySlots.id, isHighGathering: dailySlots.isHighGathering }).from(dailySlots);
+      let created = 0;
+      for (const s of slots) {
+        for (let wd = 0; wd <= 6; wd++) {
+          const baseRoles = ["nmri_moderator", "nmri_guide_english"]; // discipline added for crowd slots
+          const rolesToAdd = s.isHighGathering ? [...baseRoles, "nmri_guide_discipline"] : baseRoles;
+          for (const role of rolesToAdd) {
+            // Check if exists
+            const existing = await db
+              .select({ id: slotWeeklyRoles.id })
+              .from(slotWeeklyRoles)
+              .where(and(eq(slotWeeklyRoles.slotId, s.id), eq(slotWeeklyRoles.weekday, wd), eq(slotWeeklyRoles.role, role)));
+            if (!existing.length) {
+              await db.insert(slotWeeklyRoles).values({ slotId: s.id, weekday: wd, role, requiredCount: 1, active: true });
+              created += 1;
+            }
+          }
+        }
+      }
+      return NextResponse.json({ seeded: created }, { status: 200 });
+    }
+
+    if (section === "slotsWeekly") {
+      // Upsert array of weekly role templates: [{ slotId, weekday, role, requiredCount, active }]
+      const items = Array.isArray(body) ? body : Array.isArray(body?.upserts) ? body.upserts : [];
+      if (!items.length) return NextResponse.json({ error: "Expected array of templates" }, { status: 400 });
+      let upserts = 0;
+      for (const it of items) {
+        const slotId = Number(it?.slotId);
+        const weekday = Number(it?.weekday);
+        const role = String(it?.role || '').trim();
+        if (!(slotId && Number.isInteger(weekday) && weekday >= 0 && weekday <= 6 && role)) continue;
+        const requiredCount = it?.requiredCount != null ? Math.max(1, Number(it.requiredCount)) : 1;
+        const active = it?.active == null ? true : !!it.active;
+        const existing = await db
+          .select({ id: slotWeeklyRoles.id })
+          .from(slotWeeklyRoles)
+          .where(and(eq(slotWeeklyRoles.slotId, slotId), eq(slotWeeklyRoles.weekday, weekday), eq(slotWeeklyRoles.role, role)));
+        if (existing.length) {
+          await db.update(slotWeeklyRoles)
+            .set({ requiredCount, active })
+            .where(eq(slotWeeklyRoles.id, existing[0].id));
+        } else {
+          await db.insert(slotWeeklyRoles).values({ slotId, weekday, role, requiredCount, active });
+        }
+        upserts += 1;
+      }
+      return NextResponse.json({ upserts }, { status: 200 });
+    }
+
+    if (section === "slotRoleAssignments") {
+      // Create/update an assignment row
+      const { id, slotWeeklyRoleId, userId, startDate = null, endDate = null, active = true } = body || {};
+      const setObj = {
+        slotWeeklyRoleId: Number(slotWeeklyRoleId),
+        userId: Number(userId),
+        startDate: startDate ? String(startDate) : null,
+        endDate: endDate ? String(endDate) : null,
+        active: !!active,
+      };
+      if (id) {
+        await db.update(slotRoleAssignments).set(setObj).where(eq(slotRoleAssignments.id, Number(id)));
+        const [row] = await db
+          .select({ id: slotRoleAssignments.id, slotWeeklyRoleId: slotRoleAssignments.slotWeeklyRoleId, userId: slotRoleAssignments.userId, startDate: slotRoleAssignments.startDate, endDate: slotRoleAssignments.endDate, active: slotRoleAssignments.active, createdAt: slotRoleAssignments.createdAt })
+          .from(slotRoleAssignments)
+          .where(eq(slotRoleAssignments.id, Number(id)));
+        return NextResponse.json({ assignment: row, message: "Assignment updated" }, { status: 200 });
+      }
+      if (!(setObj.slotWeeklyRoleId && setObj.userId)) {
+        return NextResponse.json({ error: "slotWeeklyRoleId and userId required" }, { status: 400 });
+      }
+      // Prevent duplicate user assignment to same role row
+      const dup = await db
+        .select({ id: slotRoleAssignments.id })
+        .from(slotRoleAssignments)
+        .where(and(eq(slotRoleAssignments.slotWeeklyRoleId, setObj.slotWeeklyRoleId), eq(slotRoleAssignments.userId, setObj.userId)));
+      if (dup.length) {
+        await db.update(slotRoleAssignments).set(setObj).where(eq(slotRoleAssignments.id, dup[0].id));
+        const [row] = await db
+          .select({ id: slotRoleAssignments.id, slotWeeklyRoleId: slotRoleAssignments.slotWeeklyRoleId, userId: slotRoleAssignments.userId, startDate: slotRoleAssignments.startDate, endDate: slotRoleAssignments.endDate, active: slotRoleAssignments.active, createdAt: slotRoleAssignments.createdAt })
+          .from(slotRoleAssignments)
+          .where(eq(slotRoleAssignments.id, dup[0].id));
+        return NextResponse.json({ assignment: row, message: "Assignment updated" }, { status: 200 });
+      }
+      const [row] = await db
+        .insert(slotRoleAssignments)
+        .values(setObj)
+        .returning({ id: slotRoleAssignments.id, slotWeeklyRoleId: slotRoleAssignments.slotWeeklyRoleId, userId: slotRoleAssignments.userId, startDate: slotRoleAssignments.startDate, endDate: slotRoleAssignments.endDate, active: slotRoleAssignments.active, createdAt: slotRoleAssignments.createdAt });
+      return NextResponse.json({ assignment: row, message: "Assignment created" }, { status: 201 });
+    }
     if (section === "classesNormalize") {
       try {
         const rows = await db.select().from(Classes);
@@ -781,7 +1018,7 @@ export async function POST(req) {
     }
 
     if (section === "slots") {
-      const { name, startTime, endTime, hasSubSlots = false, assignedMemberId = null } = body || {};
+      const { name, startTime, endTime, hasSubSlots = false, assignedMemberId = null, description = null } = body || {};
       if (!name || !startTime || !endTime) {
         return NextResponse.json({ error: "Missing required fields: name, startTime, endTime" }, { status: 400 });
       }
@@ -793,6 +1030,7 @@ export async function POST(req) {
           endTime,
           hasSubSlots: !!hasSubSlots,
           assignedMemberId: assignedMemberId ? Number(assignedMemberId) : null,
+          description: description ? String(description) : null,
         })
         .returning({
           id: dailySlots.id,
@@ -801,6 +1039,7 @@ export async function POST(req) {
           endTime: dailySlots.endTime,
           hasSubSlots: dailySlots.hasSubSlots,
           assignedMemberId: dailySlots.assignedMemberId,
+          description: dailySlots.description,
           createdAt: dailySlots.createdAt,
         });
       return NextResponse.json({ slot: row, message: "Slot created" }, { status: 201 });
@@ -867,6 +1106,23 @@ export async function PATCH(req) {
 
   try {
     const body = await req.json();
+    // Team manager write-gating across admin sections
+    if (session.user?.role === 'team_manager') {
+      const allowedWrite = new Set([
+        "slots","slotsWeekly","slotRoleAssignments",
+        "mspCodes","mspCodeAssignments",
+        "classes","classTeachers",
+        "metaFamilies","metaPrograms","metaProgramRoles","metaRoleDefs","metaRoleTasks",
+        "programPeriods","programScheduleCells",
+        "openCloseTimes","userOpenCloseTimes",
+      ]);
+      if (!allowedWrite.has(section)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      const wr = await db
+        .select({ id: managerSectionGrants.id, canWrite: managerSectionGrants.canWrite })
+        .from(managerSectionGrants)
+        .where(and(eq(managerSectionGrants.userId, session.user.id), eq(managerSectionGrants.section, section)));
+      if (!wr.length || wr[0].canWrite !== true) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
     // Batch update Users (team management)
     if (section === "team") {
@@ -1029,6 +1285,48 @@ export async function PATCH(req) {
       return NextResponse.json({ updated }, { status: 200 });
     }
 
+    if (section === "slotRoleAssignments") {
+      const updates = Array.isArray(body) ? body : Array.isArray(body.updates) ? body.updates : [];
+      if (!updates.length) return NextResponse.json({ error: "updates[] required" }, { status: 400 });
+      let updated = 0;
+      for (const u of updates) {
+        const id = Number(u?.id);
+        if (!id) continue;
+        const setObj = {};
+        if (u.userId !== undefined) setObj.userId = Number(u.userId) || null;
+        if (u.active !== undefined) setObj.active = !!u.active;
+        if (u.startDate !== undefined) setObj.startDate = u.startDate ? String(u.startDate) : null;
+        if (u.endDate !== undefined) setObj.endDate = u.endDate ? String(u.endDate) : null;
+        if (Object.keys(setObj).length === 0) continue;
+        await db.update(slotRoleAssignments).set(setObj).where(eq(slotRoleAssignments.id, id));
+        updated += 1;
+      }
+      return NextResponse.json({ updated }, { status: 200 });
+    }
+
+    // Batch update Daily Slots (meta editor)
+    if (section === "slots") {
+      const updates = Array.isArray(body.updates) ? body.updates : [];
+      if (!updates.length) return NextResponse.json({ error: "updates[] required" }, { status: 400 });
+      let updated = 0;
+      for (const u of updates) {
+        const id = Number(u.slotId || u.id);
+        if (!id) continue;
+        const setObj = {};
+        if (u.name !== undefined) setObj.name = String(u.name).trim();
+        if (u.startTime !== undefined) setObj.startTime = u.startTime;
+        if (u.endTime !== undefined) setObj.endTime = u.endTime;
+        if (u.hasSubSlots !== undefined) setObj.hasSubSlots = !!u.hasSubSlots;
+        if (u.assignedMemberId !== undefined) setObj.assignedMemberId = u.assignedMemberId ? Number(u.assignedMemberId) : null;
+        if (u.isHighGathering !== undefined) setObj.isHighGathering = !!u.isHighGathering;
+        if (u.description !== undefined) setObj.description = u.description ? String(u.description) : null;
+        if (Object.keys(setObj).length === 0) continue;
+        await db.update(dailySlots).set(setObj).where(eq(dailySlots.id, id));
+        updated += 1;
+      }
+      return NextResponse.json({ updated }, { status: 200 });
+    }
+
     // Other PATCH sections can be added here (metaFamilies, metaPrograms, etc.)
     if (section === "metaFamilies") {
       const updates = Array.isArray(body.updates) ? body.updates : [];
@@ -1064,6 +1362,19 @@ export async function DELETE(req) {
     const section = String(searchParams.get("section") || "").trim();
     const body = await req.json().catch(() => ({}));
 
+    // Team manager write-gating across admin sections
+    if (session.user?.role === 'team_manager') {
+      const allowedWrite = new Set([
+        "slots","mspCodes","mspCodeAssignments","metaFamilies",
+      ]);
+      if (!allowedWrite.has(section)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      const wr = await db
+        .select({ id: managerSectionGrants.id, canWrite: managerSectionGrants.canWrite })
+        .from(managerSectionGrants)
+        .where(and(eq(managerSectionGrants.userId, session.user.id), eq(managerSectionGrants.section, section)));
+      if (!wr.length || wr[0].canWrite !== true) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     if (section === "metaFamilies") {
       const id = Number(body.id);
       if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
@@ -1078,6 +1389,22 @@ export async function DELETE(req) {
       // Also clean user-specific overrides and roles (foreign keys may cascade, but be explicit if not)
       try { await db.delete(userOpenCloseTimes).where(eq(userOpenCloseTimes.userId, userId)); } catch {}
       try { await db.delete(userMriRoles).where(eq(userMriRoles.userId, userId)); } catch {}
+      return NextResponse.json({ deleted: 1 }, { status: 200 });
+    }
+
+    if (section === "slots") {
+      const slotId = Number(body.slotId);
+      if (!slotId) return NextResponse.json({ error: "slotId required" }, { status: 400 });
+      // Clean related rows (weekly roles + assignments, legacy assignments)
+      try {
+        const roleIds = (await db.select({ id: slotWeeklyRoles.id }).from(slotWeeklyRoles).where(eq(slotWeeklyRoles.slotId, slotId))).map(r => r.id);
+        if (roleIds.length) {
+          await db.delete(slotRoleAssignments).where(inArray(slotRoleAssignments.slotWeeklyRoleId, roleIds));
+        }
+        await db.delete(slotWeeklyRoles).where(eq(slotWeeklyRoles.slotId, slotId));
+      } catch {}
+      try { await db.delete(dailySlotAssignments).where(eq(dailySlotAssignments.slotId, slotId)); } catch {}
+      await db.delete(dailySlots).where(eq(dailySlots.id, slotId));
       return NextResponse.json({ deleted: 1 }, { status: 200 });
     }
 
