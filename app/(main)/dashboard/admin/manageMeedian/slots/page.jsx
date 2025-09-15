@@ -126,7 +126,7 @@ export default function SlotsPage() {
           { key: "weekly", label: "Weekly TOD" },
           { key: "nmri", label: "N‑MRI" },
           { key: "amri", label: "A‑MRI" },
-          { key: "onmri", label: "O‑NMRI" },
+          { key: "onmri", label: "O‑MRI" },
         ].map((t) => (
           <button
             key={t.key}
