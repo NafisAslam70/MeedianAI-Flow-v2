@@ -179,23 +179,57 @@ export default function EscalationsPage() {
             {useMembers && (
               <div className="mb-3">
                 <label className="text-sm">Team Members</label>
-                <select multiple value={members.map(String)} onChange={(e)=> setMembers(Array.from(e.target.selectedOptions, o=>o.value))} className="mt-1 w-full p-2 border rounded bg-white h-40">
-                  {users.map(u => (
-                    <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
-                  ))}
-                </select>
-                <p className="text-xs text-gray-500 mt-1">Hold Ctrl/Cmd to select multiple</p>
+                <div className="mt-1 border rounded p-2">
+                  <input className="border rounded px-2 py-1 text-xs w-full mb-2" placeholder="Search members"
+                    onChange={(e)=>{
+                      const s = e.target.value.toLowerCase();
+                      const ids = users.filter(u => u.name.toLowerCase().includes(s) || (u.role||'').toLowerCase().includes(s)).map(u=>String(u.id));
+                      // no-op: search filters list below by CSS hidden; keep simple selection list
+                      const list = document.getElementById('members-list');
+                      if (list) {
+                        Array.from(list.querySelectorAll('[data-name]')).forEach(el => {
+                          const ok = el.getAttribute('data-name').includes(s);
+                          el.style.display = ok ? '' : 'none';
+                        });
+                      }
+                    }} />
+                  <div id="members-list" className="max-h-48 overflow-auto grid grid-cols-1 sm:grid-cols-2 gap-1">
+                    {users.map(u => (
+                      <label key={u.id} data-name={`${u.name.toLowerCase()} ${String(u.role||'').toLowerCase()}`} className="flex items-center gap-2 text-sm px-2 py-1 rounded hover:bg-gray-50">
+                        <input type="checkbox" checked={members.includes(String(u.id))||members.includes(u.id)} onChange={()=> setMembers(prev => prev.includes(String(u.id))||prev.includes(u.id) ? prev.filter(x => String(x)!==String(u.id)) : [...prev, String(u.id)])} />
+                        <span className="truncate"><span className="font-medium">{u.name}</span> <span className="text-xs text-gray-500">— {u.role}</span></span>
+                      </label>
+                    ))}
+                    {users.length===0 && <div className="text-xs text-gray-500 px-2">No members</div>}
+                  </div>
+                </div>
               </div>
             )}
             {useStudents && (
               <div>
                 <label className="text-sm">Students</label>
-                <select multiple value={studentIds.map(String)} onChange={(e)=> setStudentIds(Array.from(e.target.selectedOptions, o=>o.value))} className="mt-1 w-full p-2 border rounded bg-white h-40">
-                  {students.map(s => (
-                    <option key={s.id} value={s.id}>{s.name}{s.className ? ` (${s.className})` : ''}</option>
-                  ))}
-                </select>
-                <p className="text-xs text-gray-500 mt-1">Hold Ctrl/Cmd to select multiple</p>
+                <div className="mt-1 border rounded p-2">
+                  <input className="border rounded px-2 py-1 text-xs w-full mb-2" placeholder="Search students"
+                    onChange={(e)=>{
+                      const s = e.target.value.toLowerCase();
+                      const list = document.getElementById('students-list');
+                      if (list) {
+                        Array.from(list.querySelectorAll('[data-name]')).forEach(el => {
+                          const ok = el.getAttribute('data-name').includes(s);
+                          el.style.display = ok ? '' : 'none';
+                        });
+                      }
+                    }} />
+                  <div id="students-list" className="max-h-48 overflow-auto grid grid-cols-1 sm:grid-cols-2 gap-1">
+                    {students.map(s => (
+                      <label key={s.id} data-name={`${(s.name||'').toLowerCase()} ${(s.className||'').toLowerCase()}`} className="flex items-center gap-2 text-sm px-2 py-1 rounded hover:bg-gray-50">
+                        <input type="checkbox" checked={studentIds.includes(String(s.id))||studentIds.includes(s.id)} onChange={()=> setStudentIds(prev => prev.includes(String(s.id))||prev.includes(s.id) ? prev.filter(x => String(x)!==String(s.id)) : [...prev, String(s.id)])} />
+                        <span className="truncate"><span className="font-medium">{s.name}</span> {s.className ? <span className="text-xs text-gray-500">— {s.className}</span> : null}</span>
+                      </label>
+                    ))}
+                    {students.length===0 && <div className="text-xs text-gray-500 px-2">No students found or unauthorized</div>}
+                  </div>
+                </div>
               </div>
             )}
           </div>

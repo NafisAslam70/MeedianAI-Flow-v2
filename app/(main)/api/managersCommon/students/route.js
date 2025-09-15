@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { students } from "@/lib/schema";
+import { students, Classes } from "@/lib/schema";
+import { eq } from "drizzle-orm";
 
 export async function GET() {
   const session = await auth();
@@ -13,14 +14,15 @@ export async function GET() {
       .select({
         id: students.id,
         name: students.name,
-        className: students.class_name,
-        residentialStatus: students.residential_status,
+        className: Classes.name,
+        isHosteller: students.isHosteller,
+        status: students.status,
       })
-      .from(students);
+      .from(students)
+      .leftJoin(Classes, eq(Classes.id, students.classId));
     return NextResponse.json({ students: rows }, { status: 200 });
   } catch (e) {
     console.error("GET managersCommon/students error", e);
     return NextResponse.json({ error: "Failed to fetch students" }, { status: 500 });
   }
 }
-
