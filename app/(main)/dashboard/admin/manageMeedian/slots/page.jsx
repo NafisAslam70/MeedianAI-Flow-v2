@@ -92,6 +92,7 @@ export default function SlotsPage() {
   const [selectedWeeks, setSelectedWeeks] = useState([]); // array of { id, startDate, endDate, label }
   const [picker, setPicker] = useState(null); // { slotId, day, role: 'eng'|'disc' }
   const [finalizing, setFinalizing] = useState(false);
+  const [showFinalizeModal, setShowFinalizeModal] = useState(false);
   const slotTemplateByNo = useMemo(() => new Map(TEMPLATE.map((t) => [t.no, t])), []);
   const [bulkBlock, setBulkBlock] = useState("1"); // default B1; 'all' available at end
   const [bulkQuery, setBulkQuery] = useState("");
