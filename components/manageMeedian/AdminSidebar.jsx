@@ -245,15 +245,17 @@ export default function AdminSidebar() {
 					);
       })}
 
-				{/* Train DeluGPT Button */}
-				<div className="mt-4 px-3">
-					<Link
-						href="/dashboard/admin/manageMeedian/train-delu-gpt"
-						className="group relative flex items-center gap-3 h-10 w-full px-3 rounded-xl transition border text-gray-600 dark:text-zinc-300 hover:bg-gray-100/70 dark:hover:bg-zinc-800/60 border-transparent"
-					>
-						<span className="text-[12px] font-medium truncate">Train DeluGPT</span>
-					</Link>
-				</div>
+				{/* Train DeluGPT Button (admin only) */}
+				{session?.user?.role === 'admin' && (
+					<div className="mt-4 px-3">
+						<Link
+							href="/dashboard/admin/manageMeedian/train-delu-gpt"
+							className="group relative flex items-center gap-3 h-10 w-full px-3 rounded-xl transition border text-gray-600 dark:text-zinc-300 hover:bg-gray-100/70 dark:hover:bg-zinc-800/60 border-transparent"
+						>
+							<span className="text-[12px] font-medium truncate">Train DeluGPT</span>
+						</Link>
+					</div>
+				)}
 
 				{/* Bottom placeholder removed per request */}
 			</div>
