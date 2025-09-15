@@ -91,53 +91,39 @@ export default function AdminSidebar() {
 	);
 
 	const railItems = React.useMemo(() => {
-		const role = session?.user?.role;
-		const canSeeManagerial = role === "admin" || role === "team_manager";
-		// flatten all defined groups; dedupe by href
-    const flat = groups
-      .filter((g) => (g.title === "Managerial" ? canSeeManagerial : true))
-      .flatMap((g) => g.items);
-    let out = [];
-    const seen = new Set();
-    for (const i of flat) {
-      if (!seen.has(i.href)) {
-        seen.add(i.href);
-        out.push(i);
-      }
-    }
-    // Filter for team_manager based on grants
-    if (role === 'team_manager' && myGrants?.grants) {
-      const allowed = new Set((myGrants.grants || []).map(g => g.section));
-      const mapHrefToSection = (href) => {
-        if (href.endsWith('/slots')) return 'slots';
-        if (href.endsWith('/mri-programs')) return 'metaPrograms';
-        if (href.endsWith('/msp-codes')) return 'mspCodes';
-        if (href.endsWith('/class-teachers')) return 'classTeachers';
-        return null;
-      };
-      out = out.filter(item => {
-        const sec = mapHrefToSection(item.href);
-        return !!sec && allowed.has(sec);
-      });
-    }
-    return out;
-  }, [session?.user?.role, myGrants?.grants]);
+		// Show all admin items for admin + managers. Middleware already guards the area.
+		const flat = groups.flatMap((g) => g.items);
+		const out = [];
+		const seen = new Set();
+		for (const i of flat) {
+			if (!seen.has(i.href)) {
+				seen.add(i.href);
+				out.push(i);
+			}
+		}
+		return out;
+	}, []);
 
 	return (
 		<div className="w-full h-full flex bg-transparent text-gray-800 dark:text-zinc-200">
 			{/* Expanded rail with labels */}
 			<div className="h-full w-48 bg-white/70 dark:bg-zinc-900/60 backdrop-blur border-r border-gray-200/70 dark:border-zinc-800 flex flex-col items-stretch py-3 gap-2">
-				{/* Controls Share (Admin) */}
-				{session?.user?.role === 'admin' && (
+				{/* Controls Share (visible to admin+managers; disabled for managers) */}
+				{(() => {
+					const role = session?.user?.role;
+					const disabled = role !== 'admin';
+					return (
 					<Link
 						key="controls-share"
 						href="/dashboard/admin/manageMeedian/controls-share"
 						title="Controls Share"
 						aria-label="Controls Share"
+						onClick={(e)=>{ if(disabled){ e.preventDefault(); e.stopPropagation(); window.alert('You are not allowed for this'); } }}
+						aria-disabled={disabled}
 						className={`group relative flex items-center gap-3 h-10 w-full px-3 rounded-xl transition border ${
 							pathname?.startsWith('/dashboard/admin/manageMeedian/controls-share')
 								? "bg-teal-50 text-teal-700 border-teal-200"
-								: "text-gray-600 dark:text-zinc-300 hover:bg-gray-100/70 dark:hover:bg-zinc-800/60 border-transparent"
+								: `text-gray-600 dark:text-zinc-300 hover:bg-gray-100/70 dark:hover:bg-zinc-800/60 border-transparent ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`
 						}`}
 					>
 						<Workflow className="w-5 h-5" />
@@ -146,20 +132,37 @@ export default function AdminSidebar() {
 						)}
 						<span className="text-[12px] font-medium truncate">Controls Share</span>
 					</Link>
-				)}
+					);
+				})()}
 
 				{railItems.map(({ href, icon: Icon, label }) => {
 					const active = pathname?.startsWith(href);
+					const role = session?.user?.role;
+					const allowed = new Set((myGrants?.grants || []).map(g => g.section));
+					const mapHrefToSection = (h) => {
+						if (h.endsWith('/calendar')) return 'schoolCalendar';
+						if (h.endsWith('/mri-roles')) return 'mriRoles';
+						if (h.endsWith('/mri-programs')) return 'metaPrograms';
+						if (h.endsWith('/msp-codes')) return 'mspCodes';
+						if (h.endsWith('/class-teachers')) return 'classTeachers';
+						if (h.endsWith('/team')) return 'team';
+						if (h.endsWith('/students')) return 'students';
+						return null;
+					};
+					const sec = mapHrefToSection(href);
+					const disabled = role === 'team_manager' && sec && !allowed.has(sec);
 					return (
 						<Link
 							key={href}
 							href={href}
 							title={label}
 							aria-label={label}
+							onClick={(e)=>{ if(disabled){ e.preventDefault(); e.stopPropagation(); window.alert('You are not allowed for this'); } }}
+							aria-disabled={disabled}
 							className={`group relative flex items-center gap-3 h-10 w-full px-3 rounded-xl transition border ${
 								active
 									? "bg-teal-50 text-teal-700 border-teal-200"
-									: "text-gray-600 dark:text-zinc-300 hover:bg-gray-100/70 dark:hover:bg-zinc-800/60 border-transparent"
+									: `text-gray-600 dark:text-zinc-300 hover:bg-gray-100/70 dark:hover:bg-zinc-800/60 border-transparent ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`
 							}`}
 							aria-current={active ? "page" : undefined}
 						>
@@ -187,19 +190,21 @@ export default function AdminSidebar() {
 				{(() => {
 					const href = "/dashboard/admin/manageMeedian/slots";
 					const active = pathname?.startsWith(href);
-          const role = session?.user?.role;
-          const allowedForMgr = (myGrants?.grants || []).some(g => g.section === 'slots');
-          if (role === 'team_manager' && !allowedForMgr) return null;
+					const role = session?.user?.role;
+					const allowed = new Set((myGrants?.grants || []).map(g => g.section));
+					const disabled = role === 'team_manager' && !allowed.has('slots');
 					return (
 						<Link
 							key={href}
 							href={href}
 							title="Daily Slots"
 							aria-label="Daily Slots"
+							onClick={(e)=>{ if(disabled){ e.preventDefault(); e.stopPropagation(); window.alert('You are not allowed for this'); } }}
+							aria-disabled={disabled}
 							className={`group relative flex items-center gap-3 h-10 w-full px-3 rounded-xl transition border ${
 								active
 									? "bg-teal-50 text-teal-700 border-teal-200"
-									: "text-gray-600 dark:text-zinc-300 hover:bg-gray-100/70 dark:hover:bg-zinc-800/60 border-transparent"
+									: `text-gray-600 dark:text-zinc-300 hover:bg-gray-100/70 dark:hover:bg-zinc-800/60 border-transparent ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`
 							}`}
 							aria-current={active ? "page" : undefined}
 						>
@@ -211,28 +216,31 @@ export default function AdminSidebar() {
 						</Link>
 					);
 				})()}
-    {programs.filter((p) => {
-        const role = session?.user?.role;
-        if (role !== 'team_manager') return true;
-        const gs = (myGrants?.grants || []).filter(g => g.section === 'metaPrograms');
-        const hasGlobal = gs.some(g => !g.programId);
-        if (hasGlobal) return true;
-        const allowedIds = new Set(gs.filter(g => g.programId).map(g => g.programId));
-        return allowedIds.has(p.id);
-      }).map((p) => {
+    {programs.map((p) => {
 					const base = `/dashboard/admin/manageMeedian/programs/${p.id}`;
 					const active = pathname?.startsWith(base);
 					const label = String(p.programKey || p.name);
+					const role = session?.user?.role;
+					// Disable program link if manager lacks global or per-program grant
+					let progDisabled = false;
+					if (role === 'team_manager') {
+						const grants = myGrants?.grants || [];
+						const hasGlobal = grants.some(g => g.section === 'metaPrograms' && !g.programId);
+						const hasProg = grants.some(g => g.section === 'metaPrograms' && g.programId === p.id);
+						progDisabled = !(hasGlobal || hasProg);
+					}
 					return (
 						<Link
 							key={p.id}
 							href={base}
 							title={label}
 							aria-label={label}
+							onClick={(e)=>{ if(progDisabled){ e.preventDefault(); e.stopPropagation(); window.alert('You are not allowed for this'); } }}
+							aria-disabled={progDisabled}
 							className={`group relative flex items-center gap-3 h-10 w-full px-3 rounded-xl transition border ${
 								active
 									? "bg-teal-50 text-teal-700 border-teal-200"
-									: "text-gray-600 dark:text-zinc-300 hover:bg-gray-100/70 dark:hover:bg-zinc-800/60 border-transparent"
+									: `text-gray-600 dark:text-zinc-300 hover:bg-gray-100/70 dark:hover:bg-zinc-800/60 border-transparent ${progDisabled ? 'opacity-50 cursor-not-allowed' : ''}`
 							}`}
 							aria-current={active ? "page" : undefined}
 						>
