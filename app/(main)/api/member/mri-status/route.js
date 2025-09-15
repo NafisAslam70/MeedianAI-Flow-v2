@@ -8,9 +8,9 @@ import { eq, and } from "drizzle-orm";
 export async function GET(req) {
   try {
     const session = await auth();
-    if (!session || !session.user || session.user.role !== "member") {
+    if (!session || !session.user || !["member","team_manager","admin"].includes(session.user.role)) {
       console.error("Unauthorized access attempt:", { session });
-      return NextResponse.json({ error: "Unauthorized: Member access required" }, { status: 401 });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const userId = parseInt(session.user.id);
@@ -82,9 +82,9 @@ export async function GET(req) {
 export async function POST(req) {
   try {
     const session = await auth();
-    if (!session || !session.user || session.user.role !== "member") {
+    if (!session || !session.user || !["member","team_manager","admin"].includes(session.user.role)) {
       console.error("Unauthorized access attempt:", { session });
-      return NextResponse.json({ error: "Unauthorized: Member access required" }, { status: 401 });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const userId = parseInt(session.user.id);

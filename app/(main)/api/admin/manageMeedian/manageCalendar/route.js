@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
-import { users, openCloseTimes, dailySlots, schoolCalendar } from "@/lib/schema";
-import { eq } from "drizzle-orm";
+import { users, openCloseTimes, dailySlots, schoolCalendar, managerSectionGrants } from "@/lib/schema";
+import { eq, and } from "drizzle-orm";
 
 // GET Handler: Fetch data based on section parameter
 export async function GET(req) {
@@ -10,6 +10,14 @@ export async function GET(req) {
   if (!session || !["admin", "team_manager"].includes(session.user?.role)) {
     console.error("Unauthorized access attempt:", { user: session?.user });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  // Team manager read-gating: must have grant for 'schoolCalendar'
+  if (session.user.role === 'team_manager') {
+    const has = await db
+      .select({ id: managerSectionGrants.id })
+      .from(managerSectionGrants)
+      .where(and(eq(managerSectionGrants.userId, session.user.id), eq(managerSectionGrants.section, 'schoolCalendar')));
+    if (!has.length) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   const { searchParams } = new URL(req.url);
@@ -91,6 +99,14 @@ export async function POST(req) {
     console.error("Unauthorized access attempt:", { user: session?.user });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  // Team manager write-gating: must have canWrite grant for 'schoolCalendar'
+  if (session.user.role === 'team_manager') {
+    const wr = await db
+      .select({ id: managerSectionGrants.id, canWrite: managerSectionGrants.canWrite })
+      .from(managerSectionGrants)
+      .where(and(eq(managerSectionGrants.userId, session.user.id), eq(managerSectionGrants.section, 'schoolCalendar')));
+    if (!wr.length || wr[0].canWrite !== true) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
 
   const { searchParams } = new URL(req.url);
   const section = searchParams.get("section");
@@ -144,6 +160,14 @@ export async function PATCH(req) {
   if (!session || !["admin", "team_manager"].includes(session.user?.role)) {
     console.error("Unauthorized access attempt:", { user: session?.user });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  // Team manager write-gating: must have canWrite grant for 'schoolCalendar'
+  if (session.user.role === 'team_manager') {
+    const wr = await db
+      .select({ id: managerSectionGrants.id, canWrite: managerSectionGrants.canWrite })
+      .from(managerSectionGrants)
+      .where(and(eq(managerSectionGrants.userId, session.user.id), eq(managerSectionGrants.section, 'schoolCalendar')));
+    if (!wr.length || wr[0].canWrite !== true) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   const { searchParams } = new URL(req.url);
