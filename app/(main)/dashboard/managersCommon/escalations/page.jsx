@@ -20,7 +20,7 @@ export default function EscalationsPage() {
   const { data: mine } = useSWR(tab === "mine" ? "/api/managersCommon/escalations?section=raisedByMe" : null, fetcher);
   const { data: all } = useSWR(tab === "all" ? "/api/managersCommon/escalations?section=all" : null, fetcher);
   const { data: usersData } = useSWR("/api/managersCommon/users", fetcher);
-  const { data: studentsData } = useSWR("/api/admin/manageMeedian?section=students", fetcher);
+  const { data: studentsData } = useSWR("/api/managersCommon/students", fetcher);
   const users = usersData?.users || [];
   const students = studentsData?.students || [];
   const assignableUsers = users.filter((u) => u.role === 'admin' || u.role === 'team_manager');

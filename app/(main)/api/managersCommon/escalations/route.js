@@ -91,11 +91,18 @@ export async function GET(req) {
         .from(escalationsMatterMembers)
         .leftJoin(users, eq(escalationsMatterMembers.userId, users.id))
         .where(eq(escalationsMatterMembers.matterId, id));
-      const studentMembers = await db
-        .select({ id: escalationsMatterStudents.id, studentId: escalationsMatterStudents.studentId, name: students.name, className: students.class_name })
-        .from(escalationsMatterStudents)
-        .leftJoin(students, eq(escalationsMatterStudents.studentId, students.id))
-        .where(eq(escalationsMatterStudents.matterId, id));
+      let studentMembers = [];
+      try {
+        studentMembers = await db
+          .select({ id: escalationsMatterStudents.id, studentId: escalationsMatterStudents.studentId, name: students.name, className: students.class_name })
+          .from(escalationsMatterStudents)
+          .leftJoin(students, eq(escalationsMatterStudents.studentId, students.id))
+          .where(eq(escalationsMatterStudents.matterId, id));
+      } catch (e) {
+        // Table may not be migrated yet; fail soft and omit students
+        console.warn("[escalations] detail: studentMembers unavailable", e?.message || e);
+        studentMembers = [];
+      }
       const rawSteps = await db
         .select({
           id: escalationsSteps.id,
