@@ -20,12 +20,17 @@ export default function EscalationsPage() {
   const { data: mine } = useSWR(tab === "mine" ? "/api/managersCommon/escalations?section=raisedByMe" : null, fetcher);
   const { data: all } = useSWR(tab === "all" ? "/api/managersCommon/escalations?section=all" : null, fetcher);
   const { data: usersData } = useSWR("/api/managersCommon/users", fetcher);
+  const { data: studentsData } = useSWR("/api/admin/manageMeedian?section=students", fetcher);
   const users = usersData?.users || [];
+  const students = studentsData?.students || [];
   const assignableUsers = users.filter((u) => u.role === 'admin' || u.role === 'team_manager');
   const [openDetailId, setOpenDetailId] = useState(null);
   const { data: detail } = useSWR(openDetailId ? `/api/managersCommon/escalations?section=detail&id=${openDetailId}` : null, fetcher);
   const [progressNote, setProgressNote] = useState("");
   const [showTimeline, setShowTimeline] = useState(true);
+  const [useMembers, setUseMembers] = useState(true);
+  const [useStudents, setUseStudents] = useState(false);
+  const [studentIds, setStudentIds] = useState([]);
 
   const BasicList = ({ rows, actions = false }) => (
     <div className="space-y-3">
@@ -79,16 +84,17 @@ export default function EscalationsPage() {
   const create = async () => {
     setMsg(""); setErr("");
     try {
-      const involvedUserIds = members.map((id) => parseInt(id)).filter(Boolean);
+      const involvedUserIds = useMembers ? members.map((id) => parseInt(id)).filter(Boolean) : [];
+      const involvedStudentIds = useStudents ? studentIds.map((id) => parseInt(id)).filter(Boolean) : [];
       const res = await fetch("/api/managersCommon/escalations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, description, l1AssigneeId: parseInt(l1), suggestedLevel2Id: l2 ? parseInt(l2) : null, involvedUserIds }),
+        body: JSON.stringify({ title, description, l1AssigneeId: parseInt(l1), suggestedLevel2Id: l2 ? parseInt(l2) : null, involvedUserIds, involvedStudentIds }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `Failed (${res.status})`);
       setMsg(`Created matter #${data.id}`);
-      setTitle(""); setDescription(""); setL1(""); setL2(""); setMembers([]);
+      setTitle(""); setDescription(""); setL1(""); setL2(""); setMembers([]); setStudentIds([]); setUseStudents(false); setUseMembers(true);
       setTab("forYou");
     } catch (e) { setErr(e.message); }
   };
@@ -164,14 +170,34 @@ export default function EscalationsPage() {
               ))}
             </select>
           </div>
-          <div>
-            <label className="text-sm">Members Involved</label>
-            <select multiple value={members.map(String)} onChange={(e)=> setMembers(Array.from(e.target.selectedOptions, o=>o.value))} className="mt-1 w-full p-2 border rounded bg-white h-40">
-              {users.map(u => (
-                <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
-              ))}
-            </select>
-            <p className="text-xs text-gray-500 mt-1">Hold Ctrl/Cmd to select multiple</p>
+          <div className="md:col-span-2">
+            <div className="flex items-center gap-3 mb-2">
+              <span className="text-sm">Involved:</span>
+              <label className="text-xs flex items-center gap-1"><input type="checkbox" checked={useMembers} onChange={(e)=>setUseMembers(e.target.checked)} /> Team Members</label>
+              <label className="text-xs flex items-center gap-1"><input type="checkbox" checked={useStudents} onChange={(e)=>setUseStudents(e.target.checked)} /> Students</label>
+            </div>
+            {useMembers && (
+              <div className="mb-3">
+                <label className="text-sm">Team Members</label>
+                <select multiple value={members.map(String)} onChange={(e)=> setMembers(Array.from(e.target.selectedOptions, o=>o.value))} className="mt-1 w-full p-2 border rounded bg-white h-40">
+                  {users.map(u => (
+                    <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">Hold Ctrl/Cmd to select multiple</p>
+              </div>
+            )}
+            {useStudents && (
+              <div>
+                <label className="text-sm">Students</label>
+                <select multiple value={studentIds.map(String)} onChange={(e)=> setStudentIds(Array.from(e.target.selectedOptions, o=>o.value))} className="mt-1 w-full p-2 border rounded bg-white h-40">
+                  {students.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}{s.className ? ` (${s.className})` : ''}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">Hold Ctrl/Cmd to select multiple</p>
+              </div>
+            )}
           </div>
           <div className="md:col-span-2">
             <button onClick={create} className="px-4 py-2 rounded bg-teal-600 text-white">Create</button>
@@ -237,6 +263,13 @@ export default function EscalationsPage() {
                     <div key={idx} className="text-sm text-gray-700">{m.userName || `User #${m.userId}`}</div>
                   ))}
                   {(!detail?.members || detail.members.length===0) && <div className="text-sm text-gray-500">None</div>}
+                </div>
+                <div className="font-semibold mt-4 mb-2">Students Involved</div>
+                <div className="space-y-1">
+                  {(detail?.studentMembers||[]).map((s,idx)=> (
+                    <div key={idx} className="text-sm text-gray-700">{s.name || `Student #${s.studentId}`}{s.className ? ` — ${s.className}` : ''}</div>
+                  ))}
+                  {(!detail?.studentMembers || detail.studentMembers.length===0) && <div className="text-sm text-gray-500">None</div>}
                 </div>
                 <div className="mt-4">
                   <div className="font-semibold mb-1">Add Progress</div>

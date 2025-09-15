@@ -3,8 +3,10 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   users,
+  students,
   escalationsMatters,
   escalationsMatterMembers,
+  escalationsMatterStudents,
   escalationsSteps,
   dayCloseOverrides,
   escalationStatusEnum,
@@ -89,6 +91,11 @@ export async function GET(req) {
         .from(escalationsMatterMembers)
         .leftJoin(users, eq(escalationsMatterMembers.userId, users.id))
         .where(eq(escalationsMatterMembers.matterId, id));
+      const studentMembers = await db
+        .select({ id: escalationsMatterStudents.id, studentId: escalationsMatterStudents.studentId, name: students.name, className: students.class_name })
+        .from(escalationsMatterStudents)
+        .leftJoin(students, eq(escalationsMatterStudents.studentId, students.id))
+        .where(eq(escalationsMatterStudents.matterId, id));
       const rawSteps = await db
         .select({
           id: escalationsSteps.id,
@@ -116,7 +123,7 @@ export async function GET(req) {
         fromUserName: s.fromUserId ? (nameMap.get(s.fromUserId) || null) : null,
         toUserName: s.toUserId ? (nameMap.get(s.toUserId) || null) : null,
       }));
-      return NextResponse.json({ matter: matterRows[0], members, steps }, { status: 200 });
+      return NextResponse.json({ matter: matterRows[0], members, studentMembers, steps }, { status: 200 });
     }
     if (section === "isPaused") {
       const userId = Number(searchParams.get("userId") || uid);
@@ -159,6 +166,7 @@ export async function POST(req) {
     }
     const suggestedLevel2Id = body.suggestedLevel2Id ? Number(body.suggestedLevel2Id) : null;
     const involvedUserIds = Array.isArray(body.involvedUserIds) ? Array.from(new Set(body.involvedUserIds.map(Number).filter(Boolean))) : [];
+    const involvedStudentIds = Array.isArray(body.involvedStudentIds) ? Array.from(new Set(body.involvedStudentIds.map(Number).filter(Boolean))) : [];
 
     const [row] = await db
       .insert(escalationsMatters)
@@ -168,6 +176,9 @@ export async function POST(req) {
 
     for (const u of involvedUserIds) {
       try { await db.insert(escalationsMatterMembers).values({ matterId, userId: u }); } catch {}
+    }
+    for (const s of involvedStudentIds) {
+      try { await db.insert(escalationsMatterStudents).values({ matterId, studentId: s }); } catch {}
     }
 
     await db.insert(escalationsSteps).values({ matterId, level: 1, action: "CREATED", fromUserId: uid, toUserId: l1AssigneeId, note: null });
