@@ -25,6 +25,7 @@ export default function EscalationsPage() {
   const [openDetailId, setOpenDetailId] = useState(null);
   const { data: detail } = useSWR(openDetailId ? `/api/managersCommon/escalations?section=detail&id=${openDetailId}` : null, fetcher);
   const [progressNote, setProgressNote] = useState("");
+  const [showTimeline, setShowTimeline] = useState(true);
 
   const BasicList = ({ rows, actions = false }) => (
     <div className="space-y-3">
@@ -193,21 +194,41 @@ export default function EscalationsPage() {
             </div>
             <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="md:col-span-2">
-                <div className="font-semibold mb-2">Timeline</div>
-                <div className="space-y-2">
-                  {(detail?.steps||[]).map((s,idx)=> (
-                    <div key={idx} className="p-2 border rounded bg-gray-50">
-                      <div className="text-xs text-gray-600">{new Date(s.createdAt).toLocaleString()}</div>
-                      <div className="text-sm">
-                        <span className="font-semibold">{s.action}</span>
-                        {s.fromUserName ? <span> by {s.fromUserName}</span> : null}
-                        {s.toUserName && s.action !== 'CLOSE' ? <span> → {s.toUserName}</span> : null}
-                        {s.note ? <span> — {s.note}</span> : null}
-                      </div>
-                    </div>
-                  ))}
-                  {(!detail?.steps || detail.steps.length===0) && <div className="text-sm text-gray-500">No steps yet</div>}
+                {/* Description */}
+                <div className="mb-4 p-3 border rounded bg-white">
+                  <div className="font-semibold mb-1">Description</div>
+                  <div className="text-sm text-gray-700 whitespace-pre-wrap">
+                    {detail?.matter?.description?.trim() ? detail.matter.description : <span className="text-gray-500">No description provided</span>}
+                  </div>
                 </div>
+
+                <div className="flex items-center justify-between mb-2">
+                  <div className="font-semibold">Timeline</div>
+                  <button
+                    className="text-xs px-2 py-0.5 rounded border bg-white hover:bg-gray-50"
+                    onClick={() => setShowTimeline((v) => !v)}
+                  >
+                    {showTimeline ? 'Hide' : `Show (${detail?.steps?.length || 0})`}
+                  </button>
+                </div>
+                {showTimeline ? (
+                  <div className="space-y-2">
+                    {(detail?.steps||[]).map((s,idx)=> (
+                      <div key={idx} className="p-2 border rounded bg-gray-50">
+                        <div className="text-xs text-gray-600">{new Date(s.createdAt).toLocaleString()}</div>
+                        <div className="text-sm">
+                          <span className="font-semibold">{s.action}</span>
+                          {s.fromUserName ? <span> by {s.fromUserName}</span> : null}
+                          {s.toUserName && s.action !== 'CLOSE' ? <span> → {s.toUserName}</span> : null}
+                          {s.note ? <span> — {s.note}</span> : null}
+                        </div>
+                      </div>
+                    ))}
+                    {(!detail?.steps || detail.steps.length===0) && <div className="text-sm text-gray-500">No steps yet</div>}
+                  </div>
+                ) : (
+                  <div className="text-xs text-gray-500">Timeline hidden</div>
+                )}
               </div>
               <div className="md:col-span-1">
                 <div className="font-semibold mb-2">Members Involved</div>
