@@ -12,6 +12,27 @@ export async function GET(req) {
   }
 
   const { searchParams } = new URL(req.url);
+  const section = searchParams.get("section");
+  if (section === 'counts') {
+    try {
+      // Pending requests; for team_manager: only direct reports
+      const base = db
+        .select({ id: dayCloseRequests.id })
+        .from(dayCloseRequests)
+        .innerJoin(users, eq(dayCloseRequests.userId, users.id))
+        .where(eq(dayCloseRequests.status, 'pending'));
+      let rows;
+      if (session.user.role === 'team_manager') {
+        rows = await base.where(and(eq(dayCloseRequests.status, 'pending'), eq(users.immediate_supervisor, Number(session.user.id))));
+      } else {
+        rows = await base;
+      }
+      return NextResponse.json({ pendingCount: rows.length }, { status: 200 });
+    } catch (e) {
+      console.error('GET /dayCloseRequests?section=counts error', e);
+      return NextResponse.json({ pendingCount: 0 }, { status: 200 });
+    }
+  }
   const dateParam = searchParams.get("date"); // optional: "YYYY-MM-DD"
   const userIdParam = searchParams.get("userId"); // optional: exact user ID
   const userNameParam = searchParams.get("userName"); // optional: partial name search

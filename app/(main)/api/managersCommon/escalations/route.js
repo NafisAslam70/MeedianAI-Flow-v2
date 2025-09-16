@@ -32,6 +32,46 @@ export async function GET(req) {
   const isAdmin = session.user.role === "admin";
 
   try {
+    if (section === "allOpen" || section === "allClosed") {
+      // Visible to admins and team managers (not plain members)
+      if (!session || !["admin","team_manager"].includes(session.user?.role)) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+      const isClosed = section === "allClosed";
+      const rows = await db
+        .select({
+          id: escalationsMatters.id,
+          title: escalationsMatters.title,
+          description: escalationsMatters.description,
+          status: escalationsMatters.status,
+          level: escalationsMatters.level,
+          createdAt: escalationsMatters.createdAt,
+          updatedAt: escalationsMatters.updatedAt,
+          creatorId: escalationsMatters.createdById,
+          currentAssigneeId: escalationsMatters.currentAssigneeId,
+        })
+        .from(escalationsMatters)
+        .where(isClosed ? eq(escalationsMatters.status, 'CLOSED') : ne(escalationsMatters.status, 'CLOSED'))
+        .orderBy(desc(isClosed ? escalationsMatters.updatedAt : escalationsMatters.createdAt));
+      if (!isClosed) {
+        return NextResponse.json({ matters: rows }, { status: 200 });
+      }
+      // For closed items, include the latest CLOSE note ("closing lines")
+      const ids = rows.map(r => r.id);
+      let closeNoteByMatter = new Map();
+      if (ids.length) {
+        const steps = await db
+          .select({ matterId: escalationsSteps.matterId, note: escalationsSteps.note, createdAt: escalationsSteps.createdAt })
+          .from(escalationsSteps)
+          .where(and(inArray(escalationsSteps.matterId, ids), eq(escalationsSteps.action, 'CLOSE')))
+          .orderBy(desc(escalationsSteps.createdAt));
+        for (const s of steps) {
+          if (!closeNoteByMatter.has(s.matterId)) closeNoteByMatter.set(s.matterId, { note: s.note, createdAt: s.createdAt });
+        }
+      }
+      const withClose = rows.map(r => ({ ...r, closeNote: (closeNoteByMatter.get(r.id) || {}).note || null, closeAt: (closeNoteByMatter.get(r.id) || {}).createdAt || r.updatedAt }));
+      return NextResponse.json({ matters: withClose }, { status: 200 });
+    }
     if (section === "forYou") {
       const rows = await db
         .select({
@@ -69,14 +109,30 @@ export async function GET(req) {
       return NextResponse.json({ matters: rows }, { status: 200 });
     }
     if (section === "counts") {
-      // Count open items assigned to me; and total open (admin only)
-      const [{ count: forYouCount }] = await db.execute(sql`SELECT COUNT(*)::int as count FROM ${escalationsMatters} em WHERE em.current_assignee_id = ${uid} AND em.status <> 'CLOSED'`);
+      // Count open matters: for managers, include assigned to me OR created by me OR I'm a member
+      const assigned = await db
+        .select({ id: escalationsMatters.id })
+        .from(escalationsMatters)
+        .where(and(ne(escalationsMatters.status, 'CLOSED'), eq(escalationsMatters.currentAssigneeId, uid)));
+      const created = await db
+        .select({ id: escalationsMatters.id })
+        .from(escalationsMatters)
+        .where(and(ne(escalationsMatters.status, 'CLOSED'), eq(escalationsMatters.createdById, uid)));
+      const involved = await db
+        .select({ id: escalationsMatters.id })
+        .from(escalationsMatters)
+        .leftJoin(escalationsMatterMembers, eq(escalationsMatterMembers.matterId, escalationsMatters.id))
+        .where(and(ne(escalationsMatters.status, 'CLOSED'), eq(escalationsMatterMembers.userId, uid)));
+      const mySet = new Set([...assigned, ...created, ...involved].map(r => r.id));
       let openTotalCount = null;
       if (isAdmin) {
-        const [{ count }] = await db.execute(sql`SELECT COUNT(*)::int as count FROM ${escalationsMatters} em WHERE em.status <> 'CLOSED'`);
-        openTotalCount = Number(count);
+        const allOpen = await db
+          .select({ id: escalationsMatters.id })
+          .from(escalationsMatters)
+          .where(ne(escalationsMatters.status, 'CLOSED'));
+        openTotalCount = allOpen.length;
       }
-      return NextResponse.json({ forYouCount: Number(forYouCount), openTotalCount }, { status: 200 });
+      return NextResponse.json({ forYouCount: mySet.size, openTotalCount }, { status: 200 });
     }
     if (section === "detail") {
       if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });

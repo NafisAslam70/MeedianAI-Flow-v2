@@ -18,9 +18,11 @@ export default function EscalationsPage() {
 
   const { data: forYou } = useSWR(tab === "forYou" ? "/api/managersCommon/escalations?section=forYou" : null, fetcher);
   const { data: mine } = useSWR(tab === "mine" ? "/api/managersCommon/escalations?section=raisedByMe" : null, fetcher);
-  const { data: all } = useSWR(tab === "all" ? "/api/managersCommon/escalations?section=all" : null, fetcher);
+  const { data: openAll } = useSWR(tab === "openAll" ? "/api/managersCommon/escalations?section=allOpen" : null, fetcher);
+  const { data: closedAll } = useSWR(tab === "closedAll" ? "/api/managersCommon/escalations?section=allClosed" : null, fetcher);
   const { data: usersData } = useSWR("/api/managersCommon/users", fetcher);
   const { data: studentsData } = useSWR("/api/managersCommon/students", fetcher);
+  const { data: counts } = useSWR("/api/managersCommon/escalations?section=counts", fetcher);
   const users = usersData?.users || [];
   const students = studentsData?.students || [];
   const assignableUsers = users.filter((u) => u.role === 'admin' || u.role === 'team_manager');
@@ -32,46 +34,45 @@ export default function EscalationsPage() {
   const [useStudents, setUseStudents] = useState(false);
   const [studentIds, setStudentIds] = useState([]);
 
-  const BasicList = ({ rows, actions = false }) => (
+  const [actionModal, setActionModal] = useState(null); // { type: 'escalate'|'close', id }
+  const [modalL2, setModalL2] = useState("");
+  const [modalNote, setModalNote] = useState("");
+  const [query, setQuery] = useState("");
+
+  const BasicList = ({ rows, actions = false, variant = 'default' }) => (
     <div className="space-y-3">
-      {(rows || []).map((m) => (
-        <div key={m.id} className="p-3 bg-white border border-gray-200 rounded-lg cursor-pointer" onClick={()=>{ setOpenDetailId(m.id); setErr(""); setMsg(""); }}>
+      {((rows || []).filter(m => {
+        if (!query.trim()) return true;
+        const q = query.trim().toLowerCase();
+        return String(m.id).includes(q) || (m.title||'').toLowerCase().includes(q);
+      })).map((m) => (
+        <div
+          key={m.id}
+          className={`p-3 border rounded-lg cursor-pointer ${variant==='closed' || m.status==='CLOSED' ? 'bg-red-50 border-red-300' : 'bg-white border-gray-200'}`}
+          onClick={()=>{ setOpenDetailId(m.id); setErr(""); setMsg(""); }}
+        >
           <div className="flex items-center justify-between">
-            <div className="font-semibold text-gray-800">{m.title}</div>
-            <div className="text-xs px-2 py-0.5 rounded border border-gray-300 text-gray-700">{m.status} L{m.level}</div>
+            <div className={`font-semibold ${variant==='closed' || m.status==='CLOSED' ? 'text-black' : 'text-gray-800'}`}>{m.title}</div>
+            <div className={`text-xs px-2 py-0.5 rounded border border-gray-300 ${variant==='closed' || m.status==='CLOSED' ? 'text-black' : 'text-gray-700'}`}>{m.status} L{m.level}</div>
           </div>
-          <div className="text-xs text-gray-500">#{m.id} • {new Date(m.createdAt).toLocaleString()}</div>
+          <div className={`text-xs ${variant==='closed' || m.status==='CLOSED' ? 'text-black' : 'text-gray-500'}`}>#{m.id} • {new Date(m.createdAt).toLocaleString()}</div>
+          {(variant==='closed' || m.status==='CLOSED') && (
+            <div className="mt-2 text-sm">
+              <div className="text-red-700 font-medium">Closing lines</div>
+              <div className="text-red-800">{m.closeNote?.trim() ? m.closeNote : '—'}</div>
+            </div>
+          )}
           {actions && (
             <div className="mt-2 flex gap-2">
               {m.level === 1 && (
                 <button
                   className="px-3 py-1 rounded border"
-                  onClick={async () => {
-                    const l2AssigneeId = prompt("Level-2 assignee userId?") || "";
-                    if (!l2AssigneeId) return;
-                    setErr(""); setMsg("");
-                    try {
-                      const res = await fetch('/api/managersCommon/escalations?section=escalate', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: m.id, l2AssigneeId: parseInt(l2AssigneeId) }) });
-                      const d = await res.json();
-                      if (!res.ok) throw new Error(d.error || `Failed (${res.status})`);
-                      setMsg(`Escalated #${m.id} to L2`);
-                    } catch (e) { setErr(e.message); }
-                  }}
+                  onClick={() => { setActionModal({ type: 'escalate', id: m.id }); setModalL2(""); setModalNote(""); }}
                 >Escalate to L2</button>
               )}
               <button
                 className="px-3 py-1 rounded bg-teal-600 text-white"
-                onClick={async () => {
-                  const note = prompt("Close note (required)") || "";
-                  if (!note) return;
-                  setErr(""); setMsg("");
-                  try {
-                    const res = await fetch('/api/managersCommon/escalations?section=close', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: m.id, note }) });
-                    const d = await res.json();
-                    if (!res.ok) throw new Error(d.error || `Failed (${res.status})`);
-                    setMsg(`Closed #${m.id}`);
-                  } catch (e) { setErr(e.message); }
-                }}
+                onClick={() => { setActionModal({ type: 'close', id: m.id }); setModalNote(""); }}
               >Close</button>
             </div>
           )}
@@ -127,15 +128,40 @@ export default function EscalationsPage() {
   };
 
   return (
-    <div className="p-6 space-y-4">
-      <h1 className="text-xl font-bold text-gray-900">Escalations</h1>
-      {msg && <div className="text-sm text-emerald-600">{msg}</div>}
-      {err && <div className="text-sm text-red-600">{err}</div>}
-      <div className="flex gap-2">
-        <button className={`px-3 py-1 rounded ${tab==='new'?'bg-teal-600 text-white':'bg-white border'}`} onClick={()=>setTab('new')}>New</button>
-        <button className={`px-3 py-1 rounded ${tab==='forYou'?'bg-teal-600 text-white':'bg-white border'}`} onClick={()=>setTab('forYou')}>For You</button>
-        <button className={`px-3 py-1 rounded ${tab==='mine'?'bg-teal-600 text-white':'bg-white border'}`} onClick={()=>setTab('mine')}>Raised by Me</button>
-        <button className={`px-3 py-1 rounded ${tab==='all'?'bg-teal-600 text-white':'bg-white border'}`} onClick={()=>setTab('all')}>All (Admin)</button>
+    <div className="mx-auto max-w-6xl p-6 space-y-4">
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-bold text-gray-900">Escalations</h1>
+        <div className="hidden md:flex gap-2">
+          <div className="rounded-xl border bg-white px-3 py-2 shadow-sm">
+            <div className="text-xs text-gray-500">For You (Open)</div>
+            <div className="text-xl font-bold text-teal-700">{counts?.forYouCount ?? '—'}</div>
+          </div>
+          {counts?.openTotalCount != null && (
+            <div className="rounded-xl border bg-white px-3 py-2 shadow-sm">
+              <div className="text-xs text-gray-500">All Open</div>
+              <div className="text-xl font-bold text-gray-900">{counts?.openTotalCount}</div>
+            </div>
+          )}
+        </div>
+      </div>
+      {msg && <div className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-2 rounded-md">{msg}</div>}
+      {err && <div className="text-sm text-red-700 bg-red-50 border border-red-200 px-3 py-2 rounded-md">{err}</div>}
+      <div className="flex flex-col md:flex-row md:items-center gap-3">
+        <div className="inline-flex gap-2">
+          <button className={`px-3 py-1.5 text-sm rounded-md border ${tab==='new'?'bg-teal-600 text-white border-teal-600 shadow-sm':'bg-white text-gray-800 border-gray-200 hover:bg-gray-50'}`} onClick={()=>setTab('new')}>New</button>
+          <button className={`px-3 py-1.5 text-sm rounded-md border ${tab==='forYou'?'bg-teal-600 text-white border-teal-600 shadow-sm':'bg-white text-gray-800 border-gray-200 hover:bg-gray-50'}`} onClick={()=>setTab('forYou')}>For You</button>
+          <button className={`px-3 py-1.5 text-sm rounded-md border ${tab==='mine'?'bg-teal-600 text-white border-teal-600 shadow-sm':'bg-white text-gray-800 border-gray-200 hover:bg-gray-50'}`} onClick={()=>setTab('mine')}>Raised by Me</button>
+          <button className={`px-3 py-1.5 text-sm rounded-md border ${tab==='openAll'?'bg-teal-600 text-white border-teal-600 shadow-sm':'bg-white text-gray-800 border-gray-200 hover:bg-gray-50'}`} onClick={()=>setTab('openAll')}>Open (All)</button>
+          <button className={`px-3 py-1.5 text-sm rounded-md border ${tab==='closedAll'?'bg-teal-600 text-white border-teal-600 shadow-sm':'bg-white text-gray-800 border-gray-200 hover:bg-gray-50'}`} onClick={()=>setTab('closedAll')}>Closed (All)</button>
+        </div>
+        <div className="md:ml-auto flex items-center gap-2">
+          <input
+            value={query}
+            onChange={(e)=>setQuery(e.target.value)}
+            placeholder="Search title or #id"
+            className="border rounded-lg px-3 py-1.5 text-sm w-[220px]"
+          />
+        </div>
       </div>
 
       {tab === 'new' && (
@@ -241,10 +267,11 @@ export default function EscalationsPage() {
 
       {tab === 'forYou' && <BasicList rows={forYou?.matters} actions />}
       {tab === 'mine' && <BasicList rows={mine?.matters} />}
-      {tab === 'all' && <BasicList rows={all?.matters} />}
+      {tab === 'openAll' && <BasicList rows={openAll?.matters} actions={false} variant="open" />}
+      {tab === 'closedAll' && <BasicList rows={closedAll?.matters} actions={false} variant="closed" />}
       {openDetailId && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={()=>setOpenDetailId(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] overflow-auto" onClick={(e)=>e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl md:max-w-[55vw] max-h-[80vh] overflow-auto" onClick={(e)=>e.stopPropagation()}>
             <div className="p-4 border-b flex items-center justify-between">
               <div>
                 <div className="text-lg font-semibold text-gray-800">{detail?.matter?.title || 'Matter'}</div>
@@ -326,6 +353,59 @@ export default function EscalationsPage() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {actionModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={()=>setActionModal(null)}>
+          <div className="bg-white rounded-2xl border shadow-xl w-full max-w-md p-4" onClick={(e)=>e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-base font-semibold text-gray-900">{actionModal.type==='escalate' ? 'Escalate to L2' : 'Close Escalation'}</div>
+              <button className="text-sm text-gray-500" onClick={()=>setActionModal(null)}>✕</button>
+            </div>
+            {actionModal.type==='escalate' ? (
+              <div className="space-y-3">
+                <div>
+                  <label className="text-sm">L2 Assignee (user id)</label>
+                  <input value={modalL2} onChange={(e)=>setModalL2(e.target.value)} className="mt-1 w-full p-2 border rounded" placeholder="Enter user id" />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <button className="px-3 py-1.5 rounded border" onClick={()=>setActionModal(null)}>Cancel</button>
+                  <button className="px-3 py-1.5 rounded bg-teal-600 text-white" onClick={async ()=>{
+                    setErr(''); setMsg('');
+                    try {
+                      const res = await fetch('/api/managersCommon/escalations?section=escalate', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: actionModal.id, l2AssigneeId: parseInt(modalL2) }) });
+                      const d = await res.json();
+                      if (!res.ok) throw new Error(d.error || `Failed (${res.status})`);
+                      setMsg(`Escalated #${actionModal.id} to L2`);
+                      setActionModal(null);
+                    } catch(e) { setErr(e.message); }
+                  }}>Escalate</button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div>
+                  <label className="text-sm">Closing note</label>
+                  <textarea value={modalNote} onChange={(e)=>setModalNote(e.target.value)} className="mt-1 w-full p-2 border rounded" rows={4} placeholder="Why is this closed?" />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <button className="px-3 py-1.5 rounded border" onClick={()=>setActionModal(null)}>Cancel</button>
+                  <button className="px-3 py-1.5 rounded bg-red-600 text-white" onClick={async ()=>{
+                    if (!modalNote.trim()) { setErr('Close note required'); return; }
+                    setErr(''); setMsg('');
+                    try {
+                      const res = await fetch('/api/managersCommon/escalations?section=close', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: actionModal.id, note: modalNote.trim() }) });
+                      const d = await res.json();
+                      if (!res.ok) throw new Error(d.error || `Failed (${res.status})`);
+                      setMsg(`Closed #${actionModal.id}`);
+                      setActionModal(null);
+                    } catch(e) { setErr(e.message); }
+                  }}>Close</button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -583,17 +583,27 @@ export default function Navbar() {
             <ArrowRight size={16} className="row-go" />
           </button>
 
-          <button
-            className="action-row"
-            onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/managersCommon/approveCloseDay"); }}
-          >
-            <span className="row-icon"><CalendarCheck2 size={18} /></span>
-            <span className="row-main">
-              <span className="row-title">Day Close Request</span>
-              <span className="row-sub">Review and approve day closures</span>
-            </span>
-            <ArrowRight size={16} className="row-go" />
-          </button>
+          {(() => {
+            // eslint-disable-next-line react-hooks/rules-of-hooks
+            const { data: dc } = useSWR(isManagerialOpen ? "/api/managersCommon/dayCloseRequests?section=counts" : null, (u)=>fetch(u).then(r=>r.json()));
+            const dcCount = dc?.pendingCount ?? 0;
+            return (
+              <button
+                className="action-row"
+                onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/managersCommon/approveCloseDay"); }}
+              >
+                <span className="row-icon"><CalendarCheck2 size={18} /></span>
+                <span className="row-main">
+                  <span className="row-title">Day Close Request</span>
+                  <span className="row-sub">Review and approve day closures</span>
+                </span>
+                <span className="ml-2 inline-flex min-w-[20px] justify-center rounded-full bg-indigo-600 text-white text-[11px] px-2 py-0.5">
+                  {dcCount}
+                </span>
+                <ArrowRight size={16} className="row-go" />
+              </button>
+            );
+          })()}
 
           <button
             className="action-row"
@@ -1590,11 +1600,11 @@ export default function Navbar() {
         }
         .action-row {
           display: grid;
-          grid-template-columns: 36px 1fr auto;
+          grid-template-columns: 30px 1fr auto;
           align-items: center;
-          gap: 10px;
-          padding: 10px;
-          border-radius: 12px;
+          gap: 8px;
+          padding: 8px;
+          border-radius: 10px;
           border: 1px solid #1f2a44;
           background:
             linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.0)),
@@ -1615,8 +1625,8 @@ export default function Navbar() {
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          width: 36px;
-          height: 36px;
+          width: 28px;
+          height: 28px;
           border-radius: 9999px;
           border: 1px solid rgba(34,211,238,0.28);
           background: rgba(34,211,238,0.08);
@@ -1628,11 +1638,11 @@ export default function Navbar() {
         }
         .action-row .row-title {
           font-weight: 700;
-          font-size: 0.93rem;
+          font-size: 0.85rem;
           color: #bff7ff;
         }
         .action-row .row-sub {
-          font-size: 0.8rem;
+          font-size: 0.72rem;
           color: #b1c8d6;
           margin-top: 2px;
           overflow: hidden;
@@ -1660,10 +1670,10 @@ export default function Navbar() {
           display: grid;
           grid-template-columns: auto 1fr auto;
           align-items: center;
-          gap: 10px;
+          gap: 8px;
           width: 100%;
-          border-radius: 14px;
-          padding: 10px 12px;
+          border-radius: 12px;
+          padding: 8px 10px;
           border: 1px solid rgba(239,68,68,0.25);
           background: linear-gradient(135deg, rgba(239,68,68,0.85), rgba(220,38,38,0.92));
           position: relative;
@@ -1674,7 +1684,7 @@ export default function Navbar() {
         .current-mrn-row:hover { filter: brightness(1.04); }
         .current-mrn-row .mrn-icon { position: relative; display: flex; align-items: center; }
         .current-mrn-row .icon-wrap {
-          width: 32px; height: 32px; display: grid; place-items: center;
+          width: 28px; height: 28px; display: grid; place-items: center;
           border-radius: 10px;
           background: radial-gradient(120px 120px at 30% 20%, rgba(248,113,113,0.45), transparent), rgba(255,255,255,0.10);
           border: 1px solid rgba(248,113,113,0.35);
