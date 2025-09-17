@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Loader2 } from "lucide-react";
+import { Loader2, CheckCircle, XCircle } from "lucide-react";
 import Lottie from "lottie-react";
 import { format } from "date-fns";
 
@@ -33,6 +33,40 @@ export default function DayCloseWaitingModal({
   const [currentWords, setCurrentWords] = useState([]);
   const [usedWordIndices, setUsedWordIndices] = useState([]);
   const [lastWordResetDate, setLastWordResetDate] = useState(null);
+
+  const status = dayCloseStatus?.status;
+  const isApproved = status === "approved";
+  const isRejected = status === "rejected";
+  const statusLabel = status ? status.charAt(0).toUpperCase() + status.slice(1) : "processed";
+  const statusTitle = isApproved
+    ? "Congratulations! Day Approved 🎉"
+    : isRejected
+    ? "Day Close Rejected"
+    : "Day Close Update";
+  const statusTitleClass = isApproved
+    ? "text-teal-800"
+    : isRejected
+    ? "text-red-700"
+    : "text-gray-800";
+  const statusMessageClass = isApproved
+    ? "text-gray-800"
+    : isRejected
+    ? "text-red-700"
+    : "text-gray-800";
+  const summaryCardClass = isApproved
+    ? "w-full max-w-md bg-teal-50/50 border border-teal-200 rounded-xl p-6 mb-4 space-y-4"
+    : isRejected
+    ? "w-full max-w-md bg-red-50/70 border border-red-200 rounded-xl p-6 mb-4 space-y-4"
+    : "w-full max-w-md bg-gray-50 border border-gray-200 rounded-xl p-6 mb-4 space-y-4";
+  const memberBubbleClass = isRejected
+    ? "bg-red-100 text-red-800"
+    : "bg-teal-100 text-gray-700";
+  const supervisorBubbleClass = isRejected
+    ? "bg-red-50 text-red-800"
+    : "bg-gray-100 text-gray-700";
+  const primaryButtonClass = isRejected
+    ? "flex-1 bg-red-600 text-white py-3 rounded-xl font-semibold hover:bg-red-700 transition-all duration-300 shadow-sm"
+    : "flex-1 bg-teal-600 text-white py-3 rounded-xl font-semibold hover:bg-teal-700 transition-all duration-300 shadow-sm";
 
   // Quiz question pool
   const quizQuestionPool = [
@@ -517,36 +551,44 @@ export default function DayCloseWaitingModal({
                 </>
               ) : (
                 <>
-                  <div className="flex flex-col items-center gap-1">
-                    <h2 className="text-2xl font-bold text-teal-800">
-                      {dayCloseStatus?.status === "approved" ? "Congratulations! Day Approved 🎉" : "Day Close Rejected"}
-                    </h2>
-                    {doneAnimation ? (
-                      <div className="w-32 h-32">
-                        <Lottie animationData={doneAnimation} loop={false} />
+                  <div className="flex flex-col items-center gap-2">
+                    <h2 className={`text-2xl font-bold ${statusTitleClass}`}>{statusTitle}</h2>
+                    {isApproved ? (
+                      doneAnimation ? (
+                        <div className="w-32 h-32">
+                          <Lottie animationData={doneAnimation} loop={false} />
+                        </div>
+                      ) : (
+                        <div className="w-32 h-32 flex items-center justify-center text-teal-600">
+                          <CheckCircle className="w-28 h-28" />
+                        </div>
+                      )
+                    ) : isRejected ? (
+                      <div className="w-32 h-32 flex items-center justify-center text-red-600">
+                        <XCircle className="w-28 h-28" />
                       </div>
                     ) : (
                       <div className="w-32 h-32 flex items-center justify-center">
-                        <Loader2 className="w-8 h-8 text-teal-600 animate-spin" />
+                        <Loader2 className="w-8 h-8 text-gray-500 animate-spin" />
                       </div>
                     )}
-                    <p className="text-base font-bold text-gray-800 text-center max-w-md">
-                      Your day close request for {formatIST(dayCloseStatus?.date)} has been {dayCloseStatus?.status} by{" "}
+                    <p className={`text-base font-semibold text-center max-w-md ${statusMessageClass}`}>
+                      Your day close request for {formatIST(dayCloseStatus?.date)} has been {statusLabel} by {" "}
                       {dayCloseStatus?.approvedByName || "Unknown"}.
                     </p>
                   </div>
                   {(dayCloseStatus?.routineLog || dayCloseStatus?.ISRoutineLog || dayCloseStatus?.generalLog || dayCloseStatus?.ISGeneralLog) && (
-                    <div className="w-full max-w-md bg-teal-50/50 border border-teal-200 rounded-xl p-6 mb-4 space-y-4">
+                    <div className={summaryCardClass}>
                       <div className="flex flex-col gap-2">
                         <h3 className="text-lg font-semibold text-gray-800 mb-2">Routine</h3>
                         <div className="flex justify-start">
-                          <div className="bg-teal-100 p-3 rounded-r-xl rounded-bl-xl max-w-[80%] text-sm text-gray-700">
+                          <div className={`p-3 rounded-r-xl rounded-bl-xl max-w-[80%] text-sm ${memberBubbleClass}`}>
                             <span className="font-medium">Your Comment:</span> {dayCloseStatus.routineLog || "No routine log"}
                           </div>
                         </div>
                         {dayCloseStatus.ISRoutineLog && (
                           <div className="flex justify-end">
-                            <div className="bg-gray-100 p-3 rounded-l-xl rounded-br-xl max-w-[80%] text-sm text-gray-700">
+                            <div className={`p-3 rounded-l-xl rounded-br-xl max-w-[80%] text-sm ${supervisorBubbleClass}`}>
                               <span className="font-medium">Supervisor's Comment:</span> {dayCloseStatus.ISRoutineLog}
                             </div>
                           </div>
@@ -555,13 +597,13 @@ export default function DayCloseWaitingModal({
                       <div className="flex flex-col gap-2">
                         <h3 className="text-lg font-semibold text-gray-800 mb-2">Closing Comment</h3>
                         <div className="flex justify-start">
-                          <div className="bg-teal-100 p-3 rounded-r-xl rounded-bl-xl max-w-[80%] text-sm text-gray-700">
+                          <div className={`p-3 rounded-r-xl rounded-bl-xl max-w-[80%] text-sm ${memberBubbleClass}`}>
                             <span className="font-medium">Your Comment:</span> {dayCloseStatus.generalLog || "No general log"}
                           </div>
                         </div>
                         {dayCloseStatus.ISGeneralLog && (
                           <div className="flex justify-end">
-                            <div className="bg-gray-100 p-3 rounded-l-xl rounded-br-xl max-w-[80%] text-sm text-gray-700">
+                            <div className={`p-3 rounded-l-xl rounded-br-xl max-w-[80%] text-sm ${supervisorBubbleClass}`}>
                               <span className="font-medium">Supervisor's Comment:</span> {dayCloseStatus.ISGeneralLog}
                             </div>
                           </div>
@@ -572,7 +614,7 @@ export default function DayCloseWaitingModal({
                   <div className="flex justify-between gap-4 w-full max-w-md">
                     <motion.button
                       onClick={onClose}
-                      className="flex-1 bg-teal-600 text-white py-3 rounded-xl font-semibold hover:bg-teal-700 transition-all duration-300 shadow-sm"
+                      className={primaryButtonClass}
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
                     >
@@ -581,7 +623,7 @@ export default function DayCloseWaitingModal({
                     {dayCloseStatus?.status === "rejected" && (
                       <motion.button
                         onClick={handleFollowUp}
-                        className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-semibold hover:bg-blue-700 transition-all duration-300 shadow-sm"
+                        className="flex-1 bg-slate-700 text-white py-3 rounded-xl font-semibold hover:bg-slate-800 transition-all duration-300 shadow-sm"
                         whileHover={{ scale: 1.02 }}
                         whileTap={{ scale: 0.98 }}
                       >

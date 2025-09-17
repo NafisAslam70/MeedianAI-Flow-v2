@@ -12,7 +12,10 @@ export default function GeneralLogView({
   setISGeneralLog,
   handlePrevViewStep,
   handleApprove,
+  handleReject,
   isApproving,
+  isRejecting,
+  isReadOnly = false,
 }) {
   const [showLogs, setShowLogs] = useState(true);
 
@@ -42,7 +45,10 @@ export default function GeneralLogView({
             value={ISGeneralLog}
             onChange={(e) => setISGeneralLog(e.target.value)}
             placeholder="Add your reply to the member’s note…"
-            className="border border-teal-200 p-3 rounded-xl w-full text-sm h-40 focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 bg-teal-50/50 resize-none"
+            disabled={isReadOnly}
+            className={`border border-teal-200 p-3 rounded-xl w-full text-sm h-40 focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 resize-none ${
+              isReadOnly ? "bg-gray-100 text-gray-500 cursor-not-allowed" : "bg-teal-50/50"
+            }`}
           />
         </div>
       </div>
@@ -63,7 +69,7 @@ export default function GeneralLogView({
             </>
           )}
         </button>
-        {showLogs && (
+        {showLogs && memberId && (
           <div className="mt-3 max-h-64 overflow-y-auto">
             <GeneralConversationThread memberId={memberId} limitDays={14} />
           </div>
@@ -71,7 +77,7 @@ export default function GeneralLogView({
       </div>
 
       {/* Actions */}
-      <div className="flex justify-between mt-6 gap-4">
+      <div className={`mt-6 flex flex-col sm:flex-row gap-4 ${isReadOnly ? "sm:items-center" : "sm:items-stretch"}`}>
         <motion.button
           onClick={handlePrevViewStep}
           className="flex-1 bg-gray-600 text-white py-3 rounded-xl font-semibold hover:bg-gray-500 transition-all duration-300"
@@ -80,17 +86,36 @@ export default function GeneralLogView({
         >
           Previous
         </motion.button>
-        <motion.button
-          onClick={handleApprove}
-          disabled={isApproving}
-          className={`flex-1 bg-green-600 text-white py-3 rounded-xl font-semibold transition-all duration-300 ${
-            isApproving ? "opacity-50 cursor-not-allowed" : "hover:bg-green-700"
-          }`}
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-        >
-          {isApproving ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Approve"}
-        </motion.button>
+        {!isReadOnly ? (
+          <div className="flex-1 flex flex-col sm:flex-row gap-4">
+            <motion.button
+              onClick={handleReject}
+              disabled={isRejecting || isApproving}
+              className={`flex-1 bg-red-600 text-white py-3 rounded-xl font-semibold transition-all duration-300 ${
+                isRejecting || isApproving ? "opacity-50 cursor-not-allowed" : "hover:bg-red-700"
+              }`}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              {isRejecting ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Reject"}
+            </motion.button>
+            <motion.button
+              onClick={handleApprove}
+              disabled={isApproving || isRejecting}
+              className={`flex-1 bg-green-600 text-white py-3 rounded-xl font-semibold transition-all duration-300 ${
+                isApproving || isRejecting ? "opacity-50 cursor-not-allowed" : "hover:bg-green-700"
+              }`}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              {isApproving ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Approve"}
+            </motion.button>
+          </div>
+        ) : (
+          <div className="flex-1 flex items-center sm:justify-end text-sm text-gray-500">
+            Actions are unavailable because this request is already processed.
+          </div>
+        )}
       </div>
     </div>
   );

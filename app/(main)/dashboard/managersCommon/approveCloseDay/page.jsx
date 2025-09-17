@@ -23,6 +23,7 @@ export default function ApproveCloseDay() {
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [currentViewStep, setCurrentViewStep] = useState(1);
   const [isApproving, setIsApproving] = useState(false);
+  const [isRejecting, setIsRejecting] = useState(false);
   const [ISRoutineLog, setISRoutineLog] = useState("");
   const [ISGeneralLog, setISGeneralLog] = useState("");
   const [error, setError] = useState("");
@@ -74,6 +75,8 @@ export default function ApproveCloseDay() {
     setCurrentViewStep(1);
     setISRoutineLog("");
     setISGeneralLog("");
+    setIsApproving(false);
+    setIsRejecting(false);
     setShowConfirmModal(false);
   };
 
@@ -101,6 +104,7 @@ export default function ApproveCloseDay() {
   };
 
   const handleReject = async (id) => {
+    setIsRejecting(true);
     try {
       const response = await fetch(`/api/managersCommon/dayCloseRequests/${id}`, {
         method: "PATCH",
@@ -117,6 +121,8 @@ export default function ApproveCloseDay() {
       }
     } catch (err) {
       setError(`Error rejecting day close: ${err.message}`);
+    } finally {
+      setIsRejecting(false);
     }
   };
 
@@ -366,15 +372,22 @@ export default function ApproveCloseDay() {
                     if (confirmAction === "approve") handleApprove(confirmRequestId);
                     else handleReject(confirmRequestId);
                   }}
+                  disabled={isApproving || isRejecting}
                   className={`flex-1 max-w-xs ${
                     confirmAction === "approve"
                       ? "bg-green-600 hover:bg-green-700"
                       : "bg-red-600 hover:bg-red-700"
-                  } text-white py-3 rounded-xl font-semibold transition-all duration-300 shadow-sm`}
+                  } text-white py-3 rounded-xl font-semibold transition-all duration-300 shadow-sm ${
+                    isApproving || isRejecting ? "opacity-50 cursor-not-allowed" : ""
+                  }`}
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                 >
-                  Yes
+                  {isApproving || isRejecting ? (
+                    <Loader2 className="w-5 h-5 animate-spin mx-auto" />
+                  ) : (
+                    "Yes"
+                  )}
                 </motion.button>
 
                 <motion.button
@@ -462,9 +475,12 @@ export default function ApproveCloseDay() {
                     generalLog={selectedRequest.generalLog}
                     ISGeneralLog={ISGeneralLog}
                     setISGeneralLog={setISGeneralLog}
+                    memberId={selectedRequest.userId}
                     handlePrevViewStep={handlePrevViewStep}
                     handleApprove={() => handleApprove(selectedRequest.id)}
+                    handleReject={() => handleReject(selectedRequest.id)}
                     isApproving={isApproving}
+                    isRejecting={isRejecting}
                     isReadOnly={selectedRequest.status !== "pending"}
                   />
                 )}
