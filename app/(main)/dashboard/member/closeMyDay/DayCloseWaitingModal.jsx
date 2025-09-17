@@ -35,9 +35,14 @@ export default function DayCloseWaitingModal({
   const [lastWordResetDate, setLastWordResetDate] = useState(null);
 
   const status = dayCloseStatus?.status;
-  const isApproved = status === "approved";
-  const isRejected = status === "rejected";
-  const statusLabel = status ? status.charAt(0).toUpperCase() + status.slice(1) : "processed";
+  const normalizedStatus = typeof status === "string" ? status.toLowerCase() : null;
+  const isApproved = normalizedStatus === "approved";
+  const isRejected = normalizedStatus === "rejected";
+  const hasFinalDecision = isApproved || isRejected;
+  const isWaiting = isWaitingForApproval && !hasFinalDecision;
+  const statusLabel = normalizedStatus
+    ? normalizedStatus.charAt(0).toUpperCase() + normalizedStatus.slice(1)
+    : "Processed";
   const statusTitle = isApproved
     ? "Congratulations! Day Approved 🎉"
     : isRejected
@@ -202,7 +207,7 @@ export default function DayCloseWaitingModal({
 
   // Initialize quiz or words when modal opens or activity changes
   useEffect(() => {
-    if (showWaitingModal && isWaitingForApproval) {
+    if (showWaitingModal && isWaiting) {
       if (activity === "quiz") {
         // Reset quiz state
         let availableIndices = quizQuestionPool
@@ -244,7 +249,7 @@ export default function DayCloseWaitingModal({
         setUsedWordIndices((prev) => [...new Set([...prev, ...selectedIndices])]);
       }
     }
-  }, [showWaitingModal, isWaitingForApproval, activity, lastWordResetDate]);
+  }, [showWaitingModal, isWaiting, activity, lastWordResetDate]);
 
   const handleQuizSubmit = () => {
     if (selectedAnswer === null) {
@@ -365,7 +370,7 @@ export default function DayCloseWaitingModal({
           >
             {/* Left: Animations and Timer (for pending) or Principle (for approved/rejected) */}
             <div className="flex flex-col items-center gap-6 w-1/3">
-              {isWaitingForApproval ? (
+              {isWaiting ? (
                 <>
                   {loading1Animation ? (
                     <div className="w-48 h-48">
@@ -416,7 +421,7 @@ export default function DayCloseWaitingModal({
 
             {/* Right: Content and Activities or Result */}
             <div className="flex-1 flex flex-col items-center gap-6">
-              {isWaitingForApproval ? (
+              {isWaiting ? (
                 <>
                   <h2 className="text-2xl font-bold text-teal-800">Hang Tight! Waiting for Approval 😄</h2>
                   <p className="text-sm text-gray-600 text-center max-w-md">
