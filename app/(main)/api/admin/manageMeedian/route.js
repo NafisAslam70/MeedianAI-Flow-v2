@@ -90,6 +90,7 @@ export async function GET(req) {
     "programScheduleCells",
     "openCloseTimes",
     "userOpenCloseTimes",
+    "randomsLab",
   ]);
   if (memberReadable.has(section)) {
     if (!session || !["admin", "team_manager", "member"].includes(session.user?.role)) {

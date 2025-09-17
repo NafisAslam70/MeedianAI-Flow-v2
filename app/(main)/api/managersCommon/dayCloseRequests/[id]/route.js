@@ -135,13 +135,15 @@ export async function PATCH(req, { params }) {
       }
     }
 
+    const decisionTimestamp = new Date();
+
     // Update request + IS comments
     await db
       .update(dayCloseRequests)
       .set({
         status,
-        approvedBy: status === "approved" ? supervisorId : null,
-        approvedAt: status === "approved" ? new Date() : null,
+        approvedBy: supervisorId,
+        approvedAt: decisionTimestamp,
         ISRoutineLog: ISRoutineLog || null,
         ISGeneralLog: ISGeneralLog || null,
       })

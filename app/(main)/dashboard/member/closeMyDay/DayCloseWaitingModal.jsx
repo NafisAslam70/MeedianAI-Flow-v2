@@ -4,6 +4,10 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Loader2, CheckCircle, XCircle } from "lucide-react";
 import Lottie from "lottie-react";
 import { format } from "date-fns";
+import loading1AnimationData from "@/public/lottie/Loading1.json";
+import loading2AnimationData from "@/public/lottie/Loading2.json";
+import goodnightAnimationData from "@/public/lottie/goodnight.json";
+import doneAnimationData from "@/public/lottie/done.json";
 
 export default function DayCloseWaitingModal({
   showWaitingModal,
@@ -17,10 +21,6 @@ export default function DayCloseWaitingModal({
   setError,
   onClose,
 }) {
-  const [loading1Animation, setLoading1Animation] = useState(null);
-  const [loading2Animation, setLoading2Animation] = useState(null);
-  const [goodnightAnimation, setGoodnightAnimation] = useState(null);
-  const [doneAnimation, setDoneAnimation] = useState(null);
   const [activity, setActivity] = useState("quiz");
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState(null);
@@ -34,12 +34,22 @@ export default function DayCloseWaitingModal({
   const [usedWordIndices, setUsedWordIndices] = useState([]);
   const [lastWordResetDate, setLastWordResetDate] = useState(null);
 
+  const loading1Animation = loading1AnimationData;
+  const loading2Animation = loading2AnimationData;
+  const goodnightAnimation = goodnightAnimationData;
+  const doneAnimation = doneAnimationData;
+
   const status = dayCloseStatus?.status;
   const isApproved = status === "approved";
   const isRejected = status === "rejected";
   const hasFinalDecision = isApproved || isRejected;
   const isWaiting = isWaitingForApproval && !hasFinalDecision;
   const statusLabel = status ? status.charAt(0).toUpperCase() + status.slice(1) : "processed";
+  const approverDisplayName =
+    dayCloseStatus?.approvedByName ??
+    (dayCloseStatus && dayCloseStatus.approvedBy != null
+      ? `Supervisor #${dayCloseStatus.approvedBy}`
+      : "Unknown");
   const statusTitle = isApproved
     ? "Congratulations! Day Approved 🎉"
     : isRejected
@@ -166,41 +176,6 @@ export default function DayCloseWaitingModal({
       quote: "“In every season, sustain your flame.”"
     }
   ];
-
-  // Fetch Lottie animations
-  useEffect(() => {
-    fetch("/lottie/Loading1.json")
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to load Loading1 animation");
-        return res.json();
-      })
-      .then((data) => setLoading1Animation(data))
-      .catch((err) => console.error("Error loading Loading1 animation:", err));
-
-    fetch("/lottie/Loading2.json")
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to load Loading2 animation");
-        return res.json();
-      })
-      .then((data) => setLoading2Animation(data))
-      .catch((err) => console.error("Error loading Loading2 animation:", err));
-
-    fetch("/lottie/goodnight.json")
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to load Goodnight animation");
-        return res.json();
-      })
-      .then((data) => setGoodnightAnimation(data))
-      .catch((err) => console.error("Error loading Goodnight animation:", err));
-
-    fetch("/lottie/done.json")
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to load Done animation");
-        return res.json();
-      })
-      .then((data) => setDoneAnimation(data))
-      .catch((err) => console.error("Error loading Done animation:", err));
-  }, []);
 
   // Initialize quiz or words when modal opens or activity changes
   useEffect(() => {
@@ -363,19 +338,19 @@ export default function DayCloseWaitingModal({
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.95, opacity: 0 }}
             transition={{ duration: 0.3 }}
-            className="bg-white/90 backdrop-blur-md rounded-3xl shadow-xl p-8 w-full max-w-6xl min-h-[450px] border border-teal-100/50 flex flex-row items-center justify-center gap-12 sm:p-6"
+            className="bg-white/90 backdrop-blur-md rounded-3xl shadow-xl p-8 w-full max-w-7xl max-h-[80vh] border border-teal-100/50 flex flex-row items-start justify-between gap-10 overflow-hidden sm:p-6"
           >
             {/* Left: Animations and Timer (for pending) or Principle (for approved/rejected) */}
-            <div className="flex flex-col items-center gap-6 w-1/3">
+            <div className="flex flex-col items-center gap-5 w-[320px] shrink-0">
               {isWaiting ? (
                 <>
                   {loading1Animation ? (
-                    <div className="w-48 h-48">
+                    <div className="w-36 h-36">
                       <Lottie animationData={loading1Animation} loop={true} />
                     </div>
                   ) : (
-                    <div className="w-48 h-48 flex items-center justify-center">
-                      <Loader2 className="w-8 h-8 text-teal-600 animate-spin" />
+                    <div className="w-36 h-36 flex items-center justify-center">
+                      <Loader2 className="w-7 h-7 text-teal-600 animate-spin" />
                     </div>
                   )}
                   <div className="text-center">
@@ -385,25 +360,25 @@ export default function DayCloseWaitingModal({
                     </div>
                   </div>
                   {loading2Animation ? (
-                    <div className="w-48 h-48">
+                    <div className="w-36 h-36">
                       <Lottie animationData={loading2Animation} loop={true} />
                     </div>
                   ) : (
-                    <div className="w-48 h-48 flex items-center justify-center">
-                      <Loader2 className="w-8 h-8 text-teal-600 animate-spin" />
+                    <div className="w-36 h-36 flex items-center justify-center">
+                      <Loader2 className="w-7 h-7 text-teal-600 animate-spin" />
                     </div>
                   )}
                 </>
               ) : (
                 dayCloseStatus?.date && (
-                  <div className="w-full h-full flex flex-col items-center justify-center text-center">
+                  <div className="w-full flex flex-col items-center justify-center text-center">
                     {goodnightAnimation ? (
-                      <div className="w-48 h-48 mb-4">
+                      <div className="w-32 h-32 mb-4">
                         <Lottie animationData={goodnightAnimation} loop={true} />
                       </div>
                     ) : (
-                      <div className="w-48 h-48 flex items-center justify-center mb-4">
-                        <Loader2 className="w-8 h-8 text-teal-600 animate-spin" />
+                      <div className="w-32 h-32 flex items-center justify-center mb-4">
+                        <Loader2 className="w-6 h-6 text-teal-600 animate-spin" />
                       </div>
                     )}
                     <h3 className="text-lg font-semibold text-gray-800 mb-2">
@@ -417,7 +392,7 @@ export default function DayCloseWaitingModal({
             </div>
 
             {/* Right: Content and Activities or Result */}
-            <div className="flex-1 flex flex-col items-center gap-6">
+            <div className="flex-1 flex flex-col items-center gap-6 overflow-y-auto pr-2">
               {isWaiting ? (
                 <>
                   <h2 className="text-2xl font-bold text-teal-800">Hang Tight! Waiting for Approval 😄</h2>
@@ -566,8 +541,8 @@ export default function DayCloseWaitingModal({
                         </div>
                       )
                     ) : isRejected ? (
-                      <div className="w-32 h-32 flex items-center justify-center text-red-600">
-                        <XCircle className="w-28 h-28" />
+                      <div className="w-24 h-24 flex items-center justify-center text-red-600">
+                        <XCircle className="w-20 h-20" />
                       </div>
                     ) : (
                       <div className="w-32 h-32 flex items-center justify-center">
@@ -576,7 +551,7 @@ export default function DayCloseWaitingModal({
                     )}
                     <p className={`text-base font-semibold text-center max-w-md ${statusMessageClass}`}>
                       Your day close request for {formatIST(dayCloseStatus?.date)} has been {statusLabel} by {" "}
-                      {dayCloseStatus?.approvedByName || "Unknown"}.
+                      {approverDisplayName}.
                     </p>
                   </div>
                   {(dayCloseStatus?.routineLog || dayCloseStatus?.ISRoutineLog || dayCloseStatus?.generalLog || dayCloseStatus?.ISGeneralLog) && (

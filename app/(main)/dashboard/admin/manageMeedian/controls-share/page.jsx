@@ -123,6 +123,13 @@ export default function ControlsSharePage() {
       description: 'Manage team accounts and flags.'
     },
     {
+      key: 'randomsLab',
+      label: 'Randoms Lab',
+      sections: ['randomsLab'],
+      doables: ['Access experimental toggles'],
+      description: 'Enable access to experimental Randoms Lab controls.',
+    },
+    {
       key: 'students',
       label: 'Students',
       sections: ['students'],

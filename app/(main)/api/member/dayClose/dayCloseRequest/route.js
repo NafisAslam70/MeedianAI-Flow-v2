@@ -1,7 +1,15 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
-import { dayCloseRequests, users, openCloseTimes, escalationsMatters, escalationsMatterMembers, dayCloseOverrides } from "@/lib/schema";
+import {
+  dayCloseRequests,
+  users,
+  openCloseTimes,
+  escalationsMatters,
+  escalationsMatterMembers,
+  dayCloseOverrides,
+  systemFlags,
+} from "@/lib/schema";
 import { eq, and, ne } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 
@@ -48,9 +56,21 @@ export async function POST(req) {
       }
     }
 
+    const FLAG_KEY = "show_day_close_bypass";
+    const [flagRow] = await db
+      .select({ value: systemFlags.value })
+      .from(systemFlags)
+      .where(eq(systemFlags.key, FLAG_KEY))
+      .limit(1);
+    const bypassEnabled = !!flagRow?.value;
+    const useBypass = !!bypass && bypassEnabled;
+    if (!!bypass && !bypassEnabled) {
+      return NextResponse.json({ error: "Day Close bypass is disabled by admin." }, { status: 403 });
+    }
+
     // TO BE REMOVED FOR PRODUCTION: Bypass closing window check
     // Validate closing window (skip if bypass is true)
-    if (!bypass) {
+    if (!useBypass) {
       const user = await db
         .select({ type: users.type })
         .from(users)

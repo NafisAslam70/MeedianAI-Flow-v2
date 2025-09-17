@@ -2,8 +2,15 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
-import { dayCloseRequests, users, escalationsMatters, escalationsMatterMembers, dayCloseOverrides } from "@/lib/schema";
-import { eq, and, gte, lte, ne } from "drizzle-orm";
+import {
+  dayCloseRequests,
+  users,
+  escalationsMatters,
+  escalationsMatterMembers,
+  dayCloseOverrides,
+  systemFlags,
+} from "@/lib/schema";
+import { eq, and, gte, lte, ne, desc } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import { startOfDay, endOfDay } from "date-fns";
 
@@ -38,6 +45,7 @@ export async function GET() {
           lte(dayCloseRequests.date, dayEndUTC),
         ),
       )
+      .orderBy(desc(dayCloseRequests.createdAt))
       .limit(1);
 
     // pause info
@@ -57,7 +65,24 @@ export async function GET() {
     const overrideActive = overrides.length > 0;
     const paused = count > 0 && !overrideActive;
 
-    return NextResponse.json({ ...(request ?? { status: "none" }), paused, openEscalations: count, overrideActive }, { status: 200 });
+    const FLAG_KEY = "show_day_close_bypass";
+    const [flagRow] = await db
+      .select({ value: systemFlags.value })
+      .from(systemFlags)
+      .where(eq(systemFlags.key, FLAG_KEY))
+      .limit(1);
+    const showBypass = !!flagRow?.value;
+
+    return NextResponse.json(
+      {
+        ...(request ?? { status: "none" }),
+        paused,
+        openEscalations: count,
+        overrideActive,
+        showBypass,
+      },
+      { status: 200 }
+    );
   } catch (err) {
     console.error("[dayCloseStatus] GET error:", err);
     return NextResponse.json(

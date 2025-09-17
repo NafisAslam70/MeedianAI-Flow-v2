@@ -55,6 +55,7 @@ export default function CloseMyDay() {
   const [success, setSuccess] = useState("");
   const [isPortrait, setIsPortrait] = useState(false);
   const [isBypass, setIsBypass] = useState(false);
+  const [allowBypass, setAllowBypass] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [selectedTask, setSelectedTask] = useState(null);
   const [taskDetails, setTaskDetails] = useState(null);
@@ -173,10 +174,19 @@ export default function CloseMyDay() {
   }, [routineTasksData]);
 
   useEffect(() => {
+    const showBypass = !!dayCloseStatus?.showBypass;
+    setAllowBypass(showBypass);
+    if (!showBypass) {
+      setIsBypass(false);
+    }
+
     if (dayCloseStatus && ["pending", "approved", "rejected"].includes(dayCloseStatus.status)) {
       setRequestStatus(dayCloseStatus.status);
       setRequestDate(dayCloseStatus.date || null);
-      setApprovedByName(dayCloseStatus.approvedByName || null);
+      const reviewerName =
+        dayCloseStatus.approvedByName ??
+        (dayCloseStatus.approvedBy != null ? `Supervisor #${dayCloseStatus.approvedBy}` : null);
+      setApprovedByName(reviewerName);
       setIsWaitingForApproval(dayCloseStatus.status === "pending");
       setShowWaitingModal(true);
       setElapsedTime(0);
@@ -217,6 +227,7 @@ export default function CloseMyDay() {
   };
 
   const handleBypassClose = () => {
+    if (!allowBypass) return;
     setIsBypass(true);
     setActiveView("process");
     setCurrentStep(1);
@@ -266,7 +277,7 @@ export default function CloseMyDay() {
         mriCleared,
         // 🔁 include the MRI payload snapshot if available
         mriReport: mriPayload || null,
-        bypass: isBypass,
+        bypass: allowBypass && isBypass,
       };
 
       const dayCloseRes = await fetch("/api/member/dayClose/dayCloseRequest", {
@@ -304,6 +315,7 @@ export default function CloseMyDay() {
       );
 
       setActiveView("main");
+      setIsBypass(false);
       setIsWaitingForApproval(true);
       setShowWaitingModal(true);
       mutateDayCloseStatus();
@@ -476,7 +488,7 @@ export default function CloseMyDay() {
                       </p>
                     )
                   )}
-                  {!isClosingWindow && !isBypass && (
+                  {!isClosingWindow && !isBypass && !allowBypass && (
                     <p className="text-sm text-red-500 mt-2">Closing window not active yet.</p>
                   )}
                   {requestStatus !== "none" && (
@@ -526,16 +538,19 @@ export default function CloseMyDay() {
                         <Clock size={16} />
                         Close My Day
                       </motion.button>
-                      <motion.button
-                        className="w-full bg-orange-600 text-white py-3 rounded-xl font-semibold hover:bg-orange-700 transition-all duration-300 flex items-center justify-center gap-2 shadow-md"
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        onClick={handleBypassClose}
-                        title="Bypass for testing - remove later"
-                      >
-                        <Clock size={16} />
-                        Bypass Close (Test)
-                      </motion.button>
+                      {allowBypass && (
+                        <motion.button
+                          className="w-full bg-orange-600 text-white py-3 rounded-xl font-semibold hover:bg-orange-700 transition-all duration-300 flex items-center justify-center gap-2 shadow-md"
+                          whileHover={{ scale: 1.02 }}
+                          whileTap={{ scale: 0.98 }}
+                          onClick={handleBypassClose}
+                          title="Bypass close window (admin-controlled toggle)"
+                          disabled={isSubmitting}
+                        >
+                          <Clock size={16} />
+                          Bypass Close (Test)
+                        </motion.button>
+                      )}
                     </>
                   )}
                 </div>
