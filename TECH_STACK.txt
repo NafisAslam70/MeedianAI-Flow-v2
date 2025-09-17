@@ -1,0 +1,44 @@
+Tech Stack Overview
+===================
+
+Web Application
+- Next.js 15 (App Router) with React 19 and React DOM 19
+- Styling via Tailwind CSS 4, custom CSS, and component animation with Framer Motion
+- State/data utilities: SWR, React Hook Form, React Toastify, React Tooltip, React Loading Skeleton
+- UI/UX assets: Lucide React icons, Heroicons, Lottie React, React Confetti, date pickers, QR generation (qrcode), html5-qrcode scanner
+- Three.js experience support through react-three/fiber and drei helpers
+
+API & Server Side
+- Next.js route handlers for REST APIs backed by Node.js runtime
+- Authentication with NextAuth 5 (next-auth + @auth/core)
+- Scheduling/background tasks through node-cron
+- Realtime communication via Socket.IO (server & client) and WebRTC helpers (simple-peer, peerjs)
+- File & media services: Cloudinary, @vercel/blob
+- Notifications & messaging integrations: Twilio SMS/voice
+- Translation/AI integrations: Google Cloud Translate, @google/generative-ai, OpenAI, DeepL (deepl-node, deepl), translate/translatte
+
+Data Layer
+- PostgreSQL as the primary database (pg, postgres clients)
+- Drizzle ORM with drizzle-kit migrations for schema management
+- Prisma Client 6 for legacy/auxiliary data access patterns
+- Redis 5 for caching/ephemeral data
+- Neon serverless adapter (@neondatabase/serverless) for Postgres connectivity in serverless environments
+
+Infrastructure & Configuration
+- Environment management with dotenv and .env files
+- Image processing and uploads with Cloudinary SDK
+- Form/data parsing utilities such as formidable, lodash
+- Utility libs: date-fns, bcrypt/bcryptjs for hashing, lodash helpers, node http polyfill
+
+Mobile Application (Expo Workspace `meedianAI-Flow-Mobile`)
+- Expo 51 with React Native 0.74 and React 18
+- Expo Router navigation, Safe Area Context, React Native Screens, Async Storage
+- Shared web support via react-native-web and expo web runtime
+
+Build & Tooling
+- Tailwind/PostCSS toolchain (@tailwindcss/postcss)
+- Drizzle Kit CLI for migrations
+- Prisma CLI for schema introspection/migrations
+- ESLint/TypeScript are managed by Next.js defaults (implicit)
+- npm (package-lock.json) for dependency and script orchestration
+

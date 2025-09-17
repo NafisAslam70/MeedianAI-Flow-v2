@@ -39,7 +39,7 @@ export default function DayCloseWaitingModal({
   const isApproved = normalizedStatus === "approved";
   const isRejected = normalizedStatus === "rejected";
   const hasFinalDecision = isApproved || isRejected;
-  const isWaiting = isWaitingForApproval && !hasFinalDecision;
+  const isWaiting = normalizedStatus === "pending" || (!normalizedStatus && isWaitingForApproval);
   const statusLabel = normalizedStatus
     ? normalizedStatus.charAt(0).toUpperCase() + normalizedStatus.slice(1)
     : "Processed";
