@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Users, Monitor, LogOut, X, Camera, Mic, ScreenShare,
   AlertCircle, Music, VolumeX, MessageSquare, Hand, Clipboard,
-  Loader2, ExternalLink, Send, CheckCircle2
+  Loader2, ExternalLink, Send, CheckCircle2, ChevronDown, ChevronUp
 } from "lucide-react";
 
 /* ───────── helpers ───────── */
@@ -146,6 +146,7 @@ export default function WorkTogether() {
   const [firstFeedLoad, setFirstFeedLoad] = useState(true);
   const [refreshingFeed, setRefreshingFeed] = useState(false);
   const feedCacheRef = useRef({ etag: null });
+  const [feedOpen, setFeedOpen] = useState(false);
 
   // Exit modal state
   const [exitOpen, setExitOpen] = useState(false);
@@ -549,11 +550,23 @@ export default function WorkTogether() {
           </header>
 
           <div className="flex flex-1 flex-col gap-4 lg:flex-row lg:items-stretch">
-            {/* Left: Meedians Right Now feed (stable) */}
-            <div className="order-3 w-full max-h-[320px] overflow-y-auto rounded-3xl border border-purple-300/20 bg-cyan-900/20 p-4 text-cyan-100 backdrop-blur-md shadow-md lg:order-1 lg:w-72 lg:max-h-none lg:p-5">
+            {/* Left: Meedians Right Now feed (collapsible on mobile) */}
+            <div className="order-3 w-full rounded-3xl border border-purple-300/20 bg-cyan-900/20 text-cyan-100 backdrop-blur-md shadow-md lg:order-1 lg:w-72">
+              <button
+                type="button"
+                onClick={() => setFeedOpen((prev) => !prev)}
+                className="flex w-full items-center justify-between gap-2 rounded-t-3xl bg-white/5 px-4 py-3 text-sm font-semibold text-cyan-100 lg:cursor-default lg:bg-transparent"
+              >
+                <span>Meedians Right Now</span>
+                <span className="lg:hidden">
+                  {feedOpen ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+                </span>
+              </button>
+              <div className={`transition-[max-height,opacity] duration-300 ease-out lg:max-h-none lg:opacity-100 ${feedOpen ? 'max-h-[360px] opacity-100' : 'max-h-0 opacity-0 lg:max-h-none lg:opacity-100'}`}>
+                <div className="max-h-[320px] overflow-y-auto px-4 pb-4 lg:max-h-none lg:p-5">
             <div className="flex items-center justify-between mb-3">
               <h2 className="font-semibold">Meedians Right Now</h2>
-              <div className="flex items-center gap-2">
+              <div className="hidden items-center gap-2 lg:flex">
                 {refreshingFeed && <Loader2 className="w-4 h-4 animate-spin text-cyan-300" />}
                 <button
                   onClick={() => loadFeed(true)}
@@ -561,6 +574,7 @@ export default function WorkTogether() {
                 >
                   Refresh
                 </button>
+              </div>
               </div>
             </div>
 
@@ -592,8 +606,8 @@ export default function WorkTogether() {
                       />
                       <div className="min-w-0">
                         <div className="flex items-center justify-between gap-2">
-                          <p className="font-semibold text-white truncate">{item.userName || "Member"}</p>
-                          <span className="text-xs text-gray-400">{timeAgo(item.startedAt)}</span>
+                          <p className="truncate font-semibold text-white">{item.userName || "Member"}</p>
+                          <span className="whitespace-nowrap text-xs text-gray-400">{timeAgo(item.startedAt)}</span>
                         </div>
                         {/* category pill + text */}
                         <div className="mt-1 flex items-center gap-2 flex-wrap">
@@ -826,9 +840,11 @@ export default function WorkTogether() {
             className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-[100]"
           >
             <motion.div
-              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }} transition={{ duration: 0.22 }}
-              className="bg-cyan-950/80 backdrop-blur-xl rounded-2xl p-6 w-full max-w-md border border-cyan-900/50 text-cyan-100"
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              transition={{ duration: 0.22 }}
+              className="w-full max-w-lg rounded-t-3xl border border-cyan-900/50 bg-cyan-950/80 p-5 text-cyan-100 shadow-2xl backdrop-blur-xl sm:rounded-2xl"
             >
               <div className="flex items-start justify-between gap-4">
                 <h3 className="text-lg font-semibold">Wrap up before leaving?</h3>
