@@ -43,7 +43,7 @@ import {
   managerSectionGrants,
   nmriTodRoleEnum,
 } from "@/lib/schema";
-import { eq, or, inArray, and, ne } from "drizzle-orm";
+import { eq, or, inArray, and, ne, sql } from "drizzle-orm";
 import bcrypt from "bcrypt";
 import formidable from 'formidable';
 import fetch from 'node-fetch';
@@ -142,12 +142,39 @@ export async function GET(req) {
       const rows = await db
         .select({ id: Classes.id, name: Classes.name, section: Classes.section, track: Classes.track, active: Classes.active })
         .from(Classes);
-      let filtered = rows;
-      if (track) {
-        filtered = rows.filter(r => ((r.track || "").toLowerCase() === track) || !r.track);
-        if (filtered.length === 0) filtered = rows; // fallback to avoid empty UI if DB not backfilled yet
+
+      if (!track) {
+        return NextResponse.json({ classes: rows }, { status: 200 });
       }
-      return NextResponse.json({ classes: filtered }, { status: 200 });
+
+      const isPrePrimaryName = (value) => {
+        const v = String(value || "").trim().toLowerCase();
+        if (!v) return false;
+        if (v === "lkg" || v === "ukg") return true;
+        if (v === "nur" || v === "nursery") return true;
+        // allow variations that start with "nur" (e.g., "NUR", "Nursery A")
+        return v.startsWith("nur");
+      };
+      const romanRegex = /^(i|ii|iii|iv|v|vi|vii|viii)$/i;
+
+      const filtered = rows.filter((r) => {
+        const rowTrack = (r.track || "").toLowerCase();
+        if (rowTrack === track || rowTrack === "both") return true;
+
+        const name = String(r.name || "").trim();
+        const nameLower = name.toLowerCase();
+        if (!rowTrack) {
+          if (track === "pre_primary") {
+            return isPrePrimaryName(nameLower);
+          }
+          if (track === "elementary") {
+            return /^\d+$/.test(name) || romanRegex.test(nameLower);
+          }
+        }
+        return false;
+      });
+
+      return NextResponse.json({ classes: filtered.length ? filtered : rows }, { status: 200 });
     }
     if (section === "team") {
       const userData = await db
@@ -180,7 +207,11 @@ export async function GET(req) {
         userMriRolesMap[userId].push(role);
       });
 
-      return NextResponse.json({ users: userData, userMriRoles: userMriRolesMap }, { status: 200 });
+      const roleDefs = await db
+        .select({ roleKey: mriRoleDefs.roleKey, name: mriRoleDefs.name, category: mriRoleDefs.category, active: mriRoleDefs.active })
+        .from(mriRoleDefs);
+
+      return NextResponse.json({ users: userData, userMriRoles: userMriRolesMap, mriRoleDefs: roleDefs }, { status: 200 });
     }
 
     if (section === "openCloseTimes") {
@@ -550,7 +581,7 @@ export async function POST(req) {
       const allowedWrite = new Set([
         "slots","slotsWeekly","slotRoleAssignments","seedSlotsWeekly",
         "mspCodes","mspCodeAssignments",
-        "classes","classTeachers",
+        "classes","classTeachers","randomsLab",
         "metaFamilies","metaPrograms","metaProgramRoles","metaRoleDefs","metaRoleTasks",
         "programPeriods","programScheduleCells",
         "openCloseTimes","userOpenCloseTimes",
@@ -741,46 +772,111 @@ export async function POST(req) {
     }
     if (section === "classes") {
       try {
-        const name = String(body?.name || "").trim();
+        const remove = body?.remove === true;
+        const idValue = body?.id ? Number(body.id) : null;
+        let name = typeof body?.name === "string" ? String(body.name).trim() : "";
         const oldName = body?.oldName ? String(body.oldName).trim() : null;
+        let track = typeof body?.track === "string" ? String(body.track).trim() : "";
         const oldTrack = body?.oldTrack ? String(body.oldTrack).trim() : null;
-        const track = String(body?.track || "").trim();
         const sectionVal = body?.section ? String(body.section).trim() : null;
-        const active = typeof body?.active === 'boolean' ? body.active : true;
+        const active = typeof body?.active === "boolean" ? body.active : true;
+
+        if (remove) {
+          let klass = null;
+          if (idValue) {
+            const rows = await db
+              .select({ id: Classes.id, name: Classes.name, track: Classes.track })
+              .from(Classes)
+              .where(eq(Classes.id, idValue))
+              .limit(1);
+            klass = rows[0];
+          } else {
+            const lookupName = name || oldName;
+            const lookupTrack = track || oldTrack;
+            if (!lookupName || !lookupTrack) {
+              return NextResponse.json({ error: "name or id required to delete class" }, { status: 400 });
+            }
+            const rows = await db
+              .select({ id: Classes.id, name: Classes.name, track: Classes.track })
+              .from(Classes)
+              .where(and(eq(Classes.name, lookupName), eq(Classes.track, lookupTrack)))
+              .limit(1);
+            klass = rows[0];
+          }
+
+          if (!klass) {
+            return NextResponse.json({ error: "Class not found" }, { status: 404 });
+          }
+
+          const studentRows = await db
+            .select({ count: sql`COUNT(*)::int` })
+            .from(students)
+            .where(eq(students.classId, klass.id));
+          const studentCount = Number(studentRows?.[0]?.count ?? 0);
+          if (studentCount > 0) {
+            return NextResponse.json(
+              {
+                error: `Cannot delete ${klass.name}. ${studentCount} student${studentCount === 1 ? "" : "s"} still linked to this class. Reassign them first.`,
+              },
+              { status: 409 }
+            );
+          }
+
+          await db.delete(programScheduleDays).where(eq(programScheduleDays.classId, klass.id));
+          await db.delete(programScheduleCells).where(eq(programScheduleCells.classId, klass.id));
+          await db.delete(classParentTeachers).where(eq(classParentTeachers.classId, klass.id));
+          await db.delete(Classes).where(eq(Classes.id, klass.id));
+
+          return NextResponse.json({ ok: true, deleted: true, id: klass.id, name: klass.name, track: klass.track }, { status: 200 });
+        }
+
+        if (!track) track = oldTrack || track;
         if (!track) return NextResponse.json({ error: "track required" }, { status: 400 });
-        if (!name && !oldName) return NextResponse.json({ error: "name or oldName required" }, { status: 400 });
-        // Validate name by track
-        const isPre = track === 'pre_primary';
-        const isEle = track === 'elementary';
+
+        if (!name) name = oldName || name;
+        if (!name) return NextResponse.json({ error: "name or oldName required" }, { status: 400 });
+
+        const isPre = track === "pre_primary";
+        const isEle = track === "elementary";
         if (isPre) {
-          const allowed = new Set(['Nursery','LKG','UKG']);
+          const allowed = new Set(["Nursery", "LKG", "UKG"]);
           if (name && !allowed.has(name)) return NextResponse.json({ error: "Pre-Primary name must be Nursery/LKG/UKG" }, { status: 400 });
         }
         if (isEle) {
-          const isNumeric = name ? /^\d+$/.test(name) : false;
-          const isRoman = name ? /^(i|ii|iii|iv|v|vi|vii|viii)$/i.test(name) : false;
-          if (name && !(isNumeric || isRoman)) {
+          const isNumeric = /^\d+$/.test(name);
+          const isRoman = /^(i|ii|iii|iv|v|vi|vii|viii)$/i.test(name);
+          if (!(isNumeric || isRoman)) {
             return NextResponse.json({ error: "Elementary name must be numeric (1..8) or Roman (I..VIII)" }, { status: 400 });
           }
         }
-        // Rename if oldName provided
+
+        if (idValue) {
+          await db
+            .update(Classes)
+            .set({ name, section: sectionVal ?? null, active, track })
+            .where(eq(Classes.id, idValue));
+          return NextResponse.json({ ok: true, updated: true });
+        }
+
         if (oldName || oldTrack) {
-          await db.update(Classes)
+          await db
+            .update(Classes)
             .set({ name, section: sectionVal ?? null, active, track })
             .where(and(eq(Classes.name, oldName || name), eq(Classes.track, oldTrack || track)));
           return NextResponse.json({ ok: true, renamed: true });
         }
-        // Upsert by (name, track)
+
         try {
           await db.insert(Classes).values({ name, track, section: sectionVal ?? null, active });
         } catch (e) {
-          await db.update(Classes)
+          await db
+            .update(Classes)
             .set({ section: sectionVal ?? null, active })
             .where(and(eq(Classes.name, name), eq(Classes.track, track)));
         }
         return NextResponse.json({ ok: true });
       } catch (e) {
-        return NextResponse.json({ error: e.message || 'Failed' }, { status: 500 });
+        return NextResponse.json({ error: e.message || "Failed" }, { status: 500 });
       }
     }
     // Create a role definition (used by admin meta-roles page and ensuring built-in roleKey)

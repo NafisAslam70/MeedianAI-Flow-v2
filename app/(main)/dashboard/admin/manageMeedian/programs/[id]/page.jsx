@@ -65,48 +65,95 @@ export default function ProgramDetailPage() {
   const { data: klassData, mutate: refreshKlass } = useSWR(`/api/admin/manageMeedian?section=classes&track=${track}`, fetcher);
   // Derive classes (SOP override -> cells -> fallback)
   const classes = useMemo(() => {
+    const fromDb =
+      (klassData?.classes || [])
+        .filter((c) => {
+          const rowTrack = String(c.track || "").toLowerCase();
+          return rowTrack === String(track).toLowerCase() || rowTrack === "both";
+        })
+        .map((c) => String(c.name || c.id || ""))
+        .filter(Boolean);
+
+    if (fromDb.length) return fromDb;
+
     const fromSop = program?.sop?.classList?.[track];
     if (Array.isArray(fromSop) && fromSop.length) {
-      const list = fromSop.map(String);
-      if (track === "pre_primary") {
-        const allowed = list.filter((v) => ["Nursery","LKG","UKG"].includes(v));
-        return allowed.length ? allowed : ["Nursery", "LKG", "UKG"];
-      }
-      if (track === "elementary") {
-        const numeric = list.filter((v) => /^\d+$/.test(v));
-        if (numeric.length) return numeric;
-        // if SOP contains pre-primary names by mistake, ignore and fallback
-      }
+      return fromSop.map(String).filter(Boolean);
     }
 
     if (track === "pre_primary") {
       return ["Nursery", "LKG", "UKG"];
-    } else if (track === "elementary") {
+    }
+    if (track === "elementary") {
       const cells = cellData?.cells || [];
-      const cls = Array.from(new Set(cells.map((c) => String(c.className || c.classId)))).filter((v) => /^\d+$/.test(v));
+      const cls = Array.from(new Set(cells.map((c) => String(c.className || c.classId))))
+        .filter((v) => /^\d+$/.test(v));
       return cls.length ? cls : ["1", "2", "3", "4", "5", "6", "7", "8"];
     }
 
     return [];
-  }, [program, cellData, track]);
+  }, [klassData, program, cellData, track]);
 
   const effectiveClasses = useMemo(() => {
-    const fallback = (classes || []).map((name) => ({ name, track }));
-    const base = (klassData?.classes && klassData.classes.length) ? klassData.classes : fallback;
+    const normalizeTrack = (value) => String(value || "").toLowerCase();
+    const isPrePrimaryName = (value) => {
+      const v = String(value || "").trim().toLowerCase();
+      if (!v) return false;
+      if (v === "lkg" || v === "ukg" || v === "nur" || v === "nursery") return true;
+      return v.startsWith("nur");
+    };
+    const romanRegex = /^(i|ii|iii|iv|v|vi|vii|viii)$/i;
+
+    const belongsToTrack = (cls) => {
+      const selectedTrack = normalizeTrack(track);
+      const clsTrack = normalizeTrack(cls.track);
+      const name = String(cls.name || cls.id || "").trim();
+      const nameLower = name.toLowerCase();
+
+      if (!selectedTrack) return true;
+      if (clsTrack === selectedTrack || clsTrack === "both") return true;
+
+      if (!clsTrack) {
+        if (selectedTrack === "pre_primary") {
+          return isPrePrimaryName(nameLower);
+        }
+        if (selectedTrack === "elementary") {
+          return /^\d+$/.test(name) || romanRegex.test(nameLower);
+        }
+      }
+
+      return false;
+    };
+
+    const base = (klassData?.classes && klassData.classes.length)
+      ? klassData.classes
+      : (classes || []).map((name) => ({ name, track }));
+
     const seen = new Set();
     const list = [];
     (base || []).forEach((c) => {
-      const nm = String(c.name || c.id || '');
-      const tr = String(c.track || track);
-      const k = `${nm}|${tr}`;
-      if (!seen.has(k)) { seen.add(k); list.push({ ...c, name: nm, track: tr }); }
+      if (!belongsToTrack(c)) return;
+      const nm = String(c.name || c.id || "");
+      const tr = normalizeTrack(c.track) || normalizeTrack(track);
+      const displayTrack = c.trackLabel || (tr === "pre_primary" ? "pre-primary" : tr);
+      const key = c.id != null ? String(c.id) : `${nm}|${tr}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        list.push({ ...c, name: nm, track: tr, displayTrack, _key: key, id: c.id });
+      }
     });
-    return list.sort((a,b)=>{
-      const an = Number(a.name), bn = Number(b.name);
-      const anNum = !Number.isNaN(an), bnNum = !Number.isNaN(bn);
+
+    if (!list.length) return [];
+
+    return list.sort((a, b) => {
+      const an = Number(a.name);
+      const bn = Number(b.name);
+      const anNum = !Number.isNaN(an);
+      const bnNum = !Number.isNaN(bn);
       if (anNum && bnNum) return an - bn;
-      if (anNum) return -1; if (bnNum) return 1;
-      return String(a.name||'').localeCompare(String(b.name||''));
+      if (anNum) return -1;
+      if (bnNum) return 1;
+      return String(a.name || "").localeCompare(String(b.name || ""));
     });
   }, [klassData, classes, track]);
   const [fullscreen, setFullscreen] = useState(false);
@@ -144,6 +191,7 @@ export default function ProgramDetailPage() {
   // removed: section selector for Manage Classes
   const [editedClasses, setEditedClasses] = useState({});
   const [rowSaving, setRowSaving] = useState(null);
+  const [bulkSaving, setBulkSaving] = useState(false);
 
 
   // Adapter for the modal’s current rendering (id/name fields)
@@ -187,12 +235,143 @@ export default function ProgramDetailPage() {
     const next = Array.from(new Set([...classes.map(String), name]));
     await saveClassList(next);
     setNewClassName("");
+    setEditedClasses({});
     // keep section as-is so multiple classes can be added quickly
   }
 
-  async function handleDeleteClass(nameOrId) {
-    const next = classes.filter((c) => String(c) !== String(nameOrId));
-    await saveClassList(next);
+  async function handleDeleteClass(target) {
+    const klass = typeof target === "object" && target !== null
+      ? target
+      : { name: String(target), track };
+    const className = String(klass.name || klass.id);
+    const classTrack = String(klass.track || track);
+    const classKey = klass._key || (klass.id != null ? String(klass.id) : `${className}|${classTrack}`);
+    if (!className) return;
+    if (typeof window !== "undefined") {
+      const confirmDelete = window.confirm(`Delete class "${className}"? This removes related schedule entries.`);
+      if (!confirmDelete) return;
+    }
+    setRowSaving(classKey);
+    try {
+      const res = await fetch('/api/admin/manageMeedian?section=classes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: klass.id, name: className, track: classTrack, remove: true })
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+
+      const next = classes.filter((c) => String(c) !== String(className));
+      await saveClassList(next);
+      setEditedClasses((prev) => {
+        const copy = { ...prev };
+        delete copy[classKey];
+        return copy;
+      });
+      await refreshKlass?.();
+      await syncSOPFromDB();
+    } catch (e) {
+      const msg = e?.message || 'Failed to delete class';
+      if (typeof window !== 'undefined') window.alert(msg);
+    } finally {
+      setRowSaving(null);
+    }
+  }
+
+  const hasPendingEdits = useMemo(() => {
+    return effectiveClasses.some((cls) => {
+      const key = cls._key || (cls.id != null ? String(cls.id) : String(cls.name || cls.id));
+      const edited = editedClasses[key];
+      if (!edited) return false;
+      const currentName = String(cls.name || cls.id || "");
+      const currentTrack = String(cls.track || track);
+      const currentActive = cls.active !== false;
+      const nextNameRaw = edited.name ?? currentName;
+      const nextName = nextNameRaw.trim();
+      const nextTrack = edited.track || currentTrack;
+      const nextActive = typeof edited.active === 'boolean' ? edited.active : currentActive;
+
+      if (nextName !== currentName && nextName.length > 0) return true;
+      if (nextName.length === 0 && nextNameRaw !== currentName) return true;
+      if (nextTrack !== currentTrack) return true;
+      if (nextActive !== currentActive) return true;
+      return false;
+    });
+  }, [editedClasses, effectiveClasses, track]);
+
+  async function handlePersistEdits() {
+    if (!hasPendingEdits) return;
+    setBulkSaving(true);
+    let appliedChanges = false;
+    try {
+      for (const cls of effectiveClasses) {
+        const key = cls._key || (cls.id != null ? String(cls.id) : String(cls.name || cls.id));
+        const edited = editedClasses[key];
+        if (!edited) continue;
+
+        const currentName = String(cls.name || cls.id || "");
+        const currentTrack = String(cls.track || track);
+        const currentActive = cls.active !== false;
+
+        const nextNameRaw = edited.name ?? currentName;
+        const trimmedName = nextNameRaw.trim();
+        if (trimmedName.length === 0) {
+          if (nextNameRaw !== currentName && typeof window !== 'undefined') {
+            window.alert(`Class name cannot be blank for "${currentName}".`);
+          }
+          throw new Error("validation");
+        }
+
+        const nextName = trimmedName;
+        const nextTrack = edited.track || currentTrack;
+        const nextActive = typeof edited.active === 'boolean' ? edited.active : currentActive;
+
+        if (nextName === currentName && nextTrack === currentTrack && nextActive === currentActive) {
+          continue;
+        }
+
+        const payload = {
+          id: cls.id,
+          name: nextName,
+          track: nextTrack,
+          active: nextActive,
+        };
+        if (cls.id == null) {
+          payload.oldName = currentName;
+          payload.oldTrack = currentTrack;
+        }
+
+        const res = await fetch('/api/admin/manageMeedian?section=classes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}));
+          throw new Error(j.error || `Failed: HTTP ${res.status}`);
+        }
+
+        appliedChanges = true;
+      }
+
+    } catch (e) {
+      if (e?.message !== 'validation' && typeof window !== 'undefined') {
+        window.alert(e?.message || 'Failed to save changes');
+      }
+    } finally {
+      if (appliedChanges) {
+        try {
+          await refreshKlass?.();
+          await syncSOPFromDB();
+          setEditedClasses({});
+        } catch (err) {
+          if (typeof window !== 'undefined') {
+            window.alert(err?.message || 'Failed to refresh classes after saving');
+          }
+        }
+      }
+      setBulkSaving(false);
+    }
   }
 
   async function syncSOPFromDB() {
@@ -417,73 +596,81 @@ export default function ProgramDetailPage() {
                         <div className="text-center py-4 text-gray-500">No classes found.</div>
                       ) : (
                         <ul>
-                          {effectiveClasses.filter(c => String(c.track||track)===track && (c.active !== false)).map((cls) => {
-                            const originalName = String(cls.name || cls.id);
-                            const edited = editedClasses[originalName] || {
-                              name: originalName,
-                              active: cls.active !== false,
-                              track: String(cls.track || track),
-                            };
-                            return (
-                              <li key={(cls.id ?? `${originalName}|${edited.track}`)} className="flex items-center gap-2 px-4 py-2 border-b last:border-b-0">
-                                <input
-                                  className="w-24 border rounded px-2 py-1 text-xs"
-                                  value={edited.name}
-                                  onChange={(e)=> setEditedClasses((m)=> ({ ...m, [originalName]: { ...edited, name: e.target.value } }))}
-                                  placeholder="Name"
-                                  title="Class name"
-                                />
-                                <select
-                                  className="w-28 border rounded px-2 py-1 text-xs"
-                                  value={edited.track}
-                                  onChange={(e)=> setEditedClasses((m)=> ({ ...m, [originalName]: { ...edited, track: e.target.value } }))}
-                                  title="Track"
-                                >
-                                  <option value="pre_primary">Pre‑Primary</option>
-                                  <option value="elementary">Elementary</option>
-                                </select>
-                                <label className="text-xs flex items-center gap-1">
+                          {effectiveClasses
+                            .filter((c) => String(c.track || track) === track && (c.active !== false))
+                            .map((cls) => {
+                              const key = cls._key || (cls.id != null ? String(cls.id) : String(cls.name || cls.id));
+                              const originalName = String(cls.name || cls.id);
+                              const edited = editedClasses[key] || {
+                                name: originalName,
+                                active: cls.active !== false,
+                                track: String(cls.track || track),
+                              };
+                              return (
+                                <li key={key} className="flex items-center gap-2 px-4 py-2 border-b last:border-b-0">
                                   <input
-                                    type="checkbox"
-                                    checked={edited.active}
-                                    onChange={(e)=> setEditedClasses((m)=> ({ ...m, [originalName]: { ...edited, active: e.target.checked } }))}
-                                  />
-                                  Active
-                                </label>
-                                <button
-                                  className="ml-auto px-2 py-1 text-xs rounded border bg-white"
-                                  disabled={rowSaving === originalName}
-                                  onClick={async ()=>{
-                                    setRowSaving(originalName);
-                                    try {
-                                      const originalTrack = String(cls.track || track);
-                                      const payload = (originalName !== edited.name || originalTrack !== edited.track)
-                                        ? { oldName: originalName, oldTrack: originalTrack, name: edited.name, track: edited.track, active: edited.active }
-                                        : { name: edited.name, track: edited.track, active: edited.active };
-                                      const res = await fetch(`/api/admin/manageMeedian?section=classes`, {
-                                        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
-                                      });
-                                      if (!res.ok) {
-                                        const j = await res.json().catch(()=>({}));
-                                        alert(j.error || `Failed: HTTP ${res.status}`);
-                                      } else {
-                                        await refreshKlass?.();
-                                        await syncSOPFromDB();
-                                      }
-                                    } finally {
-                                      setRowSaving(null);
+                                    className="w-24 border rounded px-2 py-1 text-xs"
+                                    value={edited.name}
+                                    onChange={(e) =>
+                                      setEditedClasses((m) => ({
+                                        ...m,
+                                        [key]: { ...edited, name: e.target.value },
+                                      }))
                                     }
-                                  }}
-                                >
-                                  {rowSaving === originalName ? 'Saving…' : 'Save'}
-                                </button>
-                                <button className="text-red-500 hover:underline text-xs" onClick={() => handleDeleteClass(originalName)}>Delete</button>
-                              </li>
-                            );
-                          })}
+                                    placeholder="Name"
+                                    title="Class name"
+                                  />
+                                  <select
+                                    className="w-28 border rounded px-2 py-1 text-xs"
+                                    value={edited.track}
+                                    onChange={(e) =>
+                                      setEditedClasses((m) => ({
+                                        ...m,
+                                        [key]: { ...edited, track: e.target.value },
+                                      }))
+                                    }
+                                    title="Track"
+                                  >
+                                    <option value="pre_primary">Pre‑Primary</option>
+                                    <option value="elementary">Elementary</option>
+                                  </select>
+                                  <label className="text-xs flex items-center gap-1">
+                                    <input
+                                      type="checkbox"
+                                      checked={edited.active}
+                                      onChange={(e) =>
+                                        setEditedClasses((m) => ({
+                                          ...m,
+                                          [key]: { ...edited, active: e.target.checked },
+                                        }))
+                                      }
+                                    />
+                                    Active
+                                  </label>
+                                  <button
+                                    className="ml-auto text-red-500 hover:underline text-xs disabled:opacity-50"
+                                    onClick={() => handleDeleteClass(cls)}
+                                    disabled={rowSaving === key || bulkSaving}
+                                  >
+                                    {rowSaving === key ? 'Deleting…' : 'Delete'}
+                                  </button>
+                                </li>
+                              );
+                            })}
                         </ul>
                       )}
                     </div>
+                    )}
+                    {manageClassesStep === 'list' && (
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        className="mt-3 w-full"
+                        onClick={handlePersistEdits}
+                        disabled={!hasPendingEdits || bulkSaving}
+                      >
+                        {bulkSaving ? 'Saving Changes…' : 'Save Changes'}
+                      </Button>
                     )}
                   </div>
                 </div>

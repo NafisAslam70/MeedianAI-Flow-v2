@@ -28,7 +28,7 @@ export default function TeamPage() {
     "hostel_incharge",
     "principal",
   ];
-  const mriRoles = [
+  const builtinMriRoles = [
     "nmri_moderator",
     "msp_ele_moderator",
     "msp_pre_moderator",
@@ -40,6 +40,8 @@ export default function TeamPage() {
     "util_moderator",
     "pt_moderator",
   ];
+  const [mriRoles, setMriRoles] = useState(builtinMriRoles);
+  const [mriRoleLabels, setMriRoleLabels] = useState({});
 
   const { data: userData, error: userError } = useSWR("/api/admin/manageMeedian?section=team", fetcher, {
     revalidateOnFocus: false,
@@ -55,6 +57,17 @@ export default function TeamPage() {
     if (userData) {
       setUsers(userData.users || []);
       setUserMriRoles(userData.userMriRoles || {});
+      const defs = Array.isArray(userData.mriRoleDefs)
+        ? userData.mriRoleDefs.filter((d) => d.active !== false)
+        : [];
+      const customKeys = defs.map((d) => d.roleKey).filter(Boolean);
+      const combined = Array.from(new Set([...builtinMriRoles, ...customKeys]));
+      setMriRoles(combined);
+      const labelMap = {};
+      defs.forEach((d) => {
+        if (d.roleKey) labelMap[d.roleKey] = d.name || d.roleKey;
+      });
+      setMriRoleLabels(labelMap);
       setLoading((p) => ({ ...p, team: false }));
     }
     if (userError) {
@@ -88,7 +101,13 @@ export default function TeamPage() {
   };
 
   const handleUserMriRoleChange = (userId, roles) => {
-    setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, mriRoles: roles.filter((role) => mriRoles.includes(role)) } : u)));
+    setUsers((prev) =>
+      prev.map((u) =>
+        u.id === userId
+          ? { ...u, mriRoles: roles.filter((role) => mriRoles.includes(role)) }
+          : u
+      )
+    );
   };
 
   const handleUserTimeToggle = (userId, checked) => {
@@ -172,6 +191,7 @@ export default function TeamPage() {
         memberScopes={memberScopes}
         teamManagerTypes={teamManagerTypes}
         mriRoles={mriRoles}
+        mriRoleLabels={mriRoleLabels}
         userMriRoles={userMriRoles}
         saveTeamChanges={saveTeamChanges}
         saveUserTimesChanges={saveUserTimesChanges}

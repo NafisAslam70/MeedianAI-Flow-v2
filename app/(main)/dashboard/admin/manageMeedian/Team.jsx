@@ -17,6 +17,7 @@ export default function Team({
   memberScopes,
   teamManagerTypes,
   mriRoles,
+  mriRoleLabels = {},
   userMriRoles = {},
   saveTeamChanges,
   saveUserTimesChanges,
@@ -44,7 +45,11 @@ export default function Team({
   const toggleCard = (id) => setExpandedCard((prev) => (prev === id ? null : id));
   const toggleShowPassword = (userId) =>
     setShowPasswords((prev) => ({ ...prev, [userId]: !prev[userId] }));
-  const toRoleLabel = (r) => r?.replaceAll("_", " ").toUpperCase();
+  const toRoleLabel = (r) => {
+    if (!r) return "";
+    if (mriRoleLabels[r]) return mriRoleLabels[r];
+    return r.replaceAll("_", " ").toUpperCase();
+  };
 
   // Determine which MRI roles are assigned to other users
   const getAssignedRoles = (currentUserId) => {
@@ -470,7 +475,7 @@ export default function Team({
                 >
                   <option value="">Select a role…</option>
                   {mriRoles.map((r) => (
-                    <option key={r} value={r}>{r.replaceAll("_"," ").toUpperCase()}</option>
+                    <option key={r} value={r}>{toRoleLabel(r)}</option>
                   ))}
                 </select>
               </div>
@@ -523,7 +528,7 @@ export default function Team({
                     });
                     const data = await res.json();
                     if (!res.ok) throw new Error(data.error || `Failed: ${res.status}`);
-                    setSuccess(`Assigned ${bulkRole.replaceAll('_',' ').toUpperCase()} to ${bulkUserIds.length} users`);
+                    setSuccess(`Assigned ${toRoleLabel(bulkRole)} to ${bulkUserIds.length} users`);
                     setShowBulkModal(false);
                     try { if (typeof refreshTeam === 'function') await refreshTeam(); } catch {}
                   } catch (e) {
