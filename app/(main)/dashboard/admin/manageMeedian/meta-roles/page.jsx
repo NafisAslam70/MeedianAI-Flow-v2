@@ -179,22 +179,33 @@ export default function RoleDefinitionsPage() {
     setLoading(true);
     setMessage(null);
     try {
-      const payload = {
+      let payload = {
         roleKey: String(form.roleKey || "").trim(),
         name: String(form.name || "").trim(),
         category: form.category,
-        subCategory:
-          form.category === "amri" && form.subCategory
-            ? (String(form.subCategory).trim().toUpperCase() || null)
-            : null,
       };
-      const res = await fetch(`/api/admin/manageMeedian?section=metaRoleDefs`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.error || "Failed to create role");
+
+      if (form.category === "amri") {
+        const normalizedSub = String(form.subCategory || "").trim();
+        const subCategory = normalizedSub ? normalizedSub.toUpperCase() : "GENERAL";
+        const res = await fetch(`/api/admin/manageMeedian?section=metaRoleDefs`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...payload, subCategory }),
+        });
+        const j = await res.json();
+        if (!res.ok) throw new Error(j.error || "Failed to create role");
+        const ensured = await ensureRoleDefForBuiltin(payload.roleKey);
+        if (!ensured) throw new Error("Role definition not found after creation");
+      } else {
+        const res = await fetch(`/api/admin/manageMeedian?section=metaRoleDefs`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const j = await res.json();
+        if (!res.ok) throw new Error(j.error || "Failed to create role");
+      }
       setModalOpen(false);
       await fetchAll();
       setMessage({ type: "success", text: `Role ${payload.roleKey} created` });
