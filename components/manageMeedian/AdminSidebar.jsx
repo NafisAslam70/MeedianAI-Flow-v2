@@ -3,7 +3,7 @@ import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { Users, GraduationCap, Boxes, CalendarDays, Workflow, Sparkles } from "lucide-react";
+import { Users, GraduationCap, Boxes, CalendarDays, Workflow, Sparkles, Megaphone } from "lucide-react";
 import useSWR from "swr";
 
 const groups = [
@@ -49,6 +49,16 @@ const groups = [
 				href: "/dashboard/admin/manageMeedian/team",
 				label: "Manage Team",
 				icon: Users,
+			},
+		],
+	},
+	{
+		title: "Community",
+		items: [
+			{
+				href: "/dashboard/admin/manageMeedian/community",
+				label: "Meed Community",
+				icon: Megaphone,
 			},
 		],
 	},

@@ -881,7 +881,7 @@ export async function POST(req) {
     }
     // Create a role definition (used by admin meta-roles page and ensuring built-in roleKey)
     if (section === "metaRoleDefs") {
-      const { roleKey, name, category = "rmri", active = true } = body || {};
+      const { roleKey, name, category = "rmri", subCategory = null, active = true } = body || {};
       if (!roleKey || !name) {
         return NextResponse.json({ error: "roleKey and name required" }, { status: 400 });
       }
@@ -890,9 +890,19 @@ export async function POST(req) {
       if (existing.length) {
         return NextResponse.json({ roleDef: existing[0], message: "Role already exists" }, { status: 200 });
       }
+      const normalizedCategory = String(category).trim();
+      const normalizedSubCategory = subCategory != null && String(subCategory).trim() !== ""
+        ? String(subCategory).trim()
+        : null;
       const [row] = await db
         .insert(mriRoleDefs)
-        .values({ roleKey: normalizedKey, name: String(name).trim(), category: String(category).trim(), active: !!active })
+        .values({
+          roleKey: normalizedKey,
+          name: String(name).trim(),
+          category: normalizedCategory,
+          subCategory: normalizedSubCategory,
+          active: !!active,
+        })
         .returning();
       return NextResponse.json({ roleDef: row, message: "Role created" }, { status: 201 });
     }
@@ -1419,6 +1429,28 @@ export async function PATCH(req) {
         if (u.description !== undefined) setObj.description = u.description ? String(u.description) : null;
         if (Object.keys(setObj).length === 0) continue;
         await db.update(dailySlots).set(setObj).where(eq(dailySlots.id, id));
+        updated += 1;
+      }
+      return NextResponse.json({ updated }, { status: 200 });
+    }
+
+    if (section === "metaRoleDefs") {
+      const updates = Array.isArray(body.updates) ? body.updates : [];
+      if (!updates.length) return NextResponse.json({ error: "updates[] required" }, { status: 400 });
+      let updated = 0;
+      for (const u of updates) {
+        const id = Number(u.id);
+        if (!id) continue;
+        const setObj = {};
+        if (u.name !== undefined) setObj.name = String(u.name);
+        if (u.category !== undefined) setObj.category = String(u.category);
+        if (u.subCategory !== undefined) {
+          const sc = String(u.subCategory || "").trim();
+          setObj.subCategory = sc ? sc.toUpperCase() : null;
+        }
+        if (u.active !== undefined) setObj.active = !!u.active;
+        if (Object.keys(setObj).length === 0) continue;
+        await db.update(mriRoleDefs).set(setObj).where(eq(mriRoleDefs.id, id));
         updated += 1;
       }
       return NextResponse.json({ updated }, { status: 200 });

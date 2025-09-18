@@ -12,6 +12,16 @@ const DEFAULT_CATEGORY_OPTIONS = [
   { value: "nmri", label: "NMRI (Non-academic)" },
 ];
 
+const AMRI_SUBCATEGORY_OPTIONS = [
+  { value: "", label: "Unassigned" },
+  { value: "MSP", label: "MSP" },
+  { value: "MHCP", label: "MHCP" },
+  { value: "MNP", label: "MNP" },
+  { value: "MAP", label: "MAP" },
+  { value: "MGHP", label: "MGHP" },
+  { value: "GENERAL", label: "General" },
+];
+
 const builtinCategoryMap = {
   nmri_moderator: "nmri",
   msp_ele_moderator: "rmri",
@@ -23,6 +33,11 @@ const builtinCategoryMap = {
   sports_moderator: "amri",
   util_moderator: "amri",
   pt_moderator: "amri",
+};
+
+const builtinSubCategoryMap = {
+  mhcp1_moderator: "MHCP",
+  mhcp2_moderator: "MHCP",
 };
 
 function Modal({ open, title, onClose, children, wide = false }) {
@@ -62,7 +77,7 @@ export default function RoleDefinitionsPage() {
   const [defs, setDefs] = useState([]);
   const [tab, setTab] = useState("amri");
   const [modalOpen, setModalOpen] = useState(false);
-  const [form, setForm] = useState({ roleKey: "", name: "", category: "rmri" });
+  const [form, setForm] = useState({ roleKey: "", name: "", category: "rmri", subCategory: "" });
   const [message, setMessage] = useState(null);
   const [families, setFamilies] = useState([]);
   const [taskModal, setTaskModal] = useState({ open: false, role: null, tasks: [], loading: false });
@@ -149,7 +164,13 @@ export default function RoleDefinitionsPage() {
   }, []);
 
   const openCreate = (presetCategory) => {
-    setForm({ roleKey: "", name: "", category: presetCategory || (categoryOptions[0]?.value || "rmri") });
+    const targetCategory = presetCategory || (categoryOptions[0]?.value || "rmri");
+    setForm({
+      roleKey: "",
+      name: "",
+      category: targetCategory,
+      subCategory: targetCategory === "amri" ? "" : "",
+    });
     setModalOpen(true);
   };
 
@@ -158,16 +179,25 @@ export default function RoleDefinitionsPage() {
     setLoading(true);
     setMessage(null);
     try {
+      const payload = {
+        roleKey: String(form.roleKey || "").trim(),
+        name: String(form.name || "").trim(),
+        category: form.category,
+        subCategory:
+          form.category === "amri" && form.subCategory
+            ? (String(form.subCategory).trim().toUpperCase() || null)
+            : null,
+      };
       const res = await fetch(`/api/admin/manageMeedian?section=metaRoleDefs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Failed to create role");
       setModalOpen(false);
       await fetchAll();
-      setMessage({ type: "success", text: `Role ${form.roleKey} created` });
+      setMessage({ type: "success", text: `Role ${payload.roleKey} created` });
     } catch (e) {
       setMessage({ type: "error", text: e.message });
     } finally {
@@ -179,10 +209,17 @@ export default function RoleDefinitionsPage() {
     setLoading(true);
     setMessage(null);
     try {
+      const payload = { ...patch };
+      if (payload.subCategory !== undefined) {
+        payload.subCategory = payload.subCategory && String(payload.subCategory).trim() !== ""
+          ? String(payload.subCategory).trim().toUpperCase()
+          : null;
+      }
+      if (payload.category) payload.category = String(payload.category).trim();
       const res = await fetch(`/api/admin/manageMeedian?section=metaRoleDefs`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ updates: [{ id, ...patch }] }),
+        body: JSON.stringify({ updates: [{ id, ...payload }] }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Failed to update role");
@@ -218,11 +255,12 @@ export default function RoleDefinitionsPage() {
   const ensureRoleDefForBuiltin = async (roleKey) => {
     const pretty = String(roleKey).replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
     const category = builtinCategoryMap[roleKey] || "rmri";
+    const subCategory = category === "amri" ? (builtinSubCategoryMap[roleKey] || "") : null;
     try {
       const res = await fetch(`/api/admin/manageMeedian?section=metaRoleDefs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ roleKey, name: pretty, category }),
+        body: JSON.stringify({ roleKey, name: pretty, category, subCategory }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Failed to ensure role def");
@@ -412,15 +450,40 @@ export default function RoleDefinitionsPage() {
                   <div className="flex-1">
                     <div className="text-gray-900 font-medium">{d.roleKey}</div>
                     <div className="text-gray-600">{d.name}</div>
+                    {d.category === "amri" && (
+                      <div className="text-xs text-teal-700 mt-1">Sub-category: {d.subCategory || "Unassigned"}</div>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
-                    <Select label="Category" value={d.category || "rmri"} onChange={(e) => updateRole(d.id, { category: e.target.value })}>
+                    <Select
+                      label="Category"
+                      value={d.category || "rmri"}
+                      onChange={(e) => {
+                        const nextCat = e.target.value;
+                        const payload = { category: nextCat };
+                        if (nextCat !== "amri") payload.subCategory = null;
+                        updateRole(d.id, payload);
+                      }}
+                    >
                       {(categoryOptions || DEFAULT_CATEGORY_OPTIONS).map((o) => (
                         <option key={o.value} value={o.value}>
                           {o.label}
                         </option>
                       ))}
                     </Select>
+                    {d.category === "amri" && (
+                      <Select
+                        label="Program"
+                        value={d.subCategory || ""}
+                        onChange={(e) => updateRole(d.id, { subCategory: e.target.value })}
+                      >
+                        {AMRI_SUBCATEGORY_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </Select>
+                    )}
                     <Button onClick={() => openTasks(d)} variant="secondary">Tasks</Button>
                     <Button onClick={() => updateRole(d.id, { active: !d.active })} variant={d.active ? "secondary" : "primary"}>
                       {d.active ? "Disable" : "Enable"}
@@ -491,13 +554,37 @@ export default function RoleDefinitionsPage() {
         <form onSubmit={createRole} className="space-y-3">
           <Input label="Role Key" value={form.roleKey} onChange={(e) => setForm({ ...form, roleKey: e.target.value })} required />
           <Input label="Display Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-          <Select label="Category" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
+          <Select
+            label="Category"
+            value={form.category}
+            onChange={(e) => {
+              const value = e.target.value;
+              setForm((prev) => ({
+                ...prev,
+                category: value,
+                subCategory: value === "amri" ? prev.subCategory : "",
+              }));
+            }}
+          >
             {(categoryOptions || DEFAULT_CATEGORY_OPTIONS).map((o) => (
               <option key={o.value} value={o.value}>
                 {o.label}
               </option>
             ))}
           </Select>
+          {form.category === "amri" && (
+            <Select
+              label="Sub-category (Program)"
+              value={form.subCategory || ""}
+              onChange={(e) => setForm((prev) => ({ ...prev, subCategory: e.target.value }))}
+            >
+              {AMRI_SUBCATEGORY_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
+          )}
           <div className="flex items-center justify-end gap-2 pt-2">
             <Button type="button" variant="ghost" onClick={() => setModalOpen(false)}>Cancel</Button>
             <Button type="submit" disabled={loading} variant="primary">Create</Button>

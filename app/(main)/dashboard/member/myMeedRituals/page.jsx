@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
@@ -14,6 +14,14 @@ const fetcher = (url) =>
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
     return res.json();
   });
+
+const DEFAULT_AMRI_PROGRAMS = [
+  { key: "MSP", label: "MSP" },
+  { key: "MHCP", label: "MHCP" },
+  { key: "MNP", label: "MNP" },
+  { key: "MAP", label: "MAP" },
+  { key: "MGHP", label: "MGHP" },
+];
 
 export default function MyMRIs() {
   const { data: session, status } = useSession();
@@ -30,11 +38,7 @@ export default function MyMRIs() {
   const [isAMRIsModalOpen, setIsAMRIsModalOpen] = useState(false);
   const [isNMRIsModalOpen, setIsNMRIsModalOpen] = useState(false);
   const [isSlotDescriptionModalOpen, setIsSlotDescriptionModalOpen] = useState(false);
-  const [isMSPModalOpen, setIsMSPModalOpen] = useState(false);
-  const [isMHCPModalOpen, setIsMHCPModalOpen] = useState(false);
-  const [isMNPModalOpen, setIsMNPModalOpen] = useState(false);
-  const [isMAPModalOpen, setIsMAPModalOpen] = useState(false);
-  const [isMGHPModalOpen, setIsMGHPModalOpen] = useState(false);
+  const [activeAmriProgramKey, setActiveAmriProgramKey] = useState(null);
   const [isRMRIInfoOpen, setIsRMRIInfoOpen] = useState(false);
   const [rRoleModalOpen, setRRoleModalOpen] = useState(false);
   const [rTaskModalOpen, setRTaskModalOpen] = useState(false);
@@ -57,6 +61,64 @@ export default function MyMRIs() {
   const { data: roleTasksData, error: roleTasksError } = useSWR(
     session?.user?.id ? "/api/member/mris/role-tasks" : null,
     fetcher
+  );
+
+  const { amriRoleBundles, rmriRoleBundles, otherRoleBundles } = useMemo(() => {
+    const bundles = Array.isArray(roleTasksData?.roles) ? roleTasksData.roles : [];
+    const amri = [];
+    const rmri = [];
+    const other = [];
+    for (const bundle of bundles) {
+      const cat = String(bundle?.category || "rmri").toLowerCase();
+      if (cat === "amri") amri.push(bundle);
+      else if (cat === "rmri") rmri.push(bundle);
+      else other.push(bundle);
+    }
+    return { amriRoleBundles: amri, rmriRoleBundles: rmri, otherRoleBundles: other };
+  }, [roleTasksData]);
+
+  const amriProgramOptions = useMemo(() => {
+    const map = new Map();
+    for (const bundle of amriRoleBundles) {
+      const subKey = String(bundle?.subCategory || "").trim().toUpperCase();
+      const programKey = String(bundle?.program?.programKey || "").trim().toUpperCase();
+      const key = subKey || programKey || "GENERAL";
+      const label = bundle?.program?.name
+        || (subKey && subKey !== "GENERAL" ? subKey
+        : programKey && programKey !== "" ? programKey
+        : key === "GENERAL" ? "General" : key);
+      if (!map.has(key)) {
+        map.set(key, { key, label, roles: [] });
+      }
+      map.get(key).roles.push(bundle);
+    }
+
+    const ordered = DEFAULT_AMRI_PROGRAMS.map((preset) => {
+      const existing = map.get(preset.key);
+      return existing ? { ...existing, label: existing.label || preset.label } : { key: preset.key, label: preset.label, roles: [] };
+    });
+
+    const extras = Array.from(map.values())
+      .filter((program) => !DEFAULT_AMRI_PROGRAMS.some((preset) => preset.key === program.key))
+      .sort((a, b) => a.key.localeCompare(b.key));
+
+    return [...ordered, ...extras];
+  }, [amriRoleBundles]);
+
+  useEffect(() => {
+    if (!amriProgramOptions.length) {
+      if (activeAmriProgramKey !== null) setActiveAmriProgramKey(null);
+      return;
+    }
+    const exists = amriProgramOptions.some((p) => p.key === activeAmriProgramKey);
+    if (!exists) {
+      setActiveAmriProgramKey(amriProgramOptions[0].key);
+    }
+  }, [amriProgramOptions, activeAmriProgramKey]);
+
+  const activeAmriProgram = useMemo(
+    () => amriProgramOptions.find((p) => p.key === activeAmriProgramKey) || null,
+    [amriProgramOptions, activeAmriProgramKey]
   );
 
   // Fetch today's A-MRIs and N-MRIs
@@ -818,35 +880,79 @@ export default function MyMRIs() {
                 A-Rituals
               </h3>
               <div className="grid grid-cols-3 gap-3">
-                {["MSP", "MHCP", "MNP"].map((program, index) => (
-                  <motion.button
-                    key={program}
-                    className="bg-teal-50/80 rounded-xl p-3 flex items-center justify-center text-teal-800 font-semibold text-sm hover:bg-teal-100 transition-all duration-300"
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ duration: 0.3, delay: index * 0.1 }}
-                    whileHover={{ scale: 1.05 }}
-                    onClick={() => {
-                      if (program === "MSP") setIsMSPModalOpen(true);
-                      if (program === "MHCP") setIsMHCPModalOpen(true);
-                      if (program === "MNP") setIsMNPModalOpen(true);
-                    }}
-                  >
-                    {program}
-                  </motion.button>
-                ))}
+                {amriProgramOptions.map((program, index) => {
+                  const isActive = program.key === activeAmriProgramKey;
+                  const hasRoles = program.roles.length > 0;
+                  return (
+                    <motion.button
+                      key={program.key}
+                      className={`rounded-xl p-3 flex flex-col items-center justify-center text-sm font-semibold transition-all duration-300 text-center ${
+                        isActive
+                          ? "bg-teal-600 text-white shadow"
+                          : "bg-teal-50/80 text-teal-800 hover:bg-teal-100"
+                      }`}
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ duration: 0.3, delay: index * 0.08 }}
+                      whileHover={{ scale: 1.05 }}
+                      onClick={() => setActiveAmriProgramKey(program.key)}
+                    >
+                      <span>{program.label}</span>
+                      <span className={`mt-1 text-[0.65rem] font-medium ${isActive ? "text-teal-100" : "text-teal-600/70"}`}>
+                        {hasRoles ? `${program.roles.length} role${program.roles.length > 1 ? "s" : ""}` : "No roles"}
+                      </span>
+                    </motion.button>
+                  );
+                })}
               </div>
+
+              {activeAmriProgram && (
+                <div className="mt-4 rounded-2xl border border-teal-100 bg-teal-50/60 p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-teal-900">{activeAmriProgram.label} Roles</p>
+                      <p className="text-xs text-teal-700/80">Click a role to view its tasks.</p>
+                    </div>
+                    <span className="text-xs font-medium text-teal-700/80">
+                      {activeAmriProgram.roles.length} assigned
+                    </span>
+                  </div>
+                  {activeAmriProgram.roles.length ? (
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      {activeAmriProgram.roles.map((roleBundle) => (
+                        <motion.button
+                          key={roleBundle.roleKey}
+                          className="bg-white rounded-lg px-3 py-2 text-sm text-teal-800 font-medium text-left hover:bg-teal-100 transition"
+                          initial={{ opacity: 0, y: 6 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.25 }}
+                          onClick={() => {
+                            setSelectedRoleBundle(roleBundle);
+                            setRRoleModalOpen(true);
+                          }}
+                        >
+                          {roleBundle.roleName || roleBundle.roleKey}
+                        </motion.button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-3 text-xs text-teal-700/80">
+                      No AMRI roles assigned for {activeAmriProgram.label} yet.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* R-MRIs (Role-Based) */}
-            {(roleTasksData?.roles || []).length > 0 && (
+            {rmriRoleBundles.length > 0 && (
               <div className="mb-6">
                 <h3 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
                   <CheckCircle size={18} className="text-rose-600" />
                   R-MRIs (Role-Based Tasks)
                 </h3>
                 <div className="grid grid-cols-3 gap-3">
-                  {(roleTasksData.roles || []).map((r, index) => (
+                  {rmriRoleBundles.map((r, index) => (
                     <motion.button
                       key={r.roleKey}
                       className="bg-rose-50/80 rounded-xl p-3 flex items-center justify-center text-rose-800 font-semibold text-sm hover:bg-rose-100 transition-all duration-300 text-center"
@@ -858,6 +964,36 @@ export default function MyMRIs() {
                       title={r.roleKey}
                     >
                       {r.roleName || r.roleKey}
+                    </motion.button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {otherRoleBundles.length > 0 && (
+              <div className="mb-6">
+                <h3 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                  <CheckCircle size={18} className="text-indigo-500" />
+                  MRI Roles
+                </h3>
+                <div className="grid grid-cols-3 gap-3">
+                  {otherRoleBundles.map((r, index) => (
+                    <motion.button
+                      key={`${r.roleKey}-${index}`}
+                      className="bg-indigo-50/80 rounded-xl p-3 flex flex-col items-center justify-center text-indigo-800 font-semibold text-sm hover:bg-indigo-100 transition-all duration-300 text-center"
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ duration: 0.3, delay: index * 0.05 }}
+                      whileHover={{ scale: 1.05 }}
+                      onClick={() => { setSelectedRoleBundle(r); setRRoleModalOpen(true); }}
+                      title={`${r.roleName || r.roleKey}${r?.category ? ` · ${r.category.toUpperCase()}` : ""}`}
+                    >
+                      <span>{r.roleName || r.roleKey}</span>
+                      {r?.category && (
+                        <span className="mt-1 text-[0.65rem] font-medium text-indigo-600/80">
+                          {r.category.toUpperCase()}
+                        </span>
+                      )}
                     </motion.button>
                   ))}
                 </div>
@@ -923,25 +1059,28 @@ export default function MyMRIs() {
                 <h3 className="text-lg font-bold text-gray-800 mb-2">A-Rituals</h3>
                 <p className="text-sm text-gray-600 mb-4">View all A-Rituals for the week</p>
                 <div className="grid grid-cols-3 gap-3 w-full">
-                  {["MSP", "MHCP", "MNP", "MAP", "MGHP"].map((program, index) => (
-                    <motion.button
-                      key={program}
-                      className="bg-teal-50/80 rounded-xl p-3 text-teal-800 font-semibold text-sm hover:bg-teal-100 transition-all duration-300"
-                      initial={{ opacity: 0, scale: 0.9 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ duration: 0.3, delay: index * 0.1 }}
-                      whileHover={{ scale: 1.05 }}
-                      onClick={() => {
-                        if (program === "MSP") setIsMSPModalOpen(true);
-                        if (program === "MHCP") setIsMHCPModalOpen(true);
-                        if (program === "MNP") setIsMNPModalOpen(true);
-                        if (program === "MAP") setIsMAPModalOpen(true);
-                        if (program === "MGHP") setIsMGHPModalOpen(true);
-                      }}
-                    >
-                      {program}
-                    </motion.button>
-                  ))}
+                  {amriProgramOptions.map((program, index) => {
+                    const isActive = program.key === activeAmriProgramKey;
+                    const hasRoles = program.roles.length > 0;
+                    return (
+                      <motion.button
+                        key={`all-rituals-${program.key}`}
+                        className={`rounded-xl px-3 py-2 text-sm font-semibold transition-all duration-300 ${
+                          isActive ? "bg-teal-600 text-white" : "bg-teal-50/80 text-teal-800 hover:bg-teal-100"
+                        }`}
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ duration: 0.3, delay: index * 0.08 }}
+                        whileHover={{ scale: 1.05 }}
+                        onClick={() => setActiveAmriProgramKey(program.key)}
+                      >
+                        <div>{program.label}</div>
+                        <div className={`mt-1 text-[0.65rem] font-medium ${isActive ? "text-teal-100" : "text-teal-600/70"}`}>
+                          {hasRoles ? `${program.roles.length} role${program.roles.length > 1 ? "s" : ""}` : "No roles"}
+                        </div>
+                      </motion.button>
+                    );
+                  })}
                 </div>
               </motion.div>
 
@@ -957,7 +1096,7 @@ export default function MyMRIs() {
               </motion.div>
 
               {/* R-Rituals Card */}
-              {(roleTasksData?.roles || []).length > 0 && (
+              {rmriRoleBundles.length > 0 && (
                 <motion.div
                   className="bg-white/50 backdrop-blur-sm rounded-2xl shadow-md p-6 border border-rose-100/50 flex flex-col text-left"
                   whileHover={{ scale: 1.02, boxShadow: "0 8px 16px rgba(225, 29, 72, 0.08)" }}
@@ -966,7 +1105,7 @@ export default function MyMRIs() {
                   <h3 className="text-lg font-bold text-gray-800 mb-2">R-Rituals</h3>
                   <p className="text-sm text-gray-600 mb-4">Role-based tasks available to you</p>
                   <div className="grid grid-cols-2 gap-2">
-                    {roleTasksData.roles
+                    {rmriRoleBundles
                       .flatMap((r) => (r.tasks || []).map((t) => ({ roleName: r.roleName || r.roleKey, task: t })))
                       .map((rt, idx) => (
                         <motion.button
@@ -1016,6 +1155,16 @@ export default function MyMRIs() {
                     <X size={20} />
                   </motion.button>
                 </div>
+                {selectedRoleBundle?.program && (
+                  <div className="text-sm text-emerald-700 font-medium mb-3">
+                    Program: {selectedRoleBundle.program.name || selectedRoleBundle.program.programKey}
+                  </div>
+                )}
+                {!selectedRoleBundle?.program && selectedRoleBundle?.subCategory && (
+                  <div className="text-sm text-emerald-700 font-medium mb-3">
+                    Program: {String(selectedRoleBundle.subCategory).toUpperCase()}
+                  </div>
+                )}
                 <div className="space-y-3 flex-1 min-h-0 pr-1 flex flex-col">
                   {/* Role definition tasks, each with an Execute button */}
                   <>
@@ -1332,69 +1481,6 @@ export default function MyMRIs() {
           )}
         </AnimatePresence>
 
-        {/* Program Modals */}
-        {["MSP", "MHCP", "MNP", "MAP", "MGHP"].map((program) => (
-          <AnimatePresence key={program}>
-            {(program === "MSP" && isMSPModalOpen) ||
-            (program === "MHCP" && isMHCPModalOpen) ||
-            (program === "MNP" && isMNPModalOpen) ||
-            (program === "MAP" && isMAPModalOpen) ||
-            (program === "MGHP" && isMGHPModalOpen) ? (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50"
-              >
-                <motion.div
-                  initial={{ scale: 0.95, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  exit={{ scale: 0.95, opacity: 0 }}
-                  transition={{ duration: 0.3 }}
-                  className="bg-white/90 backdrop-blur-md rounded-3xl shadow-xl p-6 w-full max-w-md border border-teal-100/50"
-                >
-                  <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-xl font-bold text-gray-800">{program} Details</h2>
-                    <motion.button
-                      onClick={() => {
-                        if (program === "MSP") setIsMSPModalOpen(false);
-                        if (program === "MHCP") setIsMHCPModalOpen(false);
-                        if (program === "MNP") setIsMNPModalOpen(false);
-                        if (program === "MAP") setIsMAPModalOpen(false);
-                        if (program === "MGHP") setIsMGHPModalOpen(false);
-                      }}
-                      className="text-gray-500 hover:text-gray-700 p-2 rounded-full hover:bg-gray-100 transition-all duration-200"
-                      whileHover={{ scale: 1.1 }}
-                      whileTap={{ scale: 0.95 }}
-                    >
-                      <X size={24} />
-                    </motion.button>
-                  </div>
-                  <p className="text-sm text-gray-600 mb-4">
-                    Details for the {program} program will be displayed here.
-                  </p>
-                  <div className="bg-gray-50/80 rounded-xl p-4 text-sm text-gray-700">
-                    <p>Coming soon: Detailed program information, schedules, and resources.</p>
-                  </div>
-                  <motion.button
-                    onClick={() => {
-                      if (program === "MSP") setIsMSPModalOpen(false);
-                      if (program === "MHCP") setIsMHCPModalOpen(false);
-                      if (program === "MNP") setIsMNPModalOpen(false);
-                      if (program === "MAP") setIsMAPModalOpen(false);
-                      if (program === "MGHP") setIsMGHPModalOpen(false);
-                    }}
-                    className="w-full bg-gray-600 text-white py-3 rounded-xl font-semibold hover:bg-gray-500 transition-all duration-300 mt-6"
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                  >
-                    Close
-                  </motion.button>
-                </motion.div>
-              </motion.div>
-            ) : null}
-          </AnimatePresence>
-        ))}
       </div>
     </motion.div>
   );
