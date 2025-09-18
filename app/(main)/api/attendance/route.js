@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { users, userMriRoles, scannerSessions, attendanceEvents, finalDailyAttendance, finalDailyAbsentees, userOpenCloseTimes, dayOpenCloseHistory } from "@/lib/schema";
+import { users, userMriRoles, scannerSessions, attendanceEvents, finalDailyAttendance, finalDailyAbsentees, userOpenCloseTimes, dayOpenCloseHistory, directWhatsappMessages } from "@/lib/schema";
 import { and, eq, inArray } from "drizzle-orm";
 import crypto from "crypto";
+import { sendWhatsappMessage } from "@/lib/whatsapp";
 
 const b64u = (s) => Buffer.from(s).toString("base64").replace(/=+$/,'').replace(/\+/g,'-').replace(/\//g,'_');
 const b64uJson = (o) => b64u(JSON.stringify(o));
@@ -197,6 +198,153 @@ export async function POST(req) {
       return NextResponse.json({ ended: true });
     }
 
+    if (section === "notifyAbsentees") {
+      if (!["admin", "team_manager"].includes(session.user?.role)) {
+        return NextResponse.json({ error: "Not permitted" }, { status: 403 });
+      }
+
+      const dateStr = String(body.date || "").trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+        return NextResponse.json({ error: "date (YYYY-MM-DD) required" }, { status: 400 });
+      }
+
+      const programKey = String(body.programKey || "").toUpperCase() || null;
+      const track = String(body.track || "").toLowerCase() || null;
+      const subject = String(body.subject || "Attendance Reminder").trim();
+      const messageBody = String(body.message || `We noticed your attendance is still pending for ${dateStr}. Please scan in or contact your moderator immediately.`).trim();
+      const includeFooter = body.includeFooter !== false;
+      const requestedIds = Array.isArray(body.recipientUserIds)
+        ? new Set(
+            body.recipientUserIds
+              .map((id) => Number(id))
+              .filter((id) => Number.isFinite(id))
+          )
+        : null;
+
+      const [sender] = await db
+        .select({ id: users.id, name: users.name, whatsapp_number: users.whatsapp_number })
+        .from(users)
+        .where(eq(users.id, Number(session.user.id)));
+
+      if (!sender) {
+        return NextResponse.json({ error: "Sender not found" }, { status: 404 });
+      }
+
+      const contact = String(body.contact || sender.whatsapp_number || "Leadership Desk").trim();
+      const senderDisplay = sender.name
+        ? `${sender.name} (from Meed Leadership Group)`
+        : "System (from Meed Leadership Group)";
+
+      const dateOnly = new Date(`${dateStr}T00:00:00.000Z`);
+      const filters = [eq(finalDailyAbsentees.date, dateOnly)];
+      if (programKey) filters.push(eq(finalDailyAbsentees.programKey, programKey));
+      if (track) filters.push(eq(finalDailyAbsentees.track, track));
+      const combine = (conds) => conds.reduce((acc, cond) => (acc ? and(acc, cond) : cond), undefined);
+      const whereClause = combine(filters);
+
+      let query = db
+        .select({
+          userId: finalDailyAbsentees.userId,
+          name: users.name,
+          whatsapp: users.whatsapp_number,
+          whatsappEnabled: users.whatsapp_enabled,
+        })
+        .from(finalDailyAbsentees)
+        .leftJoin(users, eq(users.id, finalDailyAbsentees.userId));
+      if (whereClause) query = query.where(whereClause);
+      let rows = await query;
+
+      if (requestedIds) {
+        if (!requestedIds.size) {
+          return NextResponse.json({ sent: 0, skipped: rows.length, failed: 0, message: "No recipients selected." }, { status: 200 });
+        }
+        rows = rows.filter((row) => {
+          const id = Number(row.userId);
+          return Number.isFinite(id) && requestedIds.has(id);
+        });
+      }
+
+      if (!rows.length) {
+        return NextResponse.json({ sent: 0, skipped: 0, failed: 0, message: "No absentees to notify." }, { status: 200 });
+      }
+
+      const footer = `Sent on ${new Date().toLocaleString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })}. Please update your attendance on MeedianAI.`;
+
+      let sent = 0;
+      let skipped = 0;
+      let failed = 0;
+
+      for (const row of rows) {
+        const numericId = Number(row.userId);
+        const hasNumericId = Number.isFinite(numericId);
+        if (!hasNumericId || !row.whatsapp || row.whatsappEnabled === false) {
+          skipped += 1;
+          continue;
+        }
+
+        const recipientName = row.name || `Member #${numericId}`;
+        const now = new Date();
+
+        const [log] = await db
+          .insert(directWhatsappMessages)
+          .values({
+            senderId: Number(session.user.id),
+            recipientType: "existing",
+            recipientUserId: numericId,
+            recipientName,
+            recipientWhatsappNumber: row.whatsapp,
+            subject,
+            message: messageBody,
+            note: includeFooter ? footer : null,
+            contact,
+            createdAt: now,
+          })
+          .returning({ id: directWhatsappMessages.id });
+
+        try {
+          const tw = await sendWhatsappMessage(
+            row.whatsapp,
+            {
+              recipientName,
+              senderName: senderDisplay,
+              subject,
+              message: messageBody,
+              note: includeFooter ? footer : "",
+              contact,
+              dateTime: now.toLocaleString("en-GB", {
+                day: "2-digit",
+                month: "short",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              }),
+            },
+            { whatsapp_enabled: row.whatsappEnabled }
+          );
+
+          await db
+            .update(directWhatsappMessages)
+            .set({ twilioSid: tw?.sid || null, note: includeFooter ? footer : null })
+            .where(eq(directWhatsappMessages.id, log.id));
+          sent += 1;
+        } catch (err) {
+          failed += 1;
+          await db
+            .update(directWhatsappMessages)
+            .set({ status: "failed", error: err?.message || String(err) })
+            .where(eq(directWhatsappMessages.id, log.id));
+        }
+      }
+
+      return NextResponse.json({ sent, skipped, failed, total: rows.length }, { status: 200 });
+    }
+
     if (section === "finalize") {
       const sessionId = Number(body.sessionId);
       const expectedUserIds = Array.isArray(body.expectedUserIds) ? body.expectedUserIds.map(Number).filter(Boolean) : null;
@@ -209,24 +357,56 @@ export async function POST(req) {
         .from(attendanceEvents)
         .leftJoin(users, eq(users.id, attendanceEvents.userId))
         .where(eq(attendanceEvents.sessionId, sessionId));
-      const presentIds = Array.from(new Set(evs.map(e => Number(e.userId))));
+      const presentIds = Array.from(new Set(evs.map((e) => Number(e.userId)).filter((id) => Number.isFinite(id))));
+      const presentSet = new Set(presentIds);
       const today = new Date();
       const dateOnly = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
+      const combine = (conds) => conds.reduce((acc, cond) => (acc ? and(acc, cond) : cond), undefined);
+      const attendanceFilters = [eq(finalDailyAttendance.date, dateOnly)];
+      const absenteeFilters = [eq(finalDailyAbsentees.date, dateOnly)];
+      if (sess.programKey) {
+        attendanceFilters.push(eq(finalDailyAttendance.programKey, sess.programKey));
+        absenteeFilters.push(eq(finalDailyAbsentees.programKey, sess.programKey));
+      }
+      if (sess.track) {
+        attendanceFilters.push(eq(finalDailyAttendance.track, sess.track));
+        absenteeFilters.push(eq(finalDailyAbsentees.track, sess.track));
+      }
       // Insert presents
       for (const e of evs) {
         try {
           await db.insert(finalDailyAttendance).values({ sessionId, userId: e.userId, name: e.name || null, at: e.at, date: dateOnly, programKey: sess.programKey, track: sess.track, roleKey: sess.roleKey });
         } catch {}
       }
+      if (presentIds.length) {
+        const deleteWhere = combine([...absenteeFilters, inArray(finalDailyAbsentees.userId, presentIds)]);
+        if (deleteWhere) await db.delete(finalDailyAbsentees).where(deleteWhere);
+      }
       // Compute expected list
       let expected = expectedUserIds;
       if (!expected) {
         const rows = await db.select({ id: users.id }).from(users);
-        expected = rows.map(r => Number(r.id));
+        expected = rows.map((r) => Number(r.id));
       }
-      const absentees = expected.filter(id => !presentIds.includes(Number(id)));
+      expected = Array.from(new Set(expected.filter((id) => Number.isFinite(id))));
+
+      let previouslyPresentIds = new Set();
+      if (expected.length) {
+        const wherePrev = combine([...attendanceFilters, inArray(finalDailyAttendance.userId, expected)]);
+        if (wherePrev) {
+          const prevRows = await db
+            .select({ userId: finalDailyAttendance.userId })
+            .from(finalDailyAttendance)
+            .where(wherePrev);
+          previouslyPresentIds = new Set(prevRows.map((row) => Number(row.userId)));
+        }
+      }
+
+      const absentees = expected.filter((id) => !presentSet.has(id) && !previouslyPresentIds.has(id));
       if (absentees.length) {
         // fetch names
+        const purgeWhere = combine([...absenteeFilters, inArray(finalDailyAbsentees.userId, absentees)]);
+        if (purgeWhere) await db.delete(finalDailyAbsentees).where(purgeWhere);
         const names = await db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, absentees));
         const nameMap = new Map(names.map(n => [Number(n.id), n.name]));
         for (const uid of absentees) {

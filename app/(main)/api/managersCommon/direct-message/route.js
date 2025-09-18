@@ -8,48 +8,7 @@ import {
 } from "@/lib/schema";
 import { auth } from "@/lib/auth";
 import { eq } from "drizzle-orm";
-import twilio from "twilio";
-
-/* ------------------------------------------------------------------ */
-/* Twilio helper */
-/* ------------------------------------------------------------------ */
-const twilioClient = twilio(
-  process.env.TWILIO_ACCOUNT_SID,
-  process.env.TWILIO_AUTH_TOKEN
-);
-
-async function sendWhatsappMessage(toNumber, content, recipient) {
-  if (!toNumber || !recipient?.whatsapp_enabled) return;
-
-  // Ensure phone number is in E.164 format
-  const formattedToNumber = toNumber.startsWith("+") ? toNumber : `+${toNumber}`;
-
-  try {
-    return await twilioClient.messages.create({
-      from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`,
-      to: `whatsapp:${formattedToNumber}`,
-      contentSid: "HX57c67bff3f94d904a0959d2ae00b061b", // TODO: replace with your actual Content SID
-      contentVariables: JSON.stringify({
-        1: content.recipientName || "User",
-        2: content.senderName ? `${content.senderName} (from Meed Leadership Group)` : "System (from Meed Leadership Group)",
-        3: content.subject || "No Subject",
-        4: content.message || "No Message",
-        5: content.note || "No Note",
-        6: content.contact || "Support Team",
-        7: content.dateTime || new Date().toLocaleString("en-GB", {
-          day: "2-digit",
-          month: "short",
-          year: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-      }),
-    });
-  } catch (err) {
-    console.error("Twilio sendWhatsappMessage error:", err);
-    throw new Error(`Failed to send WhatsApp message: ${err.message}`);
-  }
-}
+import { sendWhatsappMessage } from "@/lib/whatsapp";
 
 /* ================================================================== */
 /* POST – Send a direct WhatsApp message */
@@ -188,11 +147,14 @@ export async function POST(req) {
     // ------------------------------------------------------------------
     try {
       if (recipientData.whatsapp_enabled && recipientData.whatsapp_number) {
+        const senderDisplay = sender.name
+          ? `${sender.name} (from Meed Leadership Group)`
+          : "System (from Meed Leadership Group)";
         const tw = await sendWhatsappMessage(
           recipientData.whatsapp_number,
           {
             recipientName: recipientData.name,
-            senderName: sender.name,
+            senderName: senderDisplay,
             subject,
             message,
             note: note.trim() || "",
