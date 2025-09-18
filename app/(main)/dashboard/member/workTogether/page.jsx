@@ -482,14 +482,14 @@ export default function WorkTogether() {
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="relative min-h-screen w-full overflow-x-hidden bg-gradient-to-br from-cyan-900 via-blue-900 to-purple-950"
+      className="relative min-h-screen w-full overflow-x-hidden bg-gradient-to-br from-cyan-900 via-blue-900 to-purple-950 lg:fixed lg:inset-0 lg:flex lg:items-center lg:justify-center lg:p-8"
     >
       {/* neon background */}
       <div className="pointer-events-none absolute inset-0 bg-gradient-radial from-cyan-500/10 via-transparent to-transparent" />
 
       {/* main card */}
-      <div className="relative mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
-        <div className="flex flex-col gap-6 rounded-3xl border border-cyan-400/20 bg-cyan-950/30 p-4 shadow-2xl backdrop-blur-xl sm:p-6 lg:p-8">
+      <div className="relative mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6 lg:min-h-0 lg:h-full lg:w-full">
+        <div className="flex h-full flex-col gap-6 rounded-3xl border border-cyan-400/20 bg-cyan-950/30 p-4 shadow-2xl backdrop-blur-xl sm:p-6 lg:p-8">
           <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2 text-cyan-100">
@@ -554,7 +554,11 @@ export default function WorkTogether() {
             <div className="order-3 w-full rounded-3xl border border-purple-300/20 bg-cyan-900/20 text-cyan-100 backdrop-blur-md shadow-md lg:order-1 lg:w-72">
               <button
                 type="button"
-                onClick={() => setFeedOpen((prev) => !prev)}
+                onClick={() => {
+                  if (typeof window !== "undefined" && window.innerWidth < 1024) {
+                    setFeedOpen((prev) => !prev);
+                  }
+                }}
                 className="flex w-full items-center justify-between gap-2 rounded-t-3xl bg-white/5 px-4 py-3 text-sm font-semibold text-cyan-100 lg:cursor-default lg:bg-transparent"
               >
                 <span>Meedians Right Now</span>
