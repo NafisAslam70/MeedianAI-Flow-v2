@@ -479,24 +479,22 @@ export default function WorkTogether() {
 
   return (
     <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      className="relative min-h-screen w-full overflow-x-hidden bg-gradient-to-br from-cyan-900 via-blue-900 to-purple-950"
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+      className="fixed inset-0 bg-gradient-to-br from-cyan-900 via-blue-900 to-purple-950 p-8 flex items-center justify-center overflow-hidden"
     >
       {/* neon background */}
-      <div className="pointer-events-none absolute inset-0 bg-gradient-radial from-cyan-500/10 via-transparent to-transparent" />
+      <div className="absolute inset-0 bg-gradient-radial from-cyan-500/10 to-transparent pointer-events-none" />
 
       {/* main card */}
-      <div className="relative mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
-        <div className="flex flex-col gap-6 rounded-3xl border border-cyan-400/20 bg-cyan-950/30 p-4 shadow-2xl backdrop-blur-xl sm:p-6 lg:p-8">
-          <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="w-full h-full bg-cyan-950/30 backdrop-blur-xl rounded-2xl shadow-2xl p-8 flex flex-col gap-6 border border-cyan-400/20">
+        <header className="flex justify-between items-center">
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2 text-cyan-100">
               <Users size={24} className="text-purple-400" /> MeedianAI Together Workspace
             </h1>
             <p className="text-sm text-cyan-300 italic">"As a Team, We Lead the World"</p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2">
             <select
               value={selectedMusic}
               onChange={handleMusicChange}
@@ -546,8 +544,11 @@ export default function WorkTogether() {
               </button>
             )}
           </div>
-          </header>
+        </header>
 
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
           <div className="flex flex-1 flex-col gap-4 lg:flex-row lg:items-stretch">
 <<<<<<< ours
 <<<<<<< ours
@@ -587,6 +588,21 @@ export default function WorkTogether() {
 =======
             {/* Left: Meedians Right Now feed (stable) */}
             <div className="order-3 w-full max-h-[320px] overflow-y-auto rounded-3xl border border-purple-300/20 bg-cyan-900/20 p-4 text-cyan-100 backdrop-blur-md shadow-md lg:order-1 lg:w-72 lg:max-h-none lg:p-5">
+>>>>>>> theirs
+=======
+        <div className="flex flex-1 gap-4 min-h-0">
+          {/* Left: Meedians Right Now feed (stable) */}
+          <div className="w-72 h-full bg-cyan-900/20 backdrop-blur-md rounded-3xl shadow-md p-5 border border-purple-300/20 overflow-y-auto text-cyan-100">
+>>>>>>> theirs
+=======
+        <div className="flex flex-1 gap-4 min-h-0">
+          {/* Left: Meedians Right Now feed (stable) */}
+          <div className="w-72 h-full bg-cyan-900/20 backdrop-blur-md rounded-3xl shadow-md p-5 border border-purple-300/20 overflow-y-auto text-cyan-100">
+>>>>>>> theirs
+=======
+        <div className="flex flex-1 gap-4 min-h-0">
+          {/* Left: Meedians Right Now feed (stable) */}
+          <div className="w-72 h-full bg-cyan-900/20 backdrop-blur-md rounded-3xl shadow-md p-5 border border-purple-300/20 overflow-y-auto text-cyan-100">
 >>>>>>> theirs
             <div className="flex items-center justify-between mb-3">
               <h2 className="font-semibold">Meedians Right Now</h2>
@@ -654,13 +670,11 @@ export default function WorkTogether() {
             <div className="mt-4 text-xs text-cyan-300/80">Tip: Enter your MRN on the main dashboard, or use the join gate below.</div>
           </div>
 
-            {/* Center: Jitsi stage */}
-            <div className="order-1 flex-1 lg:order-2">
-              <div id="jitsi" className="relative h-full min-h-[320px] rounded-2xl border border-cyan-500/20 bg-black/60 shadow-lg sm:min-h-[420px]" />
-            </div>
+          {/* Center: Jitsi stage */}
+          <div id="jitsi" className="flex-1 bg-black/50 rounded-lg shadow-lg border border-cyan-500/20 relative overflow-hidden" style={{ minHeight: "420px" }} />
 
-            {/* Right: participants + screens */}
-            <div className="order-2 w-full max-h-[320px] overflow-y-auto rounded-3xl border border-purple-300/20 bg-cyan-900/20 p-4 text-cyan-100 backdrop-blur-md shadow-md lg:order-3 lg:w-72 lg:max-h-none lg:p-5">
+          {/* Right: participants + screens */}
+          <div className="w-72 h-full bg-cyan-900/20 backdrop-blur-md rounded-3xl shadow-md p-5 border border-purple-300/20 overflow-y-auto text-cyan-100">
             <h2 className="font-semibold mb-2">Cyber Colleagues ({ppl.length})</h2>
             <ul className="space-y-2">
               {ppl.map((p) => {
@@ -696,14 +710,12 @@ export default function WorkTogether() {
                 </ul>
               </>
             )}
-            </div>
           </div>
         </div>
 
-          <footer className="text-center text-sm text-cyan-300 mt-auto">
-            © {new Date().getFullYear()} MeedianAI-Flow | Hacking the Future Together
-          </footer>
-        </div>
+        <footer className="text-center text-sm text-cyan-300 mt-auto">
+          © {new Date().getFullYear()} MeedianAI-Flow | Hacking the Future Together
+        </footer>
       </div>
 
       {/* error toast */}
@@ -722,19 +734,13 @@ export default function WorkTogether() {
       {/* Join modal with MRN gate */}
       <AnimatePresence>
         {modal && (
-          <motion.div
-            key="modal"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-md sm:items-center"
+          <motion.div key="modal" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-50"
           >
             <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              transition={{ duration: 0.25 }}
-              className="w-full max-w-3xl rounded-t-3xl border border-purple-300/30 bg-cyan-950/80 p-5 text-cyan-100 shadow-2xl backdrop-blur-xl sm:rounded-3xl sm:p-6"
+              initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }} transition={{ duration: 0.25 }}
+              className="bg-cyan-950/70 backdrop-blur-xl rounded-3xl p-6 w-full max-w-xl shadow-2xl border border-purple-300/30 text-cyan-100"
             >
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-lg font-bold">Join Meedian Together</h2>
@@ -813,7 +819,7 @@ export default function WorkTogether() {
               )}
 
               {/* device toggles */}
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="grid grid-cols-3 gap-3">
                 <label className="flex items-center gap-2">
                   <Camera size={18} className={cam ? "text-purple-400" : "text-cyan-400"} />
                   <input type="checkbox" checked={cam} onChange={(e) => setCam(e.target.checked)} />
