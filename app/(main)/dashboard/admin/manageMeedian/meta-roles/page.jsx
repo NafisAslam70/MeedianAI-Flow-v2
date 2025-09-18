@@ -107,6 +107,14 @@ export default function RoleDefinitionsPage() {
     return out;
   }, [families]);
 
+  const defsByKey = useMemo(() => {
+    const map = new Map();
+    (defs || []).forEach((d) => {
+      if (d?.roleKey) map.set(String(d.roleKey), d);
+    });
+    return map;
+  }, [defs]);
+
   const groupedBuiltin = useMemo(() => {
     const groups = (categoryOptions || []).reduce((acc, c) => {
       acc[c.value] = [];
@@ -282,6 +290,28 @@ export default function RoleDefinitionsPage() {
     }
   };
 
+  const ensureDefAndUpdate = async (roleKey, patch) => {
+    const ensured = await ensureRoleDefForBuiltin(roleKey);
+    const defId = ensured?.id;
+    if (!defId) return;
+    await updateRole(defId, patch);
+  };
+
+  const handleBuiltinCategoryChange = async (roleKey, value) => {
+    const nextCat = String(value || '').toLowerCase();
+    const currentDef = defsByKey.get(roleKey);
+    let nextSub = null;
+    if (nextCat === 'amri') {
+      const existing = currentDef?.subCategory || builtinSubCategoryMap[roleKey] || '';
+      nextSub = existing ? existing.toUpperCase() : 'GENERAL';
+    }
+    await ensureDefAndUpdate(roleKey, { category: nextCat, subCategory: nextSub });
+  };
+
+  const handleBuiltinSubCategoryChange = async (roleKey, value) => {
+    await ensureDefAndUpdate(roleKey, { subCategory: value });
+  };
+
   const openTasks = async (role) => {
     setTaskModal({ open: true, role, tasks: [], loading: true });
     try {
@@ -440,14 +470,55 @@ export default function RoleDefinitionsPage() {
           <CardBody>
             {builtinList.length === 0 && <div className="text-sm text-gray-500">No built-in roles in this category.</div>}
             <ul className="divide-y divide-gray-200">
-              {builtinList.map((r) => (
-                <li key={r} className="py-2 text-sm flex items-center justify-between gap-2">
-                  <span className="text-gray-800">{r}</span>
-                  <div className="flex items-center gap-2">
-                    <Button onClick={() => openBuiltinTasks(r)} variant="secondary">Tasks</Button>
-                  </div>
-                </li>
-              ))}
+              {builtinList.map((roleKey) => {
+                const def = defsByKey.get(roleKey);
+                const currentCategory = def?.category || builtinCategoryMap[roleKey] || 'rmri';
+                const currentSubCategory = currentCategory === 'amri'
+                  ? (def?.subCategory || builtinSubCategoryMap[roleKey] || '')
+                  : '';
+                const isAmri = currentCategory === 'amri';
+                return (
+                  <li key={roleKey} className="py-3 text-sm">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="font-semibold text-gray-900">{roleKey}</div>
+                        {isAmri && (
+                          <div className="text-xs text-teal-600 mt-1">
+                            Program: {currentSubCategory || 'Unassigned'}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                        <Select
+                          label="Category"
+                          value={currentCategory}
+                          onChange={(e) => handleBuiltinCategoryChange(roleKey, e.target.value)}
+                        >
+                          {(categoryOptions || DEFAULT_CATEGORY_OPTIONS).map((o) => (
+                            <option key={o.value} value={o.value}>
+                              {o.label}
+                            </option>
+                          ))}
+                        </Select>
+                        {isAmri && (
+                          <Select
+                            label="Program"
+                            value={currentSubCategory}
+                            onChange={(e) => handleBuiltinSubCategoryChange(roleKey, e.target.value)}
+                          >
+                            {AMRI_SUBCATEGORY_OPTIONS.map((o) => (
+                              <option key={o.value} value={o.value}>
+                                {o.label}
+                              </option>
+                            ))}
+                          </Select>
+                        )}
+                        <Button onClick={() => openBuiltinTasks(roleKey)} variant="secondary">Tasks</Button>
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           </CardBody>
         </Card>
