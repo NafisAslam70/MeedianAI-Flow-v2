@@ -35,16 +35,16 @@ const groups = [
 				label: "MSP Codes",
 				icon: Boxes,
 			},
-			{
-				href: "/dashboard/admin/manageMeedian/class-teachers",
-				label: "Class Teachers",
-				icon: Users,
-			},
 		],
 	},
 	{
 		title: "Team",
 		items: [
+			{
+				href: "/dashboard/admin/manageMeedian/class-teachers",
+				label: "Class Teachers",
+				icon: Users,
+			},
 			{
 				href: "/dashboard/admin/manageMeedian/team",
 				label: "Manage Team",
@@ -121,7 +121,7 @@ export default function AdminSidebar() {
 							href: "/dashboard/admin/manageMeedian/controls-share",
 							label: "Controls Share",
 							icon: Workflow,
-							shouldRender: true,
+							shouldRender: role === 'admin' || role === 'team_manager',
 							disabled: role !== 'admin',
 						},
 						{
@@ -129,8 +129,8 @@ export default function AdminSidebar() {
 							href: "/dashboard/admin/manageMeedian/randoms",
 							label: "Randoms Lab",
 							icon: Sparkles,
-							shouldRender: role === 'admin' || (role === 'team_manager' && allowedSections.has('randomsLab')),
-							disabled: role !== 'admin' && !(role === 'team_manager' && allowedSections.has('randomsLab')),
+							shouldRender: role === 'admin' || role === 'team_manager',
+							disabled: role === 'team_manager' && !allowedSections.has('randomsLab'),
 						},
 					];
 					return items
