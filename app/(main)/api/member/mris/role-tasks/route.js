@@ -105,7 +105,23 @@ export async function GET(req) {
       return null;
     };
 
-    const out = roleDefs.map((r) => {
+    const seenKeys = new Set(roleDefs.map((r) => String(r.roleKey)));
+    const missingKeys = roleKeys.filter((key) => !seenKeys.has(String(key)));
+
+    const builtinCategoryMap = new Map([
+      ["nmri_moderator", "nmri"],
+      ["msp_ele_moderator", "rmri"],
+      ["msp_pre_moderator", "rmri"],
+      ["mhcp1_moderator", "amri"],
+      ["mhcp2_moderator", "amri"],
+      ["events_moderator", "amri"],
+      ["assessment_moderator", "amri"],
+      ["sports_moderator", "amri"],
+      ["util_moderator", "amri"],
+      ["pt_moderator", "amri"],
+    ]);
+
+    const normalizedDefs = roleDefs.map((r) => {
       const program = deriveProgram(r.roleKey, r.name, r.category, r.subCategory);
       return {
         roleKey: r.roleKey,
@@ -118,7 +134,21 @@ export async function GET(req) {
         tasks: tasksByRoleId.get(r.id) || [],
       };
     });
-    return NextResponse.json({ roles: out }, { status: 200 });
+
+    const placeholders = missingKeys.map((key) => {
+      const normalizedKey = String(key);
+      const fallbackCategory = builtinCategoryMap.get(normalizedKey) || "rmri";
+      return {
+        roleKey: normalizedKey,
+        roleName: normalizedKey,
+        category: fallbackCategory,
+        subCategory: null,
+        program: null,
+        tasks: [],
+      };
+    });
+
+    return NextResponse.json({ roles: [...normalizedDefs, ...placeholders] }, { status: 200 });
   } catch (e) {
     return NextResponse.json({ error: e.message || "Failed" }, { status: 500 });
   }
