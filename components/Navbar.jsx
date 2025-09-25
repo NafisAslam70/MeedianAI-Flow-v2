@@ -185,6 +185,13 @@ export default function Navbar() {
     return () => { stop = true; window.clearInterval(id); };
   }, [status, isNotifOpen]);
 
+  // Day Close waiting: block navbar if compulsory + pending
+  const { data: dayClose, error: dcErr } = useSWR(
+    status === "authenticated" ? "/api/member/dayClose/dayCloseStatus" : null,
+    (u) => fetch(u, { cache: "no-store" }).then((r) => r.json())
+  );
+  const navBlocked = !!(dayClose?.dayCloseWaitCompulsory && String(dayClose?.status || '').toLowerCase() === 'pending');
+
   
 
   // close overlays on route change
@@ -1775,7 +1782,10 @@ export default function Navbar() {
       `}</style>
 
       {showNavbar && (
-        <nav className="px-3 py-2 w-full sticky top-0 z-40 shadow-lg border-b border-cyan-900/40 text-white">
+        <nav className="px-3 py-2 w-full sticky top-0 z-40 shadow-lg border-b border-cyan-900/40 text-white relative">
+          {navBlocked && (
+            <div className="absolute inset-0 bg-black/10 cursor-not-allowed z-[100]" title="Waiting for Day Close approval"></div>
+          )}
           <div className="flex items-center justify-between w-full px-2 sm:px-4 lg:px-6 min-w-0">
             {/* left: logo */}
             <div className="brand-wrap flex items-center gap-1.5 sm:gap-2 min-w-0">

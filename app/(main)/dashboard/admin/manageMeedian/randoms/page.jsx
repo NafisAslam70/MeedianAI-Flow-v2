@@ -3,7 +3,7 @@
 import { useState } from "react";
 import useSWR from "swr";
 import { motion } from "framer-motion";
-import { Loader2, Sparkles, Check, X, Eye, EyeOff } from "lucide-react";
+import { Loader2, Sparkles, Check, X, Eye, EyeOff, Lock } from "lucide-react";
 
 const fetcher = (url) =>
   fetch(url, { headers: { "Content-Type": "application/json" } }).then((res) => {
@@ -16,9 +16,11 @@ export default function RandomsPage() {
   const [feedback, setFeedback] = useState(null);
   const [isSavingBypass, setIsSavingBypass] = useState(false);
   const [isSavingIpr, setIsSavingIpr] = useState(false);
+  const [isSavingWait, setIsSavingWait] = useState(false);
 
   const showDayCloseBypass = data?.showDayCloseBypass ?? false;
   const showIprJourney = data?.showIprJourney ?? true;
+  const dayCloseWaitCompulsory = data?.dayCloseWaitCompulsory ?? false;
 
   const updateFlag = async ({ payload, setSaving, successMessage }) => {
     if (setSaving) setSaving(true);
@@ -63,6 +65,18 @@ export default function RandomsPage() {
       successMessage: nextValue
         ? "IPR section is now visible to members."
         : "IPR section hidden. Members will see the encouragement message instead.",
+    });
+  };
+
+  const handleToggleWait = () => {
+    if (isSavingWait) return;
+    const nextValue = !dayCloseWaitCompulsory;
+    updateFlag({
+      payload: { dayCloseWaitCompulsory: nextValue },
+      setSaving: setIsSavingWait,
+      successMessage: nextValue
+        ? "Navbar will be blocked during Day Close approval wait."
+        : "Navbar will no longer be blocked during Day Close wait.",
     });
   };
 
@@ -166,6 +180,45 @@ export default function RandomsPage() {
             Failed to load current value. Try refreshing.
           </div>
         )}
+      </div>
+
+      <div className="max-w-xl rounded-2xl border border-rose-100 bg-white/90 shadow-sm p-6 space-y-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-800">Day Close Wait Compulsory</h2>
+            <p className="text-sm text-gray-600">
+              When enabled, the navbar is blocked while a member’s Day Close request is pending approval. Prevents navigating away until approved or rejected.
+            </p>
+          </div>
+          <motion.button
+            type="button"
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.97 }}
+            onClick={handleToggleWait}
+            disabled={isLoading || isSavingWait}
+            className={`relative inline-flex h-9 w-16 items-center rounded-full border transition-colors duration-200 ${
+              dayCloseWaitCompulsory ? "bg-rose-500 border-rose-500" : "bg-gray-200 border-gray-300"
+            } ${isSavingWait ? "opacity-70 cursor-not-allowed" : "cursor-pointer"}`}
+            aria-pressed={dayCloseWaitCompulsory}
+          >
+            <span
+              className={`ml-1 inline-flex h-7 w-7 transform items-center justify-center rounded-full bg-white shadow transition-transform duration-200 ${
+                dayCloseWaitCompulsory ? "translate-x-7" : "translate-x-0"
+              }`}
+            >
+              {isSavingWait ? (
+                <Loader2 className="h-4 w-4 animate-spin text-rose-600" />
+              ) : dayCloseWaitCompulsory ? (
+                <Lock className="h-4 w-4 text-rose-600" />
+              ) : (
+                <X className="h-4 w-4 text-gray-500" />
+              )}
+            </span>
+          </motion.button>
+        </div>
+        <div className="text-sm text-gray-500">
+          Status: {isLoading ? "Loading…" : dayCloseWaitCompulsory ? "Navbar blocking during Day Close wait is ON." : "Navbar blocking is OFF."}
+        </div>
       </div>
     </div>
   );

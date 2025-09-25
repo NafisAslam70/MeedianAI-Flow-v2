@@ -68,6 +68,7 @@ export async function GET() {
     const FLAG_KEYS = {
       bypass: "show_day_close_bypass",
       ipr: "show_day_close_ipr",
+      wait: "day_close_wait_compulsory",
     };
 
     const flagRows = await db
@@ -78,6 +79,7 @@ export async function GET() {
     const flagMap = new Map(flagRows.map((row) => [row.key, row.value]));
     const showBypass = !!flagMap.get(FLAG_KEYS.bypass);
     const showIprJourney = flagMap.has(FLAG_KEYS.ipr) ? !!flagMap.get(FLAG_KEYS.ipr) : true;
+    const dayCloseWaitCompulsory = flagMap.has(FLAG_KEYS.wait) ? !!flagMap.get(FLAG_KEYS.wait) : false;
 
     return NextResponse.json(
       {
@@ -87,6 +89,7 @@ export async function GET() {
         overrideActive,
         showBypass,
         showIprJourney,
+        dayCloseWaitCompulsory,
       },
       { status: 200 }
     );

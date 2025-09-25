@@ -7,11 +7,13 @@ import { eq, and, inArray } from "drizzle-orm";
 const FLAG_KEYS = {
   bypass: "show_day_close_bypass",
   ipr: "show_day_close_ipr",
+  wait: "day_close_wait_compulsory",
 };
 
 const FLAG_DEFAULTS = {
   showDayCloseBypass: false,
   showIprJourney: true,
+  dayCloseWaitCompulsory: false,
 };
 
 async function requireAccess({ write = false } = {}) {
@@ -66,6 +68,7 @@ export async function GET() {
     {
       showDayCloseBypass: map.has(FLAG_KEYS.bypass) ? !!map.get(FLAG_KEYS.bypass) : FLAG_DEFAULTS.showDayCloseBypass,
       showIprJourney: map.has(FLAG_KEYS.ipr) ? !!map.get(FLAG_KEYS.ipr) : FLAG_DEFAULTS.showIprJourney,
+      dayCloseWaitCompulsory: map.has(FLAG_KEYS.wait) ? !!map.get(FLAG_KEYS.wait) : FLAG_DEFAULTS.dayCloseWaitCompulsory,
     },
     { status: 200 }
   );
@@ -83,6 +86,9 @@ export async function POST(req) {
   }
   if (body.hasOwnProperty("showIprJourney")) {
     updates.push({ key: FLAG_KEYS.ipr, value: !!body.showIprJourney });
+  }
+  if (body.hasOwnProperty("dayCloseWaitCompulsory")) {
+    updates.push({ key: FLAG_KEYS.wait, value: !!body.dayCloseWaitCompulsory });
   }
 
   if (!updates.length) {
@@ -106,6 +112,7 @@ export async function POST(req) {
       showDayCloseBypass:
         updates.find((item) => item.key === FLAG_KEYS.bypass)?.value ?? undefined,
       showIprJourney: updates.find((item) => item.key === FLAG_KEYS.ipr)?.value ?? undefined,
+      dayCloseWaitCompulsory: updates.find((item) => item.key === FLAG_KEYS.wait)?.value ?? undefined,
     },
     { status: 200 }
   );
