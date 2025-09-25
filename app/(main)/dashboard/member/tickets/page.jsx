@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 
 const fetcher = (url) =>
   fetch(url, { cache: "no-store" }).then((res) => {
@@ -55,6 +56,7 @@ function formatDate(value) {
 const emptyCounts = { total: 0, byStatus: {} };
 
 export default function MemberTicketsPage() {
+  const searchParams = useSearchParams();
   const { data, error, isLoading, mutate } = useSWR("/api/member/tickets", fetcher);
   const categories = data?.categories ?? [];
   const priorities = data?.priorities ?? ["low", "normal", "high", "urgent"];
@@ -84,6 +86,16 @@ export default function MemberTicketsPage() {
   const [comment, setComment] = useState("");
   const [commentError, setCommentError] = useState("");
   const [commentLoading, setCommentLoading] = useState(false);
+
+  // Open ticket detail if ticketId is present in URL (e.g., from notifications shortcut)
+  useEffect(() => {
+    const tid = searchParams?.get?.("ticketId");
+    if (tid) {
+      const n = Number(tid);
+      if (!Number.isNaN(n) && n > 0) setActiveTicketId(n);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (categories.length && !categoryKey) {

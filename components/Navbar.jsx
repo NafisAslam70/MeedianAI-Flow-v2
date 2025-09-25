@@ -559,6 +559,30 @@ export default function Navbar() {
               </button>
             );
           })()}
+
+          {(() => {
+            // Support Tickets counts (open = not resolved/closed)
+            // eslint-disable-next-line react-hooks/rules-of-hooks
+            const { data: t } = useSWR(isManagerialOpen ? "/api/managersCommon/tickets?view=queue" : null, (u)=>fetch(u).then(r=>r.json()));
+            const status = t?.statusSummary || {};
+            const openTickets = Object.entries(status).reduce((acc,[k,v]) => acc + ((k!=="resolved" && k!=="closed") ? v : 0), 0);
+            return (
+              <button
+                className="action-row"
+                onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/managersCommon/tickets"); }}
+              >
+                <span className="row-icon"><MessageSquare size={18} /></span>
+                <span className="row-main">
+                  <span className="row-title">Support Tickets</span>
+                  <span className="row-sub">Open and pending tickets</span>
+                </span>
+                <span className="ml-2 inline-flex min-w-[20px] justify-center rounded-full bg-indigo-600 text-white text-[11px] px-2 py-0.5">
+                  {openTickets || 0}
+                </span>
+                <ArrowRight size={16} className="row-go" />
+              </button>
+            );
+          })()}
           <button
             className="action-row"
             onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/managersCommon/tickets"); }}
@@ -617,17 +641,28 @@ export default function Navbar() {
             );
           })()}
 
-          <button
-            className="action-row"
-            onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/managersCommon/approveLeave"); }}
-          >
-            <span className="row-icon"><CalendarX2 size={18} /></span>
-            <span className="row-main">
-              <span className="row-title">Leave Request</span>
-              <span className="row-sub">Approve or decline leave</span>
-            </span>
-            <ArrowRight size={16} className="row-go" />
-          </button>
+          {(() => {
+            // Leave Requests count (pending)
+            // eslint-disable-next-line react-hooks/rules-of-hooks
+            const { data: lr } = useSWR(isManagerialOpen ? "/api/managersCommon/approve-leave-request" : null, (u)=>fetch(u).then(r=>r.json()));
+            const pendingLeaves = (lr?.requests || []).filter(r => (r.status || '').toLowerCase() === 'pending').length;
+            return (
+              <button
+                className="action-row"
+                onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/managersCommon/approveLeave"); }}
+              >
+                <span className="row-icon"><CalendarX2 size={18} /></span>
+                <span className="row-main">
+                  <span className="row-title">Leave Requests</span>
+                  <span className="row-sub">Pending approvals</span>
+                </span>
+                <span className="ml-2 inline-flex min-w-[20px] justify-center rounded-full bg-amber-600 text-white text-[11px] px-2 py-0.5">
+                  {pendingLeaves}
+                </span>
+                <ArrowRight size={16} className="row-go" />
+              </button>
+            );
+          })()}
 
           <a
             href="https://meed-recruitment.onrender.com/login"
@@ -1911,21 +1946,24 @@ export default function Navbar() {
                       <div className="notif-panel" role="menu" aria-label="Notifications" onClick={(e)=>e.stopPropagation()}>
                         <div className="flex items-center justify-between px-1 mb-1">
                           <div className="text-cyan-300 font-semibold">Notifications</div>
-                          <button className="text-xs text-cyan-200 hover:text-white" onClick={async ()=>{ await fetch('/api/member/notifications', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ all: true, read: true })}); setNotifUnread(0); setIsNotifOpen(false); }}>Mark all read</button>
+                          <div className="flex items-center gap-3">
+                            <button className="text-xs text-cyan-200 hover:text-white" onClick={async ()=>{ await fetch('/api/member/notifications', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ all: true, read: true })}); setNotifUnread(0); setIsNotifOpen(false); }}>Mark all read</button>
+                            <button className="text-xs text-cyan-200 hover:text-white" onClick={()=>{ router.push('/dashboard/member/notifications'); setIsNotifOpen(false); }}>View all</button>
+                          </div>
                         </div>
                         <div className="grid gap-1 max-h-72 overflow-auto pr-1">
-                          {notifItems.length === 0 ? (
-                            <div className="text-sm text-slate-300 px-2 py-4">No recent notifications.</div>
-                          ) : notifItems.map((n) => (
-                            <div key={n.id} className={`notif-item ${n.read ? '' : 'unread'}`}>
+                        {notifItems.length === 0 ? (
+                          <div className="text-sm text-slate-300 px-2 py-4">No recent notifications.</div>
+                        ) : notifItems.map((n) => (
+                            <button key={n.id} className={`notif-item ${n.read ? '' : 'unread'} text-left`} onClick={()=>{ if(n.entityKind==='ticket' && n.entityId){ router.push(`/dashboard/member/tickets?ticketId=${n.entityId}`); } else { router.push('/dashboard/member/notifications'); } setIsNotifOpen(false); }}>
                               <div className="pt-0.5">{n.type?.includes('task') ? '🗂️' : n.type?.includes('chat') ? '💬' : n.type?.includes('community') ? '🧩' : '📌'}</div>
                               <div>
                                 <div className="notif-title">{n.title || 'Notification'}</div>
                                 {n.body && <div className="notif-body">{n.body}</div>}
                                 <div className="notif-time">{new Date(n.createdAt).toLocaleString()}</div>
                               </div>
-                            </div>
-                          ))}
+                            </button>
+                        ))}
                         </div>
                       </div>
                     )}
@@ -1961,14 +1999,14 @@ export default function Navbar() {
                         {notifItems.length === 0 ? (
                           <div className="text-sm text-slate-300 px-2 py-4">No recent notifications.</div>
                         ) : notifItems.map((n) => (
-                          <div key={n.id} className={`notif-item ${n.read ? '' : 'unread'}`}>
+                          <button key={n.id} className={`notif-item ${n.read ? '' : 'unread'} text-left`} onClick={()=>{ if(n.entityKind==='ticket' && n.entityId){ router.push(`/dashboard/member/tickets?ticketId=${n.entityId}`); } else { router.push('/dashboard/member/notifications'); } setIsNotifOpen(false); }}>
                             <div className="pt-0.5">{n.type?.includes('task') ? '🗂️' : n.type?.includes('chat') ? '💬' : n.type?.includes('community') ? '🧩' : '📌'}</div>
                             <div>
                               <div className="notif-title">{n.title || 'Notification'}</div>
                               {n.body && <div className="notif-body">{n.body}</div>}
                               <div className="notif-time">{new Date(n.createdAt).toLocaleString()}</div>
                             </div>
-                          </div>
+                          </button>
                         ))}
                       </div>
                     </div>
