@@ -20,10 +20,8 @@ const ALL_QUEUES = ["facilities", "it", "finance", "academics", "hostel", "opera
 function resolveQueuesForManager(sessionUser) {
   if (!sessionUser) return [];
   if (sessionUser.role === "admin") return ALL_QUEUES;
-  if (sessionUser.role !== "team_manager") return [];
-  const type = sessionUser.team_manager_type;
-  const allowed = MANAGER_QUEUE_ACCESS[type];
-  return allowed ? Array.from(new Set(allowed)) : ["operations"];
+  if (sessionUser.role === "team_manager") return ALL_QUEUES; // show all queues to team managers
+  return [];
 }
 
 function sanitizeFilter(value, allowed) {
@@ -72,8 +70,6 @@ export async function GET(req) {
 
   if (queueParam) {
     whereClauses.push(eq(tickets.queue, queueParam));
-  } else if (session.user.role === "team_manager" && allowedQueues.length) {
-    whereClauses.push(inArray(tickets.queue, allowedQueues));
   }
 
   const assigneeAlias = alias(users, "ticket_assignee");
@@ -126,7 +122,7 @@ export async function GET(req) {
 
     return NextResponse.json({
       tickets: rows,
-      queues: session.user.role === "admin" ? ALL_QUEUES : allowedQueues,
+      queues: ALL_QUEUES,
       statusFlow: TICKET_STATUS_FLOW,
       priorities: TICKET_PRIORITY_OPTIONS,
       queueSummary,

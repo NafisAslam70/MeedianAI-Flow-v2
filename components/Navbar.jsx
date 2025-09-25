@@ -583,17 +583,7 @@ export default function Navbar() {
               </button>
             );
           })()}
-          <button
-            className="action-row"
-            onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/managersCommon/tickets"); }}
-          >
-            <span className="row-icon"><MessageSquare size={18} /></span>
-            <span className="row-main">
-              <span className="row-title">Support Tickets</span>
-              <span className="row-sub">Queue, assignment, and due updates</span>
-            </span>
-            <ArrowRight size={16} className="row-go" />
-          </button>
+          {/* Support Tickets (with counts) already added above; removed duplicate button */}
 
           <button
             className="action-row"
