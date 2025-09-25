@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSession } from "next-auth/react";
 import useSWR from "swr";
 import {
   AlertCircle,
@@ -30,7 +31,7 @@ const STATUS_STYLES = {
   waiting_user: "bg-purple-100 text-purple-700 border-purple-200",
   escalated: "bg-rose-100 text-rose-700 border-rose-200",
   resolved: "bg-emerald-100 text-emerald-700 border-emerald-200",
-  closed: "bg-slate-100 text-slate-600 border-slate-200",
+  closed: "bg-rose-200 text-rose-800 border-rose-300",
 };
 
 const PRIORITY_STYLES = {
@@ -56,6 +57,7 @@ function formatDate(value) {
 const emptyCounts = { total: 0, byStatus: {} };
 
 export default function MemberTicketsPage() {
+  const { data: session } = useSession();
   const searchParams = useSearchParams();
   const [tab, setTab] = useState("mine"); // mine | assigned
   const key = tab === "assigned" ? "/api/member/tickets?view=assigned" : "/api/member/tickets";
@@ -88,6 +90,8 @@ export default function MemberTicketsPage() {
   const [comment, setComment] = useState("");
   const [commentError, setCommentError] = useState("");
   const [commentLoading, setCommentLoading] = useState(false);
+  const [statusUpdating, setStatusUpdating] = useState(false);
+  const [resolving, setResolving] = useState(false);
 
   // Open ticket detail if ticketId is present in URL (e.g., from notifications shortcut)
   useEffect(() => {
@@ -331,7 +335,7 @@ export default function MemberTicketsPage() {
                   return (
                     <article
                       key={ticket.id}
-                      className="group rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-indigo-300 hover:shadow-md"
+                      className={`group rounded-2xl border p-4 shadow-sm transition hover:shadow-md ${ticket.status==='closed' ? 'border-rose-300 bg-rose-50' : 'border-slate-200 bg-white hover:border-indigo-300'}`}
                     >
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                         <div>
@@ -406,7 +410,7 @@ export default function MemberTicketsPage() {
 
       {showCreate && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/60 px-4 py-10">
-          <div className="relative w-full max-w-4xl rounded-2xl bg-white shadow-xl">
+          <div className={`relative w-full max-w-4xl rounded-2xl shadow-xl ${detail?.status==='closed' ? 'bg-rose-50 border border-rose-200' : 'bg-white'}`}>
             <button
               type="button"
               onClick={closeCreateForm}
@@ -631,7 +635,54 @@ export default function MemberTicketsPage() {
                     )}
                   </section>
 
-                  {detailData?.canComment ? (
+                  {/* Assignee actions: allow status control; resolution requires manager approval */}
+                  {detail && session?.user?.id && Number(session.user.id) === detail.assignedToId ? (
+                    <section className="space-y-3">
+                      <h3 className="text-sm font-semibold text-slate-900">My actions</h3>
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <div className="text-xs text-slate-500">Status</div>
+                            <div className="mt-1 font-semibold">{detail.status.replace("_"," ")}</div>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            {detail.status !== 'in_progress' && (
+                              <button
+                                type="button"
+                                disabled={statusUpdating}
+                                onClick={async ()=>{
+                                  setStatusUpdating(true);
+                                  try{
+                                    const res = await fetch(`/api/member/tickets/${detail.id}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'status', status:'in_progress' })});
+                                    if(res.ok){ mutateDetail(); mutate(); }
+                                  } finally { setStatusUpdating(false); }
+                                }}
+                                className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-100"
+                              >
+                                Mark In‑Progress
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              disabled={resolving}
+                              onClick={async ()=>{
+                                setResolving(true);
+                                try{
+                                  const res = await fetch(`/api/member/tickets/${detail.id}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'request_resolution' })});
+                                  if(res.ok){ mutateDetail(); mutate(); }
+                                } finally { setResolving(false); }
+                              }}
+                              className="inline-flex items-center gap-2 rounded-full bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-500"
+                            >
+                              Request Resolution (manager approval)
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+                  ) : null}
+
+                  {detail?.status !== 'closed' && detailData?.canComment ? (
                     <section className="space-y-3">
                       <h3 className="text-sm font-semibold text-slate-900">Add comment</h3>
                       {commentError ? (

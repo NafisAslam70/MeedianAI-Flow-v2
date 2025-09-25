@@ -207,6 +207,10 @@ export async function PATCH(req, { params }) {
       }
     }
 
+    if (ticketRow.status?.toLowerCase() === 'closed' && action !== 'status') {
+      return NextResponse.json({ error: 'Ticket is closed; updates are not allowed' }, { status: 400 });
+    }
+
     if (action === "assign") {
       const assigneeId = Number(payload?.assigneeId);
       if (!assigneeId) {
