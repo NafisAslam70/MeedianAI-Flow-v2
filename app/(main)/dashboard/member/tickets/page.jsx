@@ -636,7 +636,7 @@ export default function MemberTicketsPage() {
                   </section>
 
                   {/* Assignee actions: allow status control; resolution requires manager approval */}
-                  {detail && session?.user?.id && Number(session.user.id) === detail.assignedToId ? (
+                  {detail && detail.status !== 'closed' && session?.user?.id && Number(session.user.id) === detail.assignedToId ? (
                     <section className="space-y-3">
                       <h3 className="text-sm font-semibold text-slate-900">My actions</h3>
                       <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">

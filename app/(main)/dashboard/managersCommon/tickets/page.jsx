@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSession } from "next-auth/react";
 import useSWR from "swr";
 import {
   AlertCircle,
@@ -51,6 +52,7 @@ function formatDate(value) {
 const DEFAULT_MESSAGE = { type: null, text: "" };
 
 export default function ManagerTicketsPage() {
+  const { data: session } = useSession();
   const [view, setView] = useState("queue");
   const [queue, setQueue] = useState("all");
   const [status, setStatus] = useState("all");
@@ -115,6 +117,10 @@ export default function ManagerTicketsPage() {
     setEscalateTarget("");
     setActionFeedback(DEFAULT_MESSAGE);
   }, [detail]);
+
+  const myId = Number(session?.user?.id || 0);
+  const myRole = session?.user?.role || "";
+  const canAct = !!detail && (myRole === 'admin' || detail.assignedToId === myId || detail.createdById === myId);
 
   const setFeedback = (type, text) => {
     setActionFeedback({ type, text });
@@ -481,6 +487,7 @@ export default function ManagerTicketsPage() {
                         <select
                           value={assignTo}
                           onChange={(event) => setAssignTo(event.target.value)}
+                          disabled={!canAct}
                           className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100"
                         >
                           <option value="">Unassigned</option>
@@ -492,8 +499,8 @@ export default function ManagerTicketsPage() {
                         </select>
                         <button
                           type="button"
-                          onClick={handleAssign}
-                          disabled={actionLoading.assign}
+                          onClick={canAct ? handleAssign : undefined}
+                          disabled={actionLoading.assign || !canAct}
                           className="inline-flex items-center gap-2 rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200 disabled:cursor-not-allowed disabled:opacity-70"
                         >
                           {actionLoading.assign ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users className="h-4 w-4" />} Assign
@@ -505,6 +512,7 @@ export default function ManagerTicketsPage() {
                         <select
                           value={statusUpdate}
                           onChange={(event) => setStatusUpdate(event.target.value)}
+                          disabled={!canAct}
                           className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100"
                         >
                           {statusChoices.map((item) => (
@@ -515,8 +523,8 @@ export default function ManagerTicketsPage() {
                         </select>
                         <button
                           type="button"
-                          onClick={handleStatus}
-                          disabled={actionLoading.status}
+                          onClick={canAct ? handleStatus : undefined}
+                          disabled={actionLoading.status || !canAct}
                           className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm transition hover:border-indigo-300 hover:text-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-100 disabled:cursor-not-allowed disabled:opacity-70"
                         >
                           {actionLoading.status ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />} Update
@@ -528,6 +536,7 @@ export default function ManagerTicketsPage() {
                         <select
                           value={priorityUpdate}
                           onChange={(event) => setPriorityUpdate(event.target.value)}
+                          disabled={!canAct}
                           className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100"
                         >
                           {priorityOptions.map((item) => (
@@ -538,8 +547,8 @@ export default function ManagerTicketsPage() {
                         </select>
                         <button
                           type="button"
-                          onClick={handlePriority}
-                          disabled={actionLoading.priority}
+                          onClick={canAct ? handlePriority : undefined}
+                          disabled={actionLoading.priority || !canAct}
                           className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm transition hover:border-indigo-300 hover:text-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-100 disabled:cursor-not-allowed disabled:opacity-70"
                         >
                           {actionLoading.priority ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />} Update
@@ -556,12 +565,13 @@ export default function ManagerTicketsPage() {
                           value={managerComment}
                           onChange={(event) => setManagerComment(event.target.value)}
                           placeholder="Ping the member, request more info, or note progress."
+                          disabled={!canAct}
                           className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100"
                         />
                         <button
                           type="button"
-                          onClick={handleComment}
-                          disabled={actionLoading.comment}
+                          onClick={canAct ? handleComment : undefined}
+                          disabled={actionLoading.comment || !canAct}
                           className="inline-flex items-center gap-2 rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200 disabled:cursor-not-allowed disabled:opacity-70"
                         >
                           {actionLoading.comment ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageCircle className="h-4 w-4" />} Post update
@@ -640,7 +650,7 @@ export default function ManagerTicketsPage() {
                         <select
                           value={escalateTarget}
                           onChange={(event) => setEscalateTarget(event.target.value)}
-                          disabled={detail.escalated}
+                          disabled={detail.escalated || !canAct}
                           className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           <option value="">Select L2 owner</option>
@@ -655,13 +665,13 @@ export default function ManagerTicketsPage() {
                           value={escalateNote}
                           onChange={(event) => setEscalateNote(event.target.value)}
                           placeholder="Context for the escalation (optional)"
-                          disabled={detail.escalated}
+                          disabled={detail.escalated || !canAct}
                           className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
                         />
                         <button
                           type="button"
-                          onClick={handleEscalate}
-                          disabled={detail.escalated || actionLoading.escalate}
+                          onClick={canAct ? handleEscalate : undefined}
+                          disabled={detail.escalated || actionLoading.escalate || !canAct}
                           className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-white px-4 py-2 text-sm font-semibold text-rose-600 shadow-sm transition hover:bg-rose-50 focus:outline-none focus:ring-2 focus:ring-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           {actionLoading.escalate ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldAlert className="h-4 w-4" />} {detail.escalated ? "Already escalated" : "Escalate"}

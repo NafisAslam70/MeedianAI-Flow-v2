@@ -163,13 +163,11 @@ export async function PATCH(req, { params }) {
     const isAdmin = session.user.role === "admin";
     const isTeamManager = session.user.role === "team_manager";
     const assignedToMe = (ticketRow.assignedToId || null) === managerId;
+    const isOwner = (ticketRow.createdById || null) === managerId;
 
-    // Team managers can view all, but can only act on tickets assigned to them,
-    // except they may self-assign.
-    if (isTeamManager && !assignedToMe) {
-      if (!(action === "assign" && Number(payload?.assigneeId) === managerId)) {
-        return NextResponse.json({ error: "Only the assignee can perform this action" }, { status: 403 });
-      }
+    // Team managers can view all, but can only act if they are assignee or owner
+    if (isTeamManager && !(assignedToMe || isOwner)) {
+      return NextResponse.json({ error: "Only the assignee or owner can perform this action" }, { status: 403 });
     }
 
     async function notifyRaiser(subject, body, meta = {}) {
