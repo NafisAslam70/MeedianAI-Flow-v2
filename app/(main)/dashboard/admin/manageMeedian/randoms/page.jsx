@@ -16,11 +16,13 @@ export default function RandomsPage() {
   const [feedback, setFeedback] = useState(null);
   const [isSavingBypass, setIsSavingBypass] = useState(false);
   const [isSavingIpr, setIsSavingIpr] = useState(false);
+  const [isSavingWaitFs, setIsSavingWaitFs] = useState(false);
   const [isSavingWait, setIsSavingWait] = useState(false);
 
   const showDayCloseBypass = data?.showDayCloseBypass ?? false;
   const showIprJourney = data?.showIprJourney ?? true;
   const dayCloseWaitCompulsory = data?.dayCloseWaitCompulsory ?? false;
+  const dayCloseWaitFullscreen = data?.dayCloseWaitFullscreen ?? false;
 
   const updateFlag = async ({ payload, setSaving, successMessage }) => {
     if (setSaving) setSaving(true);
@@ -77,6 +79,18 @@ export default function RandomsPage() {
       successMessage: nextValue
         ? "Navbar will be blocked during Day Close approval wait."
         : "Navbar will no longer be blocked during Day Close wait.",
+    });
+  };
+
+  const handleToggleWaitFs = () => {
+    if (isSavingWaitFs) return;
+    const nextValue = !dayCloseWaitFullscreen;
+    updateFlag({
+      payload: { dayCloseWaitFullscreen: nextValue },
+      setSaving: setIsSavingWaitFs,
+      successMessage: nextValue
+        ? "Full-screen lock during Day Close wait is ON."
+        : "Full-screen lock is OFF.",
     });
   };
 
@@ -218,6 +232,37 @@ export default function RandomsPage() {
         </div>
         <div className="text-sm text-gray-500">
           Status: {isLoading ? "Loading…" : dayCloseWaitCompulsory ? "Navbar blocking during Day Close wait is ON." : "Navbar blocking is OFF."}
+        </div>
+        <div className="flex items-start justify-between gap-4 pt-2">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-800">Full-screen Lock (Level 2)</h3>
+            <p className="text-xs text-gray-600">Blocks interaction across the entire app. Also warns before closing the tab.</p>
+          </div>
+          <motion.button
+            type="button"
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.97 }}
+            onClick={handleToggleWaitFs}
+            disabled={isLoading || isSavingWaitFs}
+            className={`relative inline-flex h-7 w-14 items-center rounded-full border transition-colors duration-200 ${
+              dayCloseWaitFullscreen ? "bg-rose-500 border-rose-500" : "bg-gray-200 border-gray-300"
+            } ${isSavingWaitFs ? "opacity-70 cursor-not-allowed" : "cursor-pointer"}`}
+            aria-pressed={dayCloseWaitFullscreen}
+          >
+            <span
+              className={`ml-1 inline-flex h-5 w-5 transform items-center justify-center rounded-full bg-white shadow transition-transform duration-200 ${
+                dayCloseWaitFullscreen ? "translate-x-7" : "translate-x-0"
+              }`}
+            >
+              {isSavingWaitFs ? (
+                <Loader2 className="h-4 w-4 animate-spin text-rose-600" />
+              ) : dayCloseWaitFullscreen ? (
+                <Lock className="h-4 w-4 text-rose-600" />
+              ) : (
+                <X className="h-4 w-4 text-gray-500" />
+              )}
+            </span>
+          </motion.button>
         </div>
       </div>
     </div>

@@ -190,7 +190,33 @@ export default function Navbar() {
     status === "authenticated" ? "/api/member/dayClose/dayCloseStatus" : null,
     (u) => fetch(u, { cache: "no-store" }).then((r) => r.json())
   );
-  const navBlocked = !!(dayClose?.dayCloseWaitCompulsory && String(dayClose?.status || '').toLowerCase() === 'pending');
+  const isPendingDayClose = String(dayClose?.status || '').toLowerCase() === 'pending';
+  const navBlocked = !!(dayClose?.dayCloseWaitCompulsory && isPendingDayClose);
+  const fullScreenBlock = !!(navBlocked && dayClose?.dayCloseWaitFullscreen);
+
+  // Warn before closing tab when full-screen block is active
+  useEffect(() => {
+    if (!fullScreenBlock) {
+      window.onbeforeunload = null;
+      return;
+    }
+    const handler = (e) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => {
+      window.removeEventListener('beforeunload', handler);
+      window.onbeforeunload = null;
+    };
+  }, [fullScreenBlock]);
+
+  // Hover/interaction tooltip for both levels while blocked
+  const [tip, setTip] = useState({ visible: false, x: 0, y: 0 });
+  const tipText = "Waiting for Day Close approval…";
+  const showTip = (e) => setTip({ visible: true, x: e.clientX || 0, y: e.clientY || 0 });
+  const moveTip = (e) => setTip((t) => (t.visible ? { ...t, x: e.clientX || t.x, y: e.clientY || t.y } : t));
+  const hideTip = () => setTip((t) => ({ ...t, visible: false }));
 
   
 
@@ -1781,10 +1807,34 @@ export default function Navbar() {
 
       `}</style>
 
+      {fullScreenBlock && (
+        <div
+          className="fixed inset-0 z-[100000] bg-black/30 backdrop-blur-sm flex items-center justify-center"
+          onMouseEnter={showTip}
+          onMouseMove={moveTip}
+          onMouseLeave={hideTip}
+          onMouseDown={showTip}
+          onClick={showTip}
+        >
+          <div className="rounded-2xl bg-white/95 border border-rose-200 px-6 py-4 text-center shadow-lg">
+            <div className="text-sm font-semibold text-rose-700">Waiting for Day Close approval…</div>
+            <div className="text-xs text-slate-600 mt-1">Please stay on this page until your supervisor approves or rejects.</div>
+          </div>
+        </div>
+      )}
+
       {showNavbar && (
         <nav className="px-3 py-2 w-full sticky top-0 z-40 shadow-lg border-b border-cyan-900/40 text-white relative">
           {navBlocked && (
-            <div className="absolute inset-0 bg-black/10 cursor-not-allowed z-[100]" title="Waiting for Day Close approval"></div>
+            <div
+              className="absolute inset-0 bg-black/10 cursor-not-allowed z-[100]"
+              title="Waiting for Day Close approval"
+              onMouseEnter={showTip}
+              onMouseMove={moveTip}
+              onMouseLeave={hideTip}
+              onMouseDown={showTip}
+              onClick={showTip}
+            />
           )}
           <div className="flex items-center justify-between w-full px-2 sm:px-4 lg:px-6 min-w-0">
             {/* left: logo */}
@@ -2140,6 +2190,19 @@ export default function Navbar() {
             </>
           )}
         </nav>
+      )}
+
+      {(navBlocked || fullScreenBlock) && tip.visible && (
+        <div
+          className="fixed z-[100001] pointer-events-none"
+          style={{ left: Math.max(8, tip.x + 12), top: Math.max(8, tip.y + 12) }}
+          role="status"
+          aria-live="polite"
+        >
+          <div className="rounded-lg border border-rose-300 bg-rose-50/95 text-rose-800 text-xs font-semibold px-3 py-1.5 shadow">
+            {tipText}
+          </div>
+        </div>
       )}
 
       {/* portals (outside so they can appear even if nav is hidden) */}
