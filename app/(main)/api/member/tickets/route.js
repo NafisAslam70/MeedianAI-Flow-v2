@@ -1,13 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import {
-  tickets,
-  ticketActivities,
-  users,
-  messages,
-} from "@/lib/schema";
-import { sendWhatsappMessage } from "@/lib/whatsapp";
+import { tickets, ticketActivities, users } from "@/lib/schema";
 import { createNotifications } from "@/lib/notify";
 import {
   TICKET_PRIORITY_OPTIONS,
@@ -247,15 +241,13 @@ export async function POST(req) {
       metadata: activityPayload.metadata,
     });
 
-    // Notify the assignee (immediate supervisor) if auto-assigned
+    // Notify the assignee (immediate supervisor) if auto-assigned (in-app only)
     if (assignedToId) {
       try {
         const [assignee] = await db
           .select({
             id: users.id,
             name: users.name,
-            whatsappNumber: users.whatsapp_number,
-            whatsappEnabled: users.whatsapp_enabled,
           })
           .from(users)
           .where(eq(users.id, assignedToId))
@@ -265,7 +257,7 @@ export async function POST(req) {
           const subject = `New Ticket ${finalNumber}`;
           const body = `"${title}" has been assigned to you.`;
 
-          // In-app notification
+          // In-app notification only
           await createNotifications({
             recipients: [assignee.id],
             type: "task_update",
@@ -274,31 +266,6 @@ export async function POST(req) {
             entityKind: "ticket",
             entityId: created.id,
             meta: { ticketNumber: finalNumber, authorId: requesterId, action: "assigned" },
-          });
-
-          // WhatsApp (best-effort)
-          try {
-            if (assignee.whatsappEnabled && assignee.whatsappNumber) {
-              await sendWhatsappMessage(assignee.whatsappNumber, {
-                recipientName: assignee.name || `User #${assignee.id}`,
-                senderName: "Ticket Desk",
-                subject,
-                message: body,
-                dateTime: new Date().toISOString(),
-              });
-            }
-          } catch (e) {
-            // swallow
-          }
-
-          // Audit log into messages table
-          await db.insert(messages).values({
-            senderId: requesterId,
-            recipientId: assignee.id,
-            subject,
-            message: body,
-            content: body,
-            status: "sent",
           });
         }
       } catch (_) {}

@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { tickets, ticketActivities, users, messages } from "@/lib/schema";
+import { tickets, ticketActivities, users } from "@/lib/schema";
 import { alias } from "drizzle-orm/pg-core";
 import { asc, eq } from "drizzle-orm";
-import { sendWhatsappMessage } from "@/lib/whatsapp";
 import { createNotifications } from "@/lib/notify";
 
 const MEMBER_ACCESS_ROLES = new Set(["admin", "team_manager"]);
@@ -182,7 +181,7 @@ export async function POST(req, { params }) {
       .set({ lastActivityAt: now, updatedAt: now })
       .where(eq(tickets.id, ticketId));
 
-    // Notify assignee (if not the commenter) that member added a comment
+    // Notify assignee (if not the commenter) that member added a comment (in-app only)
     try {
       const [full] = await db
         .select({ assignedToId: tickets.assignedToId, title: tickets.title, ticketNumber: tickets.ticketNumber })
@@ -193,7 +192,7 @@ export async function POST(req, { params }) {
       if (assigneeId && assigneeId !== requesterId) {
         const subject = `Update on Ticket ${full.ticketNumber || ticketId}`;
         const body = comment;
-        // In-app
+        // In-app only
         await createNotifications({
           recipients: [assigneeId],
           type: "task_update",
@@ -202,32 +201,6 @@ export async function POST(req, { params }) {
           entityKind: "ticket",
           entityId: ticketId,
           meta: { ticketNumber: full.ticketNumber || String(ticketId), action: "comment" },
-        });
-        // WhatsApp
-        try {
-          const [assignee] = await db
-            .select({ id: users.id, name: users.name, whatsappNumber: users.whatsapp_number, whatsappEnabled: users.whatsapp_enabled })
-            .from(users)
-            .where(eq(users.id, assigneeId))
-            .limit(1);
-          if (assignee?.whatsappEnabled && assignee?.whatsappNumber) {
-            await sendWhatsappMessage(assignee.whatsappNumber, {
-              recipientName: assignee.name || `User #${assignee.id}`,
-              senderName: "Ticket Desk",
-              subject,
-              message: body,
-              dateTime: new Date().toISOString(),
-            });
-          }
-        } catch (_) {}
-        // Message audit
-        await db.insert(messages).values({
-          senderId: requesterId,
-          recipientId: assigneeId,
-          subject,
-          message: body,
-          content: body,
-          status: "sent",
         });
       }
     } catch (e) {
