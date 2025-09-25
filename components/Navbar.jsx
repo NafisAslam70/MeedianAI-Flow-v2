@@ -561,6 +561,18 @@ export default function Navbar() {
           })()}
           <button
             className="action-row"
+            onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/managersCommon/tickets"); }}
+          >
+            <span className="row-icon"><MessageSquare size={18} /></span>
+            <span className="row-main">
+              <span className="row-title">Support Tickets</span>
+              <span className="row-sub">Queue, assignment, and due updates</span>
+            </span>
+            <ArrowRight size={16} className="row-go" />
+          </button>
+
+          <button
+            className="action-row"
             onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/managersCommon/routineTasks"); }}
           >
             <span className="row-icon"><ClipboardList size={18} /></span>
@@ -769,6 +781,18 @@ export default function Navbar() {
             <span className="row-main">
               <span className="row-title text-sm sm:text-base">Leave Request</span>
               <span className="row-sub text-[11px] sm:text-xs">Submit leave for approval</span>
+            </span>
+            <ArrowRight size={16} className="row-go" />
+          </button>
+
+          <button
+            className="action-row sm:py-3 sm:px-3 py-2 px-2"
+            onClick={() => { setIsProfileOpen(false); router.push("/dashboard/member/tickets"); }}
+          >
+            <span className="row-icon"><HelpCircle size={18} /></span>
+            <span className="row-main">
+              <span className="row-title text-sm sm:text-base">Raise a Ticket</span>
+              <span className="row-sub text-[11px] sm:text-xs">Report an issue or request support</span>
             </span>
             <ArrowRight size={16} className="row-go" />
           </button>
@@ -1927,6 +1951,28 @@ export default function Navbar() {
                     {notifUnread > 0 ? <BellDot size={20} /> : <Bell size={20} />}
                     {notifUnread > 0 && <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold rounded-full px-1.5 py-[1px] shadow">{notifUnread}</span>}
                   </button>
+                  {isNotifOpen && (
+                    <div className="notif-panel" role="menu" aria-label="Notifications" onClick={(e)=>e.stopPropagation()}>
+                      <div className="flex items-center justify-between px-1 mb-1">
+                        <div className="text-cyan-300 font-semibold">Notifications</div>
+                        <button className="text-xs text-cyan-200 hover:text-white" onClick={async ()=>{ await fetch('/api/member/notifications', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ all: true, read: true })}); setNotifUnread(0); setIsNotifOpen(false); }}>Mark all read</button>
+                      </div>
+                      <div className="grid gap-1 max-h-72 overflow-auto pr-1">
+                        {notifItems.length === 0 ? (
+                          <div className="text-sm text-slate-300 px-2 py-4">No recent notifications.</div>
+                        ) : notifItems.map((n) => (
+                          <div key={n.id} className={`notif-item ${n.read ? '' : 'unread'}`}>
+                            <div className="pt-0.5">{n.type?.includes('task') ? '🗂️' : n.type?.includes('chat') ? '💬' : n.type?.includes('community') ? '🧩' : '📌'}</div>
+                            <div>
+                              <div className="notif-title">{n.title || 'Notification'}</div>
+                              {n.body && <div className="notif-body">{n.body}</div>}
+                              <div className="notif-time">{new Date(n.createdAt).toLocaleString()}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
               <button

@@ -74,8 +74,10 @@ export default function Team({
   const [showBulkModal, setShowBulkModal] = useState(false);
   const [bulkRole, setBulkRole] = useState("");
   const [bulkUserIds, setBulkUserIds] = useState([]);
-  const [bulkTeacherFlag, setBulkTeacherFlag] = useState("none");
   const [bulkSaving, setBulkSaving] = useState(false);
+  const [bulkSearch, setBulkSearch] = useState("");
+  const [bulkViewFilter, setBulkViewFilter] = useState("all");
+  const [bulkTeacherFilter, setBulkTeacherFilter] = useState("all");
 
   const saveAllChanges = async () => {
     await saveTeamChanges();
@@ -112,6 +114,31 @@ export default function Team({
     const teachers = users.filter((u) => u.isTeacher === true).length;
     return { total, managers, teachers };
   }, [users]);
+
+  const bulkSelectableUsers = useMemo(
+    () => users.filter((user) => user.role !== "admin"),
+    [users]
+  );
+
+  const filteredBulkUsers = useMemo(() => {
+    const q = bulkSearch.trim().toLowerCase();
+    return bulkSelectableUsers
+      .filter((user) => {
+        if (bulkViewFilter === "members") return user.role === "member";
+        if (bulkViewFilter === "managers") return user.role === "team_manager";
+        return true;
+      })
+      .filter((user) => {
+        if (bulkTeacherFilter === "yes") return user.isTeacher === true;
+        if (bulkTeacherFilter === "no") return user.isTeacher === false;
+        if (bulkTeacherFilter === "unset") return user.isTeacher === null || user.isTeacher === undefined;
+        return true;
+      })
+      .filter((user) => {
+        if (!q) return true;
+        return `${user.name || ""} ${user.email || ""}`.toLowerCase().includes(q);
+      });
+  }, [bulkSelectableUsers, bulkSearch, bulkViewFilter, bulkTeacherFilter]);
 
   const filteredUsers = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -164,26 +191,15 @@ export default function Team({
         ? user.mriRoles
         : userMriRoles[user.id] || [];
       rolesForUser.forEach((role) => {
-        map.set(role, user.name || `User #${user.id}`);
+        const list = map.get(role) || [];
+        map.set(role, [...list, user.name || `User #${user.id}`]);
       });
     });
     return map;
   }, [users, userMriRoles]);
 
-  const assignedElsewhere = useMemo(() => {
-    const set = new Set();
-    users.forEach((user) => {
-      if (user.id === activeUserId) return;
-      const rolesForUser = Array.isArray(user.mriRoles)
-        ? user.mriRoles
-        : userMriRoles[user.id] || [];
-      rolesForUser.forEach((role) => set.add(role));
-    });
-    return set;
-  }, [users, userMriRoles, activeUserId]);
-
   const handleToggleRole = (role) => {
-    if (!activeUser) return;
+    if (!activeUser || activeUser.role === "admin") return;
     const next = new Set(currentRoles);
     if (next.has(role)) next.delete(role);
     else next.add(role);
@@ -196,8 +212,22 @@ export default function Team({
   };
 
   const massAssignRoles = async () => {
-    if (!bulkRole || !bulkUserIds.length) {
-      setError("Select a role and at least one user.");
+    const eligibleUserIds = bulkUserIds
+      .map((id) => Number(id))
+      .filter((id) => {
+        const user = users.find((u) => u.id === id);
+        return user && user.role !== "admin";
+      });
+
+    if (!bulkRole) {
+      setError("Please choose a role before assigning.");
+      return;
+    }
+
+    const uniqueIds = Array.from(new Set(eligibleUserIds));
+
+    if (!uniqueIds.length) {
+      setError("Select at least one non-admin user for assignment.");
       return;
     }
     setBulkSaving(true);
@@ -207,7 +237,7 @@ export default function Team({
       const res = await fetch("/api/admin/manageMeedian?section=bulkAssignMriRole", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: bulkRole, userIds: bulkUserIds, teacherFlag: bulkTeacherFlag }),
+        body: JSON.stringify({ role: bulkRole, userIds: uniqueIds }),
       });
       const payload = await res.json();
       if (!res.ok) throw new Error(payload.error || `Bulk assign failed (${res.status})`);
@@ -216,7 +246,9 @@ export default function Team({
       await refreshTeam();
       setBulkRole("");
       setBulkUserIds([]);
-      setBulkTeacherFlag("none");
+      setBulkSearch("");
+      setBulkViewFilter("all");
+      setBulkTeacherFilter("all");
       setShowBulkModal(false);
     } catch (err) {
       setError(err.message);
@@ -417,11 +449,15 @@ export default function Team({
               <section className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h4 className="text-sm font-semibold text-slate-600 uppercase tracking-wide">MRI Roles</h4>
-                  <p className="text-xs text-slate-500">
-                    Assigned: {currentRoles.size || 0} / {allMriRoles.length}
-                  </p>
+                    <p className="text-xs text-slate-500">
+                      Assigned: {currentRoles.size || 0} / {allMriRoles.length}
+                    </p>
                 </div>
-                {allMriRoles.length === 0 ? (
+                {activeUser.role === "admin" ? (
+                  <p className="text-sm text-slate-500">
+                    MRI roles cannot be managed for administrator accounts.
+                  </p>
+                ) : allMriRoles.length === 0 ? (
                   <p className="text-sm text-slate-500">No MRI roles defined yet.</p>
                 ) : (
                   <div className="space-y-3">
@@ -430,25 +466,33 @@ export default function Team({
                         <p className="text-xs font-semibold text-slate-500 mb-2">{category}</p>
                         <div className="flex flex-wrap gap-2">
                           {roles.map((role) => {
-                            const selected = currentRoles.has(role);
-                            const locked = assignedElsewhere.has(role) && !selected;
+                          const selected = currentRoles.has(role);
                             const label = roleLabel(role);
+                            const ownerNames = Array.from(new Set(roleOwners.get(role) || []));
+                            const tooltip = ownerNames.length
+                              ? `Assigned to: ${ownerNames.join(", ")}`
+                              : label;
                             return (
                               <button
                                 key={role}
                                 type="button"
                                 onClick={() => handleToggleRole(role)}
-                                disabled={locked}
+                                disabled={activeUser.role === "admin"}
                                 className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
-                                  selected
-                                    ? "border-teal-500 bg-teal-500 text-white shadow-sm"
-                                    : locked
+                                  activeUser.role === "admin"
                                     ? "border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed"
+                                    : selected
+                                    ? "border-teal-500 bg-teal-500 text-white shadow-sm"
                                     : "border-slate-200 bg-white text-slate-600 hover:border-teal-300 hover:text-teal-600"
                                 }`}
-                                title={locked ? `Currently assigned to ${roleOwners.get(role) || "another user"}` : label}
+                                title={tooltip}
                               >
                                 {label}
+                                {ownerNames.length > 1 && (
+                                  <span className="ml-1 rounded-full bg-slate-100 px-1 text-[10px] text-slate-500">
+                                    {ownerNames.length}
+                                  </span>
+                                )}
                               </button>
                             );
                           })}
@@ -783,7 +827,7 @@ export default function Team({
                 <div>
                   <h3 className="text-lg font-semibold text-slate-900">Bulk assign MRI role</h3>
                   <p className="text-sm text-slate-500">
-                    Pick one role and assign it to multiple users. Anyone not selected will be unassigned for that role.
+                    Pick a role and add it to multiple users. Existing assignments stay intact unless you remove them manually.
                   </p>
                 </div>
                 <button
@@ -811,33 +855,77 @@ export default function Team({
                     ))}
                   </select>
                 </div>
-                <div>
-                  <label className="text-sm font-medium text-slate-600">Teacher flag</label>
-                  <select
-                    value={bulkTeacherFlag}
-                    onChange={(e) => setBulkTeacherFlag(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
-                  >
-                    <option value="none">No change</option>
-                    <option value="true">Set as teacher</option>
-                    <option value="false">Set as non-teacher</option>
-                  </select>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-slate-600">Filter users</label>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <select
+                      value={bulkViewFilter}
+                      onChange={(e) => setBulkViewFilter(e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+                    >
+                      {VIEW_FILTERS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={bulkTeacherFilter}
+                      onChange={(e) => setBulkTeacherFilter(e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+                    >
+                      {TEACHER_FILTERS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-                <div className="md:col-span-2">
-                  <label className="text-sm font-medium text-slate-600">Users</label>
-                  <select
-                    multiple
-                    value={bulkUserIds.map(String)}
-                    onChange={(e) => setBulkUserIds(Array.from(e.target.selectedOptions, (opt) => Number(opt.value)))}
-                    className="mt-1 h-48 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
-                  >
-                    {users.map((user) => (
-                      <option key={user.id} value={user.id}>
-                        {user.name} — {user.email}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="mt-1 text-xs text-slate-500">Hold Ctrl/Cmd to select multiple users.</p>
+                <div className="md:col-span-2 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium text-slate-600">Users</label>
+                    <span className="text-xs text-slate-400">{bulkUserIds.length} selected</span>
+                  </div>
+                  <input
+                    value={bulkSearch}
+                    onChange={(e) => setBulkSearch(e.target.value)}
+                    placeholder="Search by name or email"
+                    className="w-full rounded-full border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 focus:border-teal-400 focus:outline-none focus:ring-1 focus:ring-teal-100"
+                  />
+                  <div className="max-h-56 space-y-1 overflow-auto rounded-2xl border border-slate-200 bg-white/80 p-2">
+                    {filteredBulkUsers.map((user) => {
+                      const checked = bulkUserIds.some((uid) => uid === user.id);
+                      return (
+                        <label
+                          key={user.id}
+                          className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() =>
+                              setBulkUserIds((prev) =>
+                                checked
+                                  ? prev.filter((uid) => uid !== user.id)
+                                  : [...prev, user.id]
+                              )
+                            }
+                            className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                          />
+                          <span className="flex-1 truncate">
+                            <span className="font-semibold text-slate-800">{user.name}</span>
+                            <span className="text-xs text-slate-400"> • {user.email}</span>
+                          </span>
+                        </label>
+                      );
+                    })}
+                    {filteredBulkUsers.length === 0 && (
+                      <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-3 py-4 text-center text-xs text-slate-400">
+                        No matching users.
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 

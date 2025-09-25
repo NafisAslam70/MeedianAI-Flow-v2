@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X, Clock, Calendar, CheckCircle, AlertCircle, Loader2, ArrowLeft } from "lucide-react";
 import { format } from "date-fns";
 import useSWR from "swr";
+import TodayAtGlanceStep from "./TodayAtGlanceStep";
 import MRIStep from "./MRIStep";
 import AssignedTasksStep from "./AssignedTasksStep";
 import RoutineTasksStep from "./RoutineTasksStep";
@@ -56,6 +57,7 @@ export default function CloseMyDay() {
   const [isPortrait, setIsPortrait] = useState(false);
   const [isBypass, setIsBypass] = useState(false);
   const [allowBypass, setAllowBypass] = useState(false);
+  const [showIprJourney, setShowIprJourney] = useState(true);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [selectedTask, setSelectedTask] = useState(null);
   const [taskDetails, setTaskDetails] = useState(null);
@@ -180,6 +182,8 @@ export default function CloseMyDay() {
       setIsBypass(false);
     }
 
+    setShowIprJourney(dayCloseStatus?.showIprJourney !== false);
+
     if (dayCloseStatus && ["pending", "approved", "rejected"].includes(dayCloseStatus.status)) {
       setRequestStatus(dayCloseStatus.status);
       setRequestDate(dayCloseStatus.date || null);
@@ -233,7 +237,7 @@ export default function CloseMyDay() {
     setCurrentStep(1);
   };
 
-  const handleNextStep = () => setCurrentStep((p) => Math.min(p + 1, 4));
+  const handleNextStep = () => setCurrentStep((p) => Math.min(p + 1, 5));
   const handlePrevStep = () => setCurrentStep((p) => Math.max(p - 1, 1));
   const handleBackToMain = () => {
     setActiveView("main");
@@ -628,9 +632,9 @@ export default function CloseMyDay() {
                 >
                   <ArrowLeft size={20} /> Back
                 </motion.button>
-                <h2 className="text-xl font-bold text-gray-800">Day Closing Process - Step {currentStep}/4</h2>
+                <h2 className="text-xl font-bold text-gray-800">Day Closing Process - Step {currentStep}/5</h2>
                 <div className="flex gap-2">
-                  {[1, 2, 3, 4].map((step) => (
+                  {[1, 2, 3, 4, 5].map((step) => (
                     <motion.div
                       key={step}
                       className={`w-8 h-2 rounded-full ${step <= currentStep ? "bg-teal-600" : "bg-gray-300"}`}
@@ -682,6 +686,16 @@ export default function CloseMyDay() {
 
                 {currentStep === 4 && (
                   <motion.div key="step4" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.3 }}>
+                    <TodayAtGlanceStep
+                      handleNextStep={handleNextStep}
+                      handlePrevStep={handlePrevStep}
+                      showIprJourney={showIprJourney}
+                    />
+                  </motion.div>
+                )}
+
+                {currentStep === 5 && (
+                  <motion.div key="step5" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.3 }}>
                     <h3 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
                       <CheckCircle size={18} className="text-teal-600" />
                       General Log

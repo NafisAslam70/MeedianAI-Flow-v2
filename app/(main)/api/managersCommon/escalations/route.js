@@ -10,8 +10,12 @@ import {
   escalationsSteps,
   dayCloseOverrides,
   escalationStatusEnum,
+  messages,
+  tickets,
+  ticketActivities,
 } from "@/lib/schema";
 import { and, eq, ne, inArray, desc, sql } from "drizzle-orm";
+import { sendWhatsappMessage } from "@/lib/whatsapp";
 
 export const dynamic = "force-dynamic";
 
@@ -109,30 +113,42 @@ export async function GET(req) {
       return NextResponse.json({ matters: rows }, { status: 200 });
     }
     if (section === "counts") {
-      // Count open matters: for managers, include assigned to me OR created by me OR I'm a member
       const assigned = await db
         .select({ id: escalationsMatters.id })
         .from(escalationsMatters)
         .where(and(ne(escalationsMatters.status, 'CLOSED'), eq(escalationsMatters.currentAssigneeId, uid)));
-      const created = await db
+      const createdOpen = await db
         .select({ id: escalationsMatters.id })
         .from(escalationsMatters)
         .where(and(ne(escalationsMatters.status, 'CLOSED'), eq(escalationsMatters.createdById, uid)));
-      const involved = await db
+      const involvedOpen = await db
         .select({ id: escalationsMatters.id })
         .from(escalationsMatters)
         .leftJoin(escalationsMatterMembers, eq(escalationsMatterMembers.matterId, escalationsMatters.id))
         .where(and(ne(escalationsMatters.status, 'CLOSED'), eq(escalationsMatterMembers.userId, uid)));
-      const mySet = new Set([...assigned, ...created, ...involved].map(r => r.id));
-      let openTotalCount = null;
-      if (isAdmin) {
-        const allOpen = await db
-          .select({ id: escalationsMatters.id })
-          .from(escalationsMatters)
-          .where(ne(escalationsMatters.status, 'CLOSED'));
-        openTotalCount = allOpen.length;
-      }
-      return NextResponse.json({ forYouCount: mySet.size, openTotalCount }, { status: 200 });
+      const myOpenSet = new Set([...assigned, ...createdOpen, ...involvedOpen].map((r) => r.id));
+
+      const raisedByMeCount = await db
+        .select({ id: escalationsMatters.id })
+        .from(escalationsMatters)
+        .where(eq(escalationsMatters.createdById, uid));
+
+      const allOpen = await db
+        .select({ id: escalationsMatters.id })
+        .from(escalationsMatters)
+        .where(ne(escalationsMatters.status, 'CLOSED'));
+
+      const closedTotal = await db
+        .select({ id: escalationsMatters.id })
+        .from(escalationsMatters)
+        .where(eq(escalationsMatters.status, 'CLOSED'));
+
+      return NextResponse.json({
+        forYouCount: myOpenSet.size,
+        raisedByMeCount: raisedByMeCount.length,
+        openTotalCount: allOpen.length,
+        closedTotalCount: closedTotal.length,
+      }, { status: 200 });
     }
     if (section === "detail") {
       if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
@@ -217,6 +233,102 @@ export async function POST(req) {
   const uid = Number(session.user.id);
   try {
     const body = await req.json();
+    if (body?.action === "remind-members") {
+      const matterId = Number(body.matterId);
+      const memberIds = Array.isArray(body.memberIds)
+        ? Array.from(new Set(body.memberIds.map((x) => Number(x)).filter(Boolean)))
+        : [];
+      const note = String(body.message || body.note || "Please meet the escalation leads immediately.").trim();
+      if (!matterId || memberIds.length === 0) {
+        return NextResponse.json({ error: "matterId and memberIds required" }, { status: 400 });
+      }
+
+      const [matter] = await db
+        .select({ id: escalationsMatters.id, title: escalationsMatters.title, level: escalationsMatters.level })
+        .from(escalationsMatters)
+        .where(eq(escalationsMatters.id, matterId));
+      if (!matter) return NextResponse.json({ error: "Matter not found" }, { status: 404 });
+
+      const recipients = await db
+        .select({
+          id: users.id,
+          name: users.name,
+          whatsappNumber: users.whatsapp_number,
+          whatsappEnabled: users.whatsapp_enabled,
+        })
+        .from(users)
+        .where(inArray(users.id, memberIds));
+
+      const uniqueRecipients = Array.from(new Map(recipients.map((r) => [r.id, r])).values());
+      if (!uniqueRecipients.length) {
+        return NextResponse.json({ sent: 0, results: [] }, { status: 200 });
+      }
+
+      const matterTitle = matter.title || `Matter #${matterId}`;
+      const subject = `Escalation Reminder: ${matterTitle}`;
+      const senderName = session.user?.name || "Manager";
+      const reminderNote = `Escalation reminder for matter #${matterId}`;
+      const timestampIso = new Date().toISOString();
+      const messageRows = [];
+      const results = [];
+
+      for (const recipient of uniqueRecipients) {
+        await db.insert(escalationsSteps).values({
+          matterId,
+          level: matter.level || 1,
+          action: "PROGRESS",
+          fromUserId: uid,
+          toUserId: recipient.id,
+          note,
+        });
+
+        let status = "sent";
+        let error = null;
+
+        if (!recipient.whatsappEnabled || !recipient.whatsappNumber) {
+          status = "failed";
+          error = recipient.whatsappEnabled === false ? "whatsapp_disabled" : "missing_whatsapp_number";
+        } else {
+          try {
+            await sendWhatsappMessage(
+              recipient.whatsappNumber,
+              {
+                recipientName: recipient.name || `User #${recipient.id}`,
+                senderName,
+                subject,
+                message: note,
+                note: reminderNote,
+                contact: senderName,
+                dateTime: timestampIso,
+              }
+            );
+          } catch (sendError) {
+            status = "failed";
+            error = sendError?.message || String(sendError);
+            console.error(`Failed to send escalation reminder to user ${recipient.id}:`, error);
+          }
+        }
+
+        messageRows.push({
+          senderId: uid,
+          recipientId: recipient.id,
+          subject,
+          message: note,
+          content: note,
+          note: reminderNote,
+          status,
+        });
+        results.push({ id: recipient.id, status, ...(error ? { error } : {}) });
+      }
+
+      if (messageRows.length) {
+        await db.insert(messages).values(messageRows);
+      }
+
+      const sentCount = results.filter((r) => r.status === "sent" && !r.error).length;
+      return NextResponse.json({ sent: sentCount, results }, { status: 200 });
+    }
+
     const title = String(body.title || "").trim();
     if (title.length < 3) return NextResponse.json({ error: "Title too short" }, { status: 400 });
     const description = body.description ? String(body.description) : null;
@@ -268,7 +380,7 @@ export async function PATCH(req) {
       const note = body.note ? String(body.note) : null;
       if (!id || !toUserId) return NextResponse.json({ error: "id and l2AssigneeId required" }, { status: 400 });
       // ensure L2 assignee is admin or team_manager
-      const toRow = await db.select({ role: users.role }).from(users).where(eq(users.id, toUserId));
+      const toRow = await db.select({ role: users.role, name: users.name }).from(users).where(eq(users.id, toUserId));
       if (!toRow.length || !["admin", "team_manager"].includes(toRow[0].role)) {
         return NextResponse.json({ error: "L2 assignee must be an admin or team manager" }, { status: 400 });
       }
@@ -276,11 +388,32 @@ export async function PATCH(req) {
       if (!m) return NextResponse.json({ error: "not found" }, { status: 404 });
       if (m.level !== 1) return NextResponse.json({ error: "Can only escalate at level 1" }, { status: 400 });
       if (!(isAdmin || m.currentAssigneeId === uid)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      const now = new Date();
       await db
         .update(escalationsMatters)
-        .set({ level: 2, status: "ESCALATED", currentAssigneeId: toUserId, updatedAt: new Date() })
+        .set({ level: 2, status: "ESCALATED", currentAssigneeId: toUserId, updatedAt: now })
         .where(eq(escalationsMatters.id, id));
       await db.insert(escalationsSteps).values({ matterId: id, level: 2, action: "ESCALATE", fromUserId: uid, toUserId, note });
+
+      const targetName = toRow[0]?.name || null;
+      if (m.ticketId) {
+        await db
+          .update(tickets)
+          .set({ status: "escalated", escalated: true, updatedAt: now, lastActivityAt: now })
+          .where(eq(tickets.id, m.ticketId));
+        await db.insert(ticketActivities).values({
+          ticketId: m.ticketId,
+          authorId: uid,
+          type: "status_change",
+          message: targetName
+            ? `Escalation escalated to level 2 (${targetName})`
+            : "Escalation escalated to level 2",
+          fromStatus: "escalated",
+          toStatus: "escalated",
+          metadata: { escalationAction: "ESCALATE", matterId: id, toUserId },
+        });
+      }
+
       return NextResponse.json({ updated: 1 }, { status: 200 });
     }
 
@@ -291,8 +424,33 @@ export async function PATCH(req) {
       const [m] = await db.select().from(escalationsMatters).where(eq(escalationsMatters.id, id));
       if (!m) return NextResponse.json({ error: "not found" }, { status: 404 });
       if (!(isAdmin || m.currentAssigneeId === uid)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-      await db.update(escalationsMatters).set({ status: "CLOSED", currentAssigneeId: null, updatedAt: new Date() }).where(eq(escalationsMatters.id, id));
+      const now = new Date();
+      await db.update(escalationsMatters).set({ status: "CLOSED", currentAssigneeId: null, updatedAt: now }).where(eq(escalationsMatters.id, id));
       await db.insert(escalationsSteps).values({ matterId: id, level: m.level, action: "CLOSE", fromUserId: uid, toUserId: null, note });
+
+      if (m.ticketId) {
+        const message = note ? `Escalation closed: ${note.slice(0, 120)}` : "Escalation closed";
+        await db
+          .update(tickets)
+          .set({
+            status: "resolved",
+            escalated: false,
+            updatedAt: now,
+            lastActivityAt: now,
+            resolvedAt: now,
+          })
+          .where(eq(tickets.id, m.ticketId));
+        await db.insert(ticketActivities).values({
+          ticketId: m.ticketId,
+          authorId: uid,
+          type: "status_change",
+          message,
+          fromStatus: "escalated",
+          toStatus: "resolved",
+          metadata: { escalationAction: "CLOSE", matterId: id },
+        });
+      }
+
       return NextResponse.json({ updated: 1 }, { status: 200 });
     }
 
@@ -312,8 +470,22 @@ export async function PATCH(req) {
         if (involved && involved.length > 0) allowed = true;
       }
       if (!allowed) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      const now = new Date();
       await db.insert(escalationsSteps).values({ matterId: id, level: m.level, action: "PROGRESS", fromUserId: uid, toUserId: m.currentAssigneeId, note });
-      await db.update(escalationsMatters).set({ updatedAt: new Date() }).where(eq(escalationsMatters.id, id));
+      await db.update(escalationsMatters).set({ updatedAt: now }).where(eq(escalationsMatters.id, id));
+
+      if (m.ticketId) {
+        const message = note ? `Escalation update: ${note.slice(0, 160)}` : "Escalation update posted";
+        await db.insert(ticketActivities).values({
+          ticketId: m.ticketId,
+          authorId: uid,
+          type: "comment",
+          message,
+          metadata: { escalationAction: "PROGRESS", level: m.level },
+        });
+        await db.update(tickets).set({ updatedAt: now, lastActivityAt: now }).where(eq(tickets.id, m.ticketId));
+      }
+
       return NextResponse.json({ ok: true }, { status: 200 });
     }
 

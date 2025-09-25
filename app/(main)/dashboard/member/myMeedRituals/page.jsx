@@ -15,6 +15,24 @@ const fetcher = (url) =>
     return res.json();
   });
 
+const toTitle = (value, fallback = "") => {
+  const raw = String(value || "").trim();
+  if (!raw) return fallback;
+  return raw
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+};
+
+const IPR_METRIC_META = [
+  { key: "punctuality", label: "Punctuality" },
+  { key: "academics", label: "Academics" },
+  { key: "obedienceDiscipline", label: "Obedience & Discipline" },
+  { key: "languagePersonality", label: "Language & Personality" },
+  { key: "willSkill", label: "Will-Skill Level" },
+];
+
 const DEFAULT_AMRI_PROGRAMS = [
   { key: "MSP", label: "MSP" },
   { key: "MHCP", label: "MHCP" },
@@ -58,23 +76,42 @@ export default function MyMRIs() {
   const [weeklyNMRIs, setWeeklyNMRIs] = useState([]);
   const [routineTasks, setRoutineTasks] = useState([]);
   const [isLoadingNMRIs, setIsLoadingNMRIs] = useState(true);
+  const [iprMarks, setIprMarks] = useState([]);
+  const [iprSubmitting, setIprSubmitting] = useState(false);
+  const [iprMessage, setIprMessage] = useState(null);
+  const [showIprLeaderboard, setShowIprLeaderboard] = useState(false);
   const { data: roleTasksData, error: roleTasksError } = useSWR(
     session?.user?.id ? "/api/member/mris/role-tasks" : null,
     fetcher
   );
 
-  const { amriRoleBundles, rmriRoleBundles, otherRoleBundles } = useMemo(() => {
+  const todayIso = useMemo(() => format(new Date(), "yyyy-MM-dd"), []);
+  const isIprFlowActive = isRoleExecuteOpen && selectedExecKind === 'ipr';
+
+  const { data: iprUsersData } = useSWR(
+    isIprFlowActive ? "/api/member/users" : null,
+    fetcher
+  );
+
+  const { data: iprSummaryData, mutate: mutateIprSummary } = useSWR(
+    isIprFlowActive ? `/api/member/ipr?date=${todayIso}&summary=all` : null,
+    fetcher
+  );
+
+  const { amriRoleBundles, rmriRoleBundles, omriRoleBundles, otherRoleBundles } = useMemo(() => {
     const bundles = Array.isArray(roleTasksData?.roles) ? roleTasksData.roles : [];
     const amri = [];
     const rmri = [];
+    const omri = [];
     const other = [];
     for (const bundle of bundles) {
       const cat = String(bundle?.category || "rmri").toLowerCase();
       if (cat === "amri") amri.push(bundle);
       else if (cat === "rmri") rmri.push(bundle);
+      else if (cat === "omri") omri.push(bundle);
       else other.push(bundle);
     }
-    return { amriRoleBundles: amri, rmriRoleBundles: rmri, otherRoleBundles: other };
+    return { amriRoleBundles: amri, rmriRoleBundles: rmri, omriRoleBundles: omri, otherRoleBundles: other };
   }, [roleTasksData]);
 
   const amriProgramOptions = useMemo(() => {
@@ -104,6 +141,65 @@ export default function MyMRIs() {
 
     return [...ordered, ...extras];
   }, [amriRoleBundles]);
+
+  const rmriGroupList = useMemo(() => {
+    const map = new Map();
+    rmriRoleBundles.forEach((bundle) => {
+      const key = (bundle?.subCategory || "General").trim() || "General";
+      const norm = key.toUpperCase();
+      if (!map.has(norm)) {
+        map.set(norm, { key: norm, label: toTitle(key, "General"), roles: [] });
+      }
+      map.get(norm).roles.push(bundle);
+    });
+    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [rmriRoleBundles]);
+
+  const otherCategorySections = useMemo(() => {
+    const categoryMap = new Map();
+    otherRoleBundles.forEach((bundle) => {
+      const catKey = 'general';
+      if (!categoryMap.has(catKey)) {
+        categoryMap.set(catKey, {
+          key: catKey,
+          label: 'Other Roles',
+          groups: new Map(),
+        });
+      }
+      const container = categoryMap.get(catKey);
+      const subKeyRaw = (bundle?.subCategory || "General").trim();
+      const subKey = subKeyRaw ? subKeyRaw : "General";
+      const subNorm = subKey.toUpperCase();
+      if (!container.groups.has(subNorm)) {
+        container.groups.set(subNorm, {
+          key: subNorm,
+          label: toTitle(subKey, "General"),
+          roles: [],
+        });
+      }
+      container.groups.get(subNorm).roles.push(bundle);
+    });
+
+    return Array.from(categoryMap.values())
+      .map((section) => ({
+        ...section,
+        groups: Array.from(section.groups.values()).sort((a, b) => a.label.localeCompare(b.label)),
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [otherRoleBundles]);
+
+  const omriGroupList = useMemo(() => {
+    const map = new Map();
+    omriRoleBundles.forEach((bundle) => {
+      const subKey = (bundle?.subCategory || "Ops").trim() || "Ops";
+      const norm = subKey.toUpperCase();
+      if (!map.has(norm)) {
+        map.set(norm, { key: norm, label: toTitle(subKey, "Ops"), roles: [] });
+      }
+      map.get(norm).roles.push(bundle);
+    });
+    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [omriRoleBundles]);
 
   useEffect(() => {
     if (!amriProgramOptions.length) {
@@ -222,7 +318,178 @@ export default function MyMRIs() {
     const rk = String(roleKey || '').toLowerCase();
     const title = String(task?.title || '').toLowerCase();
     if (rk === 'msp_ele_moderator' && (/day\s*open|open\s*day|opening/.test(title))) return 'scanner';
+    if (rk === 'team_day_close_moderator' && /leaderboard/.test(title)) return 'ipr';
     return 'none';
+  };
+
+  useEffect(() => {
+    if (!isIprFlowActive) {
+      setIprMarks([]);
+      setIprMessage(null);
+      return;
+    }
+
+    const members = (iprUsersData?.users || [])
+      .filter((user) => user.role !== 'admin')
+      .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+    if (!members.length) {
+      setIprMarks([]);
+      return;
+    }
+
+    const existingMap = new Map(
+      (iprSummaryData?.scores || []).map((row) => [Number(row.userId), row])
+    );
+
+    setIprMarks((prev) => {
+      if (
+        prev.length === members.length &&
+        prev.every((entry, idx) => entry.userId === members[idx].id)
+      ) {
+        return prev;
+      }
+
+      return members.map((member) => {
+        const roleLabel = member.role === 'team_manager' ? 'Manager' : 'Member';
+        const displayName = member.name
+          ? `${member.name} (${roleLabel})`
+          : `${roleLabel} #${member.id}`;
+        const existing = existingMap.get(member.id);
+        return {
+          userId: member.id,
+          name: displayName,
+          metrics: {
+            punctuality: existing?.metrics?.punctuality ?? 10,
+            academics: existing?.metrics?.academics ?? 10,
+            obedienceDiscipline: existing?.metrics?.obedienceDiscipline ?? 10,
+            languagePersonality: existing?.metrics?.languagePersonality ?? 10,
+            willSkill: existing?.metrics?.willSkill ?? 10,
+          },
+          metricNotes: {
+            punctuality: existing?.metricNotes?.punctuality ?? '',
+            academics: existing?.metricNotes?.academics ?? '',
+            obedienceDiscipline: existing?.metricNotes?.obedienceDiscipline ?? '',
+            languagePersonality: existing?.metricNotes?.languagePersonality ?? '',
+            willSkill: existing?.metricNotes?.willSkill ?? '',
+          },
+          remarks: existing?.remarks ?? '',
+        };
+      });
+    });
+  }, [isIprFlowActive, iprUsersData, iprSummaryData]);
+
+  const updateIprMetric = (userId, metricKey, rawValue) => {
+    setIprMarks((prev) =>
+      prev.map((entry) => {
+        if (entry.userId !== userId) return entry;
+        const value = rawValue === '' ? '' : Math.max(0, Math.min(10, Number(rawValue)));
+        const numeric = value === '' ? '' : Math.round(value);
+        const nextMetricNotes = { ...(entry.metricNotes || {
+          punctuality: '',
+          academics: '',
+          obedienceDiscipline: '',
+          languagePersonality: '',
+          willSkill: '',
+        }) };
+        if (numeric !== '' && Number(numeric) >= 10) {
+          nextMetricNotes[metricKey] = '';
+        }
+        return {
+          ...entry,
+          metrics: {
+            ...entry.metrics,
+            [metricKey]: numeric,
+          },
+          metricNotes: nextMetricNotes,
+        };
+      })
+    );
+  };
+
+  const updateIprReason = (userId, metricKey, value) => {
+    setIprMarks((prev) =>
+      prev.map((entry) =>
+        entry.userId === userId
+          ? {
+              ...entry,
+              metricNotes: {
+                ...(entry.metricNotes || {
+                  punctuality: '',
+                  academics: '',
+                  obedienceDiscipline: '',
+                  languagePersonality: '',
+                  willSkill: '',
+                }),
+                [metricKey]: value,
+              },
+            }
+          : entry
+      )
+    );
+  };
+
+  const updateIprRemarks = (userId, value) => {
+    setIprMarks((prev) =>
+      prev.map((entry) =>
+        entry.userId === userId ? { ...entry, remarks: value } : entry
+      )
+    );
+  };
+
+  const computeIprTotal = (entry) =>
+    IPR_METRIC_META.reduce(
+      (sum, metric) => sum + (Number(entry.metrics[metric.key]) || 0),
+      0
+    );
+
+  const submitIprScores = async () => {
+    if (!isIprFlowActive || !iprMarks.length) return;
+    for (const entry of iprMarks) {
+      for (const metric of IPR_METRIC_META) {
+        const score = Number(entry.metrics[metric.key]) || 0;
+        const reasonText = (entry.metricNotes?.[metric.key] || '').trim();
+        if (score < 10 && !reasonText) {
+          setIprMessage({
+            type: 'error',
+            text: `Please provide a reason for ${metric.label} for ${entry.name} when deducting marks`,
+          });
+          return;
+        }
+      }
+    }
+    setIprSubmitting(true);
+    setIprMessage(null);
+    try {
+      const payloadEntries = iprMarks.map((entry) => ({
+        userId: entry.userId,
+        metrics: IPR_METRIC_META.reduce((acc, metric) => {
+          const value = entry.metrics[metric.key];
+          acc[metric.key] = value === '' ? 0 : Number(value) || 0;
+          return acc;
+        }, {}),
+        metricNotes: IPR_METRIC_META.reduce((acc, metric) => {
+          const note = entry.metricNotes?.[metric.key] || '';
+          acc[metric.key] = note.trim();
+          return acc;
+        }, {}),
+        remarks: entry.remarks?.trim() ? entry.remarks.trim() : null,
+      }));
+
+      const res = await fetch('/api/member/ipr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: todayIso, entries: payloadEntries }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to save IPR');
+      setIprMessage({ type: 'success', text: `Saved scores for ${data.saved ?? payloadEntries.length} members.` });
+      if (mutateIprSummary) mutateIprSummary();
+    } catch (error) {
+      setIprMessage({ type: 'error', text: error.message || 'Failed to save IPR' });
+    } finally {
+      setIprSubmitting(false);
+    }
   };
 
   // Poll session attendance list when a session exists (moderator view)
@@ -604,6 +871,28 @@ export default function MyMRIs() {
     <div className="space-y-8">{blocks.map(renderBlock)}</div>
   );
 
+  const [executeTaskModalOpen, setExecuteTaskModalOpen] = useState(false);
+  const [executeTaskData, setExecuteTaskData] = useState(null);
+
+  useEffect(() => {
+    // Check for executeTask param or localStorage
+    if (typeof window !== "undefined") {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get("executeTask") === "1") {
+        const raw = localStorage.getItem("mri:executeTask");
+        if (raw) {
+          try {
+            setExecuteTaskData(JSON.parse(raw));
+            setExecuteTaskModalOpen(true);
+          } catch {}
+        }
+        // Optionally clear after use
+        localStorage.removeItem("mri:executeTask");
+      }
+    }
+  }, []);
+
+  // --- Main component render ---
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -655,15 +944,22 @@ export default function MyMRIs() {
                     <X size={20} />
                   </motion.button>
                 </div>
-                <div className="text-xs text-gray-600 mb-3">Task execution surface. For MSP Ele Moderator Day Opening, the scanner and attendance are side-by-side.</div>
+                <div className="text-xs text-gray-600 mb-3">
+                  {selectedExecKind === 'scanner'
+                    ? 'Task execution surface. For MSP Ele Moderator Day Opening, the scanner and attendance are side-by-side.'
+                    : selectedExecKind === 'ipr'
+                    ? 'Members’ Leaderboard preparation — enter today’s scores for each member.'
+                    : 'Task execution placeholder. Custom flows will appear here once configured.'}
+                </div>
                 <div className="space-y-3 flex-1 min-h-0 overflow-hidden">
                   <div className="flex items-center justify-between mb-2">
                     <div className="text-sm font-semibold text-gray-900 flex items-center gap-2">
                       <span>{selectedExecTask ? normalizeTask(selectedExecTask).title : 'Task'} — Execution</span>
                       {selectedExecTask && (()=>{ const i=availabilityBadge(normalizeTask(selectedExecTask)); const cls=i.tone==='green'?'bg-emerald-100 text-emerald-800': i.tone==='amber'?'bg-amber-100 text-amber-800':'bg-gray-100 text-gray-800'; return (<span className={`text-[10px] px-2 py-0.5 rounded-full ${cls}`}>{i.label}</span>); })()}
                     </div>
-                    <div className="flex items-center gap-2">
-                      {scanPanel.session && (
+                    {selectedExecKind === 'scanner' && (
+                      <div className="flex items-center gap-2">
+                        {scanPanel.session && (
                         <button
                           className="px-2 py-1 text-xs rounded bg-gray-700 text-white disabled:opacity-60"
                           disabled={scanPanel.ending}
@@ -683,8 +979,8 @@ export default function MyMRIs() {
                             }
                           }}
                         >End Session</button>
-                      )}
-                      {scanPanel.session && (
+                        )}
+                        {scanPanel.session && (
                         <button
                           className="px-2 py-1 text-xs rounded bg-emerald-700 text-white disabled:opacity-60"
                           disabled={scanPanel.finalizing}
@@ -703,26 +999,27 @@ export default function MyMRIs() {
                             }
                           }}
                         >Finalize Today</button>
-                      )}
-                      <button
-                        className="px-2 py-1 text-xs rounded bg-rose-600 text-white disabled:opacity-60"
-                        disabled={scanPanel.starting || (selectedExecKind==='scanner' && selectedExecTask && !isWithinTaskWindow(normalizeTask(selectedExecTask)))}
-                        title={selectedExecKind==='scanner' && selectedExecTask && !isWithinTaskWindow(normalizeTask(selectedExecTask)) ? 'Outside allowed time window' : 'Start scanner session'}
-                        onClick={async ()=>{
-                          try {
-                            setScanPanel((p)=>({ ...p, starting: true }));
-                            const r = await fetch('/api/attendance?section=sessionStart', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ roleKey: 'msp_ele_moderator', programKey: 'MSP', track: 'elementary' })});
-                            const j = await r.json();
-                            if(!r.ok) throw new Error(j.error||`HTTP ${r.status}`);
-                            setScanPanel((p)=>({ ...p, starting: false, session: j.session, sessionToken: j.token }));
-                            try { saveModeratorSession(j.session, j.token); } catch {}
-                          } catch(e){
-                            setScanPanel((p)=>({ ...p, starting: false }));
-                            alert('Failed to start scanner: '+(e.message||e));
-                          }
-                        }}
-                      >{scanPanel.session ? 'Restart' : 'Start'} Session</button>
-                    </div>
+                        )}
+                        <button
+                          className="px-2 py-1 text-xs rounded bg-rose-600 text-white disabled:opacity-60"
+                          disabled={scanPanel.starting || (selectedExecKind==='scanner' && selectedExecTask && !isWithinTaskWindow(normalizeTask(selectedExecTask)))}
+                          title={selectedExecKind==='scanner' && selectedExecTask && !isWithinTaskWindow(normalizeTask(selectedExecTask)) ? 'Outside allowed time window' : 'Start scanner session'}
+                          onClick={async ()=>{
+                            try {
+                              setScanPanel((p)=>({ ...p, starting: true }));
+                              const r = await fetch('/api/attendance?section=sessionStart', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ roleKey: 'msp_ele_moderator', programKey: 'MSP', track: 'elementary' })});
+                              const j = await r.json();
+                              if(!r.ok) throw new Error(j.error||`HTTP ${r.status}`);
+                              setScanPanel((p)=>({ ...p, starting: false, session: j.session, sessionToken: j.token }));
+                              try { saveModeratorSession(j.session, j.token); } catch {}
+                            } catch(e){
+                              setScanPanel((p)=>({ ...p, starting: false }));
+                              alert('Failed to start scanner: '+(e.message||e));
+                            }
+                          }}
+                        >{scanPanel.session ? 'Restart' : 'Start'} Session</button>
+                      </div>
+                    )}
                   </div>
                   {selectedExecKind === 'scanner' && scanPanel.session ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-stretch h-[60vh]">
@@ -823,6 +1120,109 @@ export default function MyMRIs() {
                     </div>
                   ) : selectedExecKind === 'scanner' ? (
                     <div className="text-xs text-gray-700">Start a session to generate a code and begin attendance.</div>
+                  ) : selectedExecKind === 'ipr' ? (
+                    <div className="flex flex-col gap-4 h-[60vh]">
+                      <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 text-sm text-amber-800">
+                        Enter scores out of 10 for each parameter. Totals update automatically (out of 50).
+                      </div>
+                      {iprMessage && (
+                        <div
+                          className={`px-3 py-2 rounded-lg text-sm ${
+                            iprMessage.type === 'success'
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                              : 'bg-red-50 text-red-700 border border-red-100'
+                          }`}
+                        >
+                          {iprMessage.text}
+                        </div>
+                      )}
+                      {!iprUsersData ? (
+                        <div className="flex-1 flex items-center justify-center text-sm text-gray-600">
+                          <Loader2 className="w-5 h-5 mr-2 animate-spin" /> Loading members...
+                        </div>
+                      ) : iprMarks.length === 0 ? (
+                        <div className="flex-1 flex items-center justify-center text-sm text-gray-600">
+                          No members available to grade.
+                        </div>
+                      ) : (
+                        <div className="flex-1 overflow-auto border border-amber-100 rounded-xl">
+                          <table className="min-w-full text-xs">
+                            <thead className="bg-amber-50 sticky top-0 z-10">
+                              <tr>
+                                <th className="px-3 py-2 text-left font-semibold text-amber-800">Member</th>
+                                {IPR_METRIC_META.map((metric) => (
+                                  <th key={metric.key} className="px-3 py-2 text-center font-semibold text-amber-800">
+                                    {metric.label}
+                                  </th>
+                                ))}
+                                <th className="px-3 py-2 text-center font-semibold text-amber-800">Total</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {iprMarks.map((entry) => (
+                                <tr key={entry.userId} className="odd:bg-white even:bg-amber-50/40">
+                                  <td className="px-3 py-2 text-gray-800 font-medium whitespace-nowrap">{entry.name}</td>
+                                  {IPR_METRIC_META.map((metric) => (
+                                    <td key={metric.key} className="px-2 py-1 text-center">
+                                      <div className="flex flex-col gap-1 items-center">
+                                        <input
+                                          type="number"
+                                          min={0}
+                                          max={10}
+                                          step={1}
+                                          value={entry.metrics[metric.key]}
+                                          onChange={(e) => updateIprMetric(entry.userId, metric.key, e.target.value)}
+                                          onBlur={(e) => updateIprMetric(entry.userId, metric.key, e.target.value)}
+                                          className="w-16 rounded border border-amber-200 px-2 py-1 text-center focus:outline-none focus:ring-2 focus:ring-amber-400"
+                                        />
+                                        {Number(entry.metrics[metric.key]) < 10 && (
+                                          <textarea
+                                            value={entry.metricNotes?.[metric.key] || ''}
+                                            onChange={(e) => updateIprReason(entry.userId, metric.key, e.target.value)}
+                                            placeholder="Reason"
+                                            className="w-full min-w-[120px] max-w-[160px] rounded border border-amber-200 px-2 py-1 text-[11px] text-left focus:outline-none focus:ring-1 focus:ring-amber-400"
+                                            rows={2}
+                                          />
+                                        )}
+                                      </div>
+                                    </td>
+                                  ))}
+                                  <td className="px-3 py-2 text-center font-semibold text-amber-700">
+                                    {computeIprTotal(entry)} / 50
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <p className="text-[11px] text-gray-600">Scores are rounded to whole numbers between 0 and 10.</p>
+                        <div className="flex items-center gap-2">
+                          <button
+                            className="px-3 py-1.5 rounded bg-gray-200 text-gray-700 text-xs"
+                            onClick={() => setIsRoleExecuteOpen(false)}
+                            disabled={iprSubmitting}
+                          >
+                            Close
+                          </button>
+                          <button
+                            className="px-3 py-1.5 rounded bg-teal-600 text-white text-xs disabled:opacity-60"
+                            onClick={() => setShowIprLeaderboard(true)}
+                            disabled={iprSubmitting || !iprSummaryData?.scores?.length}
+                          >
+                            Preview Leaderboard
+                          </button>
+                          <button
+                            className="px-3 py-1.5 rounded bg-amber-600 text-white text-xs disabled:opacity-60"
+                            onClick={submitIprScores}
+                            disabled={iprSubmitting || !iprMarks.length}
+                          >
+                            {iprSubmitting ? 'Saving...' : 'Save Scores'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
                   ) : (
                     <div className="text-sm text-gray-700">
                       This task does not have a configured execution surface yet.
@@ -843,6 +1243,66 @@ export default function MyMRIs() {
                     </div>
                   )}
                 </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {showIprLeaderboard && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50"
+              onClick={() => setShowIprLeaderboard(false)}
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                transition={{ duration: 0.25 }}
+                className="bg-white/95 backdrop-blur-md rounded-3xl shadow-xl p-6 w-full max-w-3xl max-h-[80vh] overflow-hidden border border-amber-100/60"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-lg font-bold text-gray-800">Today’s Leaderboard — {todayIso}</h2>
+                  <motion.button
+                    onClick={() => setShowIprLeaderboard(false)}
+                    className="text-gray-500 hover:text-gray-700 p-2 rounded-full hover:bg-gray-100 transition"
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <X size={20} />
+                  </motion.button>
+                </div>
+                {iprSummaryData?.scores?.length ? (
+                  <div className="overflow-auto border border-amber-100 rounded-xl">
+                    <table className="min-w-full text-xs">
+                      <thead className="bg-amber-50 sticky top-0 z-10">
+                        <tr>
+                          <th className="px-4 py-2 text-left font-semibold text-amber-800">Rank</th>
+                          <th className="px-4 py-2 text-left font-semibold text-amber-800">Name</th>
+                          <th className="px-4 py-2 text-center font-semibold text-amber-800">Total / 50</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {iprSummaryData.scores
+                          .slice()
+                          .sort((a, b) => (b.total ?? 0) - (a.total ?? 0))
+                          .map((entry, idx) => (
+                            <tr key={entry.userId} className={idx % 2 ? 'bg-amber-50/40' : 'bg-white'}>
+                              <td className="px-4 py-2 text-sm font-semibold text-amber-700">#{idx + 1}</td>
+                              <td className="px-4 py-2 text-sm text-gray-800">{entry.userName}</td>
+                              <td className="px-4 py-2 text-sm text-center text-gray-800">{entry.total ?? 0}</td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="text-sm text-gray-600">No scores submitted yet.</div>
+                )}
               </motion.div>
             </motion.div>
           )}
@@ -945,58 +1405,111 @@ export default function MyMRIs() {
             </div>
 
             {/* R-MRIs (Role-Based) */}
-            {rmriRoleBundles.length > 0 && (
+            {rmriGroupList.length > 0 && (
               <div className="mb-6">
                 <h3 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
                   <CheckCircle size={18} className="text-rose-600" />
                   R-MRIs (Role-Based Tasks)
                 </h3>
-                <div className="grid grid-cols-3 gap-3">
-                  {rmriRoleBundles.map((r, index) => (
-                    <motion.button
-                      key={r.roleKey}
-                      className="bg-rose-50/80 rounded-xl p-3 flex items-center justify-center text-rose-800 font-semibold text-sm hover:bg-rose-100 transition-all duration-300 text-center"
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ duration: 0.3, delay: index * 0.05 }}
-                      whileHover={{ scale: 1.05 }}
-                      onClick={() => { setSelectedRoleBundle(r); setRRoleModalOpen(true); }}
-                      title={r.roleKey}
-                    >
-                      {r.roleName || r.roleKey}
-                    </motion.button>
-                  ))}
-                </div>
+                {rmriGroupList.map((group) => (
+                  <div key={group.key} className="mb-3 rounded-2xl border border-rose-100 bg-rose-50/60 p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-sm font-semibold text-rose-700">{group.label}</p>
+                      <span className="text-[0.65rem] text-rose-600/80 font-medium">
+                        {group.roles.length} role{group.roles.length >  1 ? "s" : ""}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      {group.roles.map((r) => (
+                        <motion.button
+                          key={`${group.key}-${r.roleKey}`}
+                          className="bg-white rounded-lg px-3 py-2 text-sm text-rose-800 font-medium text-left hover:bg-rose-100 transition"
+                          initial={{ opacity: 0, y: 6 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.25 }}
+                          onClick={() => { setSelectedRoleBundle(r); setRRoleModalOpen(true); }}
+                          title={r.roleKey}
+                        >
+                          {r.roleName || r.roleKey}
+                        </motion.button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
 
-            {otherRoleBundles.length > 0 && (
+            {/* O-MRIs */}
+            {omriGroupList.length > 0 && (
               <div className="mb-6">
                 <h3 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
-                  <CheckCircle size={18} className="text-indigo-500" />
-                  MRI Roles
+                  <CheckCircle size={18} className="text-amber-500" />
+                  O-MRIs (Office)
                 </h3>
-                <div className="grid grid-cols-3 gap-3">
-                  {otherRoleBundles.map((r, index) => (
-                    <motion.button
-                      key={`${r.roleKey}-${index}`}
-                      className="bg-indigo-50/80 rounded-xl p-3 flex flex-col items-center justify-center text-indigo-800 font-semibold text-sm hover:bg-indigo-100 transition-all duration-300 text-center"
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ duration: 0.3, delay: index * 0.05 }}
-                      whileHover={{ scale: 1.05 }}
-                      onClick={() => { setSelectedRoleBundle(r); setRRoleModalOpen(true); }}
-                      title={`${r.roleName || r.roleKey}${r?.category ? ` · ${r.category.toUpperCase()}` : ""}`}
-                    >
-                      <span>{r.roleName || r.roleKey}</span>
-                      {r?.category && (
-                        <span className="mt-1 text-[0.65rem] font-medium text-indigo-600/80">
-                          {r.category.toUpperCase()}
-                        </span>
-                      )}
-                    </motion.button>
-                  ))}
-                </div>
+                {omriGroupList.map((group) => (
+                  <div key={group.key} className="mb-3 rounded-2xl border border-amber-100 bg-amber-50/60 p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-sm font-semibold text-amber-700">{group.label}</p>
+                      <span className="text-[0.65rem] text-amber-600/80 font-medium">
+                        {group.roles.length} role{group.roles.length > 1 ? "s" : ""}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      {group.roles.map((r) => (
+                        <motion.button
+                          key={`${group.key}-${r.roleKey}`}
+                          className="bg-white rounded-lg px-3 py-2 text-sm text-amber-800 font-medium text-left hover:bg-amber-100 transition"
+                          initial={{ opacity: 0, y: 6 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.25 }}
+                          whileHover={{ scale: 1.05 }}
+                          onClick={() => { setSelectedRoleBundle(r); setRRoleModalOpen(true); }}
+                          title={r.roleKey}
+                        >
+                          {r.roleName || r.roleKey}
+                        </motion.button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {otherCategorySections.length > 0 && (
+              <div className="mb-6">
+                {otherCategorySections.map((section) => (
+                  <div key={section.key} className="mb-4">
+                    <h3 className="text-lg font-semibold text-gray-800 mb-2 flex items-center gap-2">
+                      <CheckCircle size={18} className="text-indigo-500" />
+                      {section.label}
+                    </h3>
+                    {section.groups.map((group) => (
+                      <div key={`${section.key}-${group.key}`} className="mb-3 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-sm font-semibold text-indigo-700">{group.label}</p>
+                          <span className="text-[0.65rem] text-indigo-600/80 font-medium">
+                            {group.roles.length} role{group.roles.length > 1 ? "s" : ""}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          {group.roles.map((r) => (
+                            <motion.button
+                              key={`${section.key}-${group.key}-${r.roleKey}`}
+                              className="bg-white rounded-lg px-3 py-2 text-sm text-indigo-800 font-medium text-left hover:bg-indigo-100 transition"
+                              initial={{ opacity: 0, y: 6 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ duration: 0.25 }}
+                              onClick={() => { setSelectedRoleBundle(r); setRRoleModalOpen(true); }}
+                              title={`${r.roleName || r.roleKey}${r?.category ? ` · ${r.category.toUpperCase()}` : ""}`}
+                            >
+                              {r.roleName || r.roleKey}
+                            </motion.button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ))}
               </div>
             )}
 
@@ -1049,14 +1562,14 @@ export default function MyMRIs() {
               <Calendar size={20} className="text-teal-600" />
               <h2 className="text-xl font-bold text-gray-800">All Rituals</h2>
             </div>
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1">
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 flex-1">
               {/* A-Rituals Card */}
               <motion.div
-                className="bg-white/50 backdrop-blur-sm rounded-2xl shadow-md p-6 border border-teal-100/50 flex flex-col items-center justify-center text-center"
+                className="bg-white/50 backdrop-blur-sm rounded-2xl shadow-md p-6 border border-teal-100/50 flex flex-col items-start justify-start text-left"
                 whileHover={{ scale: 1.02, boxShadow: "0 8px 16px rgba(0, 128, 128, 0.1)" }}
               >
-                <Clock className="w-12 h-12 text-teal-600 mb-4" />
-                <h3 className="text-lg font-bold text-gray-800 mb-2">A-Rituals</h3>
+                <Clock className="w-12 h-12 text-teal-600 mb-3" />
+                <h3 className="text-lg font-bold text-gray-800 mb-1">A-Rituals</h3>
                 <p className="text-sm text-gray-600 mb-4">View all A-Rituals for the week</p>
                 <div className="grid grid-cols-3 gap-3 w-full">
                   {amriProgramOptions.map((program, index) => {
@@ -1086,44 +1599,110 @@ export default function MyMRIs() {
 
               {/* N-Rituals Card */}
               <motion.div
-                className="bg-white/50 backdrop-blur-sm rounded-2xl shadow-md p-6 border border-teal-100/50 flex flex-col items-center justify-center text-center cursor-pointer"
+                className="bg-white/50 backdrop-blur-sm rounded-2xl shadow-md p-6 border border-teal-100/50 flex flex-col items-start justify-start text-left"
                 whileHover={{ scale: 1.02, boxShadow: "0 8px 16px rgba(0, 128, 128, 0.1)" }}
-                onClick={() => setIsNMRIsModalOpen(true)}
               >
-                <Clock className="w-12 h-12 text-blue-600 mb-4" />
-                <h3 className="text-lg font-bold text-gray-800 mb-2">N-Rituals</h3>
-                <p className="text-sm text-gray-600">View all N-Rituals for the week</p>
+                <Clock className="w-12 h-12 text-blue-600 mb-3" />
+                <h3 className="text-lg font-bold text-gray-800 mb-1">N-Rituals</h3>
+                <p className="text-sm text-gray-600 mb-3">Same slots as your Today view.</p>
+                {isLoadingNMRIs ? (
+                  <div className="flex items-center justify-center py-4 w-full">
+                    <Loader2 className="w-5 h-5 text-teal-600 animate-spin" />
+                  </div>
+                ) : todayNMRIs.length === 0 ? (
+                  <p className="text-sm text-gray-600">No N-Rituals today</p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2 w-full">
+                    {todayNMRIs.map((slot, index) => (
+                      <motion.button
+                        key={`all-nmri-${slot.id}`}
+                        className="bg-blue-50/70 rounded-xl px-3 py-2 text-left hover:bg-blue-100 transition"
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.25, delay: index * 0.05 }}
+                        whileHover={{ scale: 1.03 }}
+                        onClick={() => {
+                          setSelectedSlot(slot);
+                          setIsSlotDescriptionModalOpen(true);
+                        }}
+                      >
+                        <p className="text-xs font-semibold text-blue-700">{slot.name || `Slot ${slot.id}`}</p>
+                        <p className="text-[0.65rem] text-blue-600 mt-1">{slot.time}</p>
+                      </motion.button>
+                    ))}
+                  </div>
+                )}
               </motion.div>
 
               {/* R-Rituals Card */}
-              {rmriRoleBundles.length > 0 && (
-                <motion.div
-                  className="bg-white/50 backdrop-blur-sm rounded-2xl shadow-md p-6 border border-rose-100/50 flex flex-col text-left"
-                  whileHover={{ scale: 1.02, boxShadow: "0 8px 16px rgba(225, 29, 72, 0.08)" }}
-                >
-                  <CheckCircle className="w-12 h-12 text-rose-600 mb-4" />
-                  <h3 className="text-lg font-bold text-gray-800 mb-2">R-Rituals</h3>
-                  <p className="text-sm text-gray-600 mb-4">Role-based tasks available to you</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {rmriRoleBundles
-                      .flatMap((r) => (r.tasks || []).map((t) => ({ roleName: r.roleName || r.roleKey, task: t })))
-                      .map((rt, idx) => (
+              <motion.div
+                className="bg-white/50 backdrop-blur-sm rounded-2xl shadow-md p-6 border border-rose-100/50 flex flex-col items-start justify-start text-left"
+                whileHover={{ scale: 1.02, boxShadow: "0 8px 16px rgba(225, 29, 72, 0.08)" }}
+              >
+                <CheckCircle className="w-12 h-12 text-rose-600 mb-3" />
+                <h3 className="text-lg font-bold text-gray-800 mb-1">R-Rituals</h3>
+                <p className="text-sm text-gray-600 mb-3">Role-based bundles assigned to you.</p>
+                {rmriGroupList.length ? (
+                  <div className="flex flex-wrap gap-2 w-full">
+                    {rmriGroupList.map((group, index) => {
+                      const role = group.roles[0];
+                      return (
                         <motion.button
-                          key={`${rt.roleName}-${rt.task.id}`}
-                          className="bg-rose-50 rounded-lg px-3 py-2 text-rose-800 text-xs font-medium hover:bg-rose-100 text-left truncate"
+                          key={`all-r-role-${group.key}-${role.roleKey}`}
+                          className="bg-rose-50/80 rounded-xl px-3 py-2 text-sm text-left text-rose-800 font-medium hover:bg-rose-100 transition"
                           initial={{ opacity: 0, y: 6 }}
                           animate={{ opacity: 1, y: 0 }}
-                          transition={{ duration: 0.25, delay: idx * 0.03 }}
+                          transition={{ duration: 0.25, delay: index * 0.04 }}
                           whileHover={{ scale: 1.03 }}
-                          title={`${rt.roleName}: ${rt.task.title}`}
-                          onClick={() => { setSelectedRTask(rt); setRTaskModalOpen(true); }}
+                          onClick={() => {
+                            setSelectedRoleBundle(role);
+                            setRRoleModalOpen(true);
+                          }}
                         >
-                          {rt.task.title}
+                          {role.roleName || role.roleKey}
                         </motion.button>
-                      ))}
+                      );
+                    })}
                   </div>
-                </motion.div>
-              )}
+                ) : (
+                  <p className="text-sm text-gray-600">No R-Rituals assigned.</p>
+                )}
+              </motion.div>
+
+              {/* O-Rituals Card */}
+              <motion.div
+                className="bg-white/50 backdrop-blur-sm rounded-2xl shadow-md p-6 border border-amber-100/50 flex flex-col items-start justify-start text-left"
+                whileHover={{ scale: 1.02, boxShadow: "0 8px 16px rgba(217, 119, 6, 0.08)" }}
+              >
+                <CheckCircle className="w-12 h-12 text-amber-500 mb-3" />
+                <h3 className="text-lg font-bold text-gray-800 mb-1">O-Rituals</h3>
+                <p className="text-sm text-gray-600 mb-3">Operational bundles available today.</p>
+                {omriGroupList.length ? (
+                  <div className="flex flex-wrap gap-2 w-full">
+                    {omriGroupList.map((group, index) => {
+                      const role = group.roles[0];
+                      return (
+                        <motion.button
+                          key={`all-o-role-${group.key}-${role.roleKey}`}
+                          className="bg-amber-50/80 rounded-xl px-3 py-2 text-sm text-left text-amber-800 font-medium hover:bg-amber-100 transition"
+                          initial={{ opacity: 0, y: 6 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.25, delay: index * 0.04 }}
+                          whileHover={{ scale: 1.03 }}
+                          onClick={() => {
+                            setSelectedRoleBundle(role);
+                            setRRoleModalOpen(true);
+                          }}
+                        >
+                          {role.roleName || role.roleKey}
+                        </motion.button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-600">No O-Rituals assigned.</p>
+                )}
+              </motion.div>
             </div>
           </motion.div>
         </div>
@@ -1481,6 +2060,60 @@ export default function MyMRIs() {
           )}
         </AnimatePresence>
 
+        {/* Execute Task Modal (from URL param or localStorage) */}
+        {executeTaskModalOpen && executeTaskData && (
+          <AnimatePresence>
+            <motion.div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-2"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setExecuteTaskModalOpen(false)}
+            >
+              <motion.div
+                className="relative w-full max-w-sm rounded-2xl bg-white p-4 shadow-2xl md:p-6"
+                initial={{ y: 40, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: 40, opacity: 0 }}
+                transition={{ duration: 0.25 }}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  onClick={() => setExecuteTaskModalOpen(false)}
+                  className="absolute right-3 top-3 rounded-full p-1 text-slate-500 transition"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+                <h3 className="text-base font-semibold leading-tight text-blue-800">{executeTaskData.title || executeTaskData.name || "Task"}</h3>
+                {executeTaskData.description && (
+                  <p className="text-xs text-blue-700 mb-1">{executeTaskData.description}</p>
+                )}
+                {executeTaskData.status && (
+                  <span className={`inline-block px-2 py-0.5 rounded-full text-[0.6rem] font-semibold ${executeTaskData.status === "completed" ? "bg-green-100 text-green-700" : executeTaskData.status === "in_progress" ? "bg-yellow-100 text-yellow-700" : "bg-gray-100 text-gray-700"}`}>
+                    {toTitle(executeTaskData.status)}
+                  </span>
+                )}
+                {executeTaskData.time && (
+                  <div className="mt-1 text-[0.7rem] text-blue-500">Time: {executeTaskData.time}</div>
+                )}
+                {executeTaskData.details && (
+                  <div className="mt-1 text-[0.7rem] text-blue-500">Details: {executeTaskData.details}</div>
+                )}
+                {/* Add execution controls here as needed */}
+                <div className="mt-4 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setExecuteTaskModalOpen(false)}
+                    className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+                  >
+                    Close
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          </AnimatePresence>
+        )}
       </div>
     </motion.div>
   );

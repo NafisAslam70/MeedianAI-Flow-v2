@@ -1,0 +1,48 @@
+Taxonomy Codex Chat 15 — Day Close Glance, IPR Ledger, MRI Groupings
+
+Scope
+- Extend day-close to surface a Today-at-a-Glance snapshot, refreshed across dates, with tightly scoped cards and detail modals.
+- Deliver the daily IPR workflow end to end: schema, API, moderator execute sheet, and leaderboard preview.
+- Harmonise MRI role presentation across My Meed Rituals and Close My Day so every assignment sits under the correct A/R/O/custom bucket.
+- General layout polish (scaling, spacing, navigation order) so day-close and ritual pages feel coherent on desktop.
+
+Schema & Migrations
+- lib/schema.js: memberIprScores gains metric_notes JSONB; user_mri_roles.role now plain text (stores custom keys).
+- Migrations added:
+  - 0018_member_ipr_scores.sql — create member_ipr_scores table with evaluator linkage.
+  - 0019_user_mri_roles_role_text.sql — drop enum constraint so custom roles persist.
+  - 0020_member_ipr_metric_notes.sql — add metric_notes JSON column.
+
+APIs
+- /api/member/ipr (GET): summary mode accepts ?summary=all and optional userId; evaluator joins use alias(users,"ipr_evaluators").
+- /api/member/ipr (POST): only moderators with team_day_close_moderator role may upsert marks; defaults scores to 10, enforces notes when <10, stores evaluatorId + per-metric notes + remarks; Neon-friendly (no transaction wrapping).
+- Admin manageMeedian route accepts custom role keys when assigning/bulk-upserting user_mri_roles.
+
+UI — My Meed Rituals
+- Roles fetched from role-tasks API are grouped by category/sub-category (A, R, O, other) in both “Today” and “All Rituals” views; slot cards line up in a single row.
+- N-Rituals mirror the Today presentation inside All Rituals; clicking a role opens the execute modal instead of in-card task dumps.
+- Execute modal recognises the "Members’ Leaderboard" task: pre-fills everyone at 10/10, displays deduction reason textareas, validates on save, and offers a leaderboard preview modal.
+
+UI — Close My Day
+- Step order now: MRI → Assigned Tasks → Routine Tasks → Today at a Glance → General Log; glance footer includes Previous + Continue controls.
+- Today at a Glance: compact typography, full-width layout, date picker + prev/next controls, MRI Journey modal (“Show full journey”), and cards scaled for root container.
+- MRI Clearance step mirrors ritual grouping: Academic card lists CCD classes plus program bundles; R/O/custom cards show grouped role chips, NMRI button gated to moderators.
+
+Operational
+- Run npx drizzle-kit push (or equivalent) so migrations 0018–0020 apply before deploying.
+- Ensure moderators rehearse the IPR execute flow so leaderboard preview reflects live marks; wire the summary output into any “Leaderboard Today” UI next.
+- Confirm custom MRI role assignments repopulate user_mri_roles (post-migration) and appear in both ritual and day-close groupings.
+
+End of Chat 15
+
+Update — Close Day MRI Step Parity
+- Replaced the MRI Clearance role bucketing with the same grouping logic used on My Meed Rituals so AMRI/RMRI/OMRI/custom roles are categorised identically.
+- Added the AMRI program selector + role grid UI, along with matching role chips for RMRI/OMRI/other sections, giving the close-day step the same visual grouping as the dashboard.
+ 
+- Clarified O-MRIs label to “Office” throughout the MRI step.
+  - Matched My Meed Rituals O-MRI copy (“Office”) to stay consistent.
+- Revamped the Escalations manager console with a redesigned form, richer lists, timeline drawer, polished action modals, and an optional light/dark theme toggle.
+- Escalations creation now hands off to a reminder modal that logs and notifies involved members immediately after a matter is raised.
+- Manage Team: MRI roles can now be shared across members/managers (admins excluded), with API changes that no longer strip other owners during saves.
+- Manage Team bulk assign ships a modern picker (filters, search, selection count) and rejects admin targets so managers can apply roles without "Invalid selection" errors.
+- Escalations manager console now uses a left-aligned metrics column (20% width) with the workflow content on the right for a clearer vertical layout.

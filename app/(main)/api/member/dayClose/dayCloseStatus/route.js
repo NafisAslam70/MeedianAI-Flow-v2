@@ -10,7 +10,7 @@ import {
   dayCloseOverrides,
   systemFlags,
 } from "@/lib/schema";
-import { eq, and, gte, lte, ne, desc } from "drizzle-orm";
+import { eq, and, gte, lte, ne, desc, inArray } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import { startOfDay, endOfDay } from "date-fns";
 
@@ -65,13 +65,19 @@ export async function GET() {
     const overrideActive = overrides.length > 0;
     const paused = count > 0 && !overrideActive;
 
-    const FLAG_KEY = "show_day_close_bypass";
-    const [flagRow] = await db
-      .select({ value: systemFlags.value })
+    const FLAG_KEYS = {
+      bypass: "show_day_close_bypass",
+      ipr: "show_day_close_ipr",
+    };
+
+    const flagRows = await db
+      .select({ key: systemFlags.key, value: systemFlags.value })
       .from(systemFlags)
-      .where(eq(systemFlags.key, FLAG_KEY))
-      .limit(1);
-    const showBypass = !!flagRow?.value;
+      .where(inArray(systemFlags.key, Object.values(FLAG_KEYS)));
+
+    const flagMap = new Map(flagRows.map((row) => [row.key, row.value]));
+    const showBypass = !!flagMap.get(FLAG_KEYS.bypass);
+    const showIprJourney = flagMap.has(FLAG_KEYS.ipr) ? !!flagMap.get(FLAG_KEYS.ipr) : true;
 
     return NextResponse.json(
       {
@@ -80,6 +86,7 @@ export async function GET() {
         openEscalations: count,
         overrideActive,
         showBypass,
+        showIprJourney,
       },
       { status: 200 }
     );

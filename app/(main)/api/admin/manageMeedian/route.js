@@ -43,7 +43,7 @@ import {
   managerSectionGrants,
   nmriTodRoleEnum,
 } from "@/lib/schema";
-import { eq, or, inArray, and, ne, sql } from "drizzle-orm";
+import { eq, or, inArray, and, sql } from "drizzle-orm";
 import bcrypt from "bcrypt";
 import formidable from 'formidable';
 import fetch from 'node-fetch';
@@ -1216,6 +1216,7 @@ export async function PATCH(req) {
     // Team manager write-gating across admin sections
     if (session.user?.role === 'team_manager') {
       const allowedWrite = new Set([
+        "team","bulkAssignMriRole",
         "slots","slotsWeekly","slotRoleAssignments",
         "mspCodes","mspCodeAssignments",
         "classes","classTeachers",
@@ -1257,36 +1258,25 @@ export async function PATCH(req) {
           updated += 1;
         }
 
-        // MRI roles: allow multiple; ensure exclusivity per role across users
+        // MRI roles: allow multiple assignments across users while keeping this user's list in sync
         if (Array.isArray(u.mriRoles)) {
-          const desired = new Set(u.mriRoles.map(String));
-          // Deactivate same role on other users
-          for (const r of desired) {
-            await db
-              .update(userMriRoles)
-              .set({ active: false })
-              .where(and(eq(userMriRoles.role, r), eq(userMriRoles.active, true), ne(userMriRoles.userId, id)));
-            // Upsert current user role active
+          const desired = Array.from(new Set(u.mriRoles.map((role) => String(role).trim()).filter(Boolean)));
+
+          // Mark all existing roles for this user inactive before re-applying the desired list
+          await db
+            .update(userMriRoles)
+            .set({ active: false })
+            .where(eq(userMriRoles.userId, id));
+
+          for (const roleKey of desired) {
             try {
-              await db.insert(userMriRoles).values({ userId: id, role: r, active: true });
+              await db.insert(userMriRoles).values({ userId: id, role: roleKey, active: true });
             } catch {
               await db
                 .update(userMriRoles)
                 .set({ active: true })
-                .where(and(eq(userMriRoles.userId, id), eq(userMriRoles.role, r)));
+                .where(and(eq(userMriRoles.userId, id), eq(userMriRoles.role, roleKey)));
             }
-          }
-          // Deactivate roles not desired
-          await db
-            .update(userMriRoles)
-            .set({ active: false })
-            .where(and(eq(userMriRoles.userId, id), eq(userMriRoles.active, true)));
-          // Reactivate only desired ones (done above); ensure others remain false
-          for (const r of desired) {
-            await db
-              .update(userMriRoles)
-              .set({ active: true })
-              .where(and(eq(userMriRoles.userId, id), eq(userMriRoles.role, r)));
           }
         }
       }
@@ -1297,28 +1287,28 @@ export async function PATCH(req) {
     if (section === "bulkAssignMriRole") {
       const role = String(body.role || "").trim();
       const userIds = Array.isArray(body.userIds) ? body.userIds.map((x) => Number(x)).filter(Boolean) : [];
-      const teacherFlag = body.teacherFlag || "none"; // 'none' | 'true' | 'false'
       if (!role) return NextResponse.json({ error: "role required" }, { status: 400 });
-      if (!MRI_ROLE_OPTIONS.includes(role)) return NextResponse.json({ error: "invalid role" }, { status: 400 });
+      let isValidRole = MRI_ROLE_OPTIONS.includes(role);
+      if (!isValidRole) {
+        const existingRole = await db
+          .select({ id: mriRoleDefs.id })
+          .from(mriRoleDefs)
+          .where(eq(mriRoleDefs.roleKey, role))
+          .limit(1);
+        isValidRole = existingRole.length > 0;
+      }
+      if (!isValidRole) return NextResponse.json({ error: "invalid role" }, { status: 400 });
       if (!userIds.length) return NextResponse.json({ error: "userIds[] required" }, { status: 400 });
 
-      // Deactivate this role for all users first (exclusivity)
-      await db.update(userMriRoles).set({ active: false }).where(eq(userMriRoles.role, role));
-
-      // Upsert active for provided users
+      // Upsert for provided users without touching existing assignments for others
       for (const uid of userIds) {
         try {
           await db.insert(userMriRoles).values({ userId: uid, role, active: true });
         } catch {
-          await db.update(userMriRoles).set({ active: true }).where(and(eq(userMriRoles.userId, uid), eq(userMriRoles.role, role)));
-        }
-      }
-
-      // Optionally set teacher flag for these users
-      if (teacherFlag === "true" || teacherFlag === "false") {
-        const val = teacherFlag === "true";
-        for (const uid of userIds) {
-          await db.update(users).set({ isTeacher: val }).where(eq(users.id, uid));
+          await db
+            .update(userMriRoles)
+            .set({ active: true })
+            .where(and(eq(userMriRoles.userId, uid), eq(userMriRoles.role, role)));
         }
       }
 

@@ -1,0 +1,29 @@
+MeedianAI-Finance – Recent Updates
+==================================
+
+Backend
+-------
+- Added student ledger automation: student account opening reuses or creates `student_accounts`, seeds monthly and one-time dues, and mirrors this behaviour in the in-memory fallback (`server/storage.ts`).
+- Exposed student management endpoints: `PATCH /api/students/:id` updates roster details, while `DELETE /api/students/:id` now soft-marks students as "left" (`server/routes.ts`).
+- Reworked DB plumbing to pull roster data from the shared database and finance data from the finance database (`server/db.ts`, `server/storage.ts`).
+- Introduced helper queries that attach ledger numbers, outstanding totals, and per-month breakdowns to the students API responses (`server/storage.ts`).
+
+Frontend
+--------
+- Students screen now supports full CRUD affordances (edit, soft-delete), shows finance summaries, and auto-opens accounts via the new API (`client/src/pages/students.tsx`).
+- Added a dues toggle (Monthly/Yearly/All) with a month dropdown that defaults to the current billing month yet respects manual overrides (`client/src/pages/students.tsx`).
+- Dues page mirrors the same toggle and current-month default, ensuring the filter always has sensible options (`client/src/pages/dues.tsx`).
+- Consolidated academic year/month utilities inside `client/src/lib/utils.ts` and reused them across pages.
+
+Shared Schema
+-------------
+- Added finance-only tables (`shared/finance-only.schema.ts`) covering `student_accounts` and `student_dues`, plus supporting enums, so the finance DB can track ledgers and dues independently of the Flow app.
+
+Utilities
+---------
+- Created reusable academic-year helpers (`buildAcademicYearMonths`, `getCurrentAcademicYear`, `getCurrentMonthKey`, `formatAcademicMonth`) that underpin the new filters (`client/src/lib/utils.ts`).
+
+Operational Notes
+-----------------
+- Run `POST /api/init-database` (or `npm run db:push` with `FINANCE_DATABASE_URL`) after deployment to provision the finance schema.
+- Start the finance server with shared env vars via `npm run dev:rootenv[:port]` so ledger creation and dues seeding locate the shared DB.
