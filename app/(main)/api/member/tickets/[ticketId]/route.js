@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { tickets, ticketActivities, users } from "@/lib/schema";
+import { tickets, ticketActivities, users, messages } from "@/lib/schema";
 import { alias } from "drizzle-orm/pg-core";
 import { asc, eq } from "drizzle-orm";
+import { sendWhatsappMessage } from "@/lib/whatsapp";
+import { createNotifications } from "@/lib/notify";
 
 const MEMBER_ACCESS_ROLES = new Set(["admin", "team_manager"]);
 
@@ -66,8 +68,9 @@ export async function GET(_req, { params }) {
     }
 
     const isOwner = ticketRow.createdById === requesterId;
+    const isAssigned = ticketRow.assignedToId === requesterId;
     const isPrivileged = MEMBER_ACCESS_ROLES.has(session.user.role);
-    if (!isOwner && !isPrivileged) {
+    if (!isOwner && !isAssigned && !isPrivileged) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -102,7 +105,7 @@ export async function GET(_req, { params }) {
     return NextResponse.json({
       ticket: ticketRow,
       activities,
-      canComment: isPrivileged || (isOwner && ownerCanComment),
+      canComment: isPrivileged || isAssigned || (isOwner && ownerCanComment),
     });
   } catch (error) {
     console.error("[member/tickets/:id] GET error", error);
@@ -135,7 +138,7 @@ export async function POST(req, { params }) {
 
   try {
     const [ticketRow] = await db
-      .select({ createdById: tickets.createdById, status: tickets.status, metadata: tickets.metadata })
+      .select({ createdById: tickets.createdById, assignedToId: tickets.assignedToId, status: tickets.status, metadata: tickets.metadata })
       .from(tickets)
       .where(eq(tickets.id, ticketId))
       .limit(1);
@@ -145,6 +148,7 @@ export async function POST(req, { params }) {
     }
 
     const isOwner = ticketRow.createdById === requesterId;
+    const isAssigned = ticketRow.assignedToId === requesterId;
     const isPrivileged = MEMBER_ACCESS_ROLES.has(session.user.role);
     let ownerCanComment = false;
     try {
@@ -154,7 +158,7 @@ export async function POST(req, { params }) {
         else ownerCanComment = new Date(meta.memberCommentAllowUntil) > new Date();
       }
     } catch {}
-    if (!(isPrivileged || (isOwner && ownerCanComment))) {
+    if (!(isPrivileged || isAssigned || (isOwner && ownerCanComment))) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -177,6 +181,58 @@ export async function POST(req, { params }) {
       .update(tickets)
       .set({ lastActivityAt: now, updatedAt: now })
       .where(eq(tickets.id, ticketId));
+
+    // Notify assignee (if not the commenter) that member added a comment
+    try {
+      const [full] = await db
+        .select({ assignedToId: tickets.assignedToId, title: tickets.title, ticketNumber: tickets.ticketNumber })
+        .from(tickets)
+        .where(eq(tickets.id, ticketId))
+        .limit(1);
+      const assigneeId = full?.assignedToId;
+      if (assigneeId && assigneeId !== requesterId) {
+        const subject = `Update on Ticket ${full.ticketNumber || ticketId}`;
+        const body = comment;
+        // In-app
+        await createNotifications({
+          recipients: [assigneeId],
+          type: "task_update",
+          title: subject,
+          body,
+          entityKind: "ticket",
+          entityId: ticketId,
+          meta: { ticketNumber: full.ticketNumber || String(ticketId), action: "comment" },
+        });
+        // WhatsApp
+        try {
+          const [assignee] = await db
+            .select({ id: users.id, name: users.name, whatsappNumber: users.whatsapp_number, whatsappEnabled: users.whatsapp_enabled })
+            .from(users)
+            .where(eq(users.id, assigneeId))
+            .limit(1);
+          if (assignee?.whatsappEnabled && assignee?.whatsappNumber) {
+            await sendWhatsappMessage(assignee.whatsappNumber, {
+              recipientName: assignee.name || `User #${assignee.id}`,
+              senderName: "Ticket Desk",
+              subject,
+              message: body,
+              dateTime: new Date().toISOString(),
+            });
+          }
+        } catch (_) {}
+        // Message audit
+        await db.insert(messages).values({
+          senderId: requesterId,
+          recipientId: assigneeId,
+          subject,
+          message: body,
+          content: body,
+          status: "sent",
+        });
+      }
+    } catch (e) {
+      console.error("[member/tickets/:id] comment notify error", e);
+    }
 
     return NextResponse.json({ ok: true });
   } catch (error) {

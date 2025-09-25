@@ -175,6 +175,8 @@ export async function PATCH(req, { params }) {
           .limit(1);
 
         if (!raiser) return;
+        // Do not notify self (the actor) to avoid self-notifications
+        if (raiser.id === managerId) return;
 
         const timestampIso = new Date().toISOString();
         let status = "sent";
@@ -262,6 +264,26 @@ export async function PATCH(req, { params }) {
         `Ticket ${ticketRow.ticketNumber || ticketRow.id} assigned`,
         `Your ticket "${ticketRow.title}" is now assigned to ${assignee.name}.`
       );
+
+      // Notify new assignee as well
+      try {
+        const subjectA = `Ticket ${ticketRow.ticketNumber || ticketRow.id} assigned to you`;
+        const bodyA = `"${ticketRow.title}" is now assigned to you.`;
+        const [u] = await db
+          .select({ id: users.id, name: users.name, whatsappNumber: users.whatsapp_number, whatsappEnabled: users.whatsapp_enabled })
+          .from(users)
+          .where(eq(users.id, assigneeId))
+          .limit(1);
+        if (u && u.id !== managerId) {
+          await createNotifications({ recipients: [u.id], type: "task_update", title: subjectA, body: bodyA, entityKind: "ticket", entityId: ticketId, meta: { ticketNumber: ticketRow.ticketNumber || String(ticketId), action: "assigned" } });
+          try {
+            if (u.whatsappEnabled && u.whatsappNumber) {
+              await sendWhatsappMessage(u.whatsappNumber, { recipientName: u.name || `User #${u.id}`, senderName: "Ticket Desk", subject: subjectA, message: bodyA, dateTime: new Date().toISOString() });
+            }
+          } catch (_) {}
+          await db.insert(messages).values({ senderId: managerId, recipientId: u.id, subject: subjectA, message: bodyA, content: bodyA, status: "sent" });
+        }
+      } catch (_) {}
 
       return NextResponse.json({ ok: true });
     }

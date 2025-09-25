@@ -5,7 +5,10 @@ import {
   tickets,
   ticketActivities,
   users,
+  messages,
 } from "@/lib/schema";
+import { sendWhatsappMessage } from "@/lib/whatsapp";
+import { createNotifications } from "@/lib/notify";
 import {
   TICKET_PRIORITY_OPTIONS,
   TICKET_CATEGORY_TREE,
@@ -65,7 +68,7 @@ function buildCreationActivity({ priority, queue, categoryLabel, subcategoryLabe
   };
 }
 
-export async function GET() {
+export async function GET(req) {
   const session = await auth();
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -77,6 +80,8 @@ export async function GET() {
   }
 
   try {
+    const { searchParams } = new URL(req.url);
+    const view = (searchParams.get("view") || "mine").toLowerCase();
     const assigneeAlias = alias(users, "ticket_assignees");
     const rows = await db
       .select({
@@ -99,7 +104,7 @@ export async function GET() {
       })
       .from(tickets)
       .leftJoin(assigneeAlias, eq(assigneeAlias.id, tickets.assignedToId))
-      .where(eq(tickets.createdById, requesterId))
+      .where(view === "assigned" ? eq(tickets.assignedToId, requesterId) : eq(tickets.createdById, requesterId))
       .orderBy(desc(tickets.createdAt));
 
     const counts = rows.reduce(
@@ -241,6 +246,63 @@ export async function POST(req) {
       message: activityPayload.message,
       metadata: activityPayload.metadata,
     });
+
+    // Notify the assignee (immediate supervisor) if auto-assigned
+    if (assignedToId) {
+      try {
+        const [assignee] = await db
+          .select({
+            id: users.id,
+            name: users.name,
+            whatsappNumber: users.whatsapp_number,
+            whatsappEnabled: users.whatsapp_enabled,
+          })
+          .from(users)
+          .where(eq(users.id, assignedToId))
+          .limit(1);
+
+        if (assignee && assignee.id !== requesterId) {
+          const subject = `New Ticket ${finalNumber}`;
+          const body = `"${title}" has been assigned to you.`;
+
+          // In-app notification
+          await createNotifications({
+            recipients: [assignee.id],
+            type: "task_update",
+            title: subject,
+            body,
+            entityKind: "ticket",
+            entityId: created.id,
+            meta: { ticketNumber: finalNumber, authorId: requesterId, action: "assigned" },
+          });
+
+          // WhatsApp (best-effort)
+          try {
+            if (assignee.whatsappEnabled && assignee.whatsappNumber) {
+              await sendWhatsappMessage(assignee.whatsappNumber, {
+                recipientName: assignee.name || `User #${assignee.id}`,
+                senderName: "Ticket Desk",
+                subject,
+                message: body,
+                dateTime: new Date().toISOString(),
+              });
+            }
+          } catch (e) {
+            // swallow
+          }
+
+          // Audit log into messages table
+          await db.insert(messages).values({
+            senderId: requesterId,
+            recipientId: assignee.id,
+            subject,
+            message: body,
+            content: body,
+            status: "sent",
+          });
+        }
+      } catch (_) {}
+    }
 
     // Log auto-assignment if we assigned to immediate supervisor
     if (assignedToId) {

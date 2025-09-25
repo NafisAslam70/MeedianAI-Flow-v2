@@ -57,7 +57,9 @@ const emptyCounts = { total: 0, byStatus: {} };
 
 export default function MemberTicketsPage() {
   const searchParams = useSearchParams();
-  const { data, error, isLoading, mutate } = useSWR("/api/member/tickets", fetcher);
+  const [tab, setTab] = useState("mine"); // mine | assigned
+  const key = tab === "assigned" ? "/api/member/tickets?view=assigned" : "/api/member/tickets";
+  const { data, error, isLoading, mutate } = useSWR(key, fetcher);
   const categories = data?.categories ?? [];
   const priorities = data?.priorities ?? ["low", "normal", "high", "urgent"];
   const tickets = data?.tickets ?? [];
@@ -276,7 +278,26 @@ export default function MemberTicketsPage() {
           </div>
         ) : null}
 
-        <div className="mt-8 space-y-6">
+        <div className="mt-6">
+          <div className="inline-flex rounded-full border border-slate-200 bg-white p-1 text-xs font-semibold text-slate-600">
+            <button
+              type="button"
+              onClick={() => setTab("mine")}
+              className={`px-3 py-1.5 rounded-full ${tab === 'mine' ? 'bg-indigo-600 text-white' : ''}`}
+            >
+              My tickets
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("assigned")}
+              className={`px-3 py-1.5 rounded-full ${tab === 'assigned' ? 'bg-indigo-600 text-white' : ''}`}
+            >
+              Assigned to me
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-6 space-y-6">
           <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
