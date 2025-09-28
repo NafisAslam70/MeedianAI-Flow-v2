@@ -1016,7 +1016,7 @@ const MyNotes = ({
                         <select
                           value={editingNoteCategory}
                           onChange={(e) => setEditingNoteCategory(e.target.value)}
-                          className="mt-1 w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-sm px-3 py-2 focus:ring-2 focus:ring-emerald-500"
+                          className="mt-1 w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-sm px-3 py-2 text-gray-900 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500"
                         >
                           <option value="">Select</option>
                           {NOTE_CATEGORIES.map((category) => (
@@ -1028,7 +1028,7 @@ const MyNotes = ({
                         value={editingNoteContent}
                         onChange={(e) => setEditingNoteContent(e.target.value)}
                         rows={10}
-                        className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-sm px-3 py-2 focus:ring-2 focus:ring-emerald-500"
+                        className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-sm px-3 py-2 text-gray-900 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500"
                       />
                     </div>
                   ) : (
@@ -1123,7 +1123,7 @@ const MyNotes = ({
                     <select
                       value={newCategory}
                       onChange={(e) => setNewCategory(e.target.value)}
-                      className="mt-1 w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-sm px-3 py-2 focus:ring-2 focus:ring-emerald-500"
+                      className="mt-1 w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-sm px-3 py-2 text-gray-900 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500"
                     >
                       <option value="">Select category</option>
                       {NOTE_CATEGORIES.map((category) => (
@@ -1141,7 +1141,7 @@ const MyNotes = ({
                       onBlur={() => setNewNote((prev) => ensureNumbering(prev))}
                       rows={8}
                       placeholder="Write what was discussed, key decisions, or follow-up actions…"
-                      className="mt-1 w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-sm px-3 py-2 focus:ring-2 focus:ring-emerald-500"
+                      className="mt-1 w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-sm px-3 py-2 text-gray-900 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500"
                     />
                   </div>
                 </div>
@@ -1388,14 +1388,14 @@ const MyNotes = ({
                             value={draft.title}
                             onChange={(e) => updateTaskDraft(draft.id, { title: e.target.value })}
                             placeholder="Task title"
-                            className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:ring-2 focus:ring-emerald-500"
+                            className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-gray-900 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500"
                           />
                           <textarea
                             value={draft.description}
                             onChange={(e) => updateTaskDraft(draft.id, { description: e.target.value })}
                             placeholder="Optional description"
                             rows={2}
-                            className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:ring-2 focus:ring-emerald-500"
+                            className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-gray-900 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500"
                           />
                           <div className="grid sm:grid-cols-2 gap-3">
                             <div>
@@ -1404,7 +1404,7 @@ const MyNotes = ({
                                 type="date"
                                 value={draft.deadline}
                                 onChange={(e) => updateTaskDraft(draft.id, { deadline: e.target.value })}
-                                className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:ring-2 focus:ring-emerald-500"
+                                className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-gray-900 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500"
                               />
                             </div>
                            <div>
@@ -1425,7 +1425,7 @@ const MyNotes = ({
                                     Array.from(e.target.selectedOptions, (option) => option.value)
                                   )
                                 }
-                                className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:ring-2 focus:ring-emerald-500 min-h-[70px] disabled:opacity-70"
+                                className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-gray-900 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500 min-h-[70px] disabled:opacity-70"
                               >
                                 {availableAssignees.length ? (
                                   availableAssignees.map((user) => (

@@ -183,7 +183,7 @@ export default function WorkTogether() {
   }, [role, isAdmin]);
 
   useEffect(() => {
-    if (!notesOpen || !uid || notesLoading || notesFetched) return;
+    if (!notesOpen || !uid || notesFetched) return;
     let cancelled = false;
     const loadUsers = async () => {
       try {
@@ -213,7 +213,7 @@ export default function WorkTogether() {
     return () => {
       cancelled = true;
     };
-  }, [notesOpen, uid, notesLoading, notesFetched]);
+  }, [notesOpen, uid, notesFetched]);
 
   useEffect(() => {
     notesMsgHandlerRef.current = (event) => {
