@@ -1,7 +1,7 @@
 "use client";
 
 import { useSession } from "next-auth/react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Users, Monitor, LogOut, X, Camera, Mic, ScreenShare,
@@ -138,6 +138,14 @@ export default function WorkTogether() {
   const [notesError, setNotesError] = useState("");
   const [notesFetched, setNotesFetched] = useState(false);
   const [notesSharePrompt, setNotesSharePrompt] = useState(false);
+  const [notesShareActive, setNotesShareActive] = useState(false);
+  const [notesFollowing, setNotesFollowing] = useState(false);
+  const [notesHostId, setNotesHostId] = useState(null);
+  const [notesHostName, setNotesHostName] = useState("");
+  const [notesSelectedId, setNotesSelectedId] = useState(null);
+  const [notesCurrentSelectedId, setNotesCurrentSelectedId] = useState(null);
+  const notesMsgHandlerRef = useRef(null);
+  const endpointListenerRef = useRef(null);
 
   const [isMusicPlaying, setIsMusicPlaying] = useState(false);
   const [selectedMusic, setSelectedMusic] = useState(musicOptions[0].url);
@@ -206,6 +214,72 @@ export default function WorkTogether() {
       cancelled = true;
     };
   }, [notesOpen, uid, notesLoading, notesFetched]);
+
+  useEffect(() => {
+    notesMsgHandlerRef.current = (event) => {
+      try {
+        let message = null;
+        if (!event) return;
+        if (typeof event === "string") message = event;
+        else if (typeof event?.data === "string") message = event.data;
+        else if (typeof event?.data?.message === "string") message = event.data.message;
+        else if (typeof event?.data?.text === "string") message = event.data.text;
+        else if (typeof event?.data?.eventData?.text === "string") message = event.data.eventData.text;
+        else if (typeof event?.message === "string") message = event.message;
+        if (!message) return;
+        let payload;
+        try {
+          payload = typeof message === "string" ? JSON.parse(message) : message;
+        } catch {
+          return;
+        }
+        if (payload?.type !== "notes-follow") return;
+        if (payload.hostId === currentUserInfo?.id) return;
+        switch (payload.action) {
+          case "open": {
+            setNotesHostId(payload.hostId || null);
+            setNotesHostName(payload.hostName || "Presenter");
+            setNotesShareActive(false);
+            setNotesFollowing(true);
+            setNotesSharePrompt(false);
+            setNotesFetched(false);
+            const noteId = payload.noteId ?? null;
+            setNotesSelectedId(noteId);
+            setNotesCurrentSelectedId(noteId);
+            setNotesError("");
+            setNotesOpen(true);
+            break;
+          }
+          case "select": {
+            if (payload.hostId === notesHostId || notesHostId === null) {
+              const noteId = payload.noteId ?? null;
+              setNotesHostId(payload.hostId || notesHostId);
+              if (notesFollowing) {
+                setNotesSelectedId(noteId);
+              }
+              setNotesCurrentSelectedId(noteId);
+            }
+            break;
+          }
+          case "close": {
+            if (notesFollowing && notesHostId && payload.hostId === notesHostId) {
+              setNotesFollowing(false);
+              setNotesHostId(null);
+              setNotesHostName("");
+              setNotesSelectedId(null);
+              setNotesShareActive(false);
+              setNotesOpen(false);
+            }
+            break;
+          }
+          default:
+            break;
+        }
+      } catch (error) {
+        console.warn("Failed to handle notes message", error);
+      }
+    };
+  }, [currentUserInfo?.id, notesFollowing, notesHostId]);
 
   /* Robust Jitsi external_api loader with fallbacks:
      1) https://8x8.vc/${tenant}/external_api.js
@@ -447,6 +521,13 @@ export default function WorkTogether() {
     j.addEventListener("trackAdded", (e) => handleTrack(e.track, true));
     j.addEventListener("trackRemoved", (e) => handleTrack(e.track, false));
     j.addEventListener("readyToClose", () => openExitModal());
+
+    const endpointListener = (event) => {
+      const handler = notesMsgHandlerRef.current;
+      if (handler) handler(event);
+    };
+    j.addEventListener("endpointTextMessageReceived", endpointListener);
+    endpointListenerRef.current = endpointListener;
   };
 
   const join = () => {
@@ -460,12 +541,23 @@ export default function WorkTogether() {
 
   // split disposal so we can reuse it
   const disposeMeeting = () => {
+    stopNotesShare();
+    if (endpointListenerRef.current && api?.removeEventListener) {
+      api.removeEventListener("endpointTextMessageReceived", endpointListenerRef.current);
+      endpointListenerRef.current = null;
+    }
     api?.removeAllListeners();
     api?.dispose();
     setApi(null);
     setPpl([]);
     setScreens([]);
     setModal(true);
+    setNotesOpen(false);
+    setNotesShareActive(false);
+    setNotesFollowing(false);
+    setNotesHostId(null);
+    setNotesHostName("");
+    setNotesSelectedId(null);
   };
 
   const openExitModal = () => {
@@ -521,25 +613,97 @@ export default function WorkTogether() {
     setIsMusicPlaying(!isMusicPlaying);
   };
 
-  const openNotesOverlay = () => {
+  const sendNotesSignal = useCallback(
+    (action, payload = {}) => {
+      if (!api || !currentUserInfo?.id) return;
+      try {
+        api.executeCommand(
+          "sendEndpointTextMessage",
+          "",
+          JSON.stringify({
+            type: "notes-follow",
+            action,
+            hostId: currentUserInfo.id,
+            hostName: currentUserInfo.name,
+            timestamp: Date.now(),
+            ...payload,
+          })
+        );
+      } catch (error) {
+        console.warn("Failed to send notes signal", error);
+      }
+    },
+    [api, currentUserInfo]
+  );
+
+  const openNotesOverlay = useCallback(() => {
     setNotesError("");
     setNotesSharePrompt(false);
+    setNotesFetched(false);
     setNotesOpen(true);
-    try {
-      api?.executeCommand("sendEndpointTextMessage", "", {
-        type: "system",
-        message: `${name} opened the collaborative notes. Click the Notes button to follow along.`,
-      });
-    } catch (error) {
-      console.warn("Failed to broadcast notes message", error);
+  }, []);
+
+  const stopNotesShare = useCallback(
+    (broadcast = true) => {
+      if (!notesShareActive) return;
+      if (broadcast) sendNotesSignal("close");
+      setNotesShareActive(false);
+      setNotesHostId(null);
+      setNotesHostName("");
+      setNotesSelectedId(null);
+    },
+    [notesShareActive, sendNotesSignal]
+  );
+
+  const followHost = useCallback(() => {
+    if (!notesHostId) return;
+    setNotesFollowing(true);
+    if (notesCurrentSelectedId !== undefined) {
+      setNotesSelectedId(notesCurrentSelectedId);
     }
-  };
+  }, [notesHostId, notesCurrentSelectedId]);
+
+  const openNotesOverlayPrivate = useCallback(() => {
+    setNotesError("");
+    setNotesSharePrompt(false);
+    setNotesFetched(false);
+    setNotesFollowing(false);
+    setNotesOpen(true);
+  }, []);
+
+  const handleCloseNotes = useCallback(() => {
+    if (notesShareActive && notesHostId === currentUserInfo?.id) {
+      stopNotesShare();
+    }
+    setNotesFollowing(false);
+    setNotesOpen(false);
+    setNotesError("");
+  }, [notesShareActive, notesHostId, currentUserInfo?.id, stopNotesShare]);
+
+  const startNotesShare = useCallback(() => {
+    const hostId = currentUserInfo?.id ?? null;
+    setNotesHostId(hostId);
+    setNotesHostName(currentUserInfo?.name || "Presenter");
+    setNotesShareActive(true);
+    setNotesFollowing(false);
+    const noteId = notesCurrentSelectedId || null;
+    setNotesSelectedId(noteId);
+    setNotesError("");
+    setNotesSharePrompt(false);
+    setNotesFetched(false);
+    setNotesOpen(true);
+    sendNotesSignal("open", { noteId });
+  }, [currentUserInfo, notesCurrentSelectedId, sendNotesSignal]);
 
   // guards
   if (status === "loading") return <div>Loading…</div>;
   if (status !== "authenticated" || !["admin", "team_manager", "member"].includes(role)) {
     return <div className="p-8 text-red-600 font-semibold">Access denied</div>;
   }
+
+  const isHost = notesShareActive && notesHostId === currentUserInfo?.id;
+  const hostActive = !!notesHostId && notesHostId !== currentUserInfo?.id;
+  const isFollower = hostActive && notesFollowing;
 
   return (
     <motion.div
@@ -790,16 +954,19 @@ export default function WorkTogether() {
               </div>
               <div className="flex justify-end gap-2">
                 <button
-                  onClick={() => setNotesSharePrompt(false)}
+                  onClick={() => {
+                    setNotesSharePrompt(false);
+                    openNotesOverlayPrivate();
+                  }}
                   className="px-4 py-1.5 rounded-lg bg-gray-200/80 text-gray-800 text-sm font-medium hover:bg-gray-200"
                 >
-                  Cancel
+                  View privately
                 </button>
                 <button
-                  onClick={openNotesOverlay}
+                  onClick={startNotesShare}
                   className="px-4 py-1.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700"
                 >
-                  Continue to notes
+                  Share notes
                 </button>
               </div>
             </motion.div>
@@ -821,20 +988,60 @@ export default function WorkTogether() {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
             >
-              <div className="flex items-center justify-between px-5 py-4 border-b border-emerald-500/20 bg-emerald-900/30">
+              <div className="flex items-center justify-between gap-4 px-5 py-4 border-b border-emerald-500/20 bg-emerald-900/30">
                 <div>
                   <h3 className="text-lg font-semibold text-emerald-100">Collab Notes</h3>
                   <p className="text-xs text-emerald-200/70">Capture minutes while you’re in the room together.</p>
                 </div>
-                <button
-                  onClick={() => {
-                    setNotesOpen(false);
-                    setNotesError("");
-                  }}
-                  className="p-2 rounded-lg bg-emerald-800/40 text-emerald-100 hover:bg-emerald-700/50"
-                >
-                  <X size={18} />
-                </button>
+                <div className="flex items-center gap-2">
+                  {isHost ? (
+                    <>
+                      <span className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-500/20 text-emerald-100 border border-emerald-500/40 animate-pulse">
+                        Sharing live
+                      </span>
+                      <button
+                        onClick={() => stopNotesShare()}
+                        className="px-3 py-1.5 rounded-lg bg-emerald-700 text-white text-xs font-semibold hover:bg-emerald-800"
+                      >
+                        Stop sharing
+                      </button>
+                    </>
+                  ) : hostActive ? (
+                    <div className="flex items-center gap-2 text-xs text-emerald-200/80">
+                      {notesFollowing ? (
+                        <>
+                          <span>Following {notesHostName || "host"}</span>
+                          <button
+                            onClick={() => setNotesFollowing(false)}
+                            className="px-3 py-1.5 rounded-lg bg-emerald-700 text-white font-semibold hover:bg-emerald-800"
+                          >
+                            Stop following
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={followHost}
+                          className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-semibold hover:bg-emerald-700"
+                        >
+                          Follow {notesHostName || "host"}
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <button
+                      onClick={startNotesShare}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700"
+                    >
+                      Start sharing
+                    </button>
+                  )}
+                  <button
+                    onClick={handleCloseNotes}
+                    className="p-2 rounded-lg bg-emerald-800/40 text-emerald-100 hover:bg-emerald-700/50"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
               </div>
               {notesError && (
                 <div className="px-5 py-2 text-sm text-red-200 bg-red-900/30 border-b border-red-700/40">
@@ -852,6 +1059,17 @@ export default function WorkTogether() {
                     currentUser={currentUserInfo}
                     availableUsers={notesUsers}
                     twoPane
+                    readOnly={isFollower}
+                    selectedNoteIdProp={isFollower ? notesSelectedId : undefined}
+                    onSelectedNoteChange={(noteId) => {
+                      setNotesCurrentSelectedId(noteId);
+                      if (isHost) {
+                        setNotesSelectedId(noteId);
+                        sendNotesSignal("select", { noteId });
+                      } else if (!isFollower) {
+                        setNotesSelectedId(noteId);
+                      }
+                    }}
                     setError={(msg) => setNotesError(msg)}
                     setSuccess={() => {}}
                   />

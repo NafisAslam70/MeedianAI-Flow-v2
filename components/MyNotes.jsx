@@ -90,6 +90,9 @@ const MyNotes = ({
   initialMode = "view",
   availableUsers = [],
   currentUser = null,
+  readOnly = false,
+  selectedNoteIdProp = undefined,
+  onSelectedNoteChange = () => {},
 }) => {
   const [notes, setNotes] = useState([]);
   const [selectedNoteId, setSelectedNoteId] = useState(null);
@@ -97,7 +100,7 @@ const MyNotes = ({
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [newNote, setNewNote] = useState("");
   const [newCategory, setNewCategory] = useState("");
-  const [composerOpen, setComposerOpen] = useState(initialMode === "add");
+  const [composerOpen, setComposerOpen] = useState(initialMode === "add" && !readOnly);
   const [isLoading, setIsLoading] = useState(false);
   const [localError, setLocalError] = useState("");
   const [localSuccess, setLocalSuccess] = useState("");
@@ -118,6 +121,10 @@ const MyNotes = ({
   const errorRef = useRef(setError);
   const successRef = useRef(setSuccess);
   const composerRef = useRef(null);
+
+  useEffect(() => {
+    if (readOnly && composerOpen) setComposerOpen(false);
+  }, [readOnly, composerOpen]);
 
   const allShareCandidates = useMemo(() => {
     const base = new Map();
@@ -148,6 +155,16 @@ const MyNotes = ({
     }
     return list;
   }, [allShareCandidates, canAssignOthers, currentUser]);
+
+  useEffect(() => {
+    if (selectedNoteIdProp === undefined || selectedNoteIdProp === null) return;
+    setSelectedNoteId((prev) => (prev === selectedNoteIdProp ? prev : selectedNoteIdProp));
+  }, [selectedNoteIdProp]);
+
+  useEffect(() => {
+    if (!selectedNoteId) return;
+    onSelectedNoteChange(selectedNoteId);
+  }, [selectedNoteId, onSelectedNoteChange]);
 
   useEffect(() => () => {
     mountedRef.current = false;
@@ -248,6 +265,7 @@ const MyNotes = ({
     return filteredNotes.find((note) => note.id === selectedNoteId) || filteredNotes[0];
   }, [filteredNotes, selectedNoteId]);
 
+  const allowManualSelection = !(readOnly && selectedNoteIdProp !== undefined);
   const stats = useMemo(() => {
     const total = notes.length;
     const shared = notes.filter((note) => !note.isOwner).length;
@@ -769,17 +787,19 @@ const MyNotes = ({
               </span>
             </div>
           </div>
-          <motion.button
-            whileHover={{ scale: 1.03 }}
-            whileTap={{ scale: 0.97 }}
-            onClick={() => {
-              setComposerOpen(true);
-              if (!newCategory) setNewCategory("Other");
-            }}
-            className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 text-white px-4 py-2 text-sm font-semibold shadow hover:bg-emerald-700"
-          >
-            <Plus className="w-4 h-4" /> New note
-          </motion.button>
+          {!readOnly && (
+            <motion.button
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={() => {
+                setComposerOpen(true);
+                if (!newCategory) setNewCategory("Other");
+              }}
+              className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 text-white px-4 py-2 text-sm font-semibold shadow hover:bg-emerald-700"
+            >
+              <Plus className="w-4 h-4" /> New note
+            </motion.button>
+          )}
         </div>
 
         <div className="grid lg:grid-cols-[320px_minmax(0,1fr)] gap-4">
@@ -843,7 +863,10 @@ const MyNotes = ({
                   <button
                     key={note.id}
                     type="button"
-                    onClick={() => setSelectedNoteId(note.id)}
+                    onClick={() => {
+                      if (!allowManualSelection) return;
+                      setSelectedNoteId(note.id);
+                    }}
                     className={`w-full text-left rounded-2xl border transition p-4 space-y-2 ${
                       active
                         ? "border-emerald-500 bg-emerald-50/80 shadow"
@@ -915,7 +938,7 @@ const MyNotes = ({
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
-                    {filteredSelectedNote.canEdit ? (
+                    {filteredSelectedNote.canEdit && !readOnly ? (
                       editingNoteId === filteredSelectedNote.id ? (
                         <>
                           <motion.button
@@ -949,7 +972,7 @@ const MyNotes = ({
                         </motion.button>
                       )
                     ) : null}
-                    {filteredSelectedNote.isOwner ? (
+                    {filteredSelectedNote.isOwner && !readOnly ? (
                       <motion.button
                         whileHover={{ scale: 1.02 }}
                         whileTap={{ scale: 0.98 }}
@@ -960,7 +983,7 @@ const MyNotes = ({
                         Share
                       </motion.button>
                     ) : null}
-                    {filteredSelectedNote.canEdit ? (
+                    {filteredSelectedNote.canEdit && !readOnly ? (
                       <motion.button
                         whileHover={{ scale: 1.02 }}
                         whileTap={{ scale: 0.98 }}
@@ -971,7 +994,7 @@ const MyNotes = ({
                         Convert to tasks
                       </motion.button>
                     ) : null}
-                    {filteredSelectedNote.isOwner ? (
+                    {filteredSelectedNote.isOwner && !readOnly ? (
                       <motion.button
                         whileHover={{ scale: 1.02 }}
                         whileTap={{ scale: 0.98 }}
@@ -1071,7 +1094,7 @@ const MyNotes = ({
         </div>
 
         <AnimatePresence>
-          {composerOpen && (
+          {composerOpen && !readOnly && (
             <motion.div
               className="fixed inset-0 z-[110] bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center p-4"
               initial={{ opacity: 0 }}

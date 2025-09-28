@@ -4,9 +4,9 @@ import {
   ChatBubbleLeftRightIcon,
   PaperAirplaneIcon,
   ClockIcon,
+  DocumentTextIcon,
 } from "@heroicons/react/24/solid";
 import { motion, AnimatePresence } from "framer-motion";
-import ScheduleMeet from "@/components/ScheduleMeet";
 import QuickCallInvite from "@/components/QuickCallInvite";
 import { useRouter, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
@@ -672,7 +672,18 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
             )}
           </motion.button>
 
-          <ScheduleMeet userDetails={userDetails} position={pos} closeAllModals={closeAll} />
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={() => {
+              closeAll();
+              router.push("/dashboard/member/notes");
+            }}
+            className="p-2.5 sm:p-3 bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-full shadow-lg transition-transform min-w-[44px] min-h-[44px]"
+            title="My Notes"
+            aria-label="My Notes"
+          >
+            <DocumentTextIcon className="h-5 w-5" />
+          </motion.button>
           <QuickCallInvite userDetails={userDetails} position={pos} closeAllModals={closeAll} />
             </>
           )}
