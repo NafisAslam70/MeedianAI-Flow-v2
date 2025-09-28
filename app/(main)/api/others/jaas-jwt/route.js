@@ -14,8 +14,8 @@ export async function GET () {
   if (!session || !["admin", "team_manager", "member"].includes(session.user?.role)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const tenant = process.env.JAAS_APP_ID; // tenant only
-  const room = process.env.NEXT_PUBLIC_JAAS_ROOM; // shared room
+  const tenant = (process.env.JAAS_APP_ID || "meedian-dev").trim();
+  const room = (process.env.NEXT_PUBLIC_JAAS_ROOM || "MeedianTogetherMain").trim();
   const kid = process.env.JAAS_KID;
   const pem = getPem();
   const payload = {

@@ -1386,10 +1386,16 @@ const MyNotes = ({
                             </div>
                            <div>
                              <label className="text-xs font-semibold text-gray-400 dark:text-slate-500">Assignees</label>
-                             <select
-                               multiple={canAssignOthers}
-                               disabled={!canAssignOthers}
-                                value={draft.assignees.map(String)}
+                              <select
+                                multiple={canAssignOthers}
+                                disabled={!canAssignOthers}
+                                value={
+                                  canAssignOthers
+                                    ? draft.assignees.map(String)
+                                    : draft.assignees[0]
+                                      ? String(draft.assignees[0])
+                                      : ""
+                                }
                                 onChange={(e) =>
                                   handleTaskAssignees(
                                     draft.id,

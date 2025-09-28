@@ -1,13 +1,14 @@
 "use client";
 
 import { useSession } from "next-auth/react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Users, Monitor, LogOut, X, Camera, Mic, ScreenShare,
   AlertCircle, Music, VolumeX, MessageSquare, Hand, Clipboard,
-  Loader2, ExternalLink, Send, CheckCircle2
+  Loader2, ExternalLink, Send, CheckCircle2, FileText
 } from "lucide-react";
+import MyNotes from "@/components/MyNotes";
 
 /* ───────── helpers ───────── */
 const getValidImageUrl = (url) => {
@@ -105,6 +106,14 @@ export default function WorkTogether() {
   const uid = session?.user?.id;
   const name = session?.user?.name ?? "User";
   const isAdmin = role === "admin";
+  const currentUserInfo = useMemo(() => {
+    if (!uid) return null;
+    return {
+      id: Number.isNaN(Number(uid)) ? uid : parseInt(uid, 10),
+      name,
+      role,
+    };
+  }, [uid, name, role]);
 
   // jitsi
   const [jwt, setJwt] = useState(null);
@@ -121,6 +130,13 @@ export default function WorkTogether() {
 
   const [ppl, setPpl] = useState([]);
   const [screens, setScreens] = useState([]);
+
+  // Notes overlay state
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [notesUsers, setNotesUsers] = useState([]);
+  const [notesLoading, setNotesLoading] = useState(false);
+  const [notesError, setNotesError] = useState("");
+  const [notesSharePrompt, setNotesSharePrompt] = useState(false);
 
   const [isMusicPlaying, setIsMusicPlaying] = useState(false);
   const [selectedMusic, setSelectedMusic] = useState(musicOptions[0].url);
@@ -156,6 +172,36 @@ export default function WorkTogether() {
   useEffect(() => {
     if (role && !isAdmin) setScr(true);
   }, [role, isAdmin]);
+
+  useEffect(() => {
+    if (!notesOpen || !uid || notesUsers.length || notesLoading) return;
+    let cancelled = false;
+    const loadUsers = async () => {
+      try {
+        setNotesLoading(true);
+        const res = await fetch("/api/member/users", {
+          method: "GET",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+        });
+        const data = await res.json();
+        if (cancelled) return;
+        if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+        setNotesUsers(Array.isArray(data.users) ? data.users : []);
+        setNotesError("");
+      } catch (error) {
+        if (cancelled) return;
+        console.error("Failed to load note users", error);
+        setNotesError(error.message || "Failed to load teammates");
+      } finally {
+        if (!cancelled) setNotesLoading(false);
+      }
+    };
+    loadUsers();
+    return () => {
+      cancelled = true;
+    };
+  }, [notesOpen, uid, notesUsers.length, notesLoading]);
 
   /* Robust Jitsi external_api loader with fallbacks:
      1) https://8x8.vc/${tenant}/external_api.js
@@ -347,8 +393,8 @@ export default function WorkTogether() {
   }, []);
 
   // jitsi config
-  const tenant = process.env.NEXT_PUBLIC_JAAS_TENANT;
-  const roomSlug = process.env.NEXT_PUBLIC_JAAS_ROOM || "MeedianTogetherMain";
+  const tenant = (process.env.NEXT_PUBLIC_JAAS_TENANT || "meedian-dev").trim();
+  const roomSlug = (process.env.NEXT_PUBLIC_JAAS_ROOM || "MeedianTogetherMain").trim();
   const roomName = `${tenant}/${roomSlug}`;
 
   const init = () => {
@@ -471,6 +517,20 @@ export default function WorkTogether() {
     setIsMusicPlaying(!isMusicPlaying);
   };
 
+  const openNotesOverlay = () => {
+    setNotesError("");
+    setNotesSharePrompt(false);
+    setNotesOpen(true);
+    try {
+      api?.executeCommand("sendEndpointTextMessage", "", {
+        type: "system",
+        message: `${name} opened the collaborative notes. Click the Notes button to follow along.`,
+      });
+    } catch (error) {
+      console.warn("Failed to broadcast notes message", error);
+    }
+  };
+
   // guards
   if (status === "loading") return <div>Loading…</div>;
   if (status !== "authenticated" || !["admin", "team_manager", "member"].includes(role)) {
@@ -510,6 +570,17 @@ export default function WorkTogether() {
               title={isMusicPlaying ? "Pause Music" : "Play Music"}
             >
               {isMusicPlaying ? <VolumeX size={20} /> : <Music size={20} />}
+            </button>
+            <button
+              onClick={() => {
+                if (notesOpen) return;
+                setNotesSharePrompt(true);
+                setNotesError("");
+              }}
+              className="px-3 py-2 bg-emerald-500/80 text-white rounded-md hover:bg-emerald-600/90 backdrop-blur-sm flex items-center gap-1"
+              title="Open collaborative notes"
+            >
+              <FileText size={18} /> Notes
             </button>
             {api && (
               <>
@@ -669,12 +740,123 @@ export default function WorkTogether() {
           initial={{ y: -40, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
           className="fixed top-6 left-1/2 -translate-x-1/2 bg-red-600/80 text-white px-4 py-2 rounded-xl shadow-lg flex items-center gap-2 z-50 backdrop-blur-sm"
         >
-          <AlertCircle size={18} /> {err}
-          <button onClick={() => setErr(null)} className="ml-auto text-white hover:text-gray-200">
-            <X size={16} />
-          </button>
-        </motion.div>
-      )}
+      <AlertCircle size={18} /> {err}
+      <button onClick={() => setErr(null)} className="ml-auto text-white hover:text-gray-200">
+        <X size={16} />
+      </button>
+    </motion.div>
+  )}
+
+      <AnimatePresence>
+        {notesSharePrompt && (
+          <motion.div
+            className="fixed inset-0 z-[55] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="w-full max-w-lg bg-cyan-950/95 text-cyan-50 rounded-3xl border border-emerald-400/40 shadow-2xl p-5 space-y-4"
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+            >
+              <div className="space-y-1">
+                <h3 className="text-lg font-semibold text-emerald-100">Share the notes view?</h3>
+                <p className="text-sm text-emerald-200/80">
+                  Let teammates know you’re taking collaborative notes. Everyone listed below will see the shared workspace once they open the notes panel.
+                </p>
+              </div>
+              <div className="max-h-52 overflow-y-auto rounded-2xl border border-emerald-500/20 bg-emerald-900/20 p-3 space-y-2 text-sm">
+                {ppl.length ? (
+                  ppl.map((p) => {
+                    const dn = p.displayName?.split("|")[0]?.trim() || "Participant";
+                    return (
+                      <div key={p.id} className="flex items-center gap-2 text-emerald-100">
+                        <Users size={16} className="text-emerald-300" /> {dn}
+                      </div>
+                    );
+                  })
+                ) : (
+                  <p className="text-emerald-200/70">No one else is in the room yet. You can still start notes and share later.</p>
+                )}
+              </div>
+              <div className="text-xs text-emerald-200/70">
+                Tip: Use the Share button inside the notes panel to invite additional teammates or give edit access.
+              </div>
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setNotesSharePrompt(false)}
+                  className="px-4 py-1.5 rounded-lg bg-gray-200/80 text-gray-800 text-sm font-medium hover:bg-gray-200"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={openNotesOverlay}
+                  className="px-4 py-1.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700"
+                >
+                  Continue to notes
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {notesOpen && (
+          <motion.div
+            className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="w-full max-w-6xl bg-cyan-950/95 text-cyan-50 rounded-3xl border border-emerald-400/30 shadow-2xl overflow-hidden"
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+            >
+              <div className="flex items-center justify-between px-5 py-4 border-b border-emerald-500/20 bg-emerald-900/30">
+                <div>
+                  <h3 className="text-lg font-semibold text-emerald-100">Collab Notes</h3>
+                  <p className="text-xs text-emerald-200/70">Capture minutes while you’re in the room together.</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setNotesOpen(false);
+                    setNotesError("");
+                  }}
+                  className="p-2 rounded-lg bg-emerald-800/40 text-emerald-100 hover:bg-emerald-700/50"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              {notesError && (
+                <div className="px-5 py-2 text-sm text-red-200 bg-red-900/30 border-b border-red-700/40">
+                  {notesError}
+                </div>
+              )}
+              <div className="max-h-[80vh] overflow-y-auto bg-slate-950/40">
+                {notesLoading && !notesUsers.length ? (
+                  <div className="py-16 flex items-center justify-center text-sm text-emerald-200">
+                    <Loader2 className="mr-2 w-4 h-4 animate-spin" /> Loading teammates…
+                  </div>
+                ) : (
+                  <MyNotes
+                    userId={currentUserInfo?.id ?? null}
+                    currentUser={currentUserInfo}
+                    availableUsers={notesUsers}
+                    twoPane
+                    setError={(msg) => setNotesError(msg)}
+                    setSuccess={() => {}}
+                  />
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Join modal with MRN gate */}
       <AnimatePresence>
