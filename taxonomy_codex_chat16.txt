@@ -1,0 +1,101 @@
+MeedianAI‑Flow – Taxonomy v16 (Support Tickets + Day Close Enhancements)
+
+1) Support Tickets: Data + Migrations
+- New tables (Drizzle SQL): drizzle/0021_support_tickets.sql
+  - tickets
+  - ticket_activities
+- Linked with existing users (createdById, assignedToId) and with escalations (escalations_matters.ticket_id).
+
+2) Support Tickets: APIs
+- Member
+  - GET /api/member/tickets[?view=mine|assigned]
+    • view=mine (default): tickets raised by the member
+    • view=assigned: tickets assigned to the member
+  - POST /api/member/tickets
+    • Creates a new ticket; auto‑assigns to Immediate Supervisor (IS) if available
+    • In‑app notification to assignee (no WhatsApp)
+  - GET /api/member/tickets/:ticketId
+    • Visible to raiser, assignee, or admin/manager; returns timeline + canComment
+  - POST /api/member/tickets/:ticketId
+    • Member comments only when manager opened a reply window; sends in‑app notification to assignee
+  - PATCH /api/member/tickets/:ticketId (assignee actions)
+    • { action: "status", status: "in_progress" } → assignee only
+    • { action: "request_resolution" } → asks supervisor to approve; adds metadata.resolutionRequested
+    • All member routes block updates if ticket is closed
+
+- Managers/Admins
+  - GET /api/managersCommon/tickets?view=queue|assigned|created[&queue=…]
+    • Team managers now see ALL queues (no data hiding); guard actions instead
+    • Assigned/Created always show the manager’s OWN tickets
+  - GET /api/managersCommon/tickets/:ticketId
+    • Full detail and timeline
+  - PATCH /api/managersCommon/tickets/:ticketId
+    • Actions: assign, status, priority, comment, escalate, allow/revoke_member_comment (reply window)
+    • Action‑guarding: team managers can act only if assignee OR owner (admins can act on all)
+    • Block updates on closed (except a manager can change status to reopen)
+
+3) Support Tickets: UI
+- Member pages
+  - /dashboard/member/tickets
+    • Header: Raise Ticket → modal (horizontal form); snackbars on success
+    • Tabs: My tickets | Assigned to me
+    • Deep link: /dashboard/member/tickets?ticketId=123 opens detail modal
+    • Closed tickets: red card + modal frame; comment and actions hidden
+  - /dashboard/member/notifications
+    • “View all” page; ticket notifications link back with ticketId param
+
+- Manager pages
+  - /dashboard/managersCommon/tickets
+    • Full queue visible to all managers (actions disabled if not owner/assignee)
+    • Detail side panel: Assignment, Status, Priority, Manager Comment, Escalation
+
+- Navbar
+  • Managerial sheet shows count pills for: Escalations, Support Tickets (open), Day Close Requests (pending), Leave Requests (pending)
+  • Removed duplicate Support Tickets row (single entry with counts)
+
+4) Reply Window (member comment control)
+- Managers can enable temporary member replies:
+  - PATCH …/tickets/:id { action: "allow_member_comment", hours }
+  - PATCH …/tickets/:id { action: "revoke_member_comment" }
+- Member GET returns canComment true only within the allowed window.
+
+5) Notifications (Policy + Direction)
+- WhatsApp: body‑only; direction = managers/admins → raisers only
+  • No WhatsApp to assignees
+  • No self‑notifications
+- In‑app notifications:
+  • Member create/comment → assignee
+  • Manager updates (assign/status/priority/comment/escalate) → raiser (and assignee on assignment)
+- Ticket messages are NOT written to messages table anymore; rely on notifications + WhatsApp (body) for raisers
+
+6) Day Close: Waiting Enforcement (2 Levels)
+- Flags (Randoms Lab Admin → /dashboard/admin/manageMeedian/randoms)
+  - show_day_close_bypass (existing)
+  - show_day_close_ipr (existing)
+  - day_close_wait_compulsory (Level 1)
+  - day_close_wait_fullscreen (Level 2)
+- Behavior while member’s Day Close is pending:
+  - Level 1: blocks the navbar; tooltip on hover/click explains “Waiting for Day Close approval…”
+  - Level 2: full‑screen overlay + beforeunload (tab-close) warning; tooltip follows the cursor
+- API: /api/member/dayClose/dayCloseStatus includes both flags
+
+7) Queue Visibility & Action‑Guarding
+- Team managers now see ALL queues; they can only act when they are the assignee or the raiser (owner). Admins remain unrestricted.
+
+8) Misc
+- .gitignore updated to exclude MeedianAI-Finance/
+- Notifications panel in navbar: “View all” link and per‑row click opens tickets when applicable
+
+Key Files (added/changed)
+- drizzle/0021_support_tickets.sql (new)
+- lib/ticketsConfig.js (new)
+- app/(main)/api/member/tickets/… (new)
+- app/(main)/api/managersCommon/tickets/… (new)
+- app/(main)/dashboard/member/tickets/page.jsx (new)
+- app/(main)/dashboard/member/notifications/page.jsx (new)
+- app/(main)/dashboard/managersCommon/tickets/page.jsx (new)
+- app/(main)/api/admin/manageMeedian/randoms/route.js (flags extended)
+- app/(main)/api/member/dayClose/dayCloseStatus/route.js (flags added)
+- app/(main)/dashboard/admin/manageMeedian/randoms/page.jsx (toggles)
+- components/Navbar.jsx (blocking UI, tooltips, counts, view-all)
+

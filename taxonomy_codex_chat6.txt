@@ -74,3 +74,5 @@ Integration Rules (PT → Role → Tasks)
 - Later phases bind AMRI/RMRI tasks to MSP codes and PT role for continuity across churn.
 
 — End of chat6 (frozen). All new work continues in taxonomy_codex_chat7.txt —
+
+- (( inside fee management we have to have a button to initiate a new payment that can be exam/sports/development/ general..all this shall go into otehrs category ..whene itintiated it shoudl ask whihc class/type of student for this mpayment is to be initated and then for that group of students/student that fees will goa s due in otehrs(otehrs catgeory))

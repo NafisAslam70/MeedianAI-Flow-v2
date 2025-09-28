@@ -41,6 +41,26 @@ const DEFAULT_AMRI_PROGRAMS = [
   { key: "MGHP", label: "MGHP" },
 ];
 
+const DEFAULT_SCANNER_TITLE_PATTERN = /day\s*open|open\s*day|opening/i;
+const normalizeRoleKey = (value) => String(value || "").toLowerCase();
+const SCANNER_ROLE_CONFIG = {
+  msp_ele_moderator: {
+    titlePattern: DEFAULT_SCANNER_TITLE_PATTERN,
+    programKey: "MSP",
+    track: "elementary",
+  },
+  mop2_moderator: {
+    titlePattern: DEFAULT_SCANNER_TITLE_PATTERN,
+    programKey: "MOP",
+    track: "mop2",
+  },
+};
+const getScannerConfig = (roleKey) => SCANNER_ROLE_CONFIG[normalizeRoleKey(roleKey)];
+const getSessionStorageKey = (roleKey) => {
+  const normalized = normalizeRoleKey(roleKey);
+  return normalized ? `mri:session:${normalized}` : null;
+};
+
 export default function MyMRIs() {
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -65,7 +85,17 @@ export default function MyMRIs() {
   const [selectedRTask, setSelectedRTask] = useState(null); // { roleName, task }
   const [selectedExecTask, setSelectedExecTask] = useState(null); // task object for Execute modal
   const [selectedExecKind, setSelectedExecKind] = useState('none'); // scanner | none | custom
-  const [scanPanel, setScanPanel] = useState({ session: null, sessionToken: "", userTokenInput: "", logs: [] , starting: false, ingesting: false});
+  const [scanPanel, setScanPanel] = useState({
+    roleKey: null,
+    session: null,
+    sessionToken: "",
+    userTokenInput: "",
+    logs: [],
+    starting: false,
+    ingesting: false,
+    ending: false,
+    finalizing: false,
+  });
   const [sessionEvents, setSessionEvents] = useState([]);
   const [showSessionQR, setShowSessionQR] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState(null);
@@ -97,6 +127,9 @@ export default function MyMRIs() {
     isIprFlowActive ? `/api/member/ipr?date=${todayIso}&summary=all` : null,
     fetcher
   );
+
+  const activeRoleKey = normalizeRoleKey(selectedRoleBundle?.roleKey);
+  const activeScannerConfig = getScannerConfig(activeRoleKey);
 
   const { amriRoleBundles, rmriRoleBundles, omriRoleBundles, otherRoleBundles } = useMemo(() => {
     const bundles = Array.isArray(roleTasksData?.roles) ? roleTasksData.roles : [];
@@ -315,12 +348,13 @@ export default function MyMRIs() {
 
   // Decide execution kind for a role task (temporary router until schema supports it)
   const getExecutionKind = (roleKey, task) => {
-    const rk = String(roleKey || '').toLowerCase();
-    const title = String(task?.title || '').toLowerCase();
-    if (rk === 'msp_ele_moderator' && (/day\s*open|open\s*day|opening/.test(title))) return 'scanner';
-    if (rk === 'team_day_close_moderator' && /leaderboard/.test(title)) return 'ipr';
-    return 'none';
-  };
+  const rk = normalizeRoleKey(roleKey);
+  const title = String(task?.title || '').toLowerCase();
+  const scannerConfig = getScannerConfig(rk);
+  if (scannerConfig && scannerConfig.titlePattern.test(title)) return 'scanner';
+  if (rk === 'team_day_close_moderator' && /leaderboard/.test(title)) return 'ipr';
+  return 'none';
+};
 
   useEffect(() => {
     if (!isIprFlowActive) {
@@ -509,39 +543,66 @@ export default function MyMRIs() {
   }, [scanPanel.session?.id]);
 
   // --- Persist/restore moderator session (so reopening modal resumes same session) ---
-  const SESSION_KEY = 'mri:session:msp_ele_moderator';
-  const saveModeratorSession = (sess, token) => {
+  const saveModeratorSession = (roleKey, sess, token) => {
     try {
-      if (!sess?.id || !token) return;
+      const key = getSessionStorageKey(roleKey);
+      if (!key || !sess?.id || !token) return;
       const payload = { id: sess.id, token, expiresAt: sess.expiresAt };
-      localStorage.setItem(SESSION_KEY, JSON.stringify(payload));
+      localStorage.setItem(key, JSON.stringify(payload));
     } catch {}
   };
-  const loadModeratorSession = () => {
+  const loadModeratorSession = (roleKey) => {
     try {
-      const raw = localStorage.getItem(SESSION_KEY);
+      const key = getSessionStorageKey(roleKey);
+      if (!key) return null;
+      const raw = localStorage.getItem(key);
       if (!raw) return null;
       const obj = JSON.parse(raw);
       if (!obj?.id || !obj?.token || !obj?.expiresAt) return null;
       const exp = new Date(obj.expiresAt).getTime();
       if (Number.isFinite(exp) && Date.now() < exp) return obj;
-      // expired
-      localStorage.removeItem(SESSION_KEY);
+      localStorage.removeItem(key);
       return null;
     } catch { return null; }
   };
-  const clearModeratorSession = () => { try { localStorage.removeItem(SESSION_KEY); } catch {} };
+  const clearModeratorSession = (roleKey) => {
+    try {
+      const key = getSessionStorageKey(roleKey);
+      if (key) localStorage.removeItem(key);
+    } catch {}
+  };
 
-  // When role modal opens for MSP Elementary Moderator, attempt to restore session
+  // Restore scanner session per role when reopening execution surfaces
   useEffect(() => {
-    if (!rRoleModalOpen) return;
-    if (String(selectedRoleBundle?.roleKey || '').toLowerCase() !== 'msp_ele_moderator') return;
-    if (scanPanel.session?.id) return; // already have one
-    const restored = loadModeratorSession();
+    if (!activeRoleKey || !activeScannerConfig) return;
+    if (!(rRoleModalOpen || isRoleExecuteOpen)) return;
+    if (scanPanel.session?.id && scanPanel.roleKey === activeRoleKey) return;
+    const restored = loadModeratorSession(activeRoleKey);
     if (restored) {
-      setScanPanel((p) => ({ ...p, session: { id: restored.id, expiresAt: restored.expiresAt }, sessionToken: restored.token }));
+      setScanPanel((prev) => ({
+        ...prev,
+        roleKey: activeRoleKey,
+        session: { id: restored.id, expiresAt: restored.expiresAt },
+        sessionToken: restored.token,
+      }));
+      return;
     }
-  }, [rRoleModalOpen, selectedRoleBundle, scanPanel.session?.id]);
+    if (scanPanel.roleKey !== activeRoleKey) {
+      setScanPanel((prev) => ({
+        ...prev,
+        roleKey: activeRoleKey,
+        session: null,
+        sessionToken: '',
+        userTokenInput: '',
+        logs: [],
+        starting: false,
+        ingesting: false,
+        ending: false,
+        finalizing: false,
+      }));
+      setSessionEvents([]);
+    }
+  }, [activeRoleKey, activeScannerConfig, rRoleModalOpen, isRoleExecuteOpen, scanPanel.roleKey, scanPanel.session?.id]);
 
   const today = format(new Date("2025-07-28T21:45:00+08:00"), "EEEE, MMMM d, yyyy");
 
@@ -946,7 +1007,7 @@ export default function MyMRIs() {
                 </div>
                 <div className="text-xs text-gray-600 mb-3">
                   {selectedExecKind === 'scanner'
-                    ? 'Task execution surface. For MSP Ele Moderator Day Opening, the scanner and attendance are side-by-side.'
+                    ? 'Scanner-enabled tasks surface the QR session and attendance side-by-side.'
                     : selectedExecKind === 'ipr'
                     ? 'Members’ Leaderboard preparation — enter today’s scores for each member.'
                     : 'Task execution placeholder. Custom flows will appear here once configured.'}
@@ -970,9 +1031,10 @@ export default function MyMRIs() {
                               const r = await fetch('/api/attendance?section=sessionEnd', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ sessionId: scanPanel.session.id })});
                               const j = await r.json().catch(()=>({}));
                               if(!r.ok) throw new Error(j.error||`HTTP ${r.status}`);
+                              const sessionRoleKey = selectedRoleBundle?.roleKey || scanPanel.roleKey;
                               setScanPanel((p)=>({ ...p, ending: false, session: null, sessionToken: '', logs: [] }));
                               setSessionEvents([]);
-                              clearModeratorSession();
+                              clearModeratorSession(sessionRoleKey);
                             } catch(e){
                               setScanPanel((p)=>({ ...p, ending: false }));
                               alert('Failed to end session: '+(e.message||e));
@@ -1002,16 +1064,40 @@ export default function MyMRIs() {
                         )}
                         <button
                           className="px-2 py-1 text-xs rounded bg-rose-600 text-white disabled:opacity-60"
-                          disabled={scanPanel.starting || (selectedExecKind==='scanner' && selectedExecTask && !isWithinTaskWindow(normalizeTask(selectedExecTask)))}
-                          title={selectedExecKind==='scanner' && selectedExecTask && !isWithinTaskWindow(normalizeTask(selectedExecTask)) ? 'Outside allowed time window' : 'Start scanner session'}
+                          disabled={!activeScannerConfig || scanPanel.starting || (selectedExecKind==='scanner' && selectedExecTask && !isWithinTaskWindow(normalizeTask(selectedExecTask)))}
+                          title={!activeScannerConfig
+                            ? 'Scanner configuration missing'
+                            : selectedExecKind==='scanner' && selectedExecTask && !isWithinTaskWindow(normalizeTask(selectedExecTask))
+                            ? 'Outside allowed time window'
+                            : 'Start scanner session'}
                           onClick={async ()=>{
                             try {
+                              if (!activeScannerConfig) throw new Error('Scanner configuration missing');
+                              const requestRoleKey = selectedRoleBundle?.roleKey || activeRoleKey || scanPanel.roleKey;
+                              if (!requestRoleKey) throw new Error('Role context missing');
+                              const sessionRoleKey = normalizeRoleKey(requestRoleKey);
                               setScanPanel((p)=>({ ...p, starting: true }));
-                              const r = await fetch('/api/attendance?section=sessionStart', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ roleKey: 'msp_ele_moderator', programKey: 'MSP', track: 'elementary' })});
+                              const payload = {
+                                roleKey: requestRoleKey,
+                                programKey: activeScannerConfig.programKey,
+                                track: activeScannerConfig.track,
+                              };
+                              const r = await fetch('/api/attendance?section=sessionStart', {
+                                method:'POST',
+                                headers:{'Content-Type':'application/json'},
+                                body: JSON.stringify(payload),
+                              });
                               const j = await r.json();
                               if(!r.ok) throw new Error(j.error||`HTTP ${r.status}`);
-                              setScanPanel((p)=>({ ...p, starting: false, session: j.session, sessionToken: j.token }));
-                              try { saveModeratorSession(j.session, j.token); } catch {}
+                              setScanPanel((p)=>({
+                                ...p,
+                                starting: false,
+                                roleKey: sessionRoleKey,
+                                session: j.session,
+                                sessionToken: j.token,
+                              }));
+                              setSessionEvents([]);
+                              saveModeratorSession(requestRoleKey, j.session, j.token);
                             } catch(e){
                               setScanPanel((p)=>({ ...p, starting: false }));
                               alert('Failed to start scanner: '+(e.message||e));

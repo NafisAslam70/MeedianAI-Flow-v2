@@ -24,7 +24,6 @@ import AssignedTaskDetails from "@/components/assignedTaskCardDetailForAll";
 import UpdateStatusForAll from "@/components/UpdateStatusForAll";
 import AssignedTasksView from "@/components/member/AssignedTasksView";
 import RoutineTasksView from "@/components/member/RoutineTasksView";
-import MyNotes from "@/components/MyNotes";
 import RoutineTrackerModal from "@/components/member/RoutineTrackerModal";
 import { DeepCalendarModal, ActiveBlockView, fromMinutes } from "@/components/DeepCalendar";
 
@@ -756,7 +755,6 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
   const [showCloseDayModal, setShowCloseDayModal] = useState(false);
   const [showComingSoonModal, setShowComingSoonModal] = useState(false);
   const [showDeepCalendarModal, setShowDeepCalendarModal] = useState(false);
-  const [showNotesModal, setShowNotesModal] = useState(false);
   const [showRoutineTrackerModal, setShowRoutineTrackerModal] = useState(false);
   const [newStatus, setNewStatus] = useState("");
   const [selectedSprint, setSelectedSprint] = useState("");
@@ -1372,7 +1370,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
   useEffect(() => {
     const onKey = (e) => {
       if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
-      if (e.key.toLowerCase() === "n") setShowNotesModal(true);
+      if (e.key.toLowerCase() === "n") router.push("/dashboard/member/notes");
       if (e.key.toLowerCase() === "g") {
         const next = (k) => {
           if (k === "d") setActiveTab("dashboard");
@@ -1590,7 +1588,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                 <motion.button
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
-                  onClick={() => setShowNotesModal(true)}
+                  onClick={() => router.push("/dashboard/member/notes")}
                   className="ml-1 flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100/60 dark:hover:bg-slate-700/60 flex-shrink-0"
                 >
                   <FilePlus className="w-4 h-4" />
@@ -1610,7 +1608,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
               {/* Compact overflow menu for xs */}
               <div className="sm:hidden ml-1 relative z-[60]">
                 <CompactMore
-                  onOpenNotes={() => setShowNotesModal(true)}
+                  onOpenNotes={() => router.push("/dashboard/member/notes")}
                   onSelectTab={(k) => setActiveTab(k)}
                 />
               </div>
@@ -1756,7 +1754,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                   <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                     <span className="text-sm font-semibold text-gray-900 dark:text-white mr-2">Quick Tools:</span>
                     <PrimaryButton onClick={() => setShowRoutineTrackerModal(true)}>Open Routine Tracker</PrimaryButton>
-                    <GhostButton onClick={() => setShowNotesModal(true)}>My Notes</GhostButton>
+                    <GhostButton onClick={() => router.push("/dashboard/member/notes")}>My Notes</GhostButton>
                     <DangerGhostButton onClick={() => setShowCloseDayModal(true)}>Close My Day</DangerGhostButton>
                   </div>
                 </TiltCard>
@@ -2264,21 +2262,6 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
           <div className="flex justify-end mt-6">
             <PrimaryButton onClick={() => setShowComingSoonModal(false)}>Close</PrimaryButton>
           </div>
-        </Modal>
-
-        <Modal isOpen={showNotesModal} onClose={() => setShowNotesModal(false)} title="My Notes" wide>
-          <MyNotes
-            userId={viewUserId || user?.id}
-            setError={(msg) => {
-              setError(msg);
-              setTimeout(() => setError(""), 3000);
-            }}
-            setSuccess={(msg) => {
-              setSuccess(msg);
-              setTimeout(() => setSuccess(""), 2500);
-            }}
-            twoPane
-          />
         </Modal>
 
         {/* Routine Tracker Modal (full view, monthly grid) */}
