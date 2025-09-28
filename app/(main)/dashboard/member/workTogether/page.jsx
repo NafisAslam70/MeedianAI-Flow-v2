@@ -136,6 +136,7 @@ export default function WorkTogether() {
   const [notesUsers, setNotesUsers] = useState([]);
   const [notesLoading, setNotesLoading] = useState(false);
   const [notesError, setNotesError] = useState("");
+  const [notesFetched, setNotesFetched] = useState(false);
   const [notesSharePrompt, setNotesSharePrompt] = useState(false);
 
   const [isMusicPlaying, setIsMusicPlaying] = useState(false);
@@ -174,7 +175,7 @@ export default function WorkTogether() {
   }, [role, isAdmin]);
 
   useEffect(() => {
-    if (!notesOpen || !uid || notesUsers.length || notesLoading) return;
+    if (!notesOpen || !uid || notesLoading || notesFetched) return;
     let cancelled = false;
     const loadUsers = async () => {
       try {
@@ -194,14 +195,17 @@ export default function WorkTogether() {
         console.error("Failed to load note users", error);
         setNotesError(error.message || "Failed to load teammates");
       } finally {
-        if (!cancelled) setNotesLoading(false);
+        if (!cancelled) {
+          setNotesLoading(false);
+          setNotesFetched(true);
+        }
       }
     };
     loadUsers();
     return () => {
       cancelled = true;
     };
-  }, [notesOpen, uid, notesUsers.length, notesLoading]);
+  }, [notesOpen, uid, notesLoading, notesFetched]);
 
   /* Robust Jitsi external_api loader with fallbacks:
      1) https://8x8.vc/${tenant}/external_api.js
