@@ -217,7 +217,18 @@ const MyNotes = ({
   const filteredNotes = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
     return notes.filter((note) => {
-      const matchesCategory = categoryFilter === "all" || note.category === categoryFilter;
+      const matchesCategory = (() => {
+        switch (categoryFilter) {
+          case "all":
+            return true;
+          case "shared_to_you":
+            return !note.isOwner;
+          case "shared_by_you":
+            return note.isOwner && (note.sharedWith?.length || 0) > 0;
+          default:
+            return note.category === categoryFilter;
+        }
+      })();
       if (!matchesCategory) return false;
       if (!q) return true;
       const haystack = `${note.content} ${note.category} ${(note.owner?.name || "")}`.toLowerCase();
@@ -782,29 +793,34 @@ const MyNotes = ({
                 className="w-full pl-9 pr-3 py-2 rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/80 text-sm focus:ring-2 focus:ring-emerald-400 focus:bg-white dark:focus:bg-slate-900"
               />
             </div>
-            <div>
-              <div className="flex items-center gap-2 text-xs font-semibold uppercase text-gray-400 dark:text-slate-500">
-                <Filter className="w-3.5 h-3.5" /> Categories
-              </div>
-              <div className="flex flex-wrap gap-2 mt-2">
-                {[["all", "All"], ...NOTE_CATEGORIES.map((c) => [c, c])].map(([value, label]) => {
-                  const active = categoryFilter === value;
-                  return (
-                    <button
-                      key={value}
-                      onClick={() => setCategoryFilter(value)}
-                      className={`px-3 py-1.5 rounded-full text-xs font-medium border transition ${
-                        active
-                          ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
-                          : "border-gray-200 text-gray-600 hover:bg-gray-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
-              </div>
+          <div>
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase text-gray-400 dark:text-slate-500">
+              <Filter className="w-3.5 h-3.5" /> Categories & Views
             </div>
+            <div className="flex flex-wrap gap-2 mt-2">
+              {[
+                { value: "all", label: "All" },
+                { value: "shared_to_you", label: "Shared to you" },
+                { value: "shared_by_you", label: "Shared by you" },
+                ...NOTE_CATEGORIES.map((category) => ({ value: category, label: category })),
+              ].map(({ value, label }) => {
+                const active = categoryFilter === value;
+                return (
+                  <button
+                    key={value}
+                    onClick={() => setCategoryFilter(value)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium border transition ${
+                      active
+                        ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
+                        : "border-gray-200 text-gray-600 hover:bg-gray-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
             <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1 custom-scrollbar">
               {isLoading && (
