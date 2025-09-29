@@ -10,6 +10,7 @@ export default function MeedRepoPage() {
   const isManager = session?.user?.role === "admin" || session?.user?.role === "team_manager";
   const [statusFilter, setStatusFilter] = useState("submitted"); // submitted | approved | rejected | archived | all
   const [viewAll, setViewAll] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
   const listUrl = (() => {
     const params = new URLSearchParams();
     if (!(isManager && viewAll)) params.set("mine", "1");
@@ -127,7 +128,16 @@ export default function MeedRepoPage() {
   };
 
   // filtered list comes from API with params
-  const filteredPosts = posts;
+  const filteredPosts = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return posts;
+    return posts.filter((p) => {
+      const title = String(p.title || "").toLowerCase();
+      const content = String(p.content || "").toLowerCase();
+      const author = String(usersById[p.userId]?.name || "").toLowerCase();
+      return title.includes(term) || content.includes(term) || author.includes(term);
+    });
+  }, [posts, searchTerm, usersById]);
 
   const fmtRel = (dt) => {
     try {
@@ -226,6 +236,25 @@ export default function MeedRepoPage() {
             To Verify
           </button>
         )}
+        <div className="relative">
+          <input
+            type="search"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Search posts"
+            className="w-40 md:w-56 lg:w-64 rounded-xl border px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500"
+            aria-label="Search Meed Repo posts"
+          />
+          {searchTerm && (
+            <button
+              type="button"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 hover:text-gray-700"
+              onClick={() => setSearchTerm("")}
+            >
+              Clear
+            </button>
+          )}
+        </div>
         <div className="flex items-center gap-1 text-xs bg-white border px-2 py-1 rounded-xl">
             {["submitted","approved","rejected","archived","all"].map((k) => (
               <button key={k} className={`px-2 py-1 rounded-lg ${statusFilter===k?"bg-gray-900 text-white":"hover:bg-gray-100"}`} onClick={() => setStatusFilter(k)}>

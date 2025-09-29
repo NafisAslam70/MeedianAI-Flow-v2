@@ -99,6 +99,13 @@ const musicOptions = [
   { name: "Chill Ambient Electronic", url: "https://orangefreesounds.com/wp-content/uploads/2022/10/Chill-ambient-electronic-music.mp3" },
 ];
 
+const COMPOSER_TEMPLATE = {
+  open: false,
+  content: "",
+  category: "",
+  hostName: "",
+};
+
 /* ───────── component ───────── */
 export default function WorkTogether() {
   const { data: session, status } = useSession();
@@ -144,8 +151,15 @@ export default function WorkTogether() {
   const [notesHostName, setNotesHostName] = useState("");
   const [notesSelectedId, setNotesSelectedId] = useState(null);
   const [notesCurrentSelectedId, setNotesCurrentSelectedId] = useState(null);
+  const [notesComposerState, setNotesComposerState] = useState(() => ({ ...COMPOSER_TEMPLATE }));
   const notesMsgHandlerRef = useRef(null);
   const endpointListenerRef = useRef(null);
+
+  const resetNotesComposer = useCallback(() => {
+    setNotesComposerState({ ...COMPOSER_TEMPLATE });
+  }, []);
+
+  const isHost = notesShareActive && notesHostId === currentUserInfo?.id;
 
   const [isMusicPlaying, setIsMusicPlaying] = useState(false);
   const [selectedMusic, setSelectedMusic] = useState(musicOptions[0].url);
@@ -248,6 +262,7 @@ export default function WorkTogether() {
             setNotesCurrentSelectedId(noteId);
             setNotesError("");
             setNotesOpen(true);
+            resetNotesComposer();
             break;
           }
           case "select": {
@@ -269,7 +284,20 @@ export default function WorkTogether() {
               setNotesSelectedId(null);
               setNotesShareActive(false);
               setNotesOpen(false);
+              resetNotesComposer();
             }
+            break;
+          }
+          case "composer": {
+            if (payload?.hostId && notesHostId && payload.hostId !== notesHostId) return;
+            setNotesHostId((prev) => payload?.hostId ?? prev);
+            if (payload?.hostName) setNotesHostName(payload.hostName);
+            setNotesComposerState({
+              open: !!payload?.open,
+              content: typeof payload?.content === "string" ? payload.content : "",
+              category: typeof payload?.category === "string" ? payload.category : "",
+              hostName: payload?.hostName || notesHostName || "Presenter",
+            });
             break;
           }
           default:
@@ -279,7 +307,7 @@ export default function WorkTogether() {
         console.warn("Failed to handle notes message", error);
       }
     };
-  }, [currentUserInfo?.id, notesFollowing, notesHostId]);
+  }, [currentUserInfo?.id, notesFollowing, notesHostId, notesHostName, resetNotesComposer]);
 
   /* Robust Jitsi external_api loader with fallbacks:
      1) https://8x8.vc/${tenant}/external_api.js
@@ -558,6 +586,7 @@ export default function WorkTogether() {
     setNotesHostId(null);
     setNotesHostName("");
     setNotesSelectedId(null);
+    resetNotesComposer();
   };
 
   const openExitModal = () => {
@@ -636,12 +665,28 @@ export default function WorkTogether() {
     [api, currentUserInfo]
   );
 
+  const handleComposerStateChange = useCallback(
+    (draft) => {
+      if (!draft || !notesShareActive || !isHost) return;
+      const safe = {
+        open: !!draft.open,
+        content: typeof draft.content === "string" ? draft.content : "",
+        category: typeof draft.category === "string" ? draft.category : "",
+        hostName: currentUserInfo?.name || "Presenter",
+      };
+      setNotesComposerState(safe);
+      sendNotesSignal("composer", safe);
+    },
+    [currentUserInfo?.name, isHost, notesShareActive, sendNotesSignal]
+  );
+
   const openNotesOverlay = useCallback(() => {
     setNotesError("");
     setNotesSharePrompt(false);
     setNotesFetched(false);
     setNotesOpen(true);
-  }, []);
+    resetNotesComposer();
+  }, [resetNotesComposer]);
 
   const stopNotesShare = useCallback(
     (broadcast = true) => {
@@ -651,8 +696,9 @@ export default function WorkTogether() {
       setNotesHostId(null);
       setNotesHostName("");
       setNotesSelectedId(null);
+      resetNotesComposer();
     },
-    [notesShareActive, sendNotesSignal]
+    [notesShareActive, sendNotesSignal, resetNotesComposer]
   );
 
   const followHost = useCallback(() => {
@@ -669,7 +715,8 @@ export default function WorkTogether() {
     setNotesFetched(false);
     setNotesFollowing(false);
     setNotesOpen(true);
-  }, []);
+    resetNotesComposer();
+  }, [resetNotesComposer]);
 
   const handleCloseNotes = useCallback(() => {
     if (notesShareActive && notesHostId === currentUserInfo?.id) {
@@ -678,7 +725,8 @@ export default function WorkTogether() {
     setNotesFollowing(false);
     setNotesOpen(false);
     setNotesError("");
-  }, [notesShareActive, notesHostId, currentUserInfo?.id, stopNotesShare]);
+    resetNotesComposer();
+  }, [notesShareActive, notesHostId, currentUserInfo?.id, stopNotesShare, resetNotesComposer]);
 
   const startNotesShare = useCallback(() => {
     const hostId = currentUserInfo?.id ?? null;
@@ -692,8 +740,9 @@ export default function WorkTogether() {
     setNotesSharePrompt(false);
     setNotesFetched(false);
     setNotesOpen(true);
+    resetNotesComposer();
     sendNotesSignal("open", { noteId });
-  }, [currentUserInfo, notesCurrentSelectedId, sendNotesSignal]);
+  }, [currentUserInfo, notesCurrentSelectedId, resetNotesComposer, sendNotesSignal]);
 
   // guards
   if (status === "loading") return <div>Loading…</div>;
@@ -701,7 +750,6 @@ export default function WorkTogether() {
     return <div className="p-8 text-red-600 font-semibold">Access denied</div>;
   }
 
-  const isHost = notesShareActive && notesHostId === currentUserInfo?.id;
   const hostActive = !!notesHostId && notesHostId !== currentUserInfo?.id;
   const isFollower = hostActive && notesFollowing;
 
@@ -1072,6 +1120,8 @@ export default function WorkTogether() {
                     }}
                     setError={(msg) => setNotesError(msg)}
                     setSuccess={() => {}}
+                    onComposerStateChange={isHost ? handleComposerStateChange : undefined}
+                    sharedComposerDraft={isFollower ? notesComposerState : null}
                   />
                 )}
               </div>

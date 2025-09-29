@@ -93,6 +93,8 @@ const MyNotes = ({
   readOnly = false,
   selectedNoteIdProp = undefined,
   onSelectedNoteChange = () => {},
+  onComposerStateChange,
+  sharedComposerDraft = null,
 }) => {
   const [notes, setNotes] = useState([]);
   const [selectedNoteId, setSelectedNoteId] = useState(null);
@@ -303,6 +305,15 @@ const MyNotes = ({
       });
     }
   }, [composerOpen, newNote]);
+
+  useEffect(() => {
+    if (typeof onComposerStateChange !== "function") return;
+    onComposerStateChange({
+      open: composerOpen,
+      content: newNote,
+      category: newCategory,
+    });
+  }, [composerOpen, newNote, newCategory, onComposerStateChange]);
 
   const handleComposerKeyDown = (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
@@ -1090,13 +1101,63 @@ const MyNotes = ({
                 </div>
               </div>
             )}
-          </div>
         </div>
+      </div>
 
-        <AnimatePresence>
-          {composerOpen && !readOnly && (
+      <AnimatePresence>
+        {readOnly && sharedComposerDraft?.open && (
+          <motion.div
+            className="fixed inset-0 z-[105] bg-black/45 backdrop-blur-sm flex items-end sm:items-center justify-center p-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
             <motion.div
-              className="fixed inset-0 z-[110] bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center p-4"
+              className="w-full max-w-xl bg-emerald-900/40 border border-emerald-500/30 text-emerald-50 rounded-2xl shadow-xl p-4 sm:p-5 space-y-4"
+              initial={{ y: 40, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 30, opacity: 0 }}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-semibold text-emerald-100">Live draft in progress…</h3>
+                  <p className="text-xs text-emerald-200/80">
+                    You’re viewing {(sharedComposerDraft?.hostName || "the host").replace(/\s+$/, "")}'s note while they type.
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {sharedComposerDraft?.category ? (
+                  <div>
+                    <label className="text-xs font-semibold uppercase text-emerald-200/70">Category</label>
+                    <div className="mt-1 px-3 py-2 rounded-lg border border-emerald-500/40 bg-emerald-950/40 text-sm text-emerald-100">
+                      {sharedComposerDraft.category}
+                    </div>
+                  </div>
+                ) : null}
+                <div>
+                  <label className="text-xs font-semibold uppercase text-emerald-200/70">Draft content</label>
+                  <textarea
+                    value={sharedComposerDraft?.content || ""}
+                    readOnly
+                    rows={8}
+                    className="mt-1 w-full rounded-lg border border-emerald-500/40 bg-emerald-950/60 text-sm text-emerald-100 px-3 py-2"
+                  />
+                </div>
+              </div>
+              <div className="text-xs text-emerald-200/70">
+                Waiting for the host to save or share this note with the team.
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {composerOpen && !readOnly && (
+          <motion.div
+            className="fixed inset-0 z-[110] bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center p-4"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
