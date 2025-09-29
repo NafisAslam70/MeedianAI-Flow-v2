@@ -8,8 +8,8 @@ const fetcher = (u) => fetch(u, { headers: { "Content-Type": "application/json" 
 export default function MeedRepoPage() {
   const { data: session } = useSession();
   const isManager = session?.user?.role === "admin" || session?.user?.role === "team_manager";
-  const [statusFilter, setStatusFilter] = useState("submitted"); // submitted | approved | rejected | archived | all
-  const [viewAll, setViewAll] = useState(false);
+  const [statusFilter, setStatusFilter] = useState("all"); // submitted | approved | rejected | archived | all
+  const [viewAll, setViewAll] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const listUrl = (() => {
     const params = new URLSearchParams();
@@ -159,21 +159,37 @@ export default function MeedRepoPage() {
     return `${base} bg-gray-50 border-gray-200 text-gray-700`;
   };
 
+  const PdfPreview = ({ url, title, className = "", showBadge = false }) => {
+    if (!url) return null;
+    return (
+      <div className={`relative w-full h-full bg-gray-100 ${className}`}>
+        <object data={url} type="application/pdf" className="w-full h-full pointer-events-none" aria-label={title || "PDF preview"}>
+          <embed src={url} type="application/pdf" className="w-full h-full pointer-events-none" />
+          <div className="w-full h-full flex items-center justify-center text-xs text-gray-600 bg-white">
+            PDF preview unavailable
+          </div>
+        </object>
+        {showBadge && (
+          <div className="pointer-events-none absolute bottom-1 right-1 text-[10px] font-medium bg-white/80 border border-gray-200 px-1.5 py-0.5 rounded">
+            PDF
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const PreviewTile = ({ a }) => {
     const isImg = String(a.mimeType||"").startsWith("image/");
     const isPdf = String(a.mimeType||"").includes("pdf");
     return (
       <a href={a.url} target="_blank" rel="noopener noreferrer" className="rounded-xl border bg-white overflow-hidden shadow-sm hover:shadow transition">
-        <div className="w-full h-28 flex items-center justify-center bg-gray-50">
+        <div className="w-full h-28 bg-gray-50 overflow-hidden relative">
           {isImg ? (
             <img src={a.url} alt={a.title||"attachment"} className="w-full h-full object-cover" />
           ) : isPdf ? (
-            <div className="flex flex-col items-center text-xs text-gray-600">
-              <span className="font-semibold mb-1">PDF</span>
-              <span className="truncate px-2">{a.title || 'Open'}</span>
-            </div>
+            <PdfPreview url={a.url} title={a.title} showBadge />
           ) : (
-            <div className="flex flex-col items-center text-xs text-gray-600">
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-xs text-gray-600">
               <span className="font-semibold mb-1">File</span>
               <span className="truncate px-2">{a.title || 'Open'}</span>
             </div>
@@ -201,11 +217,22 @@ export default function MeedRepoPage() {
         <div className="relative">
           <div className="absolute top-2 left-2 text-[11px] px-2 py-0.5 rounded-full bg-white/90 border font-semibold">{p.status}</div>
           {p.taskId && (<div className="absolute top-2 right-2 text-[11px] px-2 py-0.5 rounded-full bg-white/90 border">Task #{p.taskId}</div>)}
-          <div className="w-full aspect-[4/3] bg-gray-50 flex items-center justify-center">
-            {a ? (
-              isImg ? <img src={a.url} alt={a.title||""} className="w-full h-full object-cover" /> : (isPdf ? <span className="text-gray-600 text-xs">PDF</span> : <span className="text-gray-600 text-xs">File</span>)
-            ) : (
-              <span className="text-gray-400 text-xs">No media</span>
+          <div className="w-full aspect-[4/3] bg-gray-50 overflow-hidden relative">
+            {!a && (
+              <div className="absolute inset-0 flex items-center justify-center text-gray-400 text-xs">
+                No media
+              </div>
+            )}
+            {a && isImg && (
+              <img src={a.url} alt={a.title||""} className="w-full h-full object-cover" />
+            )}
+            {a && !isImg && isPdf && (
+              <PdfPreview url={a.url} title={a.title} showBadge />
+            )}
+            {a && !isImg && !isPdf && (
+              <div className="absolute inset-0 flex items-center justify-center text-gray-600 text-xs">
+                File
+              </div>
             )}
           </div>
         </div>
@@ -407,15 +434,23 @@ export default function MeedRepoPage() {
               <div className="bg-gray-50 min-h-[50vh] flex items-center justify-center">
                 {Array.isArray(activePost.attachments) && activePost.attachments.length ? (
                   <div className="w-full h-full p-2 grid grid-cols-2 gap-2">
-                    {activePost.attachments.map((a, i)=> (
-                      <a key={(a.id||a.url)+i} href={a.url} target="_blank" rel="noopener" className="rounded-xl overflow-hidden border bg-white flex items-center justify-center">
-                        {String(a.mimeType||"").startsWith('image/') ? (
-                          <img src={a.url} alt={a.title||''} className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="text-xs text-gray-600 p-4">{a.title || 'Open file'}</div>
-                        )}
-                      </a>
-                    ))}
+                    {activePost.attachments.map((a, i) => {
+                      const attIsImg = String(a.mimeType||"").startsWith("image/");
+                      const attIsPdf = String(a.mimeType||"").includes("pdf");
+                      return (
+                        <a key={(a.id||a.url)+i} href={a.url} target="_blank" rel="noopener" className="relative block rounded-xl overflow-hidden border bg-white min-h-[160px]">
+                          {attIsImg ? (
+                            <img src={a.url} alt={a.title||''} className="w-full h-full object-cover" />
+                          ) : attIsPdf ? (
+                            <PdfPreview url={a.url} title={a.title} showBadge />
+                          ) : (
+                            <div className="absolute inset-0 flex items-center justify-center p-4 text-xs text-gray-600 text-center break-words">
+                              {a.title || 'Open file'}
+                            </div>
+                          )}
+                        </a>
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="text-gray-500 text-sm">No attachments</div>

@@ -151,6 +151,7 @@ export default function WorkTogether() {
   const [notesHostName, setNotesHostName] = useState("");
   const [notesSelectedId, setNotesSelectedId] = useState(null);
   const [notesCurrentSelectedId, setNotesCurrentSelectedId] = useState(null);
+  const [sharedNotesSnapshot, setSharedNotesSnapshot] = useState(null);
   const [notesComposerState, setNotesComposerState] = useState(() => ({ ...COMPOSER_TEMPLATE }));
   const notesMsgHandlerRef = useRef(null);
   const endpointListenerRef = useRef(null);
@@ -260,6 +261,7 @@ export default function WorkTogether() {
             const noteId = payload.noteId ?? null;
             setNotesSelectedId(noteId);
             setNotesCurrentSelectedId(noteId);
+            setSharedNotesSnapshot(Array.isArray(payload?.notes) ? payload.notes : null);
             setNotesError("");
             setNotesOpen(true);
             resetNotesComposer();
@@ -285,7 +287,23 @@ export default function WorkTogether() {
               setNotesShareActive(false);
               setNotesOpen(false);
               resetNotesComposer();
+              setSharedNotesSnapshot(null);
             }
+            break;
+          }
+          case "refresh": {
+            if (payload?.hostName) setNotesHostName(payload.hostName);
+            if (payload?.hostId) setNotesHostId(payload.hostId);
+            if (payload?.noteId !== undefined) {
+              const nextId = payload.noteId ?? null;
+              setNotesSelectedId(nextId);
+              setNotesCurrentSelectedId(nextId);
+            }
+            if (Array.isArray(payload?.notes)) {
+              setSharedNotesSnapshot(payload.notes);
+            }
+            setNotesError("");
+            setNotesFetched(false);
             break;
           }
           case "composer": {
@@ -586,6 +604,7 @@ export default function WorkTogether() {
     setNotesHostId(null);
     setNotesHostName("");
     setNotesSelectedId(null);
+    setSharedNotesSnapshot(null);
     resetNotesComposer();
   };
 
@@ -665,6 +684,23 @@ export default function WorkTogether() {
     [api, currentUserInfo]
   );
 
+  const broadcastNotesActivity = useCallback(
+    (payload = {}) => {
+      if (!currentUserInfo?.id) return;
+      const body = {
+        hostId: currentUserInfo.id,
+        hostName: currentUserInfo.name,
+        timestamp: Date.now(),
+        ...payload,
+      };
+      sendNotesSignal("refresh", body);
+      if (Array.isArray(body.notes)) {
+        setSharedNotesSnapshot(body.notes);
+      }
+    },
+    [currentUserInfo, sendNotesSignal]
+  );
+
   const handleComposerStateChange = useCallback(
     (draft) => {
       if (!draft || !notesShareActive || !isHost) return;
@@ -696,6 +732,7 @@ export default function WorkTogether() {
       setNotesHostId(null);
       setNotesHostName("");
       setNotesSelectedId(null);
+      setSharedNotesSnapshot(null);
       resetNotesComposer();
     },
     [notesShareActive, sendNotesSignal, resetNotesComposer]
@@ -719,14 +756,23 @@ export default function WorkTogether() {
   }, [resetNotesComposer]);
 
   const handleCloseNotes = useCallback(() => {
-    if (notesShareActive && notesHostId === currentUserInfo?.id) {
+    const userIsHost = notesShareActive && notesHostId === currentUserInfo?.id;
+    const userIsFollower = !!notesHostId && notesHostId !== currentUserInfo?.id && notesFollowing;
+    if (userIsHost) {
       stopNotesShare();
+      setNotesFollowing(false);
+    } else if (userIsFollower) {
+      setNotesOpen(false);
+      setNotesError("");
+      resetNotesComposer();
+      return;
+    } else {
+      setNotesFollowing(false);
     }
-    setNotesFollowing(false);
     setNotesOpen(false);
     setNotesError("");
     resetNotesComposer();
-  }, [notesShareActive, notesHostId, currentUserInfo?.id, stopNotesShare, resetNotesComposer]);
+  }, [notesShareActive, notesHostId, currentUserInfo?.id, notesFollowing, stopNotesShare, resetNotesComposer]);
 
   const startNotesShare = useCallback(() => {
     const hostId = currentUserInfo?.id ?? null;
@@ -743,6 +789,14 @@ export default function WorkTogether() {
     resetNotesComposer();
     sendNotesSignal("open", { noteId });
   }, [currentUserInfo, notesCurrentSelectedId, resetNotesComposer, sendNotesSignal]);
+
+  const resumeSharedNotes = useCallback(() => {
+    if (!notesHostId || notesHostId === currentUserInfo?.id) return;
+    setNotesError("");
+    setNotesFetched(false);
+    setNotesOpen(true);
+    setNotesFollowing(true);
+  }, [notesHostId, currentUserInfo?.id]);
 
   // guards
   if (status === "loading") return <div>Loading…</div>;
@@ -798,6 +852,15 @@ export default function WorkTogether() {
             >
               <FileText size={18} /> Notes
             </button>
+            {hostActive && notesHostId !== currentUserInfo?.id && (
+              <button
+                onClick={resumeSharedNotes}
+                className="px-3 py-2 bg-emerald-500/40 text-white rounded-md hover:bg-emerald-500/60 backdrop-blur-sm flex items-center gap-1"
+                title="Rejoin the live shared notes"
+              >
+                <FileText size={18} /> Shared Notes Live
+              </button>
+            )}
             {api && (
               <>
                 <button onClick={() => api.executeCommand("toggleChat")}
@@ -1120,8 +1183,10 @@ export default function WorkTogether() {
                     }}
                     setError={(msg) => setNotesError(msg)}
                     setSuccess={() => {}}
+                    onNotesActivity={isHost ? broadcastNotesActivity : undefined}
                     onComposerStateChange={isHost ? handleComposerStateChange : undefined}
                     sharedComposerDraft={isFollower ? notesComposerState : null}
+                    externalNotes={isFollower ? sharedNotesSnapshot : null}
                   />
                 )}
               </div>

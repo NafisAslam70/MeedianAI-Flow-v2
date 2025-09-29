@@ -55,10 +55,6 @@ export async function POST(req, context) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    if (!["admin", "team_manager"].includes(session.user.role)) {
-      return NextResponse.json({ error: "Only admins or team managers can create tasks" }, { status: 403 });
-    }
-
     const { params } = context || {};
     const resolvedParams = typeof params?.then === "function" ? await params : params;
     const noteId = parseInt(resolvedParams?.noteId ?? "", 10);
@@ -67,6 +63,8 @@ export async function POST(req, context) {
     }
 
     const requesterId = parseInt(session.user.id, 10);
+    const role = session.user.role || "";
+    const isManager = ["admin", "team_manager"].includes(role);
 
     const [note] = await db
       .select({ id: userNotes.id, ownerId: userNotes.userId })
@@ -126,6 +124,10 @@ export async function POST(req, context) {
       for (const entry of rawAssignees) {
         const parsed = typeof entry === "number" ? entry : parseInt(entry?.id ?? entry, 10);
         if (parsed && Number.isFinite(parsed)) assigneeSet.add(parsed);
+      }
+      if (!isManager) {
+        assigneeSet.clear();
+        assigneeSet.add(requesterId);
       }
       const assigneeIds = [...assigneeSet];
       if (!assigneeIds.length) {

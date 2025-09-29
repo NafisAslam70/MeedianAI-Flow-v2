@@ -20,6 +20,7 @@ import {
   Filter,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
+import AssignedTaskDetails from "@/components/assignedTaskCardDetailForAll";
 
 const NOTE_CATEGORIES = ["MSP", "MHCP", "MHP", "MOP", "Other", "Building Home"];
 
@@ -95,6 +96,8 @@ const MyNotes = ({
   onSelectedNoteChange = () => {},
   onComposerStateChange,
   sharedComposerDraft = null,
+  onNotesActivity,
+  externalNotes = null,
 }) => {
   const [notes, setNotes] = useState([]);
   const [selectedNoteId, setSelectedNoteId] = useState(null);
@@ -118,11 +121,43 @@ const MyNotes = ({
   const [taskSubmitting, setTaskSubmitting] = useState(false);
   const [taskAiBusy, setTaskAiBusy] = useState(false);
   const [convertPrompt, setConvertPrompt] = useState(null);
+  const [linkedTaskModalOpen, setLinkedTaskModalOpen] = useState(false);
+  const [linkedTaskModalLoading, setLinkedTaskModalLoading] = useState(false);
+  const [linkedTaskModalError, setLinkedTaskModalError] = useState("");
+  const [linkedTaskDetails, setLinkedTaskDetails] = useState(null);
+  const [linkedTaskLogs, setLinkedTaskLogs] = useState([]);
   const addingRef = useRef(false);
   const mountedRef = useRef(true);
   const errorRef = useRef(setError);
   const successRef = useRef(setSuccess);
   const composerRef = useRef(null);
+  const notifyActivity = useCallback(
+    (payload = {}) => {
+      if (typeof onNotesActivity === "function") {
+        onNotesActivity(payload);
+      }
+    },
+    [onNotesActivity]
+  );
+  const notesRef = useRef(notes);
+  useEffect(() => {
+    notesRef.current = notes;
+  }, [notes]);
+  const lastActivityCallbackRef = useRef(null);
+  useEffect(() => {
+    if (readOnly) {
+      lastActivityCallbackRef.current = onNotesActivity || null;
+      return;
+    }
+    if (typeof onNotesActivity === "function" && onNotesActivity !== lastActivityCallbackRef.current) {
+      onNotesActivity({
+        action: "notes-sync",
+        noteId: selectedNoteId,
+        notes: notesRef.current,
+      });
+    }
+    lastActivityCallbackRef.current = onNotesActivity || null;
+  }, [onNotesActivity, readOnly, selectedNoteId]);
 
   useEffect(() => {
     if (readOnly && composerOpen) setComposerOpen(false);
@@ -218,8 +253,13 @@ const MyNotes = ({
   }, [userId, flash]);
 
   useEffect(() => {
+    if (Array.isArray(externalNotes)) {
+      setIsLoading(false);
+      setNotes(externalNotes);
+      return;
+    }
     loadNotes();
-  }, [loadNotes]);
+  }, [externalNotes, loadNotes]);
 
   useEffect(() => {
     if (!notes.length) {
@@ -337,6 +377,61 @@ const MyNotes = ({
     setNewNote(event.target.value);
   };
 
+  const closeLinkedTaskModal = useCallback(() => {
+    setLinkedTaskModalOpen(false);
+    setLinkedTaskModalLoading(false);
+    setLinkedTaskModalError("");
+    setLinkedTaskDetails(null);
+    setLinkedTaskLogs([]);
+  }, []);
+
+  const openLinkedTaskDetails = useCallback(
+    async (task) => {
+      if (!task?.taskId) return;
+      setLinkedTaskModalOpen(true);
+      setLinkedTaskModalLoading(true);
+      setLinkedTaskModalError("");
+      setLinkedTaskDetails(null);
+      setLinkedTaskLogs([]);
+
+      try {
+        const detailsRes = await fetch(`/api/member/assignedTasks?taskId=${task.taskId}&action=task`, {
+          credentials: "include",
+        });
+        const detailsJson = await detailsRes.json();
+        if (!detailsRes.ok) throw new Error(detailsJson?.error || "Failed to load task details");
+        if (!mountedRef.current) return;
+        const taskPayload = detailsJson?.task || detailsJson;
+        setLinkedTaskDetails(taskPayload);
+
+        try {
+          const logsRes = await fetch(`/api/member/assignedTasks?taskId=${task.taskId}&action=logs`, {
+            credentials: "include",
+          });
+          const logsJson = await logsRes.json();
+          if (!logsRes.ok) throw new Error(logsJson?.error || "Failed to load task logs");
+          if (!mountedRef.current) return;
+          setLinkedTaskLogs(Array.isArray(logsJson?.logs) ? logsJson.logs : []);
+        } catch (logError) {
+          const message = logError?.message || "Failed to load task logs";
+          setLinkedTaskModalError(message);
+          flash(false, message);
+        }
+      } catch (error) {
+        const message = error?.message || "Failed to load task details";
+        if (!mountedRef.current) return;
+        setLinkedTaskModalError(message);
+        setLinkedTaskDetails(null);
+        setLinkedTaskLogs([]);
+        flash(false, message);
+      } finally {
+        if (!mountedRef.current) return;
+        setLinkedTaskModalLoading(false);
+      }
+    },
+    [flash]
+  );
+
   const handleAddNote = useCallback(async () => {
     if (addingRef.current) return;
     if (!newNote.trim()) return flash(false, "Note content cannot be empty");
@@ -366,13 +461,14 @@ const MyNotes = ({
           setConvertPrompt(created);
         }
       }
+      notifyActivity({ action: "note-added", noteId: created?.id || data?.note?.id || null });
     } catch (err) {
       flash(false, err.message || "Failed to add note");
     } finally {
       setIsLoading(false);
       addingRef.current = false;
     }
-  }, [userId, newNote, newCategory, flash, ensureNumbering, loadNotes]);
+  }, [userId, newNote, newCategory, flash, ensureNumbering, loadNotes, notifyActivity]);
 
   const beginEdit = (note) => {
     setEditingNoteId(note.id);
@@ -400,19 +496,23 @@ const MyNotes = ({
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Failed to update note");
       const updatedAt = new Date().toISOString();
-      setNotes((prev) =>
-        prev.map((note) =>
+      let updatedNotes = [];
+      setNotes((prev) => {
+        const next = prev.map((note) =>
           note.id === editingNoteId ? { ...note, content: editingNoteContent, category: editingNoteCategory, updatedAt } : note
-        )
-      );
+        );
+        updatedNotes = next;
+        return next;
+      });
       flash(true, "Note updated!");
       cancelEdit();
+      notifyActivity({ action: "note-updated", noteId: editingNoteId, notes: updatedNotes });
     } catch (err) {
       flash(false, err.message || "Failed to update note");
     } finally {
       setIsLoading(false);
     }
-  }, [editingNoteId, editingNoteContent, editingNoteCategory, flash]);
+  }, [editingNoteId, editingNoteContent, editingNoteCategory, flash, notifyActivity]);
 
   const handleDeleteNote = useCallback(async (noteId) => {
     setIsLoading(true);
@@ -422,6 +522,7 @@ const MyNotes = ({
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Failed to delete note");
+      let remainingNotes = [];
       setNotes((prev) => {
         const remaining = prev.filter((note) => note.id !== noteId);
         if (!remaining.length) {
@@ -429,15 +530,17 @@ const MyNotes = ({
         } else if (!remaining.some((note) => note.id === selectedNoteId)) {
           setSelectedNoteId(remaining[0].id);
         }
+        remainingNotes = remaining;
         return remaining;
       });
       flash(true, "Note deleted!");
+      notifyActivity({ action: "note-deleted", noteId, notes: remainingNotes });
     } catch (err) {
       flash(false, err.message || "Failed to delete note");
     } finally {
       setIsLoading(false);
     }
-  }, [flash, selectedNoteId]);
+  }, [flash, selectedNoteId, notifyActivity]);
 
   const closeShareModal = () => {
     setShareModalNote(null);
@@ -491,13 +594,17 @@ const MyNotes = ({
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Failed to update sharing");
-      setNotes((prev) =>
-        prev.map((note) =>
+      let updatedNotes = [];
+      setNotes((prev) => {
+        const next = prev.map((note) =>
           note.id === shareModalNote.id ? { ...note, sharedWith: Array.isArray(data.sharedWith) ? data.sharedWith : [] } : note
-        )
-      );
+        );
+        updatedNotes = next;
+        return next;
+      });
       flash(true, "Sharing updated!");
       closeShareModal();
+      notifyActivity({ action: "note-shared", noteId: shareModalNote.id, notes: updatedNotes });
     } catch (err) {
       flash(false, err.message || "Failed to update sharing");
     } finally {
@@ -637,9 +744,10 @@ const MyNotes = ({
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Failed to create tasks");
       const created = Array.isArray(data.createdTasks) ? data.createdTasks : [];
+      let updatedNotes = [];
       if (created.length) {
-        setNotes((prev) =>
-          prev.map((note) =>
+        setNotes((prev) => {
+          const next = prev.map((note) =>
             note.id === taskModalNote.id
               ? {
                   ...note,
@@ -659,10 +767,15 @@ const MyNotes = ({
                   ],
                 }
               : note
-          )
-        );
+          );
+          updatedNotes = next;
+          return next;
+        });
+      } else {
+        updatedNotes = notes;
       }
       flash(true, `${created.length} task${created.length === 1 ? "" : "s"} created`);
+      notifyActivity({ action: "tasks-created", noteId: taskModalNote.id, count: created.length, notes: updatedNotes });
       closeTaskModal();
     } catch (err) {
       flash(false, err.message || "Failed to create tasks");
@@ -1070,12 +1183,15 @@ const MyNotes = ({
                           <h4 className="text-xs uppercase font-semibold text-gray-400 dark:text-slate-500">Linked tasks</h4>
                           <div className="space-y-2">
                             {filteredSelectedNote.linkedTasks.map((task) => (
-                              <div
+                              <button
                                 key={task.taskId}
-                                className="rounded-xl border border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-900/60 px-3 py-2 text-xs text-gray-600 dark:text-slate-300"
+                                type="button"
+                                onClick={() => openLinkedTaskDetails(task)}
+                                className="w-full text-left rounded-xl border border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-900/60 px-3 py-2 text-xs text-gray-600 dark:text-slate-300 transition hover:border-emerald-300/60 hover:bg-emerald-50/40 dark:hover:border-emerald-600/60 dark:hover:bg-emerald-900/40 hover:shadow"
+                                title="View assigned task details"
                               >
                                 <div className="flex items-center justify-between">
-                                  <span className="font-semibold text-gray-800 dark:text-slate-100">{task.title}</span>
+                                  <span className="font-semibold text-gray-800 dark:text-slate-100">{task.title || "Untitled task"}</span>
                                   {task.deadline ? (
                                     <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-300">
                                       <Clock className="w-3 h-3" /> {new Date(task.deadline).toLocaleDateString()}
@@ -1091,7 +1207,7 @@ const MyNotes = ({
                                 {task.sourceText ? (
                                   <p className="mt-1 text-[11px] text-gray-400 dark:text-slate-500">“{task.sourceText}”</p>
                                 ) : null}
-                              </div>
+                              </button>
                             ))}
                           </div>
                         </div>
@@ -1149,6 +1265,64 @@ const MyNotes = ({
               <div className="text-xs text-emerald-200/70">
                 Waiting for the host to save or share this note with the team.
               </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {linkedTaskModalOpen && (
+          <motion.div
+            className="fixed inset-0 z-[125] bg-black/60 backdrop-blur-md flex items-center justify-center p-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.94, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="relative w-full max-w-4xl bg-slate-950/70 text-emerald-50 border border-emerald-500/30 rounded-3xl shadow-2xl backdrop-blur-xl overflow-hidden"
+            >
+              <div className="flex items-center justify-between gap-3 px-6 py-4 border-b border-emerald-500/30 bg-emerald-950/40">
+                <h3 className="text-lg font-semibold">Assigned Task Details</h3>
+                <button
+                  onClick={closeLinkedTaskModal}
+                  className="p-2 rounded-lg bg-emerald-900/40 hover:bg-emerald-800/50 text-emerald-100"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {linkedTaskModalLoading ? (
+                <div className="py-12 flex items-center justify-center text-sm text-emerald-100">
+                  <Loader2 className="w-5 h-5 mr-2 animate-spin" /> Loading task…
+                </div>
+              ) : linkedTaskDetails ? (
+                <div className="relative">
+                  {linkedTaskModalError && (
+                    <div className="mx-6 mt-4 rounded-lg border border-amber-400/40 bg-amber-500/10 text-amber-100 text-xs px-3 py-2">
+                      {linkedTaskModalError}
+                    </div>
+                  )}
+                  <div className="px-2 pb-4">
+                    <AssignedTaskDetails
+                      task={linkedTaskDetails}
+                      taskLogs={linkedTaskLogs}
+                      users={availableUsers}
+                      onClose={closeLinkedTaskModal}
+                      currentUserId={currentUser?.id}
+                      currentUserName={currentUser?.name}
+                      isManager={["admin", "team_manager"].includes(currentUser?.role)}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="py-12 px-6 text-sm text-rose-200">
+                  {linkedTaskModalError || "We couldn’t load that task just now."}
+                </div>
+              )}
             </motion.div>
           </motion.div>
         )}
