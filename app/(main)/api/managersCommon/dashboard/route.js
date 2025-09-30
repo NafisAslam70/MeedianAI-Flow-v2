@@ -20,7 +20,7 @@ export async function GET(req) {
     const statusSubquery = db
       .select({
         taskId: assignedTaskStatus.taskId,
-        min_status: sql`MIN(
+        max_status: sql`MAX(
           CASE ${assignedTaskStatus.status}
             WHEN 'not_started' THEN '0 not_started'
             WHEN 'in_progress' THEN '1 in_progress'
@@ -28,7 +28,7 @@ export async function GET(req) {
             WHEN 'done' THEN '3 done'
             WHEN 'verified' THEN '4 verified'
           END
-        )`.as("min_status"),
+        )`.as("max_status"),
       })
       .from(assignedTaskStatus)
       .groupBy(assignedTaskStatus.taskId)
@@ -56,14 +56,14 @@ export async function GET(req) {
           ) FILTER (WHERE ${sprints.id} IS NOT NULL),
           ARRAY[]::jsonb[]
         )`.as("sprints"),
-        status: sql`SUBSTRING(${statusSubquery.min_status} FROM 3)`.as("effective_status"),
+        status: sql`SUBSTRING(${statusSubquery.max_status} FROM 3)`.as("effective_status"),
       })
       .from(assignedTasks)
       .leftJoin(assignedTaskStatus, eq(assignedTasks.id, assignedTaskStatus.taskId))
       .leftJoin(users, eq(assignedTaskStatus.memberId, users.id))
       .leftJoin(sprints, eq(assignedTaskStatus.id, sprints.taskStatusId))
       .leftJoin(statusSubquery, eq(assignedTasks.id, statusSubquery.taskId))
-      .groupBy(assignedTasks.id, statusSubquery.min_status)
+      .groupBy(assignedTasks.id, statusSubquery.max_status)
       .having(sql`COUNT(${assignedTaskStatus.id}) > 0`);
 
     if (date) {
@@ -76,7 +76,7 @@ export async function GET(req) {
 
     if (status !== "all") {
       const statusCond = status === "done" ? ["done", "verified"] : [status];
-      taskQuery = taskQuery.having(inArray(sql`SUBSTRING(${statusSubquery.min_status} FROM 3)`, statusCond));
+      taskQuery = taskQuery.having(inArray(sql`SUBSTRING(${statusSubquery.max_status} FROM 3)`, statusCond));
     }
 
     const tasks = await taskQuery;

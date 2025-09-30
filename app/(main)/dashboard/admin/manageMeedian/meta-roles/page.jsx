@@ -26,6 +26,7 @@ const builtinCategoryMap = {
   nmri_moderator: "nmri",
   msp_ele_moderator: "rmri",
   msp_pre_moderator: "rmri",
+  mop2_moderator: "rmri",
   mhcp1_moderator: "amri",
   mhcp2_moderator: "amri",
   events_moderator: "amri",

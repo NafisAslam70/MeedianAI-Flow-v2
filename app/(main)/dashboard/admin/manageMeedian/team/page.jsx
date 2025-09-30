@@ -32,6 +32,7 @@ export default function TeamPage() {
     "nmri_moderator",
     "msp_ele_moderator",
     "msp_pre_moderator",
+    "mop2_moderator",
     "mhcp1_moderator",
     "mhcp2_moderator",
     "events_moderator",

@@ -31,6 +31,7 @@ const builtinRoleCategory = new Map([
   ["nmri_moderator", "NMRI"],
   ["msp_ele_moderator", "RMRI"],
   ["msp_pre_moderator", "RMRI"],
+  ["mop2_moderator", "RMRI"],
   ["mhcp1_moderator", "AMRI"],
   ["mhcp2_moderator", "AMRI"],
   ["events_moderator", "AMRI"],

@@ -535,6 +535,11 @@ export async function PATCH(req) {
       )} by ${updaterName}`;
     }
 
+    await db
+      .update(assignedTasks)
+      .set({ updatedAt: now })
+      .where(eq(assignedTasks.id, taskId));
+
     if (newLogComment) notification += `. Comment: ${newLogComment}`;
     notification += `. [task:${taskId}${sprintId ? ` sprint:${sprintId}` : ""}]`;
 
