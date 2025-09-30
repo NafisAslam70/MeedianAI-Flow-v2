@@ -36,6 +36,13 @@ export default function ProgramDetailPage() {
 
   const searchParams = useSearchParams();
   const [track, setTrack] = useState("pre_primary");
+  const trackOptions = [
+    { value: "pre_primary", label: "Pre-Primary" },
+    { value: "elementary", label: "Elementary" },
+  ];
+  const [periodTrack, setPeriodTrack] = useState("pre_primary");
+  const [periodCache, setPeriodCache] = useState({});
+  const [periodLoading, setPeriodLoading] = useState(false);
   const [activeSection, setActiveSection] = useState(null); // null => show all / cards view
   const [view, setView] = useState("cards"); // cards | detail
   const [preview, setPreview] = useState({ open: false, track: "pre_primary" });
@@ -165,6 +172,73 @@ export default function ProgramDetailPage() {
   const [showPeriodModal, setShowPeriodModal] = useState(false);
   const [showMatrixModal, setShowMatrixModal] = useState(false);
   const [showDefaultSeedModal, setShowDefaultSeedModal] = useState(false);
+  const [periodDraft, setPeriodDraft] = useState([]);
+  const [periodSnapshot, setPeriodSnapshot] = useState("");
+  const [periodSaving, setPeriodSaving] = useState(false);
+  const [periodError, setPeriodError] = useState("");
+  const timeToInput = (value) => {
+    if (!value) return "";
+    const str = String(value);
+    const match = str.match(/^(\d{2}:\d{2})/);
+    if (match) return match[1];
+    if (str.length >= 5) return str.slice(0, 5);
+    return str;
+  };
+
+  const ensureSeconds = (value) => {
+    if (!value) return "";
+    const str = String(value);
+    if (/^\d{2}:\d{2}:\d{2}$/.test(str)) return str;
+    if (/^\d{2}:\d{2}$/.test(str)) return `${str}:00`;
+    return str;
+  };
+
+  const serializePeriods = (rows) =>
+    JSON.stringify(
+      rows.map((row) => ({
+        periodKey: String(row.periodKey || "").trim(),
+        startTime: String(row.startTime || ""),
+        endTime: String(row.endTime || ""),
+      }))
+    );
+
+  const parsePeriodNumber = (key) => {
+    const match = String(key || "").match(/(\d+)/);
+    return match ? Number(match[1]) : null;
+  };
+
+  const sortPeriodRows = (rows) => {
+    return [...rows].sort((a, b) => {
+      const na = parsePeriodNumber(a.periodKey);
+      const nb = parsePeriodNumber(b.periodKey);
+      const aHasNum = Number.isFinite(na);
+      const bHasNum = Number.isFinite(nb);
+      if (aHasNum && bHasNum && na !== nb) return na - nb;
+      if (aHasNum && !bHasNum) return -1;
+      if (!aHasNum && bHasNum) return 1;
+      return String(a.periodKey || "").localeCompare(String(b.periodKey || ""));
+    });
+  };
+
+  const deriveNextPeriodKey = (rows) => {
+    const numbers = rows
+      .map((row) => parsePeriodNumber(row.periodKey))
+      .filter((n) => Number.isFinite(n));
+    if (!numbers.length) return `P${rows.length + 1}`;
+    return `P${Math.max(...numbers) + 1}`;
+  };
+
+  const handleModalTrackChange = (nextTrack) => {
+    if (nextTrack === periodTrack) return;
+    const proceed = !periodDirty ||
+      (typeof window === "undefined" || window.confirm("Discard unsaved period changes?"));
+    if (!proceed) return;
+    setPeriodDraft([]);
+    setPeriodSnapshot(serializePeriods([]));
+    setPeriodError("");
+    setPeriodTrack(nextTrack);
+  };
+
   const [selfSchedOpen, setSelfSchedOpen] = useState(false);
   const [selfStageOpen, setSelfStageOpen] = useState(false);
   const [selfPlanMode, setSelfPlanMode] = useState('fixed_all_days'); // fixed_all_days | split_same_subject | same_period_diff_subject
@@ -182,6 +256,162 @@ export default function ProgramDetailPage() {
   const [rmEngine, setRmEngine] = useState("default"); // default = DELU-GPT env
   const [rmModel, setRmModel] = useState("gpt-4o-mini");
   const { data: dayData, mutate: refreshDays } = useSWR(fullscreen && id ? `/api/admin/manageMeedian?section=programScheduleDays&programId=${id}&track=${track}&day=${weekDay}` : null, fetcher);
+
+  useEffect(() => {
+    if (!track || !Array.isArray(periodData?.periods)) return;
+    setPeriodCache((prev) => {
+      if (prev[track] === periodData.periods) return prev;
+      return { ...prev, [track]: periodData.periods };
+    });
+  }, [track, periodData]);
+
+  const periodDirty = useMemo(() => {
+    if (!showPeriodModal) return false;
+    return serializePeriods(periodDraft) !== periodSnapshot;
+  }, [showPeriodModal, periodDraft, periodSnapshot]);
+
+  const trackLabel = track === "pre_primary" ? "Pre-Primary" : track === "elementary" ? "Elementary" : String(track || "");
+  const periodTrackLabel = periodTrack === "pre_primary" ? "Pre-Primary" : periodTrack === "elementary" ? "Elementary" : String(periodTrack || "");
+
+  useEffect(() => {
+    if (!showPeriodModal || !periodTrack || !id) return;
+    if (Object.prototype.hasOwnProperty.call(periodCache, periodTrack)) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        setPeriodLoading(true);
+        const res = await fetch(`/api/admin/manageMeedian?section=programPeriods&programId=${id}&track=${periodTrack}`);
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json.error || `Failed to load periods (HTTP ${res.status})`);
+        if (cancelled) return;
+        setPeriodCache((prev) => ({ ...prev, [periodTrack]: json.periods || [] }));
+      } catch (error) {
+        if (!cancelled) setPeriodError(error.message || "Failed to load periods.");
+      } finally {
+        if (!cancelled) setPeriodLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [showPeriodModal, periodTrack, id, periodCache]);
+
+  useEffect(() => {
+    if (!showPeriodModal) return;
+    const sourceRows = sortPeriodRows(
+      (periodCache[periodTrack] || [])
+        .filter((row) => {
+          if (!periodTrack) return true;
+          const rowTrack = String(row.track || "").toLowerCase();
+          return rowTrack === String(periodTrack).toLowerCase() || !rowTrack;
+        })
+    );
+    const base = sourceRows.map((row) => ({
+      track: row.track || periodTrack,
+      periodKey: row.periodKey || "",
+      startTime: timeToInput(row.startTime),
+      endTime: timeToInput(row.endTime),
+    }));
+    const rows = base.length ? base : [{ track: periodTrack, periodKey: "P1", startTime: "", endTime: "" }];
+    const serialized = serializePeriods(rows);
+    if (periodDirty && periodSnapshot) return;
+    if (serialized === periodSnapshot) return;
+    setPeriodDraft(rows);
+    setPeriodSnapshot(serialized);
+    setPeriodError("");
+  }, [showPeriodModal, periodCache, periodTrack, track, periodDirty, periodSnapshot]);
+
+  const handlePeriodFieldChange = (index, field, value) => {
+    setPeriodDraft((prev) =>
+      prev.map((row, idx) => {
+        if (idx !== index) return row;
+        if (field === "periodKey") {
+          return {
+            ...row,
+            periodKey: String(value || "").toUpperCase().replace(/\s+/g, ""),
+          };
+        }
+        return { ...row, [field]: value };
+      })
+    );
+  };
+
+  const handleAddPeriod = () => {
+    setPeriodDraft((prev) => {
+      const nextKey = deriveNextPeriodKey(prev);
+      const last = prev[prev.length - 1];
+      const carryTime = last ? (last.endTime || last.startTime || "") : "";
+      return [
+        ...prev,
+        {
+          track: periodTrack,
+          periodKey: nextKey,
+          startTime: carryTime,
+          endTime: "",
+        },
+      ];
+    });
+  };
+
+  const handleRemovePeriod = (index) => {
+    setPeriodDraft((prev) => {
+      if (prev.length <= 1) return prev;
+      return prev.filter((_, idx) => idx !== index);
+    });
+  };
+
+  const handleAutoReindexPeriods = () => {
+    setPeriodDraft((prev) => prev.map((row, idx) => ({ ...row, periodKey: `P${idx + 1}` })));
+  };
+
+  const handleSavePeriods = async () => {
+    if (!id) return;
+    setPeriodSaving(true);
+    setPeriodError("");
+    try {
+      const activeTrack = periodTrack || track || "pre_primary";
+      const prepared = sortPeriodRows(
+        periodDraft.map((row) => ({
+          track: row.track || activeTrack,
+          periodKey: String(row.periodKey || "").trim(),
+          startTime: String(row.startTime || "").trim(),
+          endTime: String(row.endTime || "").trim(),
+        }))
+      );
+      if (!prepared.length) throw new Error("Add at least one period before saving.");
+      for (const row of prepared) {
+        if (!row.periodKey) throw new Error("Each period needs a key.");
+        if (!row.startTime || !row.endTime) throw new Error(`Fill start and end time for ${row.periodKey}.`);
+      }
+      const payload = prepared.map((row) => ({
+        track: row.track || activeTrack,
+        periodKey: row.periodKey,
+        startTime: ensureSeconds(row.startTime),
+        endTime: ensureSeconds(row.endTime),
+      }));
+      const res = await fetch(`/api/admin/manageMeedian?section=programPeriods`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ programId: id, periods: payload }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || `Failed to save periods (HTTP ${res.status})`);
+      if (periodTrack === track) await refreshPeriods?.();
+      setPeriodCache((prev) => ({ ...prev, [activeTrack]: payload }));
+      const normalizedDraft = prepared.map((row) => ({
+        ...row,
+        track: row.track || activeTrack,
+        startTime: timeToInput(row.startTime),
+        endTime: timeToInput(row.endTime),
+      }));
+      setPeriodDraft(normalizedDraft);
+      setPeriodSnapshot(serializePeriods(normalizedDraft));
+    } catch (error) {
+      setPeriodError(error.message || "Failed to save periods.");
+    } finally {
+      setPeriodSaving(false);
+    }
+  };
 
   // --- Manage Classes state ---
   const [manageClassesOpen, setManageClassesOpen] = useState(false);
@@ -699,7 +929,16 @@ export default function ProgramDetailPage() {
             <CardBody>
               <div className="text-xs text-gray-600 mb-2">Tools to assist design and verification.</div>
               <div className="flex flex-wrap gap-2">
-                <Button size="xs" variant="light" onClick={() => setShowPeriodModal(true)}>Open Period Grid</Button>
+                <Button
+                  size="xs"
+                  variant="light"
+                  onClick={() => {
+                    setPeriodTrack(track);
+                    setShowPeriodModal(true);
+                  }}
+                >
+                  Open Period Grid
+                </Button>
                 <Button size="xs" variant="light" onClick={() => setShowMatrixModal(true)}>Open Matrix</Button>
                 <Button size="xs" variant="light" onClick={() => setRoutineOpen(true)}>Routine Manager (AI)</Button>
               </div>
@@ -1001,32 +1240,111 @@ export default function ProgramDetailPage() {
         <div className="fixed inset-0 z-[1000] bg-black/60 flex items-start justify-center" onClick={() => setShowPeriodModal(false)}>
           <div className="mt-10 w-[92vw] max-w-xl" onClick={(e) => e.stopPropagation()}>
             <Card>
-              <CardHeader className="flex items-center justify-between">
-                <div className="text-sm font-semibold text-gray-900">Period Grid — {track === "pre_primary" ? "Pre-Primary" : "Elementary"}</div>
-                <Button size="sm" variant="light" onClick={() => setShowPeriodModal(false)}>Close</Button>
+              <CardHeader className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-sm font-semibold text-gray-900">Period Grid — {periodTrackLabel}</div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center gap-1">
+                    {trackOptions.map((opt) => (
+                      <Button
+                        key={opt.value}
+                        size="sm"
+                        variant={periodTrack === opt.value ? "primary" : "light"}
+                        onClick={() => handleModalTrackChange(opt.value)}
+                        disabled={periodTrack === opt.value || periodSaving}
+                        className={periodTrack === opt.value ? "shadow" : ""}
+                      >
+                        {opt.label}
+                      </Button>
+                    ))}
+                  </div>
+                  <Button size="sm" variant="light" onClick={handleAddPeriod} disabled={periodSaving}>Add Period</Button>
+                  <Button
+                    size="sm"
+                    variant="light"
+                    onClick={handleAutoReindexPeriods}
+                    disabled={periodDraft.length <= 1 || periodSaving}
+                  >
+                    Reindex Keys
+                  </Button>
+                </div>
               </CardHeader>
               <CardBody>
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-sm">
-                    <thead>
-                      <tr className="text-left text-gray-600">
-                        <th className="py-2 pr-4">Period</th>
-                        <th className="py-2 pr-4">Start</th>
-                        <th className="py-2 pr-4">End</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(periodData?.periods || []).map((p) => (
-                        <tr key={`${p.track}-${p.periodKey}`} className="border-t border-gray-200">
-                          <td className="py-2 pr-4 font-semibold">{p.periodKey}</td>
-                          <td className="py-2 pr-4">{p.startTime}</td>
-                          <td className="py-2 pr-4">{p.endTime}</td>
+                <div className="space-y-3">
+                  <div className="text-xs text-gray-600">Adjust the period slots for the selected track.</div>
+                  {periodLoading && <div className="text-xs text-gray-500">Loading periods…</div>}
+                  {periodError && <div className="text-sm text-red-600">{periodError}</div>}
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-gray-600">
+                          <th className="py-2 pr-4">Period</th>
+                          <th className="py-2 pr-4">Start</th>
+                          <th className="py-2 pr-4">End</th>
+                          <th className="py-2 pr-0 text-right">Actions</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {periodDraft.map((row, idx) => (
+                          <tr key={`${row.periodKey || ""}-${idx}`} className="border-t border-gray-200">
+                            <td className="py-2 pr-4">
+                              <input
+                                type="text"
+                                value={row.periodKey || ""}
+                                onChange={(e) => handlePeriodFieldChange(idx, "periodKey", e.target.value)}
+                                className="w-24 border rounded px-2 py-1 text-sm"
+                                maxLength={16}
+                                disabled={periodSaving}
+                              />
+                            </td>
+                            <td className="py-2 pr-4">
+                              <input
+                                type="time"
+                                value={row.startTime || ""}
+                                onChange={(e) => handlePeriodFieldChange(idx, "startTime", e.target.value)}
+                                className="w-28 border rounded px-2 py-1 text-sm"
+                                disabled={periodSaving}
+                              />
+                            </td>
+                            <td className="py-2 pr-4">
+                              <input
+                                type="time"
+                                value={row.endTime || ""}
+                                onChange={(e) => handlePeriodFieldChange(idx, "endTime", e.target.value)}
+                                className="w-28 border rounded px-2 py-1 text-sm"
+                                disabled={periodSaving}
+                              />
+                            </td>
+                            <td className="py-2 pr-0 text-right">
+                              <button
+                                type="button"
+                                onClick={() => handleRemovePeriod(idx)}
+                                className="text-xs text-red-600 hover:text-red-700 disabled:text-gray-400"
+                                disabled={periodDraft.length <= 1 || periodSaving}
+                              >
+                                Remove
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </CardBody>
+              <CardFooter className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-xs text-gray-500">Changes apply to the {periodTrackLabel} track.</div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    onClick={handleSavePeriods}
+                    disabled={!periodDirty || periodSaving}
+                  >
+                    {periodSaving ? "Saving…" : "Save Changes"}
+                  </Button>
+                  <Button size="sm" variant="light" onClick={() => setShowPeriodModal(false)} disabled={periodSaving}>Close</Button>
+                </div>
+              </CardFooter>
             </Card>
           </div>
         </div>
@@ -1038,7 +1356,7 @@ export default function ProgramDetailPage() {
           <div className="mt-8 w-[96vw] max-w-4xl" onClick={(e) => e.stopPropagation()}>
             <Card>
               <CardHeader className="flex items-center justify-between">
-                <div className="text-sm font-semibold text-gray-900">Routine Manager (AI) — {track === "pre_primary" ? "Pre-Primary" : "Elementary"}</div>
+                <div className="text-sm font-semibold text-gray-900">Routine Manager (AI) — {trackLabel}</div>
                 <div className="flex items-center gap-2">
                   <select className="px-2 py-1 border rounded text-sm" value={track} onChange={(e) => setTrack(e.target.value)}>
                     <option value="pre_primary">Pre-Primary</option>

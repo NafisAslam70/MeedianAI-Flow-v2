@@ -863,8 +863,8 @@ export default function AssignedTasksView({
             <RefreshCw className="h-4 w-4" /> Refresh
           </motion.button>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="text-right">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="text-right pr-2">
             <p className="text-xs uppercase tracking-wide text-slate-400">Selected day</p>
             <p className="text-sm font-semibold text-slate-700">{selectedDate}</p>
           </div>
@@ -880,6 +880,25 @@ export default function AssignedTasksView({
           >
             Prepare today's basket
           </button>
+          <span className="text-xs uppercase tracking-wide text-slate-400 pl-2">Views</span>
+          <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-1">
+            <button
+              onClick={() => setViewMode("board")}
+              className={`inline-flex items-center gap-1 rounded-2xl px-3 py-1.5 text-xs font-semibold transition ${
+                viewMode === "board" ? "bg-white text-teal-700 shadow" : "text-slate-500"
+              }`}
+            >
+              <Kanban className="h-4 w-4" /> Board
+            </button>
+            <button
+              onClick={() => setViewMode("list")}
+              className={`inline-flex items-center gap-1 rounded-2xl px-3 py-1.5 text-xs font-semibold transition ${
+                viewMode === "list" ? "bg-white text-teal-700 shadow" : "text-slate-500"
+              }`}
+            >
+              <LayoutList className="h-4 w-4" /> List
+            </button>
+          </div>
         </div>
       </div>
 
@@ -925,28 +944,6 @@ export default function AssignedTasksView({
             <p className="mt-3 text-xs text-slate-500">
               {filteredFocusTasks.length} task{filteredFocusTasks.length === 1 ? "" : "s"} in today's basket
             </p>
-          </div>
-
-          <div className="rounded-3xl border border-slate-200 bg-slate-50/80 p-4">
-            <p className="text-xs uppercase tracking-wide text-slate-400">Views</p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                onClick={() => setViewMode("board")}
-                className={`inline-flex items-center gap-2 rounded-2xl px-3 py-1.5 text-xs font-semibold transition ${
-                  viewMode === "board" ? "bg-white text-teal-700 shadow" : "border border-slate-200 bg-white text-slate-600"
-                }`}
-              >
-                <Kanban className="h-4 w-4" /> Board
-              </button>
-              <button
-                onClick={() => setViewMode("list")}
-                className={`inline-flex items-center gap-2 rounded-2xl px-3 py-1.5 text-xs font-semibold transition ${
-                  viewMode === "list" ? "bg-white text-teal-700 shadow" : "border border-slate-200 bg-white text-slate-600"
-                }`}
-              >
-                <LayoutList className="h-4 w-4" /> List
-              </button>
-            </div>
           </div>
 
           <div className="rounded-3xl border border-slate-200 bg-slate-50/80 p-4">

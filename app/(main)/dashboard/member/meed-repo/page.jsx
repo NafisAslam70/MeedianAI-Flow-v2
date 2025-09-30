@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import useSWR from "swr";
 
@@ -7,10 +7,12 @@ const fetcher = (u) => fetch(u, { headers: { "Content-Type": "application/json" 
 
 export default function MeedRepoPage() {
   const { data: session } = useSession();
-  const isManager = session?.user?.role === "admin" || session?.user?.role === "team_manager";
+  const isAdmin = session?.user?.role === "admin";
+  const isManager = isAdmin || session?.user?.role === "team_manager";
   const [statusFilter, setStatusFilter] = useState("all"); // submitted | approved | rejected | archived | all
   const [viewAll, setViewAll] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  const [galleryClusterFilter, setGalleryClusterFilter] = useState("all");
   const listUrl = (() => {
     const params = new URLSearchParams();
     if (!(isManager && viewAll)) params.set("mine", "1");
@@ -40,6 +42,24 @@ export default function MeedRepoPage() {
   const [selectedTaskId, setSelectedTaskId] = useState("");
   const [selectedVerifier, setSelectedVerifier] = useState("");
   const [purpose, setPurpose] = useState("submitted");
+
+  const [viewMode, setViewMode] = useState("gallery");
+  const canManageClusters = isAdmin;
+  const { data: clusterData, mutate: mutateClusters } = useSWR("/api/member/meed-repo/clusters", fetcher);
+  const visibilityOptions = clusterData?.visibilityOptions || [];
+  const [clusterBoard, setClusterBoard] = useState(null);
+  const [clusterSyncing, setClusterSyncing] = useState(false);
+  const [dragState, setDragState] = useState(null);
+  const [dragOverTarget, setDragOverTarget] = useState(null);
+
+  const [clusterModalOpen, setClusterModalOpen] = useState(false);
+  const [clusterModalMode, setClusterModalMode] = useState("create");
+  const [clusterModalCluster, setClusterModalCluster] = useState(null);
+  const [clusterModalName, setClusterModalName] = useState("");
+  const [clusterModalDescription, setClusterModalDescription] = useState("");
+  const [clusterModalVisibility, setClusterModalVisibility] = useState("admins_and_managers");
+  const [clusterModalSaving, setClusterModalSaving] = useState(false);
+  const [quickTargets, setQuickTargets] = useState({});
 
   const removeFile = (i) => setFiles((a) => a.filter((_, idx) => idx !== i));
 
@@ -121,23 +141,143 @@ export default function MeedRepoPage() {
         body: JSON.stringify({ id, action: "archive" }),
       });
       if (!res.ok) throw new Error("Failed to archive");
-      mutate();
+      await mutate();
+      if (typeof mutateClusters === "function") await mutateClusters();
     } catch (e) {
       alert(e.message || "Archive failed");
     }
   };
 
+  const postsById = useMemo(() => {
+    const map = {};
+    for (const p of posts) map[p.id] = p;
+    return map;
+  }, [posts]);
+
+  const postIndexById = useMemo(() => {
+    const map = new Map();
+    posts.forEach((p, idx) => map.set(p.id, idx));
+    return map;
+  }, [posts]);
+
+  const clustersForSelect = clusterBoard?.clusters || clusterData?.clusters || [];
+
   // filtered list comes from API with params
   const filteredPosts = useMemo(() => {
+    let next = posts;
+    if (galleryClusterFilter !== "all" && clustersForSelect.length) {
+      const cluster = clustersForSelect.find((c) => String(c.id) === String(galleryClusterFilter));
+      const ids = cluster?.postIds || [];
+      const idSet = new Set(ids);
+      next = next.filter((p) => idSet.has(p.id));
+    }
     const term = searchTerm.trim().toLowerCase();
-    if (!term) return posts;
-    return posts.filter((p) => {
+    if (!term) return next;
+    return next.filter((p) => {
       const title = String(p.title || "").toLowerCase();
       const content = String(p.content || "").toLowerCase();
       const author = String(usersById[p.userId]?.name || "").toLowerCase();
       return title.includes(term) || content.includes(term) || author.includes(term);
     });
-  }, [posts, searchTerm, usersById]);
+  }, [posts, searchTerm, usersById, galleryClusterFilter, clustersForSelect]);
+
+  const searchMatchIds = useMemo(() => new Set(filteredPosts.map((p) => p.id)), [filteredPosts]);
+
+  useEffect(() => {
+    if (!clusterData || !Array.isArray(clusterData?.clusters)) return;
+    if (clusterSyncing) return;
+
+    const sanitizedClusters = clusterData.clusters.map((cluster) => {
+      const ids = Array.isArray(cluster.postIds)
+        ? cluster.postIds.map((pid) => Number(pid)).filter((pid) => pid > 0)
+        : [];
+      return {
+        id: cluster.id,
+        name: cluster.name,
+        description: cluster.description,
+        visibility: cluster.visibility,
+        createdAt: cluster.createdAt,
+        updatedAt: cluster.updatedAt,
+        postIds: ids,
+      };
+    });
+
+    const assigned = new Set();
+    for (const cluster of sanitizedClusters) {
+      for (const pid of cluster.postIds) assigned.add(pid);
+    }
+
+    const unassigned = posts
+      .map((p) => p.id)
+      .filter((id) => !assigned.has(id));
+
+    setClusterBoard((prev) => {
+      if (prev) {
+        const prevClusters = prev.clusters || [];
+        if (prevClusters.length === sanitizedClusters.length) {
+          let identical = true;
+          for (const cluster of sanitizedClusters) {
+            const matching = prevClusters.find((c) => c.id === cluster.id);
+            if (!matching) { identical = false; break; }
+            if (
+              matching.name !== cluster.name ||
+              matching.description !== cluster.description ||
+              matching.visibility !== cluster.visibility ||
+              matching.postIds.length !== cluster.postIds.length
+            ) {
+              identical = false;
+              break;
+            }
+            for (let i = 0; i < matching.postIds.length; i += 1) {
+              if (matching.postIds[i] !== cluster.postIds[i]) {
+                identical = false;
+                break;
+              }
+            }
+            if (!identical) break;
+          }
+          if (identical) {
+            const prevUnassigned = prev.unassigned || [];
+            if (prevUnassigned.length === unassigned.length) {
+              let unassignedSame = true;
+              for (let i = 0; i < prevUnassigned.length; i += 1) {
+                if (prevUnassigned[i] !== unassigned[i]) {
+                  unassignedSame = false;
+                  break;
+                }
+              }
+              if (unassignedSame) return prev;
+            }
+          }
+        }
+      }
+      return { clusters: sanitizedClusters, unassigned };
+    });
+  }, [clusterData, posts, clusterSyncing]);
+
+  const defaultVisibilityOption = useMemo(() => {
+    if (visibilityOptions.includes("admins_and_managers")) return "admins_and_managers";
+    if (visibilityOptions.includes("managers_only")) return "managers_only";
+    if (visibilityOptions.includes("admins_only")) return "admins_only";
+    if (visibilityOptions.includes("everyone")) return "everyone";
+    return "admins_and_managers";
+  }, [visibilityOptions]);
+
+  useEffect(() => {
+    if (!clusterModalOpen) {
+      setClusterModalVisibility(defaultVisibilityOption);
+    }
+  }, [defaultVisibilityOption, clusterModalOpen]);
+
+  const formatVisibility = (value) => {
+    if (!value) return "";
+    return String(value)
+      .split("_")
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ");
+  };
+
+  const disableDetailInCluster = viewMode === "clusters" && canManageClusters;
 
   const fmtRel = (dt) => {
     try {
@@ -205,30 +345,93 @@ export default function MeedRepoPage() {
   // Detail viewer state
   const [detailOpen, setDetailOpen] = useState(false);
   const [activePost, setActivePost] = useState(null);
-  const openDetail = (post) => { setActivePost(post); setDetailOpen(true); };
-  const closeDetail = () => { setDetailOpen(false); setActivePost(null); };
+  const [editMode, setEditMode] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editContent, setEditContent] = useState("");
+  const [detailSaving, setDetailSaving] = useState(false);
+  const [deletingPost, setDeletingPost] = useState(false);
+  const openDetail = (post) => {
+    setActivePost(post);
+    setEditMode(false);
+    setEditTitle(post?.title || "");
+    setEditContent(post?.content || "");
+    setDetailSaving(false);
+    setDeletingPost(false);
+    setDetailOpen(true);
+  };
+  const closeDetail = () => {
+    setDetailOpen(false);
+    setActivePost(null);
+    setEditMode(false);
+    setDetailSaving(false);
+    setDeletingPost(false);
+  };
 
-  const Tile = ({ p }) => {
+  const Tile = ({
+    p,
+    draggable = false,
+    onDragStart,
+    onDragEnd,
+    dimmed = false,
+    disableOpen = false,
+    className = "",
+    onDoubleClick,
+  }) => {
     const a = (p.attachments && p.attachments[0]) || null;
-    const isImg = a && String(a.mimeType||"").startsWith("image/");
-    const isPdf = a && String(a.mimeType||"").includes("pdf");
+    const isImg = a && String(a.mimeType || "").startsWith("image/");
+    const isPdf = a && String(a.mimeType || "").includes("pdf");
+    const classes = [
+      "text-left rounded-2xl border bg-white overflow-hidden shadow-sm hover:shadow-md transition focus:outline-none",
+      draggable ? "cursor-grab active:cursor-grabbing" : "",
+      dimmed ? "opacity-60" : "",
+      className,
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    const handleClick = () => {
+      if (disableOpen) return;
+      openDetail(p);
+    };
+
+    const handleDragStartInternal = (e) => {
+      if (!draggable) return;
+      e.dataTransfer.effectAllowed = "move";
+      try {
+        e.dataTransfer.setData("text/plain", String(p.id));
+      } catch {}
+      if (onDragStart) onDragStart(e);
+    };
+
+    const handleDragEndInternal = (e) => {
+      if (!draggable) return;
+      if (onDragEnd) onDragEnd(e);
+    };
+
     return (
-      <button onClick={() => openDetail(p)} className="text-left rounded-2xl border bg-white overflow-hidden shadow-sm hover:shadow-md transition focus:outline-none">
+      <button
+        type="button"
+        onClick={handleClick}
+        onDoubleClick={onDoubleClick}
+        className={classes}
+        draggable={draggable}
+        onDragStartCapture={handleDragStartInternal}
+        onDragEnd={handleDragEndInternal}
+        data-post-id={p.id}
+      >
         <div className="relative">
           <div className="absolute top-2 left-2 text-[11px] px-2 py-0.5 rounded-full bg-white/90 border font-semibold">{p.status}</div>
-          {p.taskId && (<div className="absolute top-2 right-2 text-[11px] px-2 py-0.5 rounded-full bg-white/90 border">Task #{p.taskId}</div>)}
+          {p.taskId && (
+            <div className="absolute top-2 right-2 text-[11px] px-2 py-0.5 rounded-full bg-white/90 border">Task #{p.taskId}</div>
+          )}
           <div className="w-full aspect-[4/3] bg-gray-50 overflow-hidden relative">
             {!a && (
               <div className="absolute inset-0 flex items-center justify-center text-gray-400 text-xs">
                 No media
               </div>
             )}
-            {a && isImg && (
-              <img src={a.url} alt={a.title||""} className="w-full h-full object-cover" />
-            )}
-            {a && !isImg && isPdf && (
-              <PdfPreview url={a.url} title={a.title} showBadge />
-            )}
+            {a && isImg && <img src={a.url} alt={a.title || ""} className="w-full h-full object-cover" />}
+            {a && !isImg && isPdf && <PdfPreview url={a.url} title={a.title} showBadge />}
             {a && !isImg && !isPdf && (
               <div className="absolute inset-0 flex items-center justify-center text-gray-600 text-xs">
                 File
@@ -237,71 +440,656 @@ export default function MeedRepoPage() {
           </div>
         </div>
         <div className="p-2">
-          <div className="text-sm font-semibold text-gray-900 truncate" title={p.title}>{p.title}</div>
-          <div className="mt-1 text-[11px] text-gray-600 truncate">By {usersById[p.userId]?.name || 'User'} • {fmtRel(p.createdAt)}</div>
+          <div className="text-sm font-semibold text-gray-900 truncate" title={p.title}>
+            {p.title}
+          </div>
+          <div className="mt-1 text-[11px] text-gray-600 truncate">
+            By {usersById[p.userId]?.name || "User"} • {fmtRel(p.createdAt)}
+          </div>
         </div>
       </button>
     );
   };
 
+  const cloneBoard = (board) => {
+    if (!board) return null;
+    return {
+      clusters: (board.clusters || []).map((cluster) => ({
+        ...cluster,
+        postIds: Array.isArray(cluster.postIds) ? [...cluster.postIds] : [],
+      })),
+      unassigned: Array.isArray(board.unassigned) ? [...board.unassigned] : [],
+    };
+  };
+
+  const openCreateClusterModal = () => {
+    if (!canManageClusters) return;
+    setClusterModalMode("create");
+    setClusterModalCluster(null);
+    setClusterModalName("");
+    setClusterModalDescription("");
+    setClusterModalVisibility(defaultVisibilityOption);
+    setClusterModalOpen(true);
+  };
+
+  const openEditClusterModal = (cluster) => {
+    if (!canManageClusters || !cluster) return;
+    setClusterModalMode("edit");
+    setClusterModalCluster(cluster);
+    setClusterModalName(cluster.name || "");
+    setClusterModalDescription(cluster.description || "");
+    setClusterModalVisibility(cluster.visibility || defaultVisibilityOption);
+    setClusterModalOpen(true);
+  };
+
+  const closeClusterModal = () => {
+    setClusterModalOpen(false);
+    setClusterModalCluster(null);
+    setClusterModalSaving(false);
+    setClusterModalName("");
+    setClusterModalDescription("");
+    setClusterModalVisibility(defaultVisibilityOption);
+  };
+
+  const handleClusterModalSubmit = async () => {
+    if (!canManageClusters) return;
+    const trimmedName = clusterModalName.trim();
+    if (!trimmedName) {
+      alert("Cluster name is required");
+      return;
+    }
+    const trimmedDescription = clusterModalDescription.trim();
+    const payload = {
+      name: trimmedName,
+      description: trimmedDescription.length ? trimmedDescription : null,
+      visibility: clusterModalVisibility,
+    };
+
+    setClusterModalSaving(true);
+    try {
+      if (clusterModalMode === "create") {
+        const res = await fetch("/api/member/meed-repo/clusters", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error("Failed to create cluster");
+      } else if (clusterModalMode === "edit" && clusterModalCluster) {
+        const res = await fetch("/api/member/meed-repo/clusters", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "update",
+            clusterId: clusterModalCluster.id,
+            ...payload,
+          }),
+        });
+        if (!res.ok) throw new Error("Failed to update cluster");
+      }
+      if (typeof mutateClusters === "function") await mutateClusters();
+      closeClusterModal();
+    } catch (error) {
+      console.error(error);
+      alert(error.message || "Cluster save failed");
+    } finally {
+      setClusterModalSaving(false);
+    }
+  };
+
+  const syncBoardWithServer = async (nextBoard, previousBoard) => {
+    if (!canManageClusters) return;
+    setClusterSyncing(true);
+    try {
+      const payload = {
+        action: "sync",
+        clusters: (nextBoard?.clusters || []).map((cluster) => ({
+          id: cluster.id,
+          postIds: cluster.postIds,
+        })),
+      };
+      const res = await fetch("/api/member/meed-repo/clusters", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error("Failed to update clusters");
+      if (typeof mutateClusters === "function") await mutateClusters();
+    } catch (error) {
+      console.error(error);
+      if (previousBoard) setClusterBoard(previousBoard);
+      alert(error.message || "Failed to update clusters");
+    } finally {
+      setClusterSyncing(false);
+    }
+  };
+
+  const applyBoardMove = (postId, targetKey) => {
+    if (!clusterBoard || clusterSyncing) return;
+    const prevBoard = cloneBoard(clusterBoard);
+    const nextBoard = cloneBoard(clusterBoard);
+    if (!nextBoard) return;
+
+    nextBoard.clusters = nextBoard.clusters.map((cluster) => {
+      let nextIds = cluster.postIds.filter((id) => id !== postId);
+      if (targetKey === `cluster-${cluster.id}` && !nextIds.includes(postId)) {
+        nextIds = [...nextIds, postId];
+      }
+      return { ...cluster, postIds: nextIds };
+    });
+
+    const withoutPost = nextBoard.unassigned.filter((id) => id !== postId);
+    if (targetKey === "unassigned") {
+      const merged = Array.from(new Set([...withoutPost, postId]));
+      merged.sort((a, b) => {
+        const ai = postIndexById.get(a) ?? 0;
+        const bi = postIndexById.get(b) ?? 0;
+        return ai - bi;
+      });
+      nextBoard.unassigned = merged;
+    } else {
+      nextBoard.unassigned = withoutPost;
+    }
+
+    setClusterBoard(nextBoard);
+    syncBoardWithServer(nextBoard, prevBoard);
+  };
+
+  const handleDragStart = (postId, sourceKey) => {
+    if (!canManageClusters || clusterSyncing) return;
+    setDragState({ postId, sourceKey });
+    setDragOverTarget(sourceKey);
+  };
+
+  const handleDragEnd = () => {
+    setDragState(null);
+    setDragOverTarget(null);
+  };
+
+  const handleDropOn = (targetKey) => {
+    if (!dragState || !clusterBoard) return;
+    const { sourceKey, postId } = dragState;
+    setDragState(null);
+    setDragOverTarget(null);
+    if (sourceKey === targetKey) return;
+    applyBoardMove(postId, targetKey);
+  };
+
+  const columnDragHandlers = (targetKey) => ({
+    onDragOver: (e) => {
+      if (!dragState || !canManageClusters) return;
+      e.preventDefault();
+    },
+    onDragEnter: (e) => {
+      if (!dragState || !canManageClusters) return;
+      e.preventDefault();
+      setDragOverTarget(targetKey);
+    },
+    onDragLeave: (e) => {
+      if (!dragState || !canManageClusters) return;
+      e.preventDefault();
+      setDragOverTarget((current) => (current === targetKey ? null : current));
+    },
+    onDrop: (e) => {
+      if (!dragState || !canManageClusters) return;
+      e.preventDefault();
+      handleDropOn(targetKey);
+    },
+  });
+
+  const handleQuickAssign = (postId, currentClusterId) => {
+    if (clusterSyncing) return;
+    const target = quickTargets[postId];
+    if (!target) return;
+    let targetKey = "unassigned";
+    if (target !== "__unassigned") {
+      targetKey = `cluster-${target}`;
+    }
+    const currentKey = currentClusterId ? `cluster-${currentClusterId}` : "unassigned";
+    if (targetKey === currentKey) {
+      setQuickTargets((prev) => ({ ...prev, [postId]: "" }));
+      return;
+    }
+    applyBoardMove(postId, targetKey);
+    setQuickTargets((prev) => ({ ...prev, [postId]: "" }));
+  };
+
+  const cancelEdit = () => {
+    if (!activePost) return;
+    setEditTitle(activePost.title || "");
+    setEditContent(activePost.content || "");
+    setEditMode(false);
+    setDetailSaving(false);
+  };
+
+  const saveDetailEdits = async () => {
+    if (!activePost || !isAdmin) return;
+    const trimmedTitle = editTitle.trim();
+    if (!trimmedTitle) {
+      alert("Title is required");
+      return;
+    }
+    setDetailSaving(true);
+    try {
+      const payload = {
+        id: activePost.id,
+        title: trimmedTitle,
+        content: editContent && editContent.trim().length ? editContent : null,
+      };
+      const res = await fetch("/api/member/meed-repo", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error("Failed to update");
+      setActivePost((prev) => (prev ? { ...prev, title: trimmedTitle, content: payload.content } : prev));
+      setEditMode(false);
+      await mutate();
+      if (typeof mutateClusters === "function") await mutateClusters();
+    } catch (error) {
+      console.error(error);
+      alert(error.message || "Failed to save changes");
+    } finally {
+      setDetailSaving(false);
+    }
+  };
+
+  const deletePost = async () => {
+    if (!activePost || !isAdmin) return;
+    if (!window.confirm("Delete this repo post permanently?")) return;
+    setDeletingPost(true);
+    try {
+      const res = await fetch("/api/member/meed-repo", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: activePost.id, action: "delete" }),
+      });
+      if (!res.ok) throw new Error("Failed to delete");
+      await mutate();
+      if (typeof mutateClusters === "function") await mutateClusters();
+      closeDetail();
+    } catch (error) {
+      console.error(error);
+      alert(error.message || "Delete failed");
+    } finally {
+      setDeletingPost(false);
+    }
+  };
+
   return (
     <div className="p-4 space-y-4">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-bold text-gray-900">Meed Repo</h1>
           <p className="text-sm text-gray-600">Your posts in a modern gallery.</p>
         </div>
-      <div className="flex items-center gap-2">
-        {isManager && (
-          <label className="text-xs text-gray-700 inline-flex items-center gap-2">
-            <input type="checkbox" checked={viewAll} onChange={(e) => { setViewAll(e.target.checked); }} />
-            View All
-          </label>
-        )}
-        {isManager && (
-          <button className="text-xs px-2 py-1 rounded bg-amber-100 text-amber-800 border border-amber-200" onClick={() => { setViewAll(true); setStatusFilter('submitted'); }}>
-            To Verify
-          </button>
-        )}
-        <div className="relative">
-          <input
-            type="search"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search posts"
-            className="w-40 md:w-56 lg:w-64 rounded-xl border px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500"
-            aria-label="Search Meed Repo posts"
-          />
-          {searchTerm && (
+        <div className="flex flex-wrap items-center gap-2">
+          {viewMode === "gallery" && clustersForSelect.length > 0 && (
+            <div className="flex items-center gap-1 text-xs bg-white border px-2 py-1 rounded-xl">
+              <select
+                value={galleryClusterFilter}
+                onChange={(e) => setGalleryClusterFilter(e.target.value)}
+                className="border-none bg-transparent text-xs focus:outline-none"
+              >
+                <option value="all">All clusters</option>
+                {clustersForSelect.map((clusterOption) => (
+                  <option key={clusterOption.id} value={clusterOption.id}>
+                    {clusterOption.name}
+                  </option>
+                ))}
+              </select>
+              {galleryClusterFilter !== "all" && (
+                <button
+                  type="button"
+                  className="text-[10px] text-gray-500 underline"
+                  onClick={() => setGalleryClusterFilter("all")}
+                >
+                  Reset
+                </button>
+              )}
+            </div>
+          )}
+          <div className="flex items-center gap-1 text-xs bg-white border px-1 py-0.5 rounded-xl">
             <button
               type="button"
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 hover:text-gray-700"
-              onClick={() => setSearchTerm("")}
+              className={`px-3 py-1 rounded-lg ${viewMode === "gallery" ? "bg-gray-900 text-white" : "hover:bg-gray-100"}`}
+              onClick={() => {
+                setViewMode("gallery");
+                setDragState(null);
+              }}
             >
-              Clear
+              Gallery
+            </button>
+            <button
+              type="button"
+              className={`px-3 py-1 rounded-lg ${viewMode === "clusters" ? "bg-gray-900 text-white" : "hover:bg-gray-100"}`}
+              onClick={() => {
+                setViewMode("clusters");
+                setDragState(null);
+                if (typeof mutateClusters === "function") mutateClusters();
+              }}
+            >
+            Cluster View
+          </button>
+        </div>
+        {isManager && (
+          <label className="text-xs text-gray-700 inline-flex items-center gap-2">
+              <input type="checkbox" checked={viewAll} onChange={(e) => { setViewAll(e.target.checked); }} />
+              View All
+            </label>
+          )}
+          {isManager && (
+            <button
+              className="text-xs px-2 py-1 rounded bg-amber-100 text-amber-800 border border-amber-200"
+              onClick={() => {
+                setViewAll(true);
+                setStatusFilter("submitted");
+              }}
+            >
+              To Verify
             </button>
           )}
-        </div>
-        <div className="flex items-center gap-1 text-xs bg-white border px-2 py-1 rounded-xl">
-            {["submitted","approved","rejected","archived","all"].map((k) => (
-              <button key={k} className={`px-2 py-1 rounded-lg ${statusFilter===k?"bg-gray-900 text-white":"hover:bg-gray-100"}`} onClick={() => setStatusFilter(k)}>
+          <div className="relative">
+            <input
+              type="search"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search posts"
+              className="w-40 md:w-56 lg:w-64 rounded-xl border px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500"
+              aria-label="Search Meed Repo posts"
+            />
+            {searchTerm && (
+              <button
+                type="button"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 hover:text-gray-700"
+                onClick={() => setSearchTerm("")}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-1 text-xs bg-white border px-2 py-1 rounded-xl">
+            {["submitted", "approved", "rejected", "archived", "all"].map((k) => (
+              <button
+                key={k}
+                className={`px-2 py-1 rounded-lg ${statusFilter === k ? "bg-gray-900 text-white" : "hover:bg-gray-100"}`}
+                onClick={() => setStatusFilter(k)}
+              >
                 {k}
               </button>
             ))}
           </div>
+          {viewMode === "clusters" && canManageClusters && (
+            <button
+              type="button"
+              className="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700"
+              onClick={openCreateClusterModal}
+            >
+              New Cluster
+            </button>
+          )}
           <button className="px-3 py-2 rounded-lg bg-teal-600 text-white hover:bg-teal-700" onClick={() => setShowModal(true)}>
             Post in Repo
           </button>
         </div>
       </div>
-      {filteredPosts.length ? (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-          {filteredPosts.map((p) => (
-            <Tile key={p.id} p={p} />
-          ))}
+      {viewMode === "gallery" ? (
+        filteredPosts.length ? (
+            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
+            {filteredPosts.map((p) => (
+              <Tile key={p.id} p={p} />
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-xl border bg-white p-4 text-sm text-gray-600">No posts found.</div>
+        )
+      ) : null}
+      {viewMode === "clusters" ? (
+        clusterBoard ? (
+          <div className="space-y-3">
+            {clusterSyncing && (
+              <div className="text-xs text-gray-500">Syncing cluster changes…</div>
+            )}
+            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-6 gap-2 md:gap-3">
+              {canManageClusters && (
+                <div
+                  className={`flex flex-col gap-1.5 rounded-xl border bg-white p-2 min-h-[180px] text-[13px] ${
+                    dragOverTarget === "unassigned" ? "ring-2 ring-teal-400" : ""
+                  }`}
+                  {...columnDragHandlers("unassigned")}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm font-semibold text-gray-900">Available Posts</div>
+                    <div className="text-[11px] text-gray-500">{clusterBoard.unassigned.length}</div>
+                  </div>
+                  <div className="flex-1 space-y-1.5 overflow-auto pr-1">
+                    {clusterBoard.unassigned.length ? (
+                      clusterBoard.unassigned.map((id) => {
+                        const post = postsById[id];
+                        if (!post) return null;
+                        const dimmed = searchTerm ? !searchMatchIds.has(id) : false;
+                        return (
+                          <div key={`unassigned-${id}`} className="space-y-1.5">
+                            <Tile
+                              p={post}
+                              draggable
+                              onDragStart={() => handleDragStart(id, "unassigned")}
+                              onDragEnd={handleDragEnd}
+                              dimmed={dimmed}
+                              disableOpen={disableDetailInCluster || !!dragState}
+                              onDoubleClick={() => {
+                                if (dragState) return;
+                                openDetail(post);
+                              }}
+                              className="!shadow-none border-dashed"
+                            />
+                            {disableDetailInCluster && clustersForSelect.length > 0 && (
+                              <div className="flex items-center gap-1.5">
+                                <select
+                                  value={quickTargets[id] || ""}
+                                  onChange={(e) => setQuickTargets((prev) => ({ ...prev, [id]: e.target.value }))}
+                                  className="flex-1 border rounded-lg px-1.5 py-1 text-[11px]"
+                                >
+                                  <option value="">Select cluster…</option>
+                                  {clustersForSelect.map((clusterOption) => (
+                                    <option key={clusterOption.id} value={clusterOption.id}>
+                                      {clusterOption.name}
+                                    </option>
+                                  ))}
+                                </select>
+                                <button
+                                  type="button"
+                                  className="px-2 py-1 text-[11px] rounded bg-indigo-600 text-white disabled:opacity-50"
+                                  onClick={() => handleQuickAssign(id, null)}
+                                  disabled={!quickTargets[id] || clusterSyncing}
+                                >
+                                  Push
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="text-xs text-gray-500">All posts are assigned.</div>
+                    )}
+                  </div>
+                </div>
+              )}
+              {clusterBoard.clusters.map((cluster) => {
+                const handlers = columnDragHandlers(`cluster-${cluster.id}`);
+                return (
+                  <div
+                    key={cluster.id}
+                    className={`flex flex-col gap-1.5 rounded-xl border bg-white p-2 min-h-[180px] text-[13px] ${
+                      dragOverTarget === `cluster-${cluster.id}` ? "ring-2 ring-teal-400" : ""
+                    }`}
+                    {...handlers}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-gray-900 truncate" title={cluster.name}>
+                          {cluster.name}
+                        </div>
+                        <div className="text-[11px] text-gray-500">{formatVisibility(cluster.visibility)}</div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="text-[11px] text-gray-500">{cluster.postIds.length}</div>
+                        {canManageClusters && (
+                          <button
+                            type="button"
+                            className="text-[11px] text-teal-700 underline"
+                            onClick={() => openEditClusterModal(cluster)}
+                          >
+                            Edit
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {cluster.description && (
+                      <div className="text-[11px] text-gray-600 line-clamp-2">{cluster.description}</div>
+                    )}
+                    <div className="flex-1 space-y-1.5 overflow-auto pr-1">
+                      {cluster.postIds.length ? (
+                        cluster.postIds.map((id) => {
+                          const post = postsById[id];
+                          if (!post) return null;
+                          const dimmed = searchTerm ? !searchMatchIds.has(id) : false;
+                          return (
+                            <div key={`cluster-${cluster.id}-${id}`} className="space-y-1.5">
+                              <Tile
+                                p={post}
+                                draggable={canManageClusters}
+                                onDragStart={() => handleDragStart(id, `cluster-${cluster.id}`)}
+                                onDragEnd={handleDragEnd}
+                                dimmed={dimmed}
+                                disableOpen={disableDetailInCluster || !!dragState}
+                                onDoubleClick={() => {
+                                  if (dragState) return;
+                                  openDetail(post);
+                                }}
+                                className="!shadow-none"
+                              />
+                              {disableDetailInCluster && (clustersForSelect.length > 1 || clusterBoard.unassigned.length > 0) && (
+                                <div className="flex items-center gap-1.5">
+                                  <select
+                                    value={quickTargets[id] || ""}
+                                    onChange={(e) => setQuickTargets((prev) => ({ ...prev, [id]: e.target.value }))}
+                                    className="flex-1 border rounded-lg px-1.5 py-1 text-[11px]"
+                                  >
+                                    <option value="">Move to…</option>
+                                    <option value="__unassigned">Available posts</option>
+                                    {clustersForSelect.map((clusterOption) => (
+                                      <option key={clusterOption.id} value={clusterOption.id}>
+                                        {clusterOption.name}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <button
+                                    type="button"
+                                    className="px-2 py-1 text-[11px] rounded bg-indigo-600 text-white disabled:opacity-50"
+                                    onClick={() => handleQuickAssign(id, cluster.id)}
+                                    disabled={!quickTargets[id] || clusterSyncing}
+                                  >
+                                    Move
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <div className="text-xs text-gray-500">No posts yet.</div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {!clusterBoard.clusters.length && !canManageClusters && (
+              <div className="rounded-2xl border bg-white p-4 text-sm text-gray-600">
+                No clusters available yet.
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="rounded-xl border bg-white p-4 text-sm text-gray-600">Loading clusters…</div>
+        )
+      ) : null}
+      {clusterModalOpen && (
+        <div
+          className="fixed inset-0 z-[62] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={closeClusterModal}
+        >
+          <div
+            className="w-full max-w-md bg-white rounded-2xl border shadow-xl p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-lg font-semibold text-gray-900">
+                {clusterModalMode === "create" ? "Create Cluster" : "Edit Cluster"}
+              </div>
+              <button
+                type="button"
+                className="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200"
+                onClick={closeClusterModal}
+              >
+                Close
+              </button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">Name</label>
+                <input
+                  className="w-full border rounded-lg px-3 py-2 text-sm"
+                  value={clusterModalName}
+                  onChange={(e) => setClusterModalName(e.target.value)}
+                  placeholder="Cluster name"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">Description (optional)</label>
+                <textarea
+                  className="w-full border rounded-lg px-3 py-2 text-sm"
+                  rows={3}
+                  value={clusterModalDescription}
+                  onChange={(e) => setClusterModalDescription(e.target.value)}
+                  placeholder="Short summary for admins/managers"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">Visible To</label>
+                <select
+                  className="w-full border rounded-lg px-3 py-2 text-sm"
+                  value={clusterModalVisibility}
+                  onChange={(e) => setClusterModalVisibility(e.target.value)}
+                >
+                  {(visibilityOptions.length ? visibilityOptions : [clusterModalVisibility || defaultVisibilityOption]).map((option) => (
+                    <option key={option} value={option}>
+                      {formatVisibility(option)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  className="px-3 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  onClick={closeClusterModal}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="px-3 py-2 rounded-lg bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-60"
+                  onClick={handleClusterModalSubmit}
+                  disabled={clusterModalSaving}
+                >
+                  {clusterModalSaving ? "Saving..." : "Save"}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
-      ) : (
-        <div className="rounded-xl border bg-white p-4 text-sm text-gray-600">No posts found.</div>
       )}
 
       {/* Submission modal */}
@@ -424,9 +1212,51 @@ export default function MeedRepoPage() {
                   <div className="text-[11px] text-gray-500">{fmtRel(activePost.createdAt)}</div>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap justify-end">
                 <div className={chipCls(activePost.status)}>{activePost.status}</div>
-                {activePost.taskId && (<div className="text-[11px] px-2 py-1 rounded-full border bg-gray-50 text-gray-700">Task #{activePost.taskId}</div>)}
+                {activePost.taskId && (
+                  <div className="text-[11px] px-2 py-1 rounded-full border bg-gray-50 text-gray-700">Task #{activePost.taskId}</div>
+                )}
+                {isAdmin && (
+                  editMode ? (
+                    <>
+                      <button
+                        type="button"
+                        className="px-2 py-1 rounded bg-emerald-600 text-white text-xs"
+                        onClick={saveDetailEdits}
+                        disabled={detailSaving}
+                      >
+                        {detailSaving ? "Saving..." : "Save"}
+                      </button>
+                      <button
+                        type="button"
+                        className="px-2 py-1 rounded bg-gray-200 text-xs"
+                        onClick={cancelEdit}
+                        disabled={detailSaving}
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      className="px-2 py-1 rounded bg-indigo-600 text-white text-xs"
+                      onClick={() => setEditMode(true)}
+                    >
+                      Edit
+                    </button>
+                  )
+                )}
+                {isAdmin && (
+                  <button
+                    type="button"
+                    className="px-2 py-1 rounded bg-rose-600 text-white text-xs"
+                    onClick={deletePost}
+                    disabled={deletingPost}
+                  >
+                    {deletingPost ? "Deleting..." : "Delete"}
+                  </button>
+                )}
                 <button className="px-2 py-1 rounded bg-gray-100" onClick={closeDetail}>Close</button>
               </div>
             </div>
@@ -457,8 +1287,34 @@ export default function MeedRepoPage() {
                 )}
               </div>
               <div className="p-3 space-y-3">
-                <div className="text-base font-semibold text-gray-900">{activePost.title}</div>
-                <div className="text-sm text-gray-700 whitespace-pre-wrap">{activePost.content || ''}</div>
+                {editMode ? (
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Title</label>
+                      <input
+                        className="w-full border rounded-lg px-3 py-2 text-sm"
+                        value={editTitle}
+                        onChange={(e) => setEditTitle(e.target.value)}
+                        placeholder="Post title"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Notes</label>
+                      <textarea
+                        className="w-full border rounded-lg px-3 py-2 text-sm"
+                        rows={6}
+                        value={editContent}
+                        onChange={(e) => setEditContent(e.target.value)}
+                        placeholder="Context / summary"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="text-base font-semibold text-gray-900">{activePost.title}</div>
+                    <div className="text-sm text-gray-700 whitespace-pre-wrap">{activePost.content || ''}</div>
+                  </>
+                )}
               <div className="flex items-center justify-between">
                 <div className="text-xs text-gray-600">
                   {(Array.isArray(activePost.tags)?activePost.tags:[]).find(t=>t.reviewerId) && (

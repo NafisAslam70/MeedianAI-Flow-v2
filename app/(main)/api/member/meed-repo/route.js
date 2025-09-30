@@ -170,7 +170,9 @@ export async function POST(req) {
 export async function PATCH(req) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const isManager = ["admin", "team_manager"].includes(session.user?.role || "");
+  const role = session.user?.role || "";
+  const isAdmin = role === "admin";
+  const isManager = ["admin", "team_manager"].includes(role);
   try {
     const body = await req.json();
     const { id, action, title, content, tags, attachments, status } = body || {};
@@ -181,6 +183,12 @@ export async function PATCH(req) {
     if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
     const isOwner = Number(row.userId) === Number(session.user.id);
     if (!isOwner && !isManager) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+    if (action === "delete") {
+      if (!isAdmin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      await db.delete(meedRepoPosts).where(eq(meedRepoPosts.id, Number(id)));
+      return NextResponse.json({ message: "Deleted" }, { status: 200 });
+    }
 
     // Owner updates (title/content/tags/status:draft|submitted)
     const updates = {};
