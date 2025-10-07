@@ -85,22 +85,26 @@ export async function GET(req) {
 
       const endOfDay = new Date(`${date}T23:59:59.999`);
 
-const rows = await db
-  .select({
-    id: assignedTaskStatus.taskId,
-    title: assignedTasks.title,
-    description: assignedTasks.description,
-    status: assignedTaskStatus.status,
-    assignedDate: assignedTaskStatus.assignedDate,
-    taskStatusId: assignedTaskStatus.id,
-    createdBy: assignedTasks.createdBy,
-    deadline: assignedTasks.deadline,
-    resources: assignedTasks.resources,
-    pinned: assignedTaskStatus.pinned,                // ✅
-    savedForLater: assignedTaskStatus.savedForLater,  // ✅
-  })
+      const rows = await db
+        .select({
+          id: assignedTaskStatus.taskId,
+          title: assignedTasks.title,
+          description: assignedTasks.description,
+          status: assignedTaskStatus.status,
+          assignedDate: assignedTaskStatus.assignedDate,
+          taskStatusId: assignedTaskStatus.id,
+          createdBy: assignedTasks.createdBy,
+          deadline: assignedTasks.deadline,
+          resources: assignedTasks.resources,
+          pinned: assignedTaskStatus.pinned, // ✅
+          savedForLater: assignedTaskStatus.savedForLater, // ✅
+          memberId: assignedTaskStatus.memberId,
+          memberName: users.name,
+          memberEmail: users.email,
+        })
         .from(assignedTaskStatus)
         .innerJoin(assignedTasks, eq(assignedTaskStatus.taskId, assignedTasks.id))
+        .innerJoin(users, eq(assignedTaskStatus.memberId, users.id))
         .where(
           and(
             eq(assignedTaskStatus.memberId, targetId),
@@ -136,13 +140,26 @@ const rows = await db
         .from(sprints)
         .where(inArray(sprints.taskStatusId, statusIds));
 
-      const tasks = rows.map((t) => ({
-        ...t,
-        sprints: allSprints.filter((s) => s.taskStatusId === t.taskStatusId),
-        observers: observersByTask.get(t.id) || [],
-        observerIds: (observersByTask.get(t.id) || []).map((o) => o.id),
-        observerId: observersByTask.get(t.id)?.[0]?.id ?? null,
-      }));
+      const tasks = rows.map((t) => {
+        const { memberId, memberName, memberEmail, ...rest } = t;
+        const assigneeSprints = allSprints.filter((s) => s.taskStatusId === t.taskStatusId);
+        return {
+          ...rest,
+          assignees: [
+            {
+              id: memberId,
+              name: memberName,
+              email: memberEmail,
+              status: rest.status,
+              sprints: assigneeSprints,
+            },
+          ],
+          sprints: assigneeSprints,
+          observers: observersByTask.get(t.id) || [],
+          observerIds: (observersByTask.get(t.id) || []).map((o) => o.id),
+          observerId: observersByTask.get(t.id)?.[0]?.id ?? null,
+        };
+      });
 
       return NextResponse.json({ tasks });
     }
