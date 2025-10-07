@@ -639,23 +639,40 @@ export async function PATCH(req) {
 
     const derivedOrStatus = action === "update_sprint" ? derived : status;
 
-    if (derivedOrStatus === "pending_verification" || derivedOrStatus === "done") {
-      specialNotification = `Task "${task.title}" is ready for verification. Last update by ${updaterName}${newLogComment ? `: ${newLogComment}` : ""} [task:${taskId}${sprintId ? ` sprint:${sprintId}` : ""}]`;
-      specialTargets = [task.createdBy].filter(id => id !== userId);
-    } else if (derivedOrStatus === "verified") {
-      specialNotification = `Task "${task.title}" has been verified by ${updaterName}${newLogComment ? `. Comment: ${newLogComment}` : ""} [task:${taskId}${sprintId ? ` sprint:${sprintId}` : ""}]`;
-      specialTargets = assignees.map(a => a.memberId).filter(id => id !== userId);
-    }
+    const observerTargets = [...observerIdSet]
+      .map((id) => Number(id))
+      .filter((id) => id && id !== userId);
+    const assigneeTargets = assignees
+      .map((a) => Number(a.memberId))
+      .filter((id) => id && id !== userId);
+    const isSingleAssignee = assignees.length === 1;
+    const creatorIsObserver = task.createdBy != null && observerIdSet.has(Number(task.createdBy));
 
-    // General notifications
+    const includeCreatorInGeneral = !isSingleAssignee || creatorIsObserver;
+    const creatorId = Number(task.createdBy);
     const generalTargets = [
       ...new Set(
-        assignees
-          .map((a) => a.memberId)
-          .filter((id) => id && id !== userId)
-          .concat(task.createdBy !== userId ? task.createdBy : [])
+        []
+          .concat(assigneeTargets)
+          .concat(observerTargets)
+          .concat(
+            includeCreatorInGeneral && creatorId && !Number.isNaN(creatorId) && creatorId !== userId
+              ? [creatorId]
+              : []
+          )
       ),
     ];
+
+    if (derivedOrStatus === "pending_verification" || derivedOrStatus === "done") {
+      specialNotification = `Task "${task.title}" is ready for verification. Last update by ${updaterName}${newLogComment ? `: ${newLogComment}` : ""} [task:${taskId}${sprintId ? ` sprint:${sprintId}` : ""}]`;
+      const verificationTargets = observerTargets.length
+        ? observerTargets
+        : [creatorId].filter((id) => id && !Number.isNaN(id) && id !== userId);
+      specialTargets = verificationTargets;
+    } else if (derivedOrStatus === "verified") {
+      specialNotification = `Task "${task.title}" has been verified by ${updaterName}${newLogComment ? `. Comment: ${newLogComment}` : ""} [task:${taskId}${sprintId ? ` sprint:${sprintId}` : ""}]`;
+      specialTargets = assigneeTargets;
+    }
 
     if (notifyAssignees && generalTargets.length) {
       await db.insert(messages).values(

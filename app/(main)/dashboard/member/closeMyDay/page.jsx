@@ -788,116 +788,118 @@ export default function CloseMyDay() {
                 </div>
               </div>
 
-              <AnimatePresence mode="wait">
-                {currentStep === 1 && (
-                  <motion.div key="step1" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.3 }}>
-                    <MRIStep
-                      handleNextStep={handleNextStep}
-                      onMriClearedChange={setMriCleared}
-                      onMriPayloadChange={setMriPayload}
-                    />
-                  </motion.div>
-                )}
+              <div className="flex-1 overflow-y-auto pr-1 sm:pr-2 pb-6">
+                <AnimatePresence mode="wait">
+                  {currentStep === 1 && (
+                    <motion.div key="step1" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.3 }}>
+                      <MRIStep
+                        handleNextStep={handleNextStep}
+                        onMriClearedChange={setMriCleared}
+                        onMriPayloadChange={setMriPayload}
+                      />
+                    </motion.div>
+                  )}
 
-                {currentStep === 2 && (
-                  <motion.div
-                    key="step2"
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    transition={{ duration: 0.3 }}
-                  >
-                    <AssignedTasksStep
-                      assignedTasksData={assignedTasksData}
-                      assignedTasksUpdates={assignedTasksUpdates}
-                      handleUpdateAssignedTask={handleUpdateAssignedTask}
-                      handlePrevStep={handlePrevStep}
-                      handleNextStep={handleNextStep}
-                      onShowDetails={handleShowDetails}
-                      showDetailsModal={showDetailsModal}
-                      onCloseDetails={handleCloseDetails}
-                    />
-                  </motion.div>
-                )}
+                  {currentStep === 2 && (
+                    <motion.div
+                      key="step2"
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -20 }}
+                      transition={{ duration: 0.3 }}
+                    >
+                      <AssignedTasksStep
+                        assignedTasksData={assignedTasksData}
+                        assignedTasksUpdates={assignedTasksUpdates}
+                        handleUpdateAssignedTask={handleUpdateAssignedTask}
+                        handlePrevStep={handlePrevStep}
+                        handleNextStep={handleNextStep}
+                        onShowDetails={handleShowDetails}
+                        showDetailsModal={showDetailsModal}
+                        onCloseDetails={handleCloseDetails}
+                      />
+                    </motion.div>
+                  )}
 
-                {currentStep === 3 && (
-                  <motion.div key="step3" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.3 }}>
-                    <RoutineTasksStep
-                      routineTasksData={routineTasksData}
-                      routineTasksStatuses={routineTasksStatuses}
-                      handleUpdateRoutineStatus={handleUpdateRoutineStatus}
-                      routineLog={routineLog}
-                      setRoutineLog={setRoutineLog}
-                      handlePrevStep={handlePrevStep}
-                      handleNextStep={handleNextStep}
-                      isTeamManager={isTeamManager}
-                      assignedTasksData={assignedTasksData}
-                      managerRoutineReport={managerRoutineReport}
-                      onManagerReportChange={handleManagerReportChange}
-                    />
-                  </motion.div>
-                )}
+                  {currentStep === 3 && (
+                    <motion.div key="step3" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.3 }}>
+                      <RoutineTasksStep
+                        routineTasksData={routineTasksData}
+                        routineTasksStatuses={routineTasksStatuses}
+                        handleUpdateRoutineStatus={handleUpdateRoutineStatus}
+                        routineLog={routineLog}
+                        setRoutineLog={setRoutineLog}
+                        handlePrevStep={handlePrevStep}
+                        handleNextStep={handleNextStep}
+                        isTeamManager={isTeamManager}
+                        assignedTasksData={assignedTasksData}
+                        managerRoutineReport={managerRoutineReport}
+                        onManagerReportChange={handleManagerReportChange}
+                      />
+                    </motion.div>
+                  )}
 
-                {currentStep === 4 && (
-                  <motion.div key="step4" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.3 }}>
-                    <TodayAtGlanceStep
-                      handleNextStep={handleNextStep}
-                      handlePrevStep={handlePrevStep}
-                      showIprJourney={showIprJourney}
-                    />
-                  </motion.div>
-                )}
+                  {currentStep === 4 && (
+                    <motion.div key="step4" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.3 }}>
+                      <TodayAtGlanceStep
+                        handleNextStep={handleNextStep}
+                        handlePrevStep={handlePrevStep}
+                        showIprJourney={showIprJourney}
+                      />
+                    </motion.div>
+                  )}
 
-                {currentStep === 5 && (
-                  <motion.div key="step5" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.3 }}>
-                    <h3 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
-                      <CheckCircle size={18} className="text-teal-600" />
-                      General Log
-                    </h3>
+                  {currentStep === 5 && (
+                    <motion.div key="step5" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.3 }}>
+                      <h3 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                        <CheckCircle size={18} className="text-teal-600" />
+                        General Log
+                      </h3>
 
-                    {/* Today's note input */}
-                    <textarea
-                      value={generalLog}
-                      onChange={(e) => setGeneralLog(e.target.value)}
-                      placeholder="Any message to the superintendent/admin?"
-                      className="border border-teal-200 p-3 rounded-xl w-full text-sm h-24 focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 bg-teal-50/50 resize-none"
-                    />
+                      {/* Today's note input */}
+                      <textarea
+                        value={generalLog}
+                        onChange={(e) => setGeneralLog(e.target.value)}
+                        placeholder="Any message to the superintendent/admin?"
+                        className="border border-teal-200 p-3 rounded-xl w-full text-sm h-24 focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 bg-teal-50/50 resize-none"
+                      />
 
-                    {/* Past-day conversation thread */}
-                    <div className="mt-5">
-                      <GeneralConversationThread limitDays={14} />
-                    </div>
+                      {/* Past-day conversation thread */}
+                      <div className="mt-5">
+                        <GeneralConversationThread limitDays={14} />
+                      </div>
 
-                    <div className="flex justify-between mt-6 gap-4">
-                      <motion.button
-                        onClick={handlePrevStep}
-                        className="flex-1 bg-gray-200 text-gray-800 py-3 rounded-xl font-semibold hover:bg-gray-300 transition-all duration-300 shadow-sm"
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                      >
-                        Previous
-                      </motion.button>
-                      <motion.button
-                        onClick={() => {
-                          if (isMobileBlocked) {
-                            setError(mobileBlockMessage);
-                            return;
-                          }
-                          setShowConfirmModal(true);
-                        }}
-                        disabled={isSubmitting || isMobileBlocked}
-                        className={`flex-1 bg-teal-600 text-white py-3 rounded-xl font-semibold transition-all duration-300 shadow-md ${
-                          isSubmitting || isMobileBlocked ? "opacity-50 cursor-not-allowed" : "hover:bg-teal-700"
-                        }`}
-                        whileHover={{ scale: isSubmitting || isMobileBlocked ? 1 : 1.02 }}
-                        whileTap={{ scale: isSubmitting || isMobileBlocked ? 1 : 0.98 }}
-                      >
-                        {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Submit Close Day"}
-                      </motion.button>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+                      <div className="flex justify-between mt-6 gap-4">
+                        <motion.button
+                          onClick={handlePrevStep}
+                          className="flex-1 bg-gray-200 text-gray-800 py-3 rounded-xl font-semibold hover:bg-gray-300 transition-all duration-300 shadow-sm"
+                          whileHover={{ scale: 1.02 }}
+                          whileTap={{ scale: 0.98 }}
+                        >
+                          Previous
+                        </motion.button>
+                        <motion.button
+                          onClick={() => {
+                            if (isMobileBlocked) {
+                              setError(mobileBlockMessage);
+                              return;
+                            }
+                            setShowConfirmModal(true);
+                          }}
+                          disabled={isSubmitting || isMobileBlocked}
+                          className={`flex-1 bg-teal-600 text-white py-3 rounded-xl font-semibold transition-all duration-300 shadow-md ${
+                            isSubmitting || isMobileBlocked ? "opacity-50 cursor-not-allowed" : "hover:bg-teal-700"
+                          }`}
+                          whileHover={{ scale: isSubmitting || isMobileBlocked ? 1 : 1.02 }}
+                          whileTap={{ scale: isSubmitting || isMobileBlocked ? 1 : 0.98 }}
+                        >
+                          {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Submit Close Day"}
+                        </motion.button>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
