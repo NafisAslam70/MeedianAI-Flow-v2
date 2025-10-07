@@ -3,7 +3,7 @@
 import { useState } from "react";
 import useSWR from "swr";
 import { motion } from "framer-motion";
-import { Loader2, Sparkles, Check, X, Eye, EyeOff, Lock, Smartphone, SmartphoneOff } from "lucide-react";
+import { Loader2, Sparkles, Check, X, Eye, EyeOff, Lock, Smartphone } from "lucide-react";
 
 const fetcher = (url) =>
   fetch(url, { headers: { "Content-Type": "application/json" } }).then((res) => {
@@ -306,10 +306,8 @@ export default function RandomsPage() {
             >
               {isSavingMobileBlock ? (
                 <Loader2 className="h-4 w-4 animate-spin text-amber-600" />
-              ) : blockMobileDayClose ? (
-                <SmartphoneOff className="h-4 w-4 text-amber-600" />
               ) : (
-                <Smartphone className="h-4 w-4 text-gray-500" />
+                <Smartphone className={`h-4 w-4 ${blockMobileDayClose ? "text-amber-600" : "text-gray-500"}`} />
               )}
             </span>
           </motion.button>
