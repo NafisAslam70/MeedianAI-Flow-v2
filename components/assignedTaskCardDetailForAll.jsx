@@ -239,7 +239,7 @@ const AssignedTaskDetails = ({
               {task?.title || "Untitled Task"}
             </h2>
 
-            {!isManager && (
+            {(!isManager || (isManager && viewerIsObserver)) && (
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}

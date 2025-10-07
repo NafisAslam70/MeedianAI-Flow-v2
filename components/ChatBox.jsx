@@ -389,7 +389,21 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
           router.push(`/dashboard/managersCommon${query}`);
         }
       } else {
-        dispatchOpenTask(taskId, sprintId);
+        const memberDashboardPath = "/dashboard/member";
+        if (pathname !== memberDashboardPath) {
+          const query = sprintId ? `?focusTask=${taskId}&focusSprint=${sprintId}` : `?focusTask=${taskId}`;
+          try {
+            const payload = {
+              taskId: Number(taskId),
+              sprintId: sprintId ? Number(sprintId) : null,
+              ts: Date.now(),
+            };
+            sessionStorage.setItem("sharedDashboardFocusTask", JSON.stringify(payload));
+          } catch {}
+          router.push(`${memberDashboardPath}${query}`);
+        } else {
+          dispatchOpenTask(taskId, sprintId);
+        }
       }
       closeAll();
     };

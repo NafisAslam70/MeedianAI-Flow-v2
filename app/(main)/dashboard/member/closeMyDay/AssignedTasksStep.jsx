@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { format, startOfDay, isSameDay, differenceInCalendarDays } from "date-fns";
-import { CheckCircle, Info, Calendar, AlertTriangle } from "lucide-react";
+import { CheckCircle, Info, Calendar, AlertTriangle, SunMedium } from "lucide-react";
 import useSWR from "swr";
 import AssignedTaskDetails from "@/components/assignedTaskCardDetailForAll";
 import { useSession } from "next-auth/react";
@@ -109,37 +109,47 @@ export default function AssignedTasksStep({
       : "Member";
   };
 
+  const isBasketTask = (task) => task?.pinned && !task?.savedForLater;
+
+  const basketTasks = useMemo(
+    () => (assignedTasksData?.tasks || []).filter(isBasketTask),
+    [assignedTasksData]
+  );
+
   const sections = useMemo(() => {
     const blocks = [];
 
-    if (categorizeTasks.todayList.length) {
+    const todayTasks = categorizeTasks.todayList.filter((task) => !isBasketTask(task));
+    if (todayTasks.length) {
       blocks.push({
         id: "today",
         title: "Today's Basket Work",
         description: "Focus on tasks due today or without a set deadline.",
-        tasks: categorizeTasks.todayList,
+        tasks: todayTasks,
       });
     }
 
-    if (categorizeTasks.approachingList.length) {
+    const approachingTasks = categorizeTasks.approachingList.filter((task) => !isBasketTask(task));
+    if (approachingTasks.length) {
       blocks.push({
         id: "approaching",
         title: "Approaching Deadlines",
         description: "Tasks that are coming up soon—stay ahead before they turn urgent.",
-        tasks: categorizeTasks.approachingList,
+        tasks: approachingTasks,
       });
     }
 
-    if (categorizeTasks.overdueList.length) {
+    const overdueTasks = categorizeTasks.overdueList.filter((task) => !isBasketTask(task));
+    if (overdueTasks.length) {
       blocks.push({
         id: "overdue",
         title: "Past Deadline",
         description: "Overdue items that need immediate attention before you can close the day.",
-        tasks: categorizeTasks.overdueList,
+        tasks: overdueTasks,
       });
     }
 
-    if (!blocks.length) {
+    if (!blocks.length && basketTasks.length === 0) {
       blocks.push({
         id: "empty",
         title: "No Active Assigned Work",
@@ -149,7 +159,7 @@ export default function AssignedTasksStep({
     }
 
     return blocks;
-  }, [categorizeTasks]);
+  }, [basketTasks, categorizeTasks]);
 
   const getUpdateEntry = (taskId) =>
     assignedTasksUpdates?.find((update) => update.id === taskId) ?? {};
@@ -353,6 +363,25 @@ export default function AssignedTasksStep({
           </div>
         )}
       </div>
+
+      {basketTasks.length > 0 && (
+        <motion.section layout className="space-y-4">
+          <div className="flex items-center gap-2">
+            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-teal-100 text-teal-700">
+              <SunMedium className="h-4 w-4" />
+            </span>
+            <div>
+              <h4 className="text-base font-semibold text-teal-800">Today's Basket</h4>
+              <p className="text-xs text-teal-600">
+                These are the focused tasks you pinned earlier in the dashboard.
+              </p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {basketTasks.map((task) => renderTaskCard(task))}
+          </div>
+        </motion.section>
+      )}
 
       {sections.map((section) => (
         <motion.section key={section.id} layout className="space-y-4">

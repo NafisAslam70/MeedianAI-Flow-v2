@@ -5,7 +5,7 @@ import { useState, useEffect, useReducer, useMemo, useRef } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence, useMotionValue, useTransform } from "framer-motion";
 import { useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import {
   FileText,
@@ -752,6 +752,7 @@ function CompactMore({ onOpenNotes, onSelectTab }) {
 export default function SharedDashboard({ role, viewUserId = null, embed = false }) {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   // ui state
   const [activeTab, setActiveTab] = useState("dashboard");
@@ -788,6 +789,8 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
   const [ingesting, setIngesting] = useState(false);
   const [scannerActive, setScannerActive] = useState(false);
   const [showOpenDaySuccess, setShowOpenDaySuccess] = useState(false);
+  const [pendingExternalFocus, setPendingExternalFocus] = useState(null);
+  const lastHandledFocusTs = useRef(0);
 
   const evaluateTaskContext = (task) => {
     const sessionUserId = Number(session?.user?.id);
@@ -931,6 +934,77 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
   const [showOpenedBanner, setShowOpenedBanner] = useState(false);
   const [openedAtOverride, setOpenedAtOverride] = useState(null);
   const effectiveOpenedAt = openedAtOverride || openedAtMs || historyOpenedAtMs;
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    let payload = null;
+    const stored = window.sessionStorage.getItem("sharedDashboardFocusTask");
+    if (stored) {
+      try {
+        payload = JSON.parse(stored) || null;
+      } catch {
+        payload = null;
+      }
+      window.sessionStorage.removeItem("sharedDashboardFocusTask");
+    }
+
+    if (!payload) {
+      const taskParam = searchParams?.get("focusTask");
+      if (taskParam) {
+        const sprintParam = searchParams?.get("focusSprint");
+        payload = {
+          taskId: Number(taskParam),
+          sprintId: sprintParam != null && sprintParam !== "" ? Number(sprintParam) : null,
+          source: "query",
+          ts: Date.now(),
+        };
+      }
+    }
+
+    if (!payload || !payload.taskId) return;
+    const ts = Number(payload.ts || payload.timestamp || Date.now());
+    if (ts && ts <= lastHandledFocusTs.current) return;
+
+    lastHandledFocusTs.current = ts || Date.now();
+    setPendingExternalFocus({
+      taskId: Number(payload.taskId),
+      sprintId:
+        payload.sprintId != null && payload.sprintId !== ""
+          ? Number(payload.sprintId)
+          : null,
+      source: payload.source || (stored ? "storage" : "query"),
+    });
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (!pendingExternalFocus || !state.assignedTasks?.length) return;
+
+    const { taskId, sprintId, source } = pendingExternalFocus;
+    if (!taskId) {
+      setPendingExternalFocus(null);
+      return;
+    }
+
+    const numericTaskId = Number(taskId);
+    const targetTask = state.assignedTasks.find((t) => Number(t.id) === numericTaskId);
+    if (!targetTask) return;
+
+    setPendingExternalFocus(null);
+    setActiveTab("assigned");
+    window.dispatchEvent(
+      new CustomEvent("member-open-task", {
+        detail: {
+          taskId: numericTaskId,
+          sprintId: sprintId != null ? Number(sprintId) : undefined,
+        },
+      })
+    );
+
+    if (source === "query") {
+      router.replace("/dashboard/member", { scroll: false });
+    }
+  }, [pendingExternalFocus, state.assignedTasks, router]);
 
   async function handleOpenDay() {
     // Open modal to scan manager's session QR or share personal token

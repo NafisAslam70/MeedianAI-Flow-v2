@@ -28,6 +28,8 @@ import {
 
 import SharedDashboard from "@/components/SharedDashboard";
 import AssignedTaskDetails from "@/components/assignedTaskCardDetailForAll";
+import UpdateStatusForAll from "@/components/UpdateStatusForAll";
+import { getTaskStatusOptions, getSprintStatusOptions, normalizeTaskStatus } from "@/lib/taskWorkflow";
 
 const fetcher = (url) =>
   fetch(url, { headers: { "Content-Type": "application/json" } }).then((response) => {
@@ -147,6 +149,18 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showAddLogModal, setShowAddLogModal] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [showStatusModal, setShowStatusModal] = useState(false);
+  const [statusOptions, setStatusOptions] = useState([]);
+  const [statusModalMode, setStatusModalMode] = useState("task");
+  const [newStatus, setNewStatus] = useState("");
+  const [selectedSprint, setSelectedSprint] = useState("");
+  const [sprints, setSprints] = useState([]);
+  const [actorContext, setActorContext] = useState({ isObserver: false, isDoer: false, isManager: true });
+  const [activeMemberId, setActiveMemberId] = useState(null);
+  const [sendNotification, setSendNotification] = useState(true);
+  const [sendWhatsapp, setSendWhatsapp] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
 
   const { data: usersData } = useSWR("/api/member/users", fetcher);
   const users = usersData?.users || [];
@@ -309,6 +323,129 @@ const teamDigest = useMemo(() => {
     return `User ${userId}`;
   };
 
+  const evaluateTaskContext = (task) => {
+    const sessionUserId = Number(session?.user?.id);
+    const observerIds = new Set();
+    if (task?.observerId != null) observerIds.add(Number(task.observerId));
+    if (Array.isArray(task?.observers)) {
+      task.observers.forEach((observer) => {
+        if (observer?.id != null) observerIds.add(Number(observer.id));
+      });
+    }
+    const assigneeList = Array.isArray(task?.assignees) ? task.assignees : [];
+    const isObserver = observerIds.has(sessionUserId);
+    const isDoer = assigneeList.some((assignee) => Number(assignee?.id) === sessionUserId);
+    const primaryAssigneeId = assigneeList.length ? Number(assigneeList[0].id) : null;
+    return {
+      isObserver,
+      isDoer,
+      isManager: true,
+      sessionUserId,
+      viewedMemberId: primaryAssigneeId,
+    };
+  };
+
+  const resetStatusUi = () => {
+    setStatusOptions([]);
+    setStatusModalMode("task");
+    setNewStatus("");
+    setSelectedSprint("");
+    setSprints([]);
+    setActiveMemberId(null);
+    setSendNotification(true);
+    setSendWhatsapp(false);
+    setIsRecording(false);
+    setActorContext({ isObserver: false, isDoer: false, isManager: true });
+  };
+
+  const openStatusModal = (task) => {
+    if (!task) return;
+    setSelectedTask(task);
+    const context = evaluateTaskContext(task);
+    if (!context.isObserver && !context.isDoer) {
+      setError("You don't have permission to update this task.");
+      setTimeout(() => setError(""), 3000);
+      return;
+    }
+    const assigneeList = Array.isArray(task?.assignees) ? task.assignees : [];
+    const pendingAssignee = assigneeList.find(
+      (assignee) => normalizeTaskStatus(assignee.status) === "pending_verification"
+    );
+    const normalizedStatus = normalizeTaskStatus(task.status);
+    const options = getTaskStatusOptions(normalizedStatus, {
+      isDoer: context.isDoer,
+      isObserver: context.isObserver,
+    });
+
+    const defaultAssigneeId = pendingAssignee
+      ? Number(pendingAssignee.id)
+      : context.viewedMemberId;
+
+    setActorContext({ ...context });
+    setActiveMemberId(defaultAssigneeId);
+    setStatusModalMode("task");
+    setStatusOptions(options);
+    const defaultStatus =
+      options.find((opt) => opt.value !== normalizedStatus) || options[0] || null;
+    setNewStatus(defaultStatus?.value || "");
+    setSelectedSprint("");
+    setSprints(
+      Array.isArray(task.assignees)
+        ? task.assignees.flatMap((assignee) => assignee.sprints || [])
+        : []
+    );
+    setSendNotification(true);
+    setSendWhatsapp(false);
+    setIsRecording(false);
+    setNewLogComment("");
+    setShowStatusModal(true);
+  };
+
+  const handleSprintOptionChange = (sprintId, taskOverride = null) => {
+    const referenceTask = taskOverride || selectedTask;
+    setSelectedSprint(sprintId);
+    if (!referenceTask) return;
+    const context = evaluateTaskContext(referenceTask);
+
+    if (!sprintId) {
+      const normalizedStatus = normalizeTaskStatus(referenceTask.status);
+      const options = getTaskStatusOptions(normalizedStatus, {
+        isDoer: context.isDoer,
+        isObserver: context.isObserver,
+      });
+      setStatusModalMode("task");
+      setStatusOptions(options);
+      const fallback =
+        options.find((opt) => opt.value !== normalizedStatus) || options[0] || null;
+      setNewStatus(fallback?.value || "");
+      return;
+    }
+
+    const allSprints = Array.isArray(referenceTask?.assignees)
+      ? referenceTask.assignees.flatMap((assignee) => assignee.sprints || [])
+      : [];
+    const sprintObj = allSprints.find((s) => String(s.id) === String(sprintId));
+    if (!sprintObj) return;
+
+    const options = getSprintStatusOptions(normalizeTaskStatus(sprintObj.status), {
+      isDoer: context.isDoer,
+    });
+    setStatusModalMode("sprint");
+    setStatusOptions(options);
+    const fallback = options.find((opt) => opt.value === newStatus) || options[0] || null;
+    setNewStatus(fallback?.value || "");
+  };
+
+  const startVoiceRecording = () => {
+    setError("Voice capture is not available from the manager dashboard yet.");
+    setTimeout(() => setError(""), 3000);
+  };
+
+  const handleTranslateComment = () => {
+    setError("Translation is coming soon.");
+    setTimeout(() => setError(""), 3000);
+  };
+
   const fetchTask = async (taskId) => {
     try {
       const response = await fetch(`/api/managersCommon/assign-tasks?taskId=${taskId}`);
@@ -425,6 +562,82 @@ const teamDigest = useMemo(() => {
       setError("Could not save the log. Try again.");
     } finally {
       setIsAddingLog(false);
+    }
+  };
+
+  const handleStatusUpdate = async () => {
+    if (!selectedTask || !newStatus) {
+      setError("Pick a status before updating.");
+      setTimeout(() => setError(""), 3000);
+      return;
+    }
+
+    if (!statusOptions.some((opt) => opt.value === newStatus)) {
+      setError("This status change isn’t permitted for your role.");
+      setTimeout(() => setError(""), 3000);
+      return;
+    }
+
+    const memberIdForUpdate = activeMemberId || selectedTask.assignees?.[0]?.id;
+    if (!memberIdForUpdate) {
+      setError("No assignee selected for this task.");
+      setTimeout(() => setError(""), 3000);
+      return;
+    }
+
+    const isSprint = statusModalMode === "sprint";
+    if (isSprint && !selectedSprint) {
+      setError("Choose a sprint to continue.");
+      setTimeout(() => setError(""), 3000);
+      return;
+    }
+
+    setIsUpdating(true);
+    const body = isSprint
+      ? {
+          sprintId: parseInt(selectedSprint, 10),
+          status: newStatus,
+          taskId: selectedTask.id,
+          memberId: Number(memberIdForUpdate),
+          action: "update_sprint",
+          notifyAssignees: sendNotification,
+          notifyWhatsapp: sendWhatsapp,
+          newLogComment: newLogComment || "",
+        }
+      : {
+          taskId: selectedTask.id,
+          status: newStatus,
+          memberId: Number(memberIdForUpdate),
+          action: "update_task",
+          notifyAssignees: sendNotification,
+          notifyWhatsapp: sendWhatsapp,
+          newLogComment: newLogComment || "",
+        };
+
+    try {
+      const response = await fetch("/api/member/assignedTasks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Update failed");
+
+      setSuccess("Task status updated!");
+      setTimeout(() => setSuccess(""), 2500);
+
+      await mutate(dashboardKey);
+      await handleOpenTask(selectedTask.id);
+
+      setShowStatusModal(false);
+      resetStatusUi();
+      setNewLogComment("");
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "Unable to update status");
+      setTimeout(() => setError(""), 3000);
+    } finally {
+      setIsUpdating(false);
     }
   };
 
@@ -922,9 +1135,50 @@ const teamDigest = useMemo(() => {
                 onAddLog={() => handleAddLog(selectedTask.id, true)}
                 currentUserId={session?.user?.id}
                 currentUserName={session?.user?.name}
+                onUpdateStatusClick={openStatusModal}
               />
             </motion.div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showStatusModal && selectedTask && (
+          <UpdateStatusForAll
+            task={selectedTask}
+            sprints={sprints}
+            selectedSprint={selectedSprint}
+            setSelectedSprint={setSelectedSprint}
+            newStatus={newStatus}
+            setNewStatus={setNewStatus}
+            taskLogs={taskLogs}
+            users={users}
+            newLogComment={newLogComment}
+            setNewLogComment={setNewLogComment}
+            sendNotification={sendNotification}
+            setSendNotification={setSendNotification}
+            sendWhatsapp={sendWhatsapp}
+            setSendWhatsapp={setSendWhatsapp}
+            isUpdating={isUpdating}
+            onUpdate={handleStatusUpdate}
+            onAddLog={() => handleAddLog(selectedTask.id, sendNotification)}
+            onClose={() => {
+              setShowStatusModal(false);
+              resetStatusUi();
+            }}
+            startVoiceRecording={startVoiceRecording}
+            isRecording={isRecording}
+            handleTranslateComment={handleTranslateComment}
+            currentUserId={session?.user?.id}
+            currentUserName={session?.user?.name}
+            error={error}
+            success={success}
+            statusOptions={statusOptions}
+            mode={statusModalMode}
+            actorContext={actorContext}
+            observerName={selectedTask?.observer?.name || selectedTask?.observerName}
+            onSprintChange={handleSprintOptionChange}
+          />
         )}
       </AnimatePresence>
 
