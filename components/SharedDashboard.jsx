@@ -1213,24 +1213,47 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
   const notifyAssigneesChat = async (taskId, messageContent) => {
     if (!sendNotification) return;
     try {
-      const r = await fetch(`/api/member/assignedTasks?taskId=${taskId}&action=assignees`);
-      if (!r.ok) return;
-      const d = await r.json();
-      const list = d.assignees || [];
+      const recipients = new Set();
+
+      const assigneeResponse = await fetch(`/api/member/assignedTasks?taskId=${taskId}&action=assignees`);
+      if (assigneeResponse.ok) {
+        const assigneeData = await assigneeResponse.json();
+        (assigneeData.assignees || []).forEach((a) => {
+          if (a?.memberId != null) recipients.add(Number(a.memberId));
+        });
+      }
+
+      const taskResponse = await fetch(`/api/member/assignedTasks?taskId=${taskId}&action=task`);
+      if (taskResponse.ok) {
+        const taskData = await taskResponse.json();
+        const task = taskData?.task;
+        if (task?.observerId != null) recipients.add(Number(task.observerId));
+        if (Array.isArray(task?.observers)) {
+          task.observers.forEach((observer) => {
+            if (observer?.id != null) recipients.add(Number(observer.id));
+          });
+        }
+      }
+
+      const senderId = Number(session?.user?.id);
+      const viewerId = Number(viewUserId || user?.id);
+      recipients.delete(senderId);
+      if (viewerId) recipients.delete(viewerId);
+
+      if (!recipients.size) return;
+
       await Promise.all(
-        list
-          .filter((a) => a.memberId !== (viewUserId || user?.id))
-          .map((a) =>
-            fetch("/api/others/chat", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                userId: session?.user?.id,
-                recipientId: a.memberId,
-                message: messageContent,
-              }),
-            })
-          )
+        [...recipients].map((recipientId) =>
+          fetch("/api/others/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              userId: senderId,
+              recipientId,
+              message: messageContent,
+            }),
+          })
+        )
       );
     } catch {
       setError("Failed to send chat notifications. Please try again.");
