@@ -1,7 +1,7 @@
 // app/(main)/dashboard/member/closeMyDay/page.jsx (or CloseMyDay.jsx)
 "use client";
 import { useSession } from "next-auth/react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Clock, Calendar, CheckCircle, AlertCircle, Loader2, ArrowLeft } from "lucide-react";
 import { format } from "date-fns";
@@ -25,6 +25,7 @@ export default function CloseMyDay() {
   const role = session?.user?.role;
   const userId = session?.user?.id;
   const userName = session?.user?.name || "User";
+  const isTeamManager = role === "team_manager";
 
   const [timeLeft, setTimeLeft] = useState(null);
   const [elapsedTime, setElapsedTime] = useState(0);
@@ -62,6 +63,15 @@ export default function CloseMyDay() {
   const [selectedTask, setSelectedTask] = useState(null);
   const [taskDetails, setTaskDetails] = useState(null);
   const [taskLogs, setTaskLogs] = useState([]);
+  const [managerRoutineReport, setManagerRoutineReport] = useState({});
+  const [mobileBlockActive, setMobileBlockActive] = useState(false);
+  const [isMobileDevice, setIsMobileDevice] = useState(false);
+
+  const mobileBlockMessage =
+    "Day Close on mobile is currently disabled. Please use a desktop browser to continue.";
+  const isMobileBlocked = mobileBlockActive && isMobileDevice;
+  const closeButtonDisabled = isSubmitting || !isClosingWindow || isMobileBlocked;
+  const bypassButtonDisabled = isSubmitting || isMobileBlocked;
 
   // Timer for elapsed time since submission
   useEffect(() => {
@@ -83,6 +93,8 @@ export default function CloseMyDay() {
       : null,
     fetcher
   );
+
+  const assignedTasksCount = assignedTasksData?.tasks?.length ?? 0;
 
   const { data: routineTasksData } = useSWR(
     status === "authenticated"
@@ -146,6 +158,25 @@ export default function CloseMyDay() {
   }, []);
 
   useEffect(() => {
+    const detectMobileDevice = () => {
+      if (typeof window === "undefined") return;
+      const ua = navigator?.userAgent || "";
+      const mobileRegex = /Mobi|Android|iPhone|iPad|iPod|Mobile|Tablet/i;
+      const touchCapable = typeof navigator !== "undefined" ? navigator.maxTouchPoints > 1 : false;
+      const narrowViewport = window.innerWidth <= 820;
+      setIsMobileDevice(mobileRegex.test(ua) || (touchCapable && narrowViewport));
+    };
+
+    detectMobileDevice();
+    window.addEventListener("resize", detectMobileDevice);
+    window.addEventListener("orientationchange", detectMobileDevice);
+    return () => {
+      window.removeEventListener("resize", detectMobileDevice);
+      window.removeEventListener("orientationchange", detectMobileDevice);
+    };
+  }, []);
+
+  useEffect(() => {
     if (assignedTasksData?.tasks) {
       setAssignedTasksUpdates(
         assignedTasksData.tasks.map((task) => ({
@@ -176,6 +207,29 @@ export default function CloseMyDay() {
   }, [routineTasksData]);
 
   useEffect(() => {
+    if (!isTeamManager) return;
+    if (!Array.isArray(routineTasksData?.tasks)) return;
+    const defaultMode = assignedTasksCount > 0 ? "assigned" : "log";
+    setManagerRoutineReport((prev) => {
+      const next = {};
+      for (const task of routineTasksData.tasks) {
+        next[task.id] = prev?.[task.id] ?? {
+          mode: defaultMode,
+          assignedTaskId: null,
+          log: "",
+        };
+      }
+      return next;
+    });
+  }, [assignedTasksCount, isTeamManager, routineTasksData]);
+
+  useEffect(() => {
+    if (isTeamManager) return;
+    if (Object.keys(managerRoutineReport).length === 0) return;
+    setManagerRoutineReport({});
+  }, [isTeamManager, managerRoutineReport]);
+
+  useEffect(() => {
     const showBypass = !!dayCloseStatus?.showBypass;
     setAllowBypass(showBypass);
     if (!showBypass) {
@@ -183,6 +237,7 @@ export default function CloseMyDay() {
     }
 
     setShowIprJourney(dayCloseStatus?.showIprJourney !== false);
+    setMobileBlockActive(dayCloseStatus?.blockMobileDayClose ?? false);
 
     if (dayCloseStatus && ["pending", "approved", "rejected"].includes(dayCloseStatus.status)) {
       setRequestStatus(dayCloseStatus.status);
@@ -209,6 +264,17 @@ export default function CloseMyDay() {
     }
   }, [dayCloseStatus]);
 
+  useEffect(() => {
+    if (isMobileBlocked) {
+      setActiveView("main");
+      setShowConfirmModal(false);
+      setIsBypass(false);
+      setCurrentStep(1);
+      setIsSubmitting(false);
+      setError(mobileBlockMessage);
+    }
+  }, [isMobileBlocked]);
+
   const formatElapsedTime = (seconds) => {
     const hrs = Math.floor(seconds / 3600);
     const mins = Math.floor((seconds % 3600) / 60);
@@ -225,12 +291,22 @@ export default function CloseMyDay() {
   };
 
   const handleStartClose = () => {
+    if (isMobileBlocked) {
+      setError(mobileBlockMessage);
+      setActiveView("main");
+      return;
+    }
     setIsBypass(false);
     setActiveView("process");
     setCurrentStep(1);
   };
 
   const handleBypassClose = () => {
+    if (isMobileBlocked) {
+      setError(mobileBlockMessage);
+      setActiveView("main");
+      return;
+    }
     if (!allowBypass) return;
     setIsBypass(true);
     setActiveView("process");
@@ -254,13 +330,65 @@ export default function CloseMyDay() {
     setRoutineTasksStatuses((prev) => prev.map((t) => (t.id === taskId ? { ...t, done } : t)));
   };
 
+  const handleManagerReportChange = useCallback(
+    (taskId, updates) => {
+      if (!isTeamManager) return;
+      const numericId = Number(taskId);
+      if (!numericId || Number.isNaN(numericId)) return;
+      setManagerRoutineReport((prev) => {
+        const defaultEntry = {
+          mode: assignedTasksCount > 0 ? "assigned" : "log",
+          assignedTaskId: null,
+          log: "",
+        };
+        const previous = prev?.[numericId] ?? defaultEntry;
+        const nextEntry = {
+          ...previous,
+          ...(updates || {}),
+        };
+        return {
+          ...prev,
+          [numericId]: nextEntry,
+        };
+      });
+    },
+    [assignedTasksCount, isTeamManager]
+  );
+
   const handleSubmitClose = async () => {
+    if (isMobileBlocked) {
+      setError(mobileBlockMessage);
+      setShowConfirmModal(false);
+      return;
+    }
     setIsSubmitting(true);
     setError("");
     setSuccess("");
     setElapsedTime(0);
 
     try {
+      const routineTasksPayload = routineTasksStatuses.map((t) => {
+        const base = {
+          id: Number(t.id),
+          description: t.description,
+          done: !!t.done,
+        };
+        if (!isTeamManager) return base;
+        const report = managerRoutineReport?.[Number(t.id)] ?? {};
+        return {
+          ...base,
+          managerSource: report.mode || null,
+          managerAssignedTaskId:
+            report.mode === "assigned" && report.assignedTaskId
+              ? Number(report.assignedTaskId)
+              : null,
+          managerLog:
+            report.mode === "log" && report.log
+              ? report.log.trim()
+              : null,
+        };
+      });
+
       const body = {
         userId,
         date: format(new Date(), "yyyy-MM-dd"),
@@ -271,11 +399,7 @@ export default function CloseMyDay() {
           comment: u.comment || null,
           newDeadline: u.newDeadline ? new Date(u.newDeadline).toISOString() : null,
         })),
-        routineTasksUpdates: routineTasksStatuses.map((t) => ({
-          id: Number(t.id),
-          description: t.description,
-          done: !!t.done, // ensure boolean
-        })),
+        routineTasksUpdates: routineTasksPayload,
         routineLog: routineLog || null,
         generalLog: generalLog || null,
         mriCleared,
@@ -495,6 +619,12 @@ export default function CloseMyDay() {
                   {!isClosingWindow && !isBypass && !allowBypass && (
                     <p className="text-sm text-red-500 mt-2">Closing window not active yet.</p>
                   )}
+                  {isMobileBlocked && (
+                    <div className="mt-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
+                      <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" />
+                      <span>{mobileBlockMessage}</span>
+                    </div>
+                  )}
                   {requestStatus !== "none" && (
                     <p
                       className={`text-sm font-semibold mt-2 ${
@@ -532,24 +662,38 @@ export default function CloseMyDay() {
                   ) : (
                     <>
                       <motion.button
-                        className="w-full bg-teal-600 text-white py-3 rounded-xl font-semibold hover:bg-teal-700 transition-all duration-300 flex items-center justify-center gap-2 shadow-md"
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
+                        className={`w-full bg-teal-600 text-white py-3 rounded-xl font-semibold transition-all duration-300 flex items-center justify-center gap-2 shadow-md ${
+                          closeButtonDisabled ? "opacity-50 cursor-not-allowed" : "hover:bg-teal-700"
+                        }`}
+                        whileHover={{ scale: closeButtonDisabled ? 1 : 1.02 }}
+                        whileTap={{ scale: closeButtonDisabled ? 1 : 0.98 }}
                         onClick={handleStartClose}
-                        disabled={isSubmitting || !isClosingWindow}
-                        title={!isClosingWindow ? "Closing window not open, try at the right time." : ""}
+                        disabled={closeButtonDisabled}
+                        title={
+                          isMobileBlocked
+                            ? mobileBlockMessage
+                            : !isClosingWindow
+                            ? "Closing window not open, try at the right time."
+                            : ""
+                        }
                       >
                         <Clock size={16} />
                         Close My Day
                       </motion.button>
                       {allowBypass && (
                         <motion.button
-                          className="w-full bg-orange-600 text-white py-3 rounded-xl font-semibold hover:bg-orange-700 transition-all duration-300 flex items-center justify-center gap-2 shadow-md"
-                          whileHover={{ scale: 1.02 }}
-                          whileTap={{ scale: 0.98 }}
+                          className={`w-full bg-orange-600 text-white py-3 rounded-xl font-semibold transition-all duration-300 flex items-center justify-center gap-2 shadow-md ${
+                            bypassButtonDisabled ? "opacity-50 cursor-not-allowed" : "hover:bg-orange-700"
+                          }`}
+                          whileHover={{ scale: bypassButtonDisabled ? 1 : 1.02 }}
+                          whileTap={{ scale: bypassButtonDisabled ? 1 : 0.98 }}
                           onClick={handleBypassClose}
-                          title="Bypass close window (admin-controlled toggle)"
-                          disabled={isSubmitting}
+                          title={
+                            isMobileBlocked
+                              ? mobileBlockMessage
+                              : "Bypass close window (admin-controlled toggle)"
+                          }
+                          disabled={bypassButtonDisabled}
                         >
                           <Clock size={16} />
                           Bypass Close (Test)
@@ -656,7 +800,13 @@ export default function CloseMyDay() {
                 )}
 
                 {currentStep === 2 && (
-                  <motion.div key="step2" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.3 }}>
+                  <motion.div
+                    key="step2"
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                    transition={{ duration: 0.3 }}
+                  >
                     <AssignedTasksStep
                       assignedTasksData={assignedTasksData}
                       assignedTasksUpdates={assignedTasksUpdates}
@@ -680,6 +830,10 @@ export default function CloseMyDay() {
                       setRoutineLog={setRoutineLog}
                       handlePrevStep={handlePrevStep}
                       handleNextStep={handleNextStep}
+                      isTeamManager={isTeamManager}
+                      assignedTasksData={assignedTasksData}
+                      managerRoutineReport={managerRoutineReport}
+                      onManagerReportChange={handleManagerReportChange}
                     />
                   </motion.div>
                 )}
@@ -724,13 +878,19 @@ export default function CloseMyDay() {
                         Previous
                       </motion.button>
                       <motion.button
-                        onClick={() => setShowConfirmModal(true)}
-                        disabled={isSubmitting}
+                        onClick={() => {
+                          if (isMobileBlocked) {
+                            setError(mobileBlockMessage);
+                            return;
+                          }
+                          setShowConfirmModal(true);
+                        }}
+                        disabled={isSubmitting || isMobileBlocked}
                         className={`flex-1 bg-teal-600 text-white py-3 rounded-xl font-semibold transition-all duration-300 shadow-md ${
-                          isSubmitting ? "opacity-50 cursor-not-allowed" : "hover:bg-teal-700"
+                          isSubmitting || isMobileBlocked ? "opacity-50 cursor-not-allowed" : "hover:bg-teal-700"
                         }`}
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
+                        whileHover={{ scale: isSubmitting || isMobileBlocked ? 1 : 1.02 }}
+                        whileTap={{ scale: isSubmitting || isMobileBlocked ? 1 : 0.98 }}
                       >
                         {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Submit Close Day"}
                       </motion.button>

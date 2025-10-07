@@ -9,6 +9,7 @@ const FLAG_KEYS = {
   ipr: "show_day_close_ipr",
   wait: "day_close_wait_compulsory",
   waitFullscreen: "day_close_wait_fullscreen",
+  mobileBlock: "block_mobile_day_close",
 };
 
 const FLAG_DEFAULTS = {
@@ -16,6 +17,7 @@ const FLAG_DEFAULTS = {
   showIprJourney: true,
   dayCloseWaitCompulsory: false,
   dayCloseWaitFullscreen: false,
+  blockMobileDayClose: false,
 };
 
 async function requireAccess({ write = false } = {}) {
@@ -72,6 +74,9 @@ export async function GET() {
       showIprJourney: map.has(FLAG_KEYS.ipr) ? !!map.get(FLAG_KEYS.ipr) : FLAG_DEFAULTS.showIprJourney,
       dayCloseWaitCompulsory: map.has(FLAG_KEYS.wait) ? !!map.get(FLAG_KEYS.wait) : FLAG_DEFAULTS.dayCloseWaitCompulsory,
       dayCloseWaitFullscreen: map.has(FLAG_KEYS.waitFullscreen) ? !!map.get(FLAG_KEYS.waitFullscreen) : FLAG_DEFAULTS.dayCloseWaitFullscreen,
+      blockMobileDayClose: map.has(FLAG_KEYS.mobileBlock)
+        ? !!map.get(FLAG_KEYS.mobileBlock)
+        : FLAG_DEFAULTS.blockMobileDayClose,
     },
     { status: 200 }
   );
@@ -95,6 +100,9 @@ export async function POST(req) {
   }
   if (body.hasOwnProperty("dayCloseWaitFullscreen")) {
     updates.push({ key: FLAG_KEYS.waitFullscreen, value: !!body.dayCloseWaitFullscreen });
+  }
+  if (body.hasOwnProperty("blockMobileDayClose")) {
+    updates.push({ key: FLAG_KEYS.mobileBlock, value: !!body.blockMobileDayClose });
   }
 
   if (!updates.length) {
@@ -120,6 +128,7 @@ export async function POST(req) {
       showIprJourney: updates.find((item) => item.key === FLAG_KEYS.ipr)?.value ?? undefined,
       dayCloseWaitCompulsory: updates.find((item) => item.key === FLAG_KEYS.wait)?.value ?? undefined,
       dayCloseWaitFullscreen: updates.find((item) => item.key === FLAG_KEYS.waitFullscreen)?.value ?? undefined,
+      blockMobileDayClose: updates.find((item) => item.key === FLAG_KEYS.mobileBlock)?.value ?? undefined,
     },
     { status: 200 }
   );

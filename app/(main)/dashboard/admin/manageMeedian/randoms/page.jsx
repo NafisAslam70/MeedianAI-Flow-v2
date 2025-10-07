@@ -3,7 +3,7 @@
 import { useState } from "react";
 import useSWR from "swr";
 import { motion } from "framer-motion";
-import { Loader2, Sparkles, Check, X, Eye, EyeOff, Lock } from "lucide-react";
+import { Loader2, Sparkles, Check, X, Eye, EyeOff, Lock, Smartphone, SmartphoneOff } from "lucide-react";
 
 const fetcher = (url) =>
   fetch(url, { headers: { "Content-Type": "application/json" } }).then((res) => {
@@ -18,11 +18,13 @@ export default function RandomsPage() {
   const [isSavingIpr, setIsSavingIpr] = useState(false);
   const [isSavingWaitFs, setIsSavingWaitFs] = useState(false);
   const [isSavingWait, setIsSavingWait] = useState(false);
+  const [isSavingMobileBlock, setIsSavingMobileBlock] = useState(false);
 
   const showDayCloseBypass = data?.showDayCloseBypass ?? false;
   const showIprJourney = data?.showIprJourney ?? true;
   const dayCloseWaitCompulsory = data?.dayCloseWaitCompulsory ?? false;
   const dayCloseWaitFullscreen = data?.dayCloseWaitFullscreen ?? false;
+  const blockMobileDayClose = data?.blockMobileDayClose ?? false;
 
   const updateFlag = async ({ payload, setSaving, successMessage }) => {
     if (setSaving) setSaving(true);
@@ -91,6 +93,18 @@ export default function RandomsPage() {
       successMessage: nextValue
         ? "Full-screen lock during Day Close wait is ON."
         : "Full-screen lock is OFF.",
+    });
+  };
+
+  const handleToggleMobileBlock = () => {
+    if (isSavingMobileBlock) return;
+    const nextValue = !blockMobileDayClose;
+    updateFlag({
+      payload: { blockMobileDayClose: nextValue },
+      setSaving: setIsSavingMobileBlock,
+      successMessage: nextValue
+        ? "Members must use desktop to close their day."
+        : "Mobile Day Close submissions are allowed again.",
     });
   };
 
@@ -263,6 +277,45 @@ export default function RandomsPage() {
               )}
             </span>
           </motion.button>
+      </div>
+    </div>
+
+      <div className="max-w-xl rounded-2xl border border-amber-100 bg-white/90 shadow-sm p-6 space-y-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-800">Block Mobile Day Close</h2>
+            <p className="text-sm text-gray-600">
+              Forces members to complete Day Close from a desktop browser. Phones and tablets will see guidance to switch devices.
+            </p>
+          </div>
+          <motion.button
+            type="button"
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.97 }}
+            onClick={handleToggleMobileBlock}
+            disabled={isLoading || isSavingMobileBlock}
+            className={`relative inline-flex h-9 w-16 items-center rounded-full border transition-colors duration-200 ${
+              blockMobileDayClose ? "bg-amber-500 border-amber-500" : "bg-gray-200 border-gray-300"
+            } ${isSavingMobileBlock ? "opacity-70 cursor-not-allowed" : "cursor-pointer"}`}
+            aria-pressed={blockMobileDayClose}
+          >
+            <span
+              className={`ml-1 inline-flex h-7 w-7 transform items-center justify-center rounded-full bg-white shadow transition-transform duration-200 ${
+                blockMobileDayClose ? "translate-x-7" : "translate-x-0"
+              }`}
+            >
+              {isSavingMobileBlock ? (
+                <Loader2 className="h-4 w-4 animate-spin text-amber-600" />
+              ) : blockMobileDayClose ? (
+                <SmartphoneOff className="h-4 w-4 text-amber-600" />
+              ) : (
+                <Smartphone className="h-4 w-4 text-gray-500" />
+              )}
+            </span>
+          </motion.button>
+        </div>
+        <div className="text-sm text-gray-500">
+          Status: {isLoading ? "Loading…" : blockMobileDayClose ? "Mobile submissions are blocked." : "Members can submit Day Close on mobile."}
         </div>
       </div>
     </div>

@@ -1,5 +1,6 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
+import Link from "next/link";
 import { MessageSquare, Send, X, Sparkles, Mic, MicOff, Volume2, VolumeX } from "lucide-react";
 import { useSession } from "next-auth/react";
 
@@ -159,20 +160,30 @@ export default function DeluGPT() {
 
   return (
     <>
-      <button
-        onClick={() => setOpen(true)}
-        className="fixed bottom-4 sm:bottom-20 left-4 z-[1000] rounded-full p-0.5 shadow-xl border border-pink-300/40 bg-gradient-to-br from-pink-500 to-fuchsia-600 hover:brightness-110"
-        title="Open DELU‑GPT"
-        aria-label="Open DELU‑GPT"
-      >
-        <span
-          className="block w-12 h-12 rounded-full bg-white/95 flex items-center justify-center text-2xl"
-          style={{ boxShadow: "inset 0 0 10px rgba(0,0,0,.06)" }}
+      <div className="fixed bottom-4 sm:bottom-20 left-4 z-[1000] flex items-center gap-3 mb-safe">
+        <Link
+          href="/dashboard/managersCommon/assignTask"
+          className="flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-white shadow-xl border border-emerald-200/60 bg-gradient-to-r from-emerald-500 to-teal-500 hover:brightness-110"
+          aria-label="Assign Task"
         >
-          {/* Cartoon face emoji */}
-          <span role="img" aria-label="cartoon assistant">🤖</span>
-        </span>
-      </button>
+          <span role="img" aria-label="clipboard">🗒️</span>
+          Assign Task
+        </Link>
+        <button
+          onClick={() => setOpen(true)}
+          className="rounded-full p-0.5 shadow-xl border border-pink-300/40 bg-gradient-to-br from-pink-500 to-fuchsia-600 hover:brightness-110"
+          title="Open DELU‑GPT"
+          aria-label="Open DELU‑GPT"
+        >
+          <span
+            className="block w-12 h-12 rounded-full bg-white/95 flex items-center justify-center text-2xl"
+            style={{ boxShadow: "inset 0 0 10px rgba(0,0,0,.06)" }}
+          >
+            {/* Cartoon face emoji */}
+            <span role="img" aria-label="cartoon assistant">🤖</span>
+          </span>
+        </button>
+      </div>
 
       {open && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[1001]" onClick={() => setOpen(false)}>

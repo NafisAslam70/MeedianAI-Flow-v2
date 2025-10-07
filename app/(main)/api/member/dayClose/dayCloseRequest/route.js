@@ -10,7 +10,7 @@ import {
   dayCloseOverrides,
   systemFlags,
 } from "@/lib/schema";
-import { eq, and, ne } from "drizzle-orm";
+import { eq, and, ne, inArray } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 
 export async function POST(req) {
@@ -56,16 +56,35 @@ export async function POST(req) {
       }
     }
 
-    const FLAG_KEY = "show_day_close_bypass";
-    const [flagRow] = await db
-      .select({ value: systemFlags.value })
+    const FLAG_KEYS = {
+      bypass: "show_day_close_bypass",
+      mobileBlock: "block_mobile_day_close",
+    };
+
+    const flagRows = await db
+      .select({ key: systemFlags.key, value: systemFlags.value })
       .from(systemFlags)
-      .where(eq(systemFlags.key, FLAG_KEY))
-      .limit(1);
-    const bypassEnabled = !!flagRow?.value;
+      .where(inArray(systemFlags.key, Object.values(FLAG_KEYS)));
+    const flagMap = new Map(flagRows.map((row) => [row.key, row.value]));
+
+    const bypassEnabled = !!flagMap.get(FLAG_KEYS.bypass);
     const useBypass = !!bypass && bypassEnabled;
     if (!!bypass && !bypassEnabled) {
       return NextResponse.json({ error: "Day Close bypass is disabled by admin." }, { status: 403 });
+    }
+
+    const blockMobileDayClose = !!flagMap.get(FLAG_KEYS.mobileBlock);
+    if (blockMobileDayClose) {
+      const userAgent = req.headers.get("user-agent") || "";
+      const isMobileDevice = /Mobi|Android|iPhone|iPad|Phone|iPod|Mobile|Tablet/i.test(userAgent);
+      if (isMobileDevice) {
+        return NextResponse.json(
+          {
+            error: "Day Close submissions from mobile devices are currently blocked. Please switch to a desktop browser.",
+          },
+          { status: 403 }
+        );
+      }
     }
 
     // TO BE REMOVED FOR PRODUCTION: Bypass closing window check

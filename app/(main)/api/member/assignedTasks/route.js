@@ -7,6 +7,7 @@ import {
   assignedTasks,
   messages,
   assignedTaskLogs,
+  assignedTaskObservers,
 } from "@/lib/schema";
 import { auth } from "@/lib/auth";
 import { eq, and, inArray, desc, lte } from "drizzle-orm";
@@ -107,7 +108,29 @@ const rows = await db
           )
         );
 
+      const taskIds = rows.map((r) => r.id);
       const statusIds = rows.map((r) => r.taskStatusId);
+      const observersByTask = new Map();
+      if (taskIds.length) {
+        const observerRows = await db
+          .select({
+            taskId: assignedTaskObservers.taskId,
+            userId: assignedTaskObservers.userId,
+            name: users.name,
+            email: users.email,
+          })
+          .from(assignedTaskObservers)
+          .leftJoin(users, eq(users.id, assignedTaskObservers.userId))
+          .where(inArray(assignedTaskObservers.taskId, taskIds));
+
+        observerRows.forEach((row) => {
+          if (!row.taskId || !row.userId) return;
+          const list = observersByTask.get(row.taskId) || [];
+          list.push({ id: row.userId, name: row.name, email: row.email });
+          observersByTask.set(row.taskId, list);
+        });
+      }
+
       const allSprints = await db
         .select()
         .from(sprints)
@@ -116,6 +139,9 @@ const rows = await db
       const tasks = rows.map((t) => ({
         ...t,
         sprints: allSprints.filter((s) => s.taskStatusId === t.taskStatusId),
+        observers: observersByTask.get(t.id) || [],
+        observerIds: (observersByTask.get(t.id) || []).map((o) => o.id),
+        observerId: observersByTask.get(t.id)?.[0]?.id ?? null,
       }));
 
       return NextResponse.json({ tasks });
@@ -186,7 +212,29 @@ const rows = await db
         sprints: allSprints.filter((sp) => sp.taskStatusId === s.statusId),
       }));
 
-      return NextResponse.json({ task: { ...task, assignees } });
+      const observerRows = await db
+        .select({
+          userId: assignedTaskObservers.userId,
+          name: users.name,
+          email: users.email,
+        })
+        .from(assignedTaskObservers)
+        .leftJoin(users, eq(users.id, assignedTaskObservers.userId))
+        .where(eq(assignedTaskObservers.taskId, taskId));
+
+      const observers = observerRows
+        .filter((row) => row.userId != null)
+        .map((row) => ({ id: row.userId, name: row.name, email: row.email }));
+
+      return NextResponse.json({
+        task: {
+          ...task,
+          assignees,
+          observers,
+          observerIds: observers.map((observer) => observer.id),
+          observerId: observers.length ? observers[0].id : task.observerId ?? null,
+        },
+      });
     }
 
     /* ---------------------------------------------- */
@@ -373,9 +421,6 @@ export async function PATCH(req) {
       return NextResponse.json({ error: "memberId required" }, { status: 400 });
     }
     const userId = Number(session.user.id);
-    if (session.user.role === "member" && memberId !== userId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
-    }
 
     let derived = null;
 
@@ -392,51 +437,79 @@ export async function PATCH(req) {
     if (!taskStatusRow)
       return NextResponse.json({ error: "Task not assigned" }, { status: 404 });
 
-    // Member transitions
-    if (session.user.role === "member") {
-      const allowedTaskTransitions = {
-        not_started: ["in_progress"],
-        in_progress: ["in_progress", "pending_verification"],
-        pending_verification: ["in_progress"],
-        done: [],
-        verified: [],
-      };
-
-      if (
-        action === "update_task" &&
-        !allowedTaskTransitions[await currentStatus(taskStatusRow.id)].includes(
-          status
-        )
-      ) {
-        return NextResponse.json({ error: "Invalid task transition" }, { status: 403 });
-      }
-
-      if (action === "update_sprint") {
-        const currentSprintStatus = await getSprintStatus(sprintId);
-        const allowedSprintTransitions = {
-          not_started: ["in_progress"],
-          in_progress: ["in_progress", "done"],
-          done: ["in_progress"],
-          verified: [],
-        };
-        if (
-          !allowedSprintTransitions[currentSprintStatus].includes(status)
-        ) {
-          return NextResponse.json(
-            { error: "Invalid sprint transition" },
-            { status: 403 }
-          );
-        }
-      }
-    }
-
     // Get task meta
     const [task] = await db
-      .select({ title: assignedTasks.title, createdBy: assignedTasks.createdBy })
+      .select({
+        title: assignedTasks.title,
+        createdBy: assignedTasks.createdBy,
+        observerId: assignedTasks.observerId,
+      })
       .from(assignedTasks)
       .where(eq(assignedTasks.id, taskId));
     if (!task)
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
+
+    const observerId = task?.observerId ? Number(task.observerId) : null;
+    const observerRows = await db
+      .select({ userId: assignedTaskObservers.userId })
+      .from(assignedTaskObservers)
+      .where(eq(assignedTaskObservers.taskId, taskId));
+    const observerIdSet = new Set(observerRows.map((row) => Number(row.userId)));
+    if (observerId != null) observerIdSet.add(observerId);
+
+    const isObserver = observerIdSet.has(userId);
+    const isDoer = memberId === userId;
+
+    if (!isDoer && !isObserver) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+    }
+
+    const currentTaskStatus = await currentStatus(taskStatusRow.id);
+
+    if (action === "update_task") {
+      let allowedNext = [];
+      if (isDoer) {
+        const doerTransitions = {
+          not_started: ["in_progress"],
+          in_progress: ["pending_verification"],
+          pending_verification: [],
+          done: [],
+          verified: [],
+        };
+        allowedNext = doerTransitions[currentTaskStatus] || [];
+      }
+      if (isObserver) {
+        const observerTransitions = {
+          pending_verification: ["in_progress", "done", "verified"],
+        };
+        allowedNext = observerTransitions[currentTaskStatus] || [];
+      }
+
+      const normalizedAllowed = new Set([currentTaskStatus, ...allowedNext]);
+      if (!normalizedAllowed.has(status)) {
+        return NextResponse.json({ error: "Invalid task transition" }, { status: 403 });
+      }
+    }
+
+    if (action === "update_sprint") {
+      if (!isDoer) {
+        return NextResponse.json({ error: "Only the doer can update sprint progress" }, { status: 403 });
+      }
+
+      const currentSprintStatus = await getSprintStatus(sprintId);
+      const allowedSprintTransitions = {
+        not_started: ["in_progress"],
+        in_progress: ["in_progress", "done"],
+        done: ["in_progress"],
+        verified: [],
+      };
+      if (!allowedSprintTransitions[currentSprintStatus]?.includes(status) && status !== currentSprintStatus) {
+        return NextResponse.json(
+          { error: "Invalid sprint transition" },
+          { status: 403 }
+        );
+      }
+    }
 
     const [updaterRow] = await db
       .select({ name: users.name })

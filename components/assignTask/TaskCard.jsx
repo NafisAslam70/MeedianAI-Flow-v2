@@ -54,7 +54,19 @@ const statusLabel = (status) => {
 };
 
 const TaskCard = ({ task, selectedTaskIds, setSelectedTaskIds, setSelectedTask, setShowModal, getStatusColor, members }) => {
-  const assignedBy = members ? members.find((m) => m.id === task.createdBy)?.name || "you" : "Loading...";
+  const assignedBy = members ? members.find((m) => Number(m.id) === Number(task.createdBy))?.name || "you" : "Loading...";
+  const observerList = Array.isArray(task.observers) ? task.observers : [];
+  const fallbackObserverId = task?.observer?.id ?? task?.observerId ?? null;
+  const fallbackObserverName = task?.observer?.name || task?.observerName || (fallbackObserverId && members
+    ? members.find((m) => Number(m.id) === Number(fallbackObserverId))?.name || null
+    : null);
+  const observerNames = observerList
+    .map((observer) => observer?.name || (observer?.id != null ? `Observer ${observer.id}` : null))
+    .filter(Boolean);
+  if (!observerNames.length && fallbackObserverName) observerNames.push(fallbackObserverName);
+  const observerName = observerNames.length
+    ? observerNames.slice(0, 2).join(", ") + (observerNames.length > 2 ? ` +${observerNames.length - 2}` : "")
+    : "—";
   const assignees = Array.isArray(task.assignees) ? task.assignees : [];
   const progress = sprintProgress(task.sprints);
   const due = dueBadge(task.deadline);
@@ -130,8 +142,9 @@ const TaskCard = ({ task, selectedTaskIds, setSelectedTaskIds, setSelectedTask, 
           </div>
         </div>
 
-        <div className="mt-3 flex items-center justify-between text-[11px] text-gray-500">
+        <div className="mt-3 flex items-center justify-between text-[11px] text-gray-500 gap-2">
           <span>By {assignedBy}</span>
+          <span>Observer: {observerName || "—"}</span>
           {task.deadline && <span>{new Date(task.deadline).toLocaleDateString()}</span>}
         </div>
       </motion.div>

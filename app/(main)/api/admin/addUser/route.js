@@ -185,7 +185,8 @@ export async function POST(req) {
             validAssignedTasks.map((task) => ({
               title: task.title,
               description: task.description || null,
-              createdBy: session.user.id,
+              createdBy: Number(session.user.id),
+              observerId: Number(session.user.id),
               createdAt: new Date(),
               taskType: "assigned",
             }))

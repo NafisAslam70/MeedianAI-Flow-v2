@@ -26,6 +26,11 @@ import AssignedTasksView from "@/components/member/AssignedTasksView";
 import RoutineTasksView from "@/components/member/RoutineTasksView";
 import RoutineTrackerModal from "@/components/member/RoutineTrackerModal";
 import { DeepCalendarModal, ActiveBlockView, fromMinutes } from "@/components/DeepCalendar";
+import {
+  normalizeTaskStatus,
+  getTaskStatusOptions,
+  getSprintStatusOptions,
+} from "@/lib/taskWorkflow";
 
 /* ------------------------------------------------------------------ */
 /*  DeepCalendar helpers                                               */
@@ -64,6 +69,8 @@ const formatTimeLeft = (s) =>
   `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 
 const clamp0 = (n) => Math.max(0, Number.isFinite(n) ? n : 0);
+
+const normalizeStatus = (status) => normalizeTaskStatus(status);
 
 /* ------------------------------------------------------------------ */
 /*  Derived task status helper & reducer                               */
@@ -759,6 +766,10 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
   const [newStatus, setNewStatus] = useState("");
   const [selectedSprint, setSelectedSprint] = useState("");
   const [sprints, setSprints] = useState([]);
+  const [statusOptions, setStatusOptions] = useState([]);
+  const [statusModalMode, setStatusModalMode] = useState("task");
+  const [actorContext, setActorContext] = useState({ isDoer: false, isObserver: false, isManager: false });
+  const [activeMemberId, setActiveMemberId] = useState(null);
   const [taskLogs, setTaskLogs] = useState([]);
   const [newLogComment, setNewLogComment] = useState("");
   const [closeDayComment, setCloseDayComment] = useState("");
@@ -777,6 +788,33 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
   const [ingesting, setIngesting] = useState(false);
   const [scannerActive, setScannerActive] = useState(false);
   const [showOpenDaySuccess, setShowOpenDaySuccess] = useState(false);
+
+  const evaluateTaskContext = (task) => {
+    const sessionUserId = Number(session?.user?.id);
+    const isManagerUser = role === "team_manager" || role === "admin";
+    const viewedMemberId = Number(viewUserId || user?.id || task?.assignees?.[0]?.id);
+    const observerIds = new Set();
+    if (Array.isArray(task?.observers)) {
+      task.observers.forEach((observer) => {
+        if (observer?.id != null) observerIds.add(Number(observer.id));
+      });
+    }
+    if (task?.observerId != null) observerIds.add(Number(task.observerId));
+    if (task?.observer?.id != null) observerIds.add(Number(task.observer.id));
+    const isObserver = observerIds.has(sessionUserId);
+    const isDoer = Array.isArray(task?.assignees)
+      ? task.assignees.some((assignee) => Number(assignee?.id) === viewedMemberId)
+      : false;
+    const doerId = viewedMemberId || null;
+    return {
+      isObserver,
+      isDoer,
+      isManager: isManagerUser,
+      doerId,
+      sessionUserId,
+      viewedMemberId,
+    };
+  };
 
   // Soft beep on success (no asset required)
   const playBeep = () => {
@@ -1062,14 +1100,14 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
   /*  Task helpers                               */
   /* ------------------------------------------- */
   const fetchSprints = async (taskId, memberId) => {
-    memberId = viewUserId || user?.id;
-    const key = `sprints:${taskId}:${memberId}`;
+    const targetMemberId = memberId || viewUserId || user?.id;
+    const key = `sprints:${taskId}:${targetMemberId}`;
     if (taskCache.has(key)) {
       setSprints(taskCache.get(key));
       return;
     }
     try {
-      const r = await fetch(`/api/member/assignedTasks?taskId=${taskId}&memberId=${memberId}&action=sprints`);
+      const r = await fetch(`/api/member/assignedTasks?taskId=${taskId}&memberId=${targetMemberId}&action=sprints`);
       if (role === "team_manager" && r.status === 401) {
         setError("Unauthorized access. Please log in again.");
         setTimeout(() => setError(""), 3000);
@@ -1116,6 +1154,60 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
       setTimeout(() => setError(""), 3000);
     }
     return null;
+  };
+
+  const openStatusModal = async (task, { sprint } = {}) => {
+    if (!task) return;
+    const context = evaluateTaskContext(task);
+    setActorContext({
+      isObserver: context.isObserver,
+      isDoer: context.isDoer,
+      isManager: context.isManager,
+    });
+    setActiveMemberId(context.doerId);
+
+    const currentTaskStatus = normalizeStatus(task.status);
+    const taskOptions = getTaskStatusOptions(currentTaskStatus, context);
+
+    const targetSprint = sprint || null;
+    const isSprintFlow = Boolean(targetSprint);
+    const currentSprintStatus = normalizeStatus(targetSprint?.status);
+    const sprintOptions = isSprintFlow ? getSprintStatusOptions(currentSprintStatus, context) : [];
+
+    const availableOptions = isSprintFlow ? sprintOptions : taskOptions;
+    setStatusOptions(availableOptions);
+    setStatusModalMode(isSprintFlow ? "sprint" : "task");
+
+    const defaultStatus = availableOptions.find(
+      (opt) => opt.value !== (isSprintFlow ? currentSprintStatus : currentTaskStatus)
+    )?.value || availableOptions[0]?.value || (isSprintFlow ? currentSprintStatus : currentTaskStatus);
+
+    setNewStatus(defaultStatus);
+    setSelectedTask(task);
+    setSprints(task.sprints || []);
+    const sprintIdValue = isSprintFlow && targetSprint?.id ? String(targetSprint.id) : "";
+    setSelectedSprint(sprintIdValue);
+    if (isSprintFlow && sprintIdValue) {
+      handleSprintOptionChange(sprintIdValue, task, availableOptions, defaultStatus);
+    }
+
+    await fetchSprints(task.id, context.doerId);
+    await fetchTaskLogs(task.id);
+    setShowStatusModal(true);
+  };
+
+  const handleSprintOptionChange = (sprintId, taskOverride = null, precomputedOptions = null, presetStatus = null) => {
+    const referenceTask = taskOverride || selectedTask;
+    if (!referenceTask) return;
+    const context = evaluateTaskContext(referenceTask);
+    const sourceSprints = (sprints && sprints.length ? sprints : referenceTask.sprints) || [];
+    const sprintObj = sourceSprints.find((s) => String(s.id) === String(sprintId));
+    if (!sprintObj) return;
+    const options = precomputedOptions || getSprintStatusOptions(normalizeStatus(sprintObj.status), context);
+    setStatusOptions(options);
+    const defaultStatus = presetStatus
+      || (options.find((opt) => opt.value === newStatus) ? newStatus : options[0]?.value);
+    if (defaultStatus) setNewStatus(defaultStatus);
   };
 
   const notifyAssigneesChat = async (taskId, messageContent) => {
@@ -1166,6 +1258,13 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
     return () => window.removeEventListener("member-open-task", handler);
   }, [state.assignedTasks, user?.id, viewUserId]);
 
+  useEffect(() => {
+    if (statusModalMode === "sprint" && selectedSprint) {
+      handleSprintOptionChange(selectedSprint);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sprints]);
+
   const startVoiceRecording = () => {
     if (!window.SpeechRecognition && !window.webkitSpeechRecognition) {
       setError("Speech recognition is not supported in this browser.");
@@ -1193,6 +1292,15 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
   };
 
   const handleTranslateComment = () => setShowComingSoonModal(true);
+
+  const resolveTaskPermissions = (task) => {
+    if (!task) {
+      return { statusOptions: [], context: { isObserver: false, isDoer: false, isManager: false } };
+    }
+    const context = evaluateTaskContext(task);
+    const statusOptions = getTaskStatusOptions(normalizeStatus(task.status), context);
+    return { statusOptions, context };
+  };
 
   const handleAddLog = async () => {
     if (!newLogComment) {
@@ -1229,14 +1337,20 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
 
   const handleStatusUpdate = async () => {
     if (!selectedTask || !newStatus) return;
+    if (!statusOptions.some((opt) => opt.value === newStatus)) {
+      setError("This status change isn’t permitted for your role.");
+      setTimeout(() => setError(""), 3000);
+      return;
+    }
     setIsUpdating(true);
-    const isSprint = sprints.length && selectedSprint;
+    const isSprint = statusModalMode === "sprint";
+    const memberIdForUpdate = activeMemberId || viewUserId || user?.id;
     const body = isSprint
       ? {
           sprintId: parseInt(selectedSprint),
           status: newStatus,
           taskId: selectedTask.id,
-          memberId: viewUserId || user?.id,
+          memberId: memberIdForUpdate,
           action: "update_sprint",
           notifyAssignees: sendNotification,
           notifyWhatsapp: sendWhatsapp,
@@ -1245,7 +1359,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
       : {
           taskId: selectedTask.id,
           status: newStatus,
-          memberId: viewUserId || user?.id,
+          memberId: memberIdForUpdate,
           action: "update_task",
           notifyAssignees: sendNotification,
           notifyWhatsapp: sendWhatsapp,
@@ -1277,9 +1391,11 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
       setShowStatusModal(false);
       setNewStatus("");
       setSelectedSprint("");
+      setStatusOptions([]);
       setNewLogComment("");
       setSendNotification(true);
       setSendWhatsapp(false);
+      setStatusModalMode("task");
       setTimeout(() => setSuccess(""), 2500);
     } catch (e) {
       setError(e.message || "Update failed");
@@ -1865,19 +1981,11 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
               isLoadingAssignedTasks={isLoadingAssignedTasks}
               selectedDate={selectedDate}
               handleTaskSelect={async (t) => {
-                setSelectedTask(t);
-                setNewStatus(t.status || "not_started");
-                await fetchSprints(t.id, user?.id);
-                await fetchTaskLogs(t.id);
-                setShowStatusModal(true);
+                await openStatusModal(t);
               }}
               handleSprintSelect={async (t, s) => {
-                setSelectedTask(t);
-                setNewStatus(s.status || "not_started");
                 setSprints(t.sprints || []);
-                setSelectedSprint(String(s.id));
-                await fetchTaskLogs(t.id);
-                setShowStatusModal(true);
+                await openStatusModal(t, { sprint: s });
               }}
               handleTaskDetails={async (t) => {
                 let taskToSet = t;
@@ -1893,6 +2001,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
               }}
               users={users}
               assignedTaskSummary={state.assignedTaskSummary}
+              resolveTaskPermissions={resolveTaskPermissions}
             />
           )}
 
@@ -2109,6 +2218,10 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                 setNewLogComment("");
                 setSendNotification(true);
                 setSendWhatsapp(false);
+                setStatusOptions([]);
+                setStatusModalMode("task");
+                setActorContext({ isObserver: false, isDoer: false, isManager: false });
+                setActiveMemberId(null);
               }}
               startVoiceRecording={startVoiceRecording}
               isRecording={isRecording}
@@ -2117,30 +2230,33 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
               currentUserName={session?.user?.name}
               error={error}
               success={success}
+              statusOptions={statusOptions}
+              mode={statusModalMode}
+              actorContext={actorContext}
+              observerName={selectedTask?.observer?.name || selectedTask?.observerName}
+              onSprintChange={handleSprintOptionChange}
             />
           )}
         </AnimatePresence>
 
         <AnimatePresence>
           {showDetailsModal && (
-            <AssignedTaskDetails
-              task={selectedTask}
-              taskLogs={taskLogs}
-              users={users}
-              onClose={() => {
-                setShowDetailsModal(false);
-                setSelectedTask(null);
-                setTaskLogs([]);
-                setSprints([]);
-              }}
-              currentUserId={session?.user?.id}
-              currentUserName={session?.user?.name}
-              onUpdateStatusClick={() => {
-                setNewStatus(selectedTask?.status || "not_started");
-                setSelectedSprint("");
-                setShowStatusModal(true);
-              }}
-            />
+              <AssignedTaskDetails
+                task={selectedTask}
+                taskLogs={taskLogs}
+                users={users}
+                onClose={() => {
+                  setShowDetailsModal(false);
+                  setSelectedTask(null);
+                  setTaskLogs([]);
+                  setSprints([]);
+                }}
+                currentUserId={session?.user?.id}
+                currentUserName={session?.user?.name}
+                onUpdateStatusClick={(task) => {
+                  openStatusModal(task);
+                }}
+              />
           )}
         </AnimatePresence>
 

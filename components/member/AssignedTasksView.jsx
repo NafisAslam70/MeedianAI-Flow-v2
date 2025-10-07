@@ -16,6 +16,7 @@ import {
   ListChecks,
   SunMedium,
   Undo2,
+  UserCircle,
 } from "lucide-react";
 
 const STATUS_META = {
@@ -171,6 +172,7 @@ export default function AssignedTasksView({
   users,
   assignedTaskSummary,
   refreshTasks: externalRefreshTasks,
+  resolveTaskPermissions,
 }) {
   const [assignedTasks, setAssignedTasks] = useState(initialAssignedTasks || []);
   const [viewMode, setViewMode] = useState("list");
@@ -493,12 +495,23 @@ export default function AssignedTasksView({
   };
 
   const renderTaskCard = (task, { inBasket = false, inArchive = false } = {}) => {
+    const permissions = resolveTaskPermissions
+      ? resolveTaskPermissions(task)
+      : { statusOptions: [], context: { isObserver: false, isDoer: false, isManager: false } };
     const statusKey = normalizeStatus(task.status);
     const meta = STATUS_META[statusKey] || STATUS_META.not_started;
     const deadlineLabel = formatDeadline(task.deadline);
     const deadlineKind = deadlineState(task.deadline);
     const allowArchive = isCompleted(task.status);
-    const canUpdateTask = !(task.sprints && task.sprints.length > 0);
+    const canUpdateTask = permissions.statusOptions.length > 0;
+    const observerEntries = Array.isArray(task.observers) ? task.observers : [];
+    const observerNames = observerEntries
+      .map((observer) => observer?.name || (observer?.id != null ? `Observer ${observer.id}` : null))
+      .filter(Boolean);
+    if (!observerNames.length && task.observerName) observerNames.push(task.observerName);
+    const observerLabel = observerNames.length
+      ? observerNames.slice(0, 2).join(", ") + (observerNames.length > 2 ? ` +${observerNames.length - 2}` : "")
+      : "—";
 
     return (
       <motion.div
@@ -532,6 +545,9 @@ export default function AssignedTasksView({
             <span className="inline-flex items-center gap-1 rounded-xl bg-slate-100 px-3 py-1">
               <Clock className="h-3.5 w-3.5" />
               Assigned {task.assignedDate ? new Date(task.assignedDate).toLocaleDateString() : "recently"}
+            </span>
+            <span className="inline-flex items-center gap-1 rounded-xl bg-sky-100 px-3 py-1 text-sky-700">
+              <UserCircle className="h-3.5 w-3.5" /> Observer{observerNames.length > 1 ? "s" : ""}: {observerLabel}
             </span>
             {deadlineKind === "overdue" && (
               <span className="inline-flex items-center gap-1 rounded-xl bg-rose-100 px-3 py-1 text-rose-600">
@@ -590,6 +606,7 @@ export default function AssignedTasksView({
           <button
             onClick={() => handleTaskSelect(task)}
             disabled={!canUpdateTask}
+            title={canUpdateTask ? undefined : "No status changes available for your role"}
             className={`inline-flex items-center gap-1 rounded-xl px-3 py-1.5 text-xs font-semibold transition-colors ${
               canUpdateTask
                 ? "bg-indigo-600 text-white hover:bg-indigo-500"

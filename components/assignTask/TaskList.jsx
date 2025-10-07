@@ -27,8 +27,8 @@ const TaskList = ({
   const [startDate, endDate] = dateRange;
 
   return (
-    <div className="w-full sm:w-1/2 flex flex-col gap-4 h-full">
-      <div className="sticky top-0 z-10 bg-white/70 backdrop-blur rounded-2xl border border-teal-50 p-3">
+    <div className="w-full flex flex-col gap-4 h-full">
+      <div className="sticky top-0 z-10 bg-white/85 backdrop-blur-lg rounded-3xl border border-slate-100 p-4 shadow-xl">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
             <svg className="w-6 sm:w-7 h-6 sm:h-7 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">

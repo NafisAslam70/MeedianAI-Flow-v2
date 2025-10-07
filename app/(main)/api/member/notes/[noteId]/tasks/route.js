@@ -198,6 +198,7 @@ export async function POST(req, context) {
           description: task.description,
           taskType: task.taskType,
           createdBy: requesterId,
+          observerId: requesterId,
           createdAt: now,
           updatedAt: now,
           deadline: task.deadline,

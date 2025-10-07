@@ -70,6 +70,7 @@ export async function GET() {
       ipr: "show_day_close_ipr",
       wait: "day_close_wait_compulsory",
       waitFullscreen: "day_close_wait_fullscreen",
+      mobileBlock: "block_mobile_day_close",
     };
 
     const flagRows = await db
@@ -82,6 +83,7 @@ export async function GET() {
     const showIprJourney = flagMap.has(FLAG_KEYS.ipr) ? !!flagMap.get(FLAG_KEYS.ipr) : true;
     const dayCloseWaitCompulsory = flagMap.has(FLAG_KEYS.wait) ? !!flagMap.get(FLAG_KEYS.wait) : false;
     const dayCloseWaitFullscreen = flagMap.has(FLAG_KEYS.waitFullscreen) ? !!flagMap.get(FLAG_KEYS.waitFullscreen) : false;
+    const blockMobileDayClose = flagMap.has(FLAG_KEYS.mobileBlock) ? !!flagMap.get(FLAG_KEYS.mobileBlock) : false;
 
     return NextResponse.json(
       {
@@ -93,6 +95,7 @@ export async function GET() {
         showIprJourney,
         dayCloseWaitCompulsory,
         dayCloseWaitFullscreen,
+        blockMobileDayClose,
       },
       { status: 200 }
     );

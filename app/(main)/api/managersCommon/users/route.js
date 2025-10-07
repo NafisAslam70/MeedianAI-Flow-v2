@@ -18,8 +18,11 @@ export async function GET(req) {
       .select({
         id: users.id,
         name: users.name,
+        email: users.email,
         role: users.role,
-        type: users.team_manager_type,
+        type: users.type,
+        team_manager_type: users.team_manager_type,
+        immediate_supervisor: users.immediate_supervisor,
       })
       .from(users)
       .where(ne(users.id, userId));

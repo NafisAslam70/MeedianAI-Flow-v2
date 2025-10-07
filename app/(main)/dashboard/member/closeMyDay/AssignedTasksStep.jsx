@@ -1,16 +1,15 @@
 "use client";
 
+import { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useRef, useState, useEffect, useMemo } from "react";
-import { ArrowLeft, ArrowRight, CheckCircle, Info, Calendar } from "lucide-react";
-import { format } from "date-fns";
+import { format, startOfDay, isSameDay, differenceInCalendarDays } from "date-fns";
+import { CheckCircle, Info, Calendar, AlertTriangle } from "lucide-react";
 import useSWR from "swr";
 import AssignedTaskDetails from "@/components/assignedTaskCardDetailForAll";
 import { useSession } from "next-auth/react";
 import { createPortal } from "react-dom";
 
-const fetcher = (url) =>
-  fetch(url).then((res) => res.json());
+const fetcher = (url) => fetch(url).then((res) => res.json());
 
 export default function AssignedTasksStep({
   assignedTasksData,
@@ -19,151 +18,308 @@ export default function AssignedTasksStep({
   handlePrevStep,
   handleNextStep,
 }) {
-  const carouselRef = useRef(null);
-  const [carouselPosition, setCarouselPosition] = useState(0);
-  const [showLeftArrow, setShowLeftArrow] = useState(false);
-  const [showRightArrow, setShowRightArrow] = useState(false);
-  const [selectedTaskDetails, setSelectedTaskDetails] = useState(null);
-  const [showDetailsModal, setShowDetailsModal] = useState(false);
   const { data: session } = useSession();
   const { data } = useSWR("/api/member/users", fetcher);
   const users = data?.users || [];
 
-  const { data: taskDetails, error: taskDetailsError } = useSWR(
+  const [selectedTaskDetails, setSelectedTaskDetails] = useState(null);
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [validationError, setValidationError] = useState("");
+
+  const { data: taskDetails } = useSWR(
     selectedTaskDetails ? `/api/member/assignedTasks?taskId=${selectedTaskDetails.id}&action=task` : null,
     fetcher
   );
-  const { data: taskLogs, error: taskLogsError } = useSWR(
+  const { data: taskLogs } = useSWR(
     selectedTaskDetails ? `/api/member/assignedTasks?taskId=${selectedTaskDetails.id}&action=logs` : null,
     fetcher
   );
 
   useEffect(() => {
-    console.log("Task Details Data:", taskDetails, "Error:", taskDetailsError);
-    console.log("Task Logs Data:", taskLogs, "Error:", taskLogsError);
     if (taskDetails && selectedTaskDetails) {
-      console.log("Setting showDetailsModal to true");
       setShowDetailsModal(true);
     }
-  }, [taskDetails, taskDetailsError, taskLogs, taskLogsError, selectedTaskDetails]);
+  }, [taskDetails, selectedTaskDetails]);
 
-  useEffect(() => {
-    const updateArrows = () => {
-      if (carouselRef.current) {
-        const { scrollLeft, scrollWidth, clientWidth } = carouselRef.current;
-        setShowLeftArrow(scrollLeft > 0);
-        setShowRightArrow(scrollLeft + clientWidth < scrollWidth - 1);
-      }
-    };
+  const todayStart = startOfDay(new Date());
 
-    const ref = carouselRef.current;
-    if (ref) {
-      ref.addEventListener("scroll", updateArrows);
-      updateArrows();
-    }
-
-    return () => {
-      if (ref) ref.removeEventListener("scroll", updateArrows);
-    };
-  }, [assignedTasksData?.tasks]);
-
-  const getStatusColor = (status) => {
-    switch (status) {
-      case "not_started": return { bg: "bg-red-50", border: "border-red-100", text: "text-red-600" };
-      case "in_progress": return { bg: "bg-amber-50", border: "border-amber-100", text: "text-amber-600" };
-      case "pending_verification": return { bg: "bg-indigo-50", border: "border-indigo-100", text: "text-indigo-600" };
-      case "verified": case "done": return { bg: "bg-emerald-50", border: "border-emerald-100", text: "text-emerald-600" };
-      default: return { bg: "bg-gray-50", border: "border-gray-100", text: "text-gray-600" };
-    }
+  const parseDeadline = (deadline) => {
+    if (!deadline) return null;
+    const asDate = new Date(deadline);
+    return Number.isNaN(asDate.valueOf()) ? null : asDate;
   };
 
-  const getAssignedBy = (createdBy) => {
-    const user = users?.find((u) => u.id === createdBy);
-    if (!user) return `ID ${createdBy || "Unknown"}`;
+  const activeTasks = useMemo(
+    () =>
+      (assignedTasksData?.tasks || []).filter(
+        (task) => task && !["done", "verified"].includes(task.status)
+      ),
+    [assignedTasksData]
+  );
+
+  const categorizeTasks = useMemo(() => {
+    const todayList = [];
+    const approachingList = [];
+    const overdueList = [];
+
+    activeTasks.forEach((task) => {
+      const deadline = parseDeadline(task.deadline);
+      if (!deadline) {
+        todayList.push(task);
+        return;
+      }
+
+      const deadlineStart = startOfDay(deadline);
+      if (deadlineStart < todayStart) {
+        overdueList.push(task);
+      } else if (isSameDay(deadlineStart, todayStart)) {
+        todayList.push(task);
+      } else {
+        approachingList.push(task);
+      }
+    });
+
+    approachingList.sort((a, b) => new Date(a.deadline) - new Date(b.deadline));
+    overdueList.sort((a, b) => new Date(a.deadline) - new Date(b.deadline));
+
+    return {
+      todayList,
+      approachingList,
+      overdueList,
+    };
+  }, [activeTasks, todayStart]);
+
+  const getUserLabel = (task) => {
+    const user = users?.find((u) => u.id === task.createdBy);
+    if (!user) return `ID ${task.createdBy || "Unknown"}`;
     if (user.role === "admin") return "Superintendent";
     if (user.role === "team_manager") {
       return user.team_manager_type
         ? user.team_manager_type
-          .split("_")
-          .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-          .join(" ")
+            .split("_")
+            .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(" ")
         : "Team Manager";
     }
     return user.type
       ? user.type
-        .split("_")
-        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-        .join(" ")
+          .split("_")
+          .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+          .join(" ")
       : "Member";
   };
 
-  const completedTasks = useMemo(() =>
-    (assignedTasksData?.tasks || []).filter(task => task.status === "verified" || task.status === "done"),
-    [assignedTasksData]
+  const sections = useMemo(() => {
+    const blocks = [];
+
+    if (categorizeTasks.todayList.length) {
+      blocks.push({
+        id: "today",
+        title: "Today's Basket Work",
+        description: "Focus on tasks due today or without a set deadline.",
+        tasks: categorizeTasks.todayList,
+      });
+    }
+
+    if (categorizeTasks.approachingList.length) {
+      blocks.push({
+        id: "approaching",
+        title: "Approaching Deadlines",
+        description: "Tasks that are coming up soon—stay ahead before they turn urgent.",
+        tasks: categorizeTasks.approachingList,
+      });
+    }
+
+    if (categorizeTasks.overdueList.length) {
+      blocks.push({
+        id: "overdue",
+        title: "Past Deadline",
+        description: "Overdue items that need immediate attention before you can close the day.",
+        tasks: categorizeTasks.overdueList,
+      });
+    }
+
+    if (!blocks.length) {
+      blocks.push({
+        id: "empty",
+        title: "No Active Assigned Work",
+        description: "All assigned work is verified for today. Great job!",
+        tasks: [],
+      });
+    }
+
+    return blocks;
+  }, [categorizeTasks]);
+
+  const getUpdateEntry = (taskId) =>
+    assignedTasksUpdates?.find((update) => update.id === taskId) ?? {};
+
+  const formatCreatedAt = (value) => {
+    if (!value) return "Unknown";
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.valueOf())) {
+      return "Unknown";
+    }
+    return format(parsed, "d MMM yyyy");
+  };
+
+  const formatDeadline = (deadline) => {
+    const parsed = parseDeadline(deadline);
+    if (!parsed) return "No deadline";
+    return format(parsed, "EEE, d MMM yyyy");
+  };
+
+  const getDaysLeftLabel = (deadline) => {
+    const parsed = parseDeadline(deadline);
+    if (!parsed) return { label: "Flexible", color: "text-gray-500" };
+    const diff = differenceInCalendarDays(startOfDay(parsed), todayStart);
+    if (diff === 0) return { label: "Due today", color: "text-red-600" };
+    if (diff < 0) return { label: `Overdue by ${Math.abs(diff)} day${Math.abs(diff) === 1 ? "" : "s"}`, color: "text-red-600" };
+    if (diff <= 3) return { label: `Due in ${diff} day${diff === 1 ? "" : "s"}`, color: "text-amber-600" };
+    return { label: `Due in ${diff} day${diff === 1 ? "" : "s"}`, color: "text-emerald-600" };
+  };
+
+  const needsUpdate = (task, update) => {
+    if (task.status !== "in_progress") return false;
+    const originalStatus = task.status;
+    const statusChanged = update?.statusUpdate && update.statusUpdate !== originalStatus;
+    const commentAdded = update?.comment && update.comment.trim().length > 0;
+    const originalDeadline = task.deadline ? format(new Date(task.deadline), "yyyy-MM-dd") : "";
+    const newDeadline = update?.newDeadline || "";
+    const deadlineChanged = newDeadline && newDeadline !== originalDeadline;
+    return !(statusChanged || commentAdded || deadlineChanged);
+  };
+
+  const inProgressWithoutUpdate = useMemo(
+    () =>
+      activeTasks.filter((task) => {
+        if (task.status !== "in_progress") return false;
+        const update = getUpdateEntry(task.id);
+        return needsUpdate(task, update);
+      }),
+    [activeTasks, assignedTasksUpdates]
   );
 
-  const pendingTasks = useMemo(() =>
-    (assignedTasksData?.tasks || []).filter(task => task.status !== "verified" && task.status !== "done"),
-    [assignedTasksData]
-  );
-
-  const pinnedTasks = useMemo(() => pendingTasks.filter(task => task.pinned), [pendingTasks]);
-  const savedTasks = useMemo(() => pendingTasks.filter(task => task.savedForLater), [pendingTasks]);
-  const normalTasks = useMemo(() => pendingTasks.filter(task => !task.pinned && !task.savedForLater), [pendingTasks]);
-
-  const pastDeadlineTasks = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    return pendingTasks.filter(task => task.deadline && new Date(task.deadline) < today);
-  }, [pendingTasks]);
-
-  const scrollCarousel = (direction) => {
-    const scrollAmount = 304;
-    const newPosition = direction === "left"
-      ? Math.max(carouselPosition - scrollAmount, 0)
-      : Math.min(carouselPosition + scrollAmount, carouselRef.current.scrollWidth - carouselRef.current.clientWidth);
-
-    setCarouselPosition(newPosition);
-    carouselRef.current.scrollTo({ left: newPosition, behavior: "smooth" });
+  const handleAttemptNext = () => {
+    if (inProgressWithoutUpdate.length) {
+      const list = inProgressWithoutUpdate
+        .slice(0, 3)
+        .map((task) => task.title || `Task #${task.id}`)
+        .join(", ");
+      const suffix = inProgressWithoutUpdate.length > 3 ? "…" : "";
+      setValidationError(
+        `Add a quick update (status change, comment, or new date) for in-progress task${
+          inProgressWithoutUpdate.length > 1 ? "s" : ""
+        }: ${list}${suffix}`
+      );
+      return;
+    }
+    setValidationError("");
+    handleNextStep();
   };
 
-  const cardVariants = {
-    hidden: { opacity: 0, scale: 0.95 },
-    visible: (index) => ({
-      opacity: 1,
-      scale: 1,
-      transition: { duration: 0.3, delay: index * 0.05, ease: "easeOut" },
-    }),
-  };
+  const renderTaskCard = (task) => {
+    const update = getUpdateEntry(task.id);
+    const daysLeftInfo = getDaysLeftLabel(task.deadline);
+    const requiresUpdate = needsUpdate(task, update);
 
-  const calculateDaysLeft = (deadline) => {
-    if (!deadline) return null;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const diff = new Date(deadline) - today;
-    const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
-    return days > 0 ? days : "Overdue";
-  };
+    return (
+      <motion.div
+        key={task.id}
+        layout
+        className={`rounded-2xl border bg-white/80 backdrop-blur-md p-5 shadow-sm transition-all duration-200 hover:shadow-lg ${
+          requiresUpdate ? "border-red-200" : "border-teal-100"
+        }`}
+      >
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex-1">
+            <h4 className="text-base font-semibold text-gray-900">
+              {task.title || task.description || `Task #${task.id}`}
+            </h4>
+            <p className="text-xs text-gray-500">
+              Assigned by {getUserLabel(task)} · Created on {formatCreatedAt(task.createdAt)}
+            </p>
+            <p className="mt-1 flex items-center gap-1 text-xs text-gray-600">
+              <Calendar size={12} /> {formatDeadline(task.deadline)}
+            </p>
+            <p className={`text-xs font-semibold ${daysLeftInfo.color}`}>{daysLeftInfo.label}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="rounded-full border border-gray-200 px-3 py-1 text-xs font-medium text-gray-600 capitalize">
+              {update?.statusUpdate || task.status}
+            </span>
+            {task.pinned && (
+              <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-600">
+                Pinned
+              </span>
+            )}
+          </div>
+        </div>
 
-  const getDaysLeftColor = (daysLeft) => {
-    if (daysLeft === null) return "text-gray-600";
-    if (daysLeft === "Overdue" || (typeof daysLeft === "number" && daysLeft < 3)) return "text-red-600";
-    if (typeof daysLeft === "number" && daysLeft <= 5) return "text-orange-600";
-    return "text-green-600";
+        {requiresUpdate && (
+          <div className="mt-3 flex items-start gap-2 rounded-xl border border-red-100 bg-red-50 p-3 text-sm text-red-700">
+            <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+            <span>This in-progress task needs a status change, comment, or updated deadline before you move ahead.</span>
+          </div>
+        )}
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">Update Status</label>
+            <select
+              value={update?.statusUpdate || task.status}
+              onChange={(e) => handleUpdateAssignedTask(task.id, "statusUpdate", e.target.value)}
+              className="w-full rounded-xl border border-teal-200 bg-teal-50/50 p-2 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-200"
+            >
+              <option value="not_started">Not Started</option>
+              <option value="in_progress">In Progress</option>
+              <option value="pending_verification">Pending Verification</option>
+              <option value="done">Done</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">Adjust Deadline</label>
+            <input
+              type="date"
+              value={update?.newDeadline || ""}
+              onChange={(e) => handleUpdateAssignedTask(task.id, "newDeadline", e.target.value)}
+              className="w-full rounded-xl border border-teal-200 bg-teal-50/50 p-2 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-200"
+              min={format(new Date(), "yyyy-MM-dd")}
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-semibold text-gray-700 mb-1">Today's Comment</label>
+            <textarea
+              value={update?.comment || ""}
+              onChange={(e) => handleUpdateAssignedTask(task.id, "comment", e.target.value)}
+              className="h-24 w-full rounded-xl border border-teal-200 bg-teal-50/50 p-2 text-sm focus:border-teал-500 focus:outline-none focus:ring-2 focus:ring-teal-200 resize-none"
+              placeholder="Share progress, blockers, or next steps."
+            />
+          </div>
+        </div>
+
+        <motion.button
+          onClick={() => setSelectedTaskDetails(task)}
+          className="mt-3 flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800"
+          whileHover={{ scale: 1.03 }}
+        >
+          <Info size={14} /> View Details
+        </motion.button>
+      </motion.div>
+    );
   };
 
   if (!assignedTasksData || !assignedTasksData.tasks || assignedTasksData.tasks.length === 0) {
     return (
       <div>
         <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-          <CheckCircle size={18} className="text-teal-600" />
-          Assigned Tasks
+          <CheckCircle size={18} className="text-teal-600" /> Assigned Tasks
         </h3>
         <p className="text-gray-600">No assigned tasks for today.</p>
         <div className="flex justify-between mt-6 gap-4">
           <motion.button
             onClick={handlePrevStep}
-            className="flex-1 bg-gray-200 text-gray-800 py-3 rounded-xl font-semibold hover:bg-gray-300 transition-all duration-300 shadow-sm"
+            className="flex-1 rounded-xl bg-gray-200 py-3 font-semibold text-gray-800 shadow-sm transition hover:bg-gray-300"
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
           >
@@ -171,7 +327,7 @@ export default function AssignedTasksStep({
           </motion.button>
           <motion.button
             onClick={handleNextStep}
-            className="flex-1 bg-teal-600 text-white py-3 rounded-xl font-semibold hover:bg-teal-700 transition-all duration-300 shadow-md"
+            className="flex-1 rounded-xl bg-teal-600 py-3 font-semibold text-white shadow-md transition hover:bg-teal-700"
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
           >
@@ -183,519 +339,97 @@ export default function AssignedTasksStep({
   }
 
   return (
-    <div className="relative">
-      <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-        <CheckCircle size={18} className="text-teal-600" />
-        Assigned Tasks
-      </h3>
-      <div className="overflow-x-auto flex gap-4 pb-4 relative snap-x snap-mandatory" ref={carouselRef}>
-        {(() => {
-          let currentIndex = 0;
-          return (
-            <>
-              {completedTasks.length > 0 && (
-                <motion.div
-                  key="completed"
-                  variants={cardVariants}
-                  initial="hidden"
-                  animate="visible"
-                  custom={currentIndex++}
-                  className="flex-shrink-0 bg-white/80 backdrop-blur-md rounded-3xl shadow-md p-4 border border-emerald-50/50 hover:shadow-xl transition-all duration-300 snap-center"
-                  whileHover={{ y: -4, scale: 1.01 }}
-                >
-                  <div className="flex justify-between items-center mb-4">
-                    <p className="text-sm font-semibold text-gray-900">
-                      Completed Tasks ({completedTasks.length})
-                    </p>
-                    <span className="text-xs px-2 py-1 rounded-full bg-emerald-50 text-emerald-600 font-medium">
-                      Done
-                    </span>
-                  </div>
-                  <div className="grid grid-rows-3 grid-flow-col gap-2">
-                    {completedTasks.map((task, idx) => (
-                      <motion.div
-                        key={task.id}
-                        className="w-24 h-24 bg-emerald-50/80 rounded-2xl p-2 cursor-pointer hover:bg-emerald-100 transition-all duration-200 flex flex-col justify-between shadow-sm"
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1, transition: { delay: idx * 0.02 } }}
-                        onClick={() => setSelectedTaskDetails(task)}
-                      >
-                        <p className="text-xs font-medium text-gray-900 truncate">
-                          {task.title || "Untitled"}
-                        </p>
-                      </motion.div>
-                    ))}
-                  </div>
-                </motion.div>
-              )}
-              {pastDeadlineTasks.length > 0 && (
-                <motion.div
-                  key="past_deadline"
-                  variants={cardVariants}
-                  initial="hidden"
-                  animate="visible"
-                  custom={currentIndex++}
-                  className="flex-shrink-0 bg-white/80 backdrop-blur-md rounded-3xl shadow-md p-4 border border-red-50/50 hover:shadow-xl transition-all duration-300 snap-center"
-                  whileHover={{ y: -4, scale: 1.01 }}
-                >
-                  <div className="flex justify-between items-center mb-4">
-                    <p className="text-sm font-semibold text-gray-900">
-                      Past Deadline Tasks ({pastDeadlineTasks.length})
-                    </p>
-                    <span className="text-xs px-2 py-1 rounded-full bg-red-50 text-red-600 font-medium">
-                      Overdue
-                    </span>
-                  </div>
-                  <div className="grid grid-rows-3 grid-flow-col gap-2">
-                    {pastDeadlineTasks.map((task, idx) => (
-                      <motion.div
-                        key={task.id}
-                        className="w-24 h-24 bg-red-50/80 rounded-2xl p-2 cursor-pointer hover:bg-red-100 transition-all duration-200 flex flex-col justify-between shadow-sm"
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1, transition: { delay: idx * 0.02 } }}
-                        onClick={() => setSelectedTaskDetails(task)}
-                      >
-                        <p className="text-xs font-medium text-gray-900 truncate">
-                          {task.title || "Untitled"}
-                        </p>
-                      </motion.div>
-                    ))}
-                  </div>
-                </motion.div>
-              )}
-              {pinnedTasks.length > 0 && (
-                <motion.div
-                  key="pinned"
-                  variants={cardVariants}
-                  initial="hidden"
-                  animate="visible"
-                  custom={currentIndex++}
-                  className="flex-shrink-0 bg-white/80 backdrop-blur-md rounded-3xl shadow-md p-4 border border-indigo-50/50 hover:shadow-xl transition-all duration-300 snap-center"
-                  whileHover={{ y: -4, scale: 1.01 }}
-                >
-                  <div className="flex justify-between items-center mb-4">
-                    <p className="text-sm font-semibold text-gray-900">
-                      Pinned Tasks ({pinnedTasks.length})
-                    </p>
-                    <span className="text-xs px-2 py-1 rounded-full bg-indigo-50 text-indigo-600 font-medium">
-                      Pinned
-                    </span>
-                  </div>
-                  <div className="flex flex-row gap-4">
-                    {pinnedTasks.map((task, idx) => {
-                      const daysLeft = calculateDaysLeft(task.deadline);
-                      const daysLeftColor = getDaysLeftColor(daysLeft);
-                      const isNearDeadline = daysLeft !== null && daysLeft !== "Overdue" && daysLeft <= 3;
-                      const update = assignedTasksUpdates.find((u) => u.id === task.id);
-                      const colors = getStatusColor(task.status);
-                      const today = new Date();
-
-                      return (
-                        <motion.div
-                          key={task.id}
-                          className={`flex-shrink-0 w-64 bg-white/80 backdrop-blur-md rounded-3xl shadow-md p-4 border ${colors.border} hover:shadow-xl transition-all duration-300`}
-                          whileHover={{ y: -4, scale: 1.01 }}
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1, transition: { delay: idx * 0.02 } }}
-                        >
-                          <p className={`text-xs font-bold ${daysLeftColor} mb-2 flex items-center gap-1`}>
-                            <Calendar size={12} /> Days Left: {daysLeft ?? "No Deadline"}
-                          </p>
-                          <div className="flex justify-between items-center mb-3">
-                            <p className="text-sm font-semibold text-gray-900 truncate pr-4">
-                              {task.title || "Untitled"}
-                            </p>
-                            <span className={`text-xs px-2 py-1 rounded-full ${colors.bg} ${colors.text} font-medium capitalize`}>
-                              {(task.status || "not_started").replace("_", " ")}
-                            </span>
-                          </div>
-                          <p className="text-xs text-gray-600 mb-3 flex items-center gap-1">
-                            <Info size={12} /> Assigned By: {getAssignedBy(task.createdBy)}
-                          </p>
-                          {task.sprints && task.sprints.length > 0 && (
-                            <div className="mb-3">
-                              <p className="text-xs font-semibold text-gray-700 mb-1">Sprints:</p>
-                              <div className="space-y-1">
-                                {task.sprints.map((sprint) => {
-                                  const sprintColors = getStatusColor(sprint.status);
-                                  return (
-                                    <div key={sprint.id} className={`p-2 rounded-xl border ${sprintColors.border}/50 ${sprintColors.bg}/50 shadow-sm`}>
-                                      <p className="text-xs font-medium text-gray-900 truncate">
-                                        {sprint.title || "Untitled Sprint"}
-                                      </p>
-                                      <p className={`text-xs ${sprintColors.text} capitalize`}>
-                                        Status: {(sprint.status || "not_started").replace("_", " ")}
-                                      </p>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-                          {isNearDeadline && (
-                            <div className="mt-2">
-                              <label className="block text-xs font-medium text-gray-700 mb-1">Transfer Deadline To:</label>
-                              <input
-                                type="date"
-                                value={update?.newDeadline || ""}
-                                onChange={(e) => handleUpdateAssignedTask(task.id, "newDeadline", e.target.value)}
-                                className="border border-teal-200 p-2 rounded-xl w-full text-xs focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 bg-teal-50/50"
-                                min={format(new Date(today.getTime() + 86400000), "yyyy-MM-dd")}
-                              />
-                            </div>
-                          )}
-                          <div className="mt-2">
-                            <label className="block text-xs font-medium text-gray-700 mb-1">Update Status:</label>
-                            <select
-                              value={update?.statusUpdate || task.status}
-                              onChange={(e) => handleUpdateAssignedTask(task.id, "statusUpdate", e.target.value)}
-                              className="border border-teal-200 p-2 rounded-xl w-full text-xs focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 bg-teal-50/50"
-                            >
-                              <option value="not_started">Not Started</option>
-                              <option value="in_progress">In Progress</option>
-                              <option value="pending_verification">Pending Verification</option>
-                              <option value="done">Done</option>
-                            </select>
-                          </div>
-                          <div className="mt-2">
-                            <label className="block text-xs font-medium text-gray-700 mb-1">Comment:</label>
-                            <textarea
-                              value={update?.comment || ""}
-                              onChange={(e) => handleUpdateAssignedTask(task.id, "comment", e.target.value)}
-                              className="border border-teal-200 p-2 rounded-xl w-full text-xs h-20 focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 bg-teal-50/50 resize-none"
-                            />
-                          </div>
-                          <motion.button
-                            onClick={() => {
-                              console.log("View Details clicked for task:", task);
-                              setSelectedTaskDetails(task);
-                            }}
-                            className="mt-3 flex items-center gap-1 text-blue-600 hover:text-blue-800 text-xs font-medium"
-                            whileHover={{ scale: 1.05 }}
-                          >
-                            <Info size={14} /> View Details
-                          </motion.button>
-                        </motion.div>
-                      );
-                    })}
-                  </div>
-                </motion.div>
-              )}
-              {normalTasks.map((task) => {
-                const daysLeft = calculateDaysLeft(task.deadline);
-                const daysLeftColor = getDaysLeftColor(daysLeft);
-                const isNearDeadline = daysLeft !== null && daysLeft !== "Overdue" && daysLeft <= 3;
-                const update = assignedTasksUpdates.find((u) => u.id === task.id);
-                const colors = getStatusColor(task.status);
-                const index = currentIndex++;
-                const today = new Date();
-
-                return (
-                  <motion.div
-                    key={task.id}
-                    variants={cardVariants}
-                    initial="hidden"
-                    animate="visible"
-                    custom={index}
-                    className={`flex-shrink-0 w-64 bg-white/80 backdrop-blur-md rounded-3xl shadow-md p-4 border ${colors.border} hover:shadow-xl transition-all duration-300 snap-center`}
-                    whileHover={{ y: -4, scale: 1.01 }}
-                  >
-                    <p className={`text-xs font-bold ${daysLeftColor} mb-2 flex items-center gap-1`}>
-                      <Calendar size={12} /> Days Left: {daysLeft ?? "No Deadline"}
-                    </p>
-                    <div className="flex justify-between items-center mb-3">
-                      <p className="text-sm font-semibold text-gray-900 truncate pr-4">
-                        {task.title || "Untitled"}
-                      </p>
-                      <span className={`text-xs px-2 py-1 rounded-full ${colors.bg} ${colors.text} font-medium capitalize`}>
-                        {(task.status || "not_started").replace("_", " ")}
-                      </span>
-                    </div>
-                    <p className="text-xs text-gray-600 mb-3 flex items-center gap-1">
-                      <Info size={12} /> Assigned By: {getAssignedBy(task.createdBy)}
-                    </p>
-                    {task.sprints && task.sprints.length > 0 && (
-                      <div className="mb-3">
-                        <p className="text-xs font-semibold text-gray-700 mb-1">Sprints:</p>
-                        <div className="space-y-1">
-                          {task.sprints.map((sprint) => {
-                            const sprintColors = getStatusColor(sprint.status);
-                            return (
-                              <div key={sprint.id} className={`p-2 rounded-xl border ${sprintColors.border}/50 ${sprintColors.bg}/50 shadow-sm`}>
-                                <p className="text-xs font-medium text-gray-900 truncate">
-                                  {sprint.title || "Untitled Sprint"}
-                                </p>
-                                <p className={`text-xs ${sprintColors.text} capitalize`}>
-                                  Status: {(sprint.status || "not_started").replace("_", " ")}
-                                </p>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                    {isNearDeadline && (
-                      <div className="mt-2">
-                        <label className="block text-xs font-medium text-gray-700 mb-1">Transfer Deadline To:</label>
-                        <input
-                          type="date"
-                          value={update?.newDeadline || ""}
-                          onChange={(e) => handleUpdateAssignedTask(task.id, "newDeadline", e.target.value)}
-                          className="border border-teal-200 p-2 rounded-xl w-full text-xs focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 bg-teal-50/50"
-                          min={format(new Date(today.getTime() + 86400000), "yyyy-MM-dd")}
-                        />
-                      </div>
-                    )}
-                    <div className="mt-2">
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Update Status:</label>
-                      <select
-                        value={update?.statusUpdate || task.status}
-                        onChange={(e) => handleUpdateAssignedTask(task.id, "statusUpdate", e.target.value)}
-                        className="border border-teal-200 p-2 rounded-xl w-full text-xs focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 bg-teal-50/50"
-                      >
-                        <option value="not_started">Not Started</option>
-                        <option value="in_progress">In Progress</option>
-                        <option value="pending_verification">Pending Verification</option>
-                        <option value="done">Done</option>
-                      </select>
-                    </div>
-                    <div className="mt-2">
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Comment:</label>
-                      <textarea
-                        value={update?.comment || ""}
-                        onChange={(e) => handleUpdateAssignedTask(task.id, "comment", e.target.value)}
-                        className="border border-teal-200 p-2 rounded-xl w-full text-xs h-20 focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 bg-teal-50/50 resize-none"
-                      />
-                    </div>
-                    <motion.button
-                      onClick={() => {
-                        console.log("View Details clicked for task:", task);
-                        setSelectedTaskDetails(task);
-                      }}
-                      className="mt-3 flex items-center gap-1 text-blue-600 hover:text-blue-800 text-xs font-medium"
-                      whileHover={{ scale: 1.05 }}
-                    >
-                      <Info size={14} /> View Details
-                    </motion.button>
-                  </motion.div>
-                );
-              })}
-              {savedTasks.length > 0 && (
-                <motion.div
-                  key="saved"
-                  variants={cardVariants}
-                  initial="hidden"
-                  animate="visible"
-                  custom={currentIndex++}
-                  className="flex-shrink-0 bg-white/80 backdrop-blur-md rounded-3xl shadow-md p-4 border border-amber-50/50 hover:shadow-xl transition-all duration-300 snap-center"
-                  whileHover={{ y: -4, scale: 1.01 }}
-                >
-                  <div className="flex justify-between items-center mb-4">
-                    <p className="text-sm font-semibold text-gray-900">
-                      Saved for Later ({savedTasks.length})
-                    </p>
-                    <span className="text-xs px-2 py-1 rounded-full bg-amber-50 text-amber-600 font-medium">
-                      Saved
-                    </span>
-                  </div>
-                  <div className="flex flex-row gap-4">
-                    {savedTasks.map((task, idx) => {
-                      const daysLeft = calculateDaysLeft(task.deadline);
-                      const daysLeftColor = getDaysLeftColor(daysLeft);
-                      const isNearDeadline = daysLeft !== null && daysLeft !== "Overdue" && daysLeft <= 3;
-                      const update = assignedTasksUpdates.find((u) => u.id === task.id);
-                      const colors = getStatusColor(task.status);
-                      const today = new Date();
-
-                      return (
-                        <motion.div
-                          key={task.id}
-                          className={`flex-shrink-0 w-64 bg-white/80 backdrop-blur-md rounded-3xl shadow-md p-4 border ${colors.border} hover:shadow-xl transition-all duration-300`}
-                          whileHover={{ y: -4, scale: 1.01 }}
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1, transition: { delay: idx * 0.02 } }}
-                        >
-                          <p className={`text-xs font-bold ${daysLeftColor} mb-2 flex items-center gap-1`}>
-                            <Calendar size={12} /> Days Left: {daysLeft ?? "No Deadline"}
-                          </p>
-                          <div className="flex justify-between items-center mb-3">
-                            <p className="text-sm font-semibold text-gray-900 truncate pr-4">
-                              {task.title || "Untitled"}
-                            </p>
-                            <span className={`text-xs px-2 py-1 rounded-full ${colors.bg} ${colors.text} font-medium capitalize`}>
-                              {(task.status || "not_started").replace("_", " ")}
-                            </span>
-                          </div>
-                          <p className="text-xs text-gray-600 mb-3 flex items-center gap-1">
-                            <Info size={12} /> Assigned By: {getAssignedBy(task.createdBy)}
-                          </p>
-                          {task.sprints && task.sprints.length > 0 && (
-                            <div className="mb-3">
-                              <p className="text-xs font-semibold text-gray-700 mb-1">Sprints:</p>
-                              <div className="space-y-1">
-                                {task.sprints.map((sprint) => {
-                                  const sprintColors = getStatusColor(sprint.status);
-                                  return (
-                                    <div key={sprint.id} className={`p-2 rounded-xl border ${sprintColors.border}/50 ${sprintColors.bg}/50 shadow-sm`}>
-                                      <p className="text-xs font-medium text-gray-900 truncate">
-                                        {sprint.title || "Untitled Sprint"}
-                                      </p>
-                                      <p className={`text-xs ${sprintColors.text} capitalize`}>
-                                        Status: {(sprint.status || "not_started").replace("_", " ")}
-                                      </p>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-                          {isNearDeadline && (
-                            <div className="mt-2">
-                              <label className="block text-xs font-medium text-gray-700 mb-1">Transfer Deadline To:</label>
-                              <input
-                                type="date"
-                                value={update?.newDeadline || ""}
-                                onChange={(e) => handleUpdateAssignedTask(task.id, "newDeadline", e.target.value)}
-                                className="border border-teal-200 p-2 rounded-xl w-full text-xs focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 bg-teal-50/50"
-                                min={format(new Date(today.getTime() + 86400000), "yyyy-MM-dd")}
-                              />
-                            </div>
-                          )}
-                          <div className="mt-2">
-                            <label className="block text-xs font-medium text-gray-700 mb-1">Update Status:</label>
-                            <select
-                              value={update?.statusUpdate || task.status}
-                              onChange={(e) => handleUpdateAssignedTask(task.id, "statusUpdate", e.target.value)}
-                              className="border border-teal-200 p-2 rounded-xl w-full text-xs focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 bg-teal-50/50"
-                            >
-                              <option value="not_started">Not Started</option>
-                              <option value="in_progress">In Progress</option>
-                              <option value="pending_verification">Pending Verification</option>
-                              <option value="done">Done</option>
-                            </select>
-                          </div>
-                          <div className="mt-2">
-                            <label className="block text-xs font-medium text-gray-700 mb-1">Comment:</label>
-                            <textarea
-                              value={update?.comment || ""}
-                              onChange={(e) => handleUpdateAssignedTask(task.id, "comment", e.target.value)}
-                              className="border border-teal-200 p-2 rounded-xl w-full text-xs h-20 focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 bg-teal-50/50 resize-none"
-                            />
-                          </div>
-                          <motion.button
-                            onClick={() => {
-                              console.log("View Details clicked for task:", task);
-                              setSelectedTaskDetails(task);
-                            }}
-                            className="mt-3 flex items-center gap-1 text-blue-600 hover:text-blue-800 text-xs font-medium"
-                            whileHover={{ scale: 1.05 }}
-                          >
-                            <Info size={14} /> View Details
-                          </motion.button>
-                        </motion.div>
-                      );
-                    })}
-                  </div>
-                </motion.div>
-              )}
-            </>
-          );
-        })()}
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-lg font-semibold text-gray-800 mb-2 flex items-center gap-2">
+          <CheckCircle size={18} className="text-teal-600" /> Assigned Tasks
+        </h3>
+        <p className="text-sm text-gray-600">
+          Update each card with today’s progress. In-progress work needs a status/comment so supervisors can see movement.
+        </p>
+        {validationError && (
+          <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            {validationError}
+          </div>
+        )}
       </div>
-      {showLeftArrow && (
-        <motion.button
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-          onClick={() => scrollCarousel("left")}
-          className="absolute left-0 top-1/2 -translate-y-1/2 bg-white/90 text-gray-900 p-2 rounded-full shadow-lg hover:bg-white transition-all duration-200"
-        >
-          <ArrowLeft className="w-4 h-4" />
-        </motion.button>
-      )}
-      {showRightArrow && (
-        <motion.button
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-          onClick={() => scrollCarousel("right")}
-          className="absolute right-0 top-1/2 -translate-y-1/2 bg-white/90 text-gray-900 p-2 rounded-full shadow-lg hover:bg-white transition-all duration-200"
-        >
-          <ArrowRight className="w-4 h-4" />
-        </motion.button>
-      )}
-      <div className="flex justify-between mt-6 gap-4">
-        <motion.button
-          onClick={handlePrevStep}
-          className="flex-1 bg-gray-200 text-gray-800 py-3 rounded-xl font-semibold hover:bg-gray-300 transition-all duration-300 shadow-sm"
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
+
+      {sections.map((section) => (
+        <motion.section key={section.id} layout className="space-y-4">
+          <div className="flex items-center gap-2">
+            <h4 className="text-base font-semibold text-gray-900">{section.title}</h4>
+            {section.description && (
+              <span className="text-xs text-gray-500">{section.description}</span>
+            )}
+          </div>
+          {section.tasks.length ? (
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              {section.tasks.map(renderTaskCard)}
+            </div>
+          ) : (
+            <p className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-500">
+              Nothing in this bucket right now.
+            </p>
+          )}
+        </motion.section>
+      ))}
+
+      <div className="space-y-3 pt-4">
+        {inProgressWithoutUpdate.length > 0 && (
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            Add a quick update (status change, comment, or new date) for in-progress tasks: {validationError.replace(/^Add a quick update .*?: /, "")}
+          </div>
+        )}
+        <div className="flex justify-between gap-4">
+          <motion.button
+            onClick={handlePrevStep}
+            className="flex-1 rounded-xl bg-gray-200 py-3 font-semibold text-gray-800 shadow-sm transition hover:bg-gray-300"
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
         >
           Previous
         </motion.button>
         <motion.button
-          onClick={handleNextStep}
-          className="flex-1 bg-teal-600 text-white py-3 rounded-xl font-semibold hover:bg-teal-700 transition-all duration-300 shadow-md"
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-        >
-          Next
-        </motion.button>
+          onClick={handleAttemptNext}
+          className="flex-1 rounded-xl bg-teal-600 py-3 font-semibold text-white shadow-md transition hover:bg-teal-700"
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+          >
+            Next
+          </motion.button>
+        </div>
       </div>
 
-      {/* Details Modal using Portal with app-consistent styling */}
-      {showDetailsModal && taskDetails?.task && createPortal(
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 bg-black/50 backdrop-blur-md flex items-center justify-center p-4 z-[100]"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) {
-              console.log("Closing modal by clicking outside");
-              setShowDetailsModal(false);
-            }
-          }}
-          style={{ pointerEvents: "auto" }} // Ensure clicks are captured
-        >
+      <AnimatePresence>
+        {showDetailsModal && taskDetails?.task && createPortal(
           <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.9, opacity: 0 }}
-            transition={{ duration: 0.3 }}
-            className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-2xl max-h-[80vh] border border-teal-300 relative overflow-y-auto"
-            style={{ margin: "20px auto" }} // Add margin to avoid touching edges, preserving layout
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+            onClick={() => setShowDetailsModal(false)}
           >
-            <button
-              onClick={() => {
-                console.log("Closing modal via button");
-                setShowDetailsModal(false);
-              }}
-              className="absolute top-2 right-2 text-gray-500 hover:text-gray-700 text-xl font-bold"
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="w-full max-w-2xl rounded-3xl bg-white p-6 shadow-xl"
+              onClick={(e) => e.stopPropagation()}
             >
-              X
-            </button>
-            <AssignedTaskDetails
-              task={taskDetails.task}
-              taskLogs={taskLogs?.logs || []}
-              users={users || []}
-              onClose={() => {
-                console.log("Closing modal via button");
-                setShowDetailsModal(false);
-              }}
-              currentUserId={session?.user?.id}
-              currentUserName={session?.user?.name}
-            />
-          </motion.div>
-        </motion.div>,
-        document.body
-      )}
+              <AssignedTaskDetails
+                task={taskDetails.task}
+                taskLogs={taskLogs?.logs || []}
+                users={users || []}
+                onClose={() => setShowDetailsModal(false)}
+                currentUserId={session?.user?.id}
+                currentUserName={session?.user?.name}
+              />
+            </motion.div>
+          </motion.div>,
+          document.body
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -3,6 +3,11 @@ import { useState, useEffect } from "react";
 import { CheckCircle, Calendar, X, Info } from "lucide-react";
 import { useSession } from "next-auth/react";
 import useSWR from "swr";
+import {
+  getTaskStatusOptions,
+  getSprintStatusOptions,
+  normalizeTaskStatus,
+} from "@/lib/taskWorkflow";
 
 const fetcher = (url) => fetch(url).then((res) => res.json());
 
@@ -35,6 +40,19 @@ export default function AssignedTasksStepView({
     selectedTaskDetailsId ? `/api/managersCommon/assignedTasks?taskId=${selectedTaskDetailsId}&action=details` : null,
     fetcher
   );
+
+  const viewerId = Number(session?.user?.id);
+  const getObserverIds = (task) => {
+    const ids = new Set();
+    if (!task) return ids;
+    if (task.observerId != null) ids.add(Number(task.observerId));
+    if (Array.isArray(task.observers)) {
+      task.observers.forEach((observer) => {
+        if (observer?.id != null) ids.add(Number(observer.id));
+      });
+    }
+    return ids;
+  };
 
   useEffect(() => {
     if (detailedTask) {
@@ -189,10 +207,33 @@ export default function AssignedTasksStepView({
   };
 
   const handleUpdateTaskStatus = async (memberId, status) => {
+    if (!taskDetails) return;
     if (!newLogComment) {
       setError("Comment required");
       return;
     }
+
+    const assignee = taskDetails.assignees.find((a) => Number(a.id) === Number(memberId));
+    if (!assignee) return;
+
+    const currentStatus = normalizeTaskStatus(assignee.status);
+    const observerIds = getObserverIds(taskDetails);
+    const isObserver = observerIds.has(viewerId);
+    const isDoer = viewerId === Number(memberId);
+    const allowed = getTaskStatusOptions(currentStatus, { isDoer, isObserver }).map((opt) => opt.value);
+
+    if (!allowed.includes(status)) {
+      setError("You don’t have permission to set that status.");
+      setTimeout(() => setError(""), 3000);
+      return;
+    }
+
+    if (status === currentStatus) {
+      setError("Pick a different status before updating.");
+      setTimeout(() => setError(""), 2000);
+      return;
+    }
+
     setIsUpdating(true);
     try {
       const body = {
@@ -209,33 +250,63 @@ export default function AssignedTasksStepView({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (response.ok) {
-        setTaskDetails(prev => ({
-          ...prev,
-          assignees: prev.assignees.map(a => a.id === memberId ? { ...a, status } : a)
-        }));
-        setTaskLogs(prev => [
-          { id: Date.now(), userId: session?.user?.id, userName: session?.user?.name, action: "status_update", details: newLogComment, createdAt: new Date() },
-          ...prev
-        ]);
-        setNewTaskStatuses(prev => ({ ...prev, [memberId]: status }));
-        setNewLogComment("");
-      } else {
-        setError("Failed to update task status");
-      }
+      if (!response.ok) throw new Error("Failed to update task status");
+
+      setTaskDetails((prev) => ({
+        ...prev,
+        assignees: prev.assignees.map((existing) =>
+          existing.id === memberId ? { ...existing, status } : existing
+        ),
+      }));
+      setTaskLogs((prev) => [
+        {
+          id: Date.now(),
+          userId: session?.user?.id,
+          userName: session?.user?.name,
+          action: "status_update",
+          details: newLogComment,
+          createdAt: new Date(),
+        },
+        ...prev,
+      ]);
+      setNewTaskStatuses((prev) => ({ ...prev, [memberId]: status }));
+      setNewLogComment("");
     } catch (err) {
-      setError("Error updating task status");
-      console.error(err);
+      console.error("Error updating task status", err);
+      setError("Failed to update task status");
     } finally {
       setIsUpdating(false);
     }
   };
 
   const handleUpdateSprintStatus = async (memberId, sprintId, status) => {
+    if (!taskDetails) return;
     if (!newLogComment) {
       setError("Comment required");
       return;
     }
+
+    const assignee = taskDetails.assignees.find((a) => Number(a.id) === Number(memberId));
+    if (!assignee) return;
+    const sprint = assignee.sprints?.find((s) => s.id === sprintId);
+    if (!sprint) return;
+
+    const currentStatus = normalizeTaskStatus(sprint.status);
+    const isDoer = viewerId === Number(memberId);
+    const allowed = getSprintStatusOptions(currentStatus, { isDoer }).map((opt) => opt.value);
+
+    if (!allowed.includes(status)) {
+      setError("Only the doer can update this sprint.");
+      setTimeout(() => setError(""), 3000);
+      return;
+    }
+
+    if (status === currentStatus) {
+      setError("Pick a different status before updating.");
+      setTimeout(() => setError(""), 2000);
+      return;
+    }
+
     setIsUpdating(true);
     try {
       const body = {
@@ -253,28 +324,35 @@ export default function AssignedTasksStepView({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (response.ok) {
-        setTaskDetails(prev => ({
-          ...prev,
-          assignees: prev.assignees.map(a => {
-            if (a.id !== memberId) return a;
-            const newSprints = a.sprints.map(s => s.id === sprintId ? { ...s, status } : s);
-            const newDerived = deriveTaskStatus(newSprints);
-            return { ...a, sprints: newSprints, status: newDerived };
-          })
-        }));
-        setTaskLogs(prev => [
-          { id: Date.now(), userId: session?.user?.id, userName: session?.user?.name, action: "sprint_status_update", details: newLogComment, createdAt: new Date(), sprintId },
-          ...prev
-        ]);
-        setNewSprintStatuses(prev => ({ ...prev, [`${memberId}-${sprintId}`]: status }));
-        setNewLogComment("");
-      } else {
-        setError("Failed to update sprint status");
-      }
+      if (!response.ok) throw new Error("Failed to update sprint status");
+
+      setTaskDetails((prev) => ({
+        ...prev,
+        assignees: prev.assignees.map((existing) => {
+          if (existing.id !== memberId) return existing;
+          const updatedSprints = (existing.sprints || []).map((s) =>
+            s.id === sprintId ? { ...s, status } : s
+          );
+          return { ...existing, sprints: updatedSprints, status: deriveTaskStatus(updatedSprints) };
+        }),
+      }));
+      setTaskLogs((prev) => [
+        {
+          id: Date.now(),
+          userId: session?.user?.id,
+          userName: session?.user?.name,
+          action: "sprint_status_update",
+          details: newLogComment,
+          createdAt: new Date(),
+          sprintId,
+        },
+        ...prev,
+      ]);
+      setNewSprintStatuses((prev) => ({ ...prev, [`${memberId}-${sprintId}`]: status }));
+      setNewLogComment("");
     } catch (err) {
-      setError("Error updating sprint status");
-      console.error(err);
+      console.error("Error updating sprint status", err);
+      setError("Failed to update sprint status");
     } finally {
       setIsUpdating(false);
     }
@@ -552,61 +630,126 @@ export default function AssignedTasksStepView({
                       <div key={assignee.id} className="mt-4 bg-teal-50/40 p-5 rounded-lg shadow-sm border border-teal-100">
                         <p className="text-base"><strong className="text-gray-600">Name:</strong> {assignee.name}</p>
                         <p className="text-base"><strong className="text-gray-600">Status:</strong> {assignee.status?.replace("_", " ") || "Unknown"}</p>
-                        <div className="mt-3">
-                          <select
-                            value={newTaskStatuses[assignee.id] || assignee.status}
-                            onChange={(e) => setNewTaskStatuses({ ...newTaskStatuses, [assignee.id]: e.target.value })}
-                            className="px-3 py-1 border border-teal-200 rounded-lg text-sm bg-teal-50/50 focus:ring-2 focus:ring-teal-500"
-                            disabled={(assignee.sprints && assignee.sprints.length > 0)}
-                          >
-                            <option value="not_started">Not Started</option>
-                            <option value="in_progress">In Progress</option>
-                            <option value="pending_verification">Pending Verification</option>
-                            <option value="done">Done</option>
-                            <option value="verified">Verified</option>
-                          </select>
-                          {(!assignee.sprints || assignee.sprints.length === 0) && (
-                            <motion.button
-                              whileHover={{ scale: 1.05 }}
-                              whileTap={{ scale: 0.95 }}
-                              onClick={() => handleUpdateTaskStatus(assignee.id, newTaskStatuses[assignee.id])}
-                              disabled={newTaskStatuses[assignee.id] === assignee.status || !newLogComment || isUpdating}
-                              className="ml-2 px-3 py-1 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700"
-                            >
-                              Update Task Status
-                            </motion.button>
-                          )}
-                        </div>
-                        {(assignee.sprints && assignee.sprints.length > 0) && (
-                          <div className="mt-2">
-                            <h4 className="text-base font-semibold text-gray-600">Sprints</h4>
-                            {assignee.sprints.map(sprint => (
-                              <div key={sprint.id} className="mt-2 bg-teal-50/40 p-3 rounded shadow-sm border border-teal-100">
-                                <p className="text-sm"><strong>{sprint.title || "Untitled Sprint"}:</strong> {sprint.description || "N/A"}</p>
-                                <p className="text-sm">Status: {sprint.status?.replace("_", " ") || "Unknown"}</p>
-                                <div className="mt-1">
-                                  <select
-                                    value={newSprintStatuses[`${assignee.id}-${sprint.id}`] || sprint.status}
-                                    onChange={(e) => setNewSprintStatuses({ ...newSprintStatuses, [`${assignee.id}-${sprint.id}`]: e.target.value })}
-                                    className="px-3 py-1 border border-teal-200 rounded-lg text-sm bg-teal-50/50 focus:ring-2 focus:ring-teal-500"
-                                  >
-                                    <option value="not_started">Not Started</option>
-                                    <option value="in_progress">In Progress</option>
-                                    <option value="done">Done</option>
-                                    <option value="verified">Verified</option>
-                                  </select>
+                        <div className="mt-3 space-y-2">
+                          {(() => {
+                            const currentStatus = normalizeTaskStatus(assignee.status);
+                            const observerIds = getObserverIds(taskDetails);
+                            const isDoer = viewerId === Number(assignee.id);
+                            const isObserver = observerIds.has(viewerId);
+                            const hasSprints = Array.isArray(assignee.sprints) && assignee.sprints.length > 0;
+                            const taskOptions = hasSprints
+                              ? []
+                              : getTaskStatusOptions(currentStatus, { isDoer, isObserver });
+                            const selectedStatus = newTaskStatuses[assignee.id] || currentStatus;
+                            const canSubmit =
+                              taskOptions.some((opt) => opt.value === selectedStatus) &&
+                              selectedStatus !== currentStatus &&
+                              Boolean(newLogComment) &&
+                              !isUpdating;
+                            return (
+                              <>
+                                <select
+                                  value={selectedStatus}
+                                  onChange={(e) =>
+                                    setNewTaskStatuses({ ...newTaskStatuses, [assignee.id]: e.target.value })
+                                  }
+                                  className="px-3 py-1 border border-teal-200 rounded-lg text-sm bg-teal-50/50 focus:ring-2 focus:ring-teal-500"
+                                  disabled={hasSprints || taskOptions.length === 0 || isUpdating}
+                                >
+                                  <option value={currentStatus} disabled>
+                                    Current · {currentStatus.replace("_", " ") || "not started"}
+                                  </option>
+                                  {taskOptions.map((opt) => (
+                                    <option key={opt.value} value={opt.value}>
+                                      {opt.label}
+                                    </option>
+                                  ))}
+                                </select>
+                                {!hasSprints && taskOptions.length === 0 && (
+                                  <p className="text-xs text-gray-500">No task status transitions available for your role.</p>
+                                )}
+                                {hasSprints && (
+                                  <p className="text-xs text-gray-500">
+                                    Task status is derived from sprint progress.
+                                  </p>
+                                )}
+                                {!hasSprints && (
                                   <motion.button
                                     whileHover={{ scale: 1.05 }}
                                     whileTap={{ scale: 0.95 }}
-                                    onClick={() => handleUpdateSprintStatus(assignee.id, sprint.id, newSprintStatuses[`${assignee.id}-${sprint.id}`])}
-                                    disabled={newSprintStatuses[`${assignee.id}-${sprint.id}`] === sprint.status || !newLogComment || isUpdating}
-                                    className="ml-2 px-3 py-1 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700"
+                                    onClick={() => handleUpdateTaskStatus(assignee.id, selectedStatus)}
+                                    disabled={!canSubmit}
+                                    className="inline-flex items-center gap-1 px-3 py-1 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 disabled:opacity-50"
                                   >
-                                    Update Sprint Status
+                                    Update Task Status
                                   </motion.button>
+                                )}
+                              </>
+                            );
+                          })()}
+                        </div>
+
+                        {Array.isArray(assignee.sprints) && assignee.sprints.length > 0 && (
+                          <div className="mt-2">
+                            <h4 className="text-base font-semibold text-gray-600">Sprints</h4>
+                            {assignee.sprints.map((sprint) => {
+                              const sprintStatus = normalizeTaskStatus(sprint.status);
+                              const isDoer = viewerId === Number(assignee.id);
+                              const sprintOptions = getSprintStatusOptions(sprintStatus, { isDoer });
+                              const selectedSprintStatus =
+                                newSprintStatuses[`${assignee.id}-${sprint.id}`] || sprintStatus;
+                              const canSubmitSprint =
+                                sprintOptions.some((opt) => opt.value === selectedSprintStatus) &&
+                                selectedSprintStatus !== sprintStatus &&
+                                Boolean(newLogComment) &&
+                                !isUpdating;
+                              return (
+                                <div key={sprint.id} className="mt-2 bg-teal-50/40 p-3 rounded shadow-sm border border-teal-100">
+                                  <p className="text-sm"><strong>{sprint.title || "Untitled Sprint"}:</strong> {sprint.description || "N/A"}</p>
+                                  <p className="text-sm">Status: {sprintStatus.replace("_", " ") || "Unknown"}</p>
+                                  <div className="mt-1 space-y-2">
+                                    <select
+                                      value={selectedSprintStatus}
+                                      onChange={(e) =>
+                                        setNewSprintStatuses({
+                                          ...newSprintStatuses,
+                                          [`${assignee.id}-${sprint.id}`]: e.target.value,
+                                        })
+                                      }
+                                      className="w-full px-3 py-1 border border-teal-200 rounded-lg text-sm bg-teal-50/50 focus:ring-2 focus:ring-teal-500"
+                                      disabled={sprintOptions.length === 0 || isUpdating}
+                                    >
+                                      <option value={sprintStatus} disabled>
+                                        Current · {sprintStatus.replace("_", " ")}
+                                      </option>
+                                      {sprintOptions.map((opt) => (
+                                        <option key={opt.value} value={opt.value}>
+                                          {opt.label}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    {sprintOptions.length === 0 && (
+                                      <p className="text-xs text-gray-500">Only the doer can update sprint status.</p>
+                                    )}
+                                    <motion.button
+                                      whileHover={{ scale: 1.05 }}
+                                      whileTap={{ scale: 0.95 }}
+                                      onClick={() =>
+                                        handleUpdateSprintStatus(
+                                          assignee.id,
+                                          sprint.id,
+                                          selectedSprintStatus
+                                        )
+                                      }
+                                      disabled={!canSubmitSprint}
+                                      className="inline-flex items-center gap-1 px-3 py-1 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 disabled:opacity-50"
+                                    >
+                                      Update Sprint Status
+                                    </motion.button>
+                                  </div>
                                 </div>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         )}
                       </div>

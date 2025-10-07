@@ -12,6 +12,8 @@ import "react-datepicker/dist/react-datepicker.css";
 import TaskList from "@/components/assignTask/TaskList";
 import TaskForm from "@/components/assignTask/TaskForm";
 
+const STATIC_DEFAULT_OBSERVER_IDS = [43, 49];
+
 const fetcher = (url) =>
   fetch(url, { headers: { "Content-Type": "application/json" } }).then(async (res) => {
     if (!res.ok) {
@@ -100,6 +102,8 @@ export default function AssignTask() {
     sprints: [],
     deadline: null,
     resources: "",
+    observers: [],
+    distribution: "shared",
   });
   const [members, setMembers] = useState(null);
   const [previousTasks, setPreviousTasks] = useState([]);
@@ -127,18 +131,38 @@ export default function AssignTask() {
   const [selectedTaskIds, setSelectedTaskIds] = useState([]);
   const [deleting, setDeleting] = useState(false);
   const [assigneesChanged, setAssigneesChanged] = useState(false);
+  const [transferInfo, setTransferInfo] = useState({ taskId: null, fromMemberId: null, toMemberId: null });
+  const [isTransferring, setIsTransferring] = useState(false);
+  const [activeTab, setActiveTab] = useState("create");
+
+  const transferTask = useMemo(() => {
+    if (!transferInfo.taskId) return null;
+    if (selectedTask && selectedTask.id === transferInfo.taskId) return selectedTask;
+    return previousTasks.find((task) => task.id === transferInfo.taskId) || null;
+  }, [transferInfo.taskId, selectedTask, previousTasks]);
 
   // Stable cache buster to prevent excessive fetching
   const cacheBuster = useMemo(() => new Date().getTime(), []);
+  const role = session?.user?.role;
+  const userId = session?.user?.id ? parseInt(session.user.id) : null;
+  const isManager = useMemo(() => ["admin", "team_manager"].includes(role), [role]);
 
-  const { data: membersData, error: membersError } = useSWR(`/api/managersCommon/users?cb=${cacheBuster}`, fetcher, {
+  const shouldFetchTasks = status === "authenticated";
+  const membersEndpoint =
+    status === "authenticated"
+      ? isManager
+        ? `/api/managersCommon/users?cb=${cacheBuster}`
+        : `/api/member/users?cb=${cacheBuster}`
+      : null;
+
+  const { data: membersData, error: membersError } = useSWR(membersEndpoint, fetcher, {
     revalidateOnFocus: false,
     dedupingInterval: 60000,
     revalidateOnReconnect: false,
     refreshInterval: 0, // Disable polling
   });
 
-  const { data: tasksData, error: tasksError, mutate: mutateTasks } = useSWR(`/api/managersCommon/assign-tasks?cb=${cacheBuster}`, fetcher, {
+  const { data: tasksData, error: tasksError, mutate: mutateTasks } = useSWR(shouldFetchTasks ? `/api/managersCommon/assign-tasks?cb=${cacheBuster}` : null, fetcher, {
     revalidateOnFocus: false,
     dedupingInterval: 60000,
     revalidateOnReconnect: false,
@@ -146,33 +170,89 @@ export default function AssignTask() {
   });
 
   useEffect(() => {
-    if (status === "authenticated" && !["admin", "team_manager"].includes(session?.user?.role)) {
-      router.push("/dashboard/member");
-    }
-  }, [status, session, router]);
+    if (!session?.user) return;
 
-  useEffect(() => {
-    if (membersData?.users && session?.user) {
+    const selfId = Number.isNaN(userId) ? null : userId;
+    const baseUsers = Array.isArray(membersData?.users) ? membersData.users : [];
+
+    if (baseUsers.length) {
+      const baseSelf = selfId != null ? baseUsers.find((m) => Number(m.id) === selfId) : null;
+      const seeded = baseSelf
+        ? baseUsers
+        : [
+            {
+              id: selfId ?? Number(session.user.id),
+              name: session.user.name,
+              email: session.user.email,
+              role: session.user.role,
+              immediate_supervisor: session.user.immediate_supervisor ?? null,
+            },
+            ...baseUsers,
+          ];
+
       const uniqueMembers = Array.from(
-        new Map(
-          [
-            { id: session.user.id, name: session.user.name, email: session.user.email, role: session.user.role },
-            ...membersData.users,
-          ].map((m) => [m.id, m])
-        ).values()
+        new Map(seeded.map((m) => [Number(m.id), { ...m, id: Number(m.id) }])).values()
       );
+
       setMembers(uniqueMembers);
-      console.log(`Users fetched for task assignment: ${uniqueMembers.length}`, { userId: session.user.id });
+
+      // Ensure non-managers keep themselves as the sole doer
+      if (!isManager && selfId !== null) {
+        setFormData((prev) => {
+          const normalizedAssignees = prev.assignees.map((id) => Number(id));
+          if (normalizedAssignees.length === 1 && normalizedAssignees[0] === selfId) {
+            return prev;
+          }
+          return { ...prev, assignees: [selfId] };
+        });
+      }
+
+      const selfMember = selfId != null
+        ? uniqueMembers.find((member) => Number(member.id) === selfId)
+        : null;
+      const supervisorId = selfMember?.immediate_supervisor
+        ? Number(selfMember.immediate_supervisor)
+        : null;
+      const fallbackManager = uniqueMembers.find(
+        (member) =>
+          member.role !== "member" &&
+          (selfId === null || Number(member.id) !== Number(selfId))
+      );
+
+      // Set a sensible default observer list if one is missing
+      setFormData((prev) => {
+        const existingObservers = Array.isArray(prev.observers) ? prev.observers : [];
+        if (existingObservers.length) return prev;
+
+        const staticDefaultObservers = STATIC_DEFAULT_OBSERVER_IDS.filter((id) =>
+          uniqueMembers.some((member) => Number(member.id) === Number(id))
+        );
+
+        const defaults = [...staticDefaultObservers];
+        if (isManager && selfId !== null) {
+          defaults.push(selfId);
+        } else if (supervisorId) {
+          defaults.push(supervisorId);
+        } else if (fallbackManager) {
+          defaults.push(Number(fallbackManager.id));
+        }
+
+        return defaults.length
+          ? { ...prev, observers: Array.from(new Set(defaults)) }
+          : prev;
+      });
     } else if (membersError) {
       console.error("Members fetch error:", membersError);
-      setError(
-        session?.user?.role === "admin"
-          ? "No team members found. Add members in the admin dashboard."
-          : "No team members found. Contact an admin."
-      );
-      if (session?.user?.role === "admin") router.push("/dashboard/admin/addUser");
+      if (isManager) {
+        setError(
+          session?.user?.role === "admin"
+            ? "No team members found. Add members in the admin dashboard."
+            : "No team members found. Contact an admin."
+        );
+        if (session?.user?.role === "admin") router.push("/dashboard/admin/addUser");
+      }
     }
-  }, [membersData, membersError, session, router]);
+  }, [membersData, membersError, session, router, isManager, userId]);
 
   useEffect(() => {
     if (tasksData?.assignedTasks) {
@@ -310,8 +390,41 @@ export default function AssignTask() {
     setLoading(true);
     setLoadingAction("Assigning...");
 
-    if (!formData.title || formData.assignees.length === 0) {
+    const creatorId = Number.isNaN(userId) ? null : userId;
+    const dedupedAssignees = Array.from(
+      new Set(
+        (formData.assignees || []).map((id) => {
+          const parsed = parseInt(id);
+          return Number.isNaN(parsed) ? null : parsed;
+        }).filter((id) => id !== null)
+      )
+    );
+    const sanitizedAssignees = isManager
+      ? dedupedAssignees
+      : creatorId !== null
+        ? [creatorId]
+        : [];
+    const observerIds = Array.from(
+      new Set(
+        (formData.observers || [])
+          .map((id) => {
+            const parsed = parseInt(id);
+            return Number.isNaN(parsed) ? null : parsed;
+          })
+          .filter((id) => id !== null)
+      )
+    );
+    const distributionMode = isManager && formData.distribution === "individual" ? "individual" : "shared";
+
+    if (!formData.title || sanitizedAssignees.length === 0 || creatorId === null) {
       setError("Task title and at least one assignee are required.");
+      setLoading(false);
+      setLoadingAction("");
+      return;
+    }
+
+    if (observerIds.length === 0) {
+      setError("Please select at least one observer for this task.");
       setLoading(false);
       setLoadingAction("");
       return;
@@ -325,12 +438,14 @@ export default function AssignTask() {
           title: formData.title,
           description: formData.description,
           taskType: formData.taskType,
-          createdBy: parseInt(session?.user?.id),
-          assignees: Array.from(new Set(formData.assignees)),
+          createdBy: creatorId,
+          assignees: sanitizedAssignees,
           sprints: [],
           createdAt: new Date().toISOString(),
           deadline: formData.deadline ? new Date(formData.deadline).toISOString() : null,
           resources: formData.resources,
+          observers: observerIds,
+          distributionMode,
         }),
       });
 
@@ -339,36 +454,61 @@ export default function AssignTask() {
         throw new Error(errorData.error || `HTTP ${response.status}`);
       }
 
-      const { taskId } = await response.json();
-      const newTaskData = {
-        id: taskId,
-        title: formData.title,
-        description: formData.description,
-        taskType: formData.taskType,
-        assignees: members ? Array.from(new Set(formData.assignees)).map((id) => members.find((m) => m.id === id)).filter(Boolean) : [],
+      const result = await response.json();
+      if (Array.isArray(result.taskIds) && result.taskIds.length > 0) {
+        setNewTask(null);
+        setSuccessMessage(`Task created individually for ${result.taskIds.length} member(s).`);
+      } else if (result.taskId) {
+        const observerEntries = observerIds.map((id) => {
+          const member = members ? members.find((m) => Number(m.id) === Number(id)) : null;
+          return member ? { id: Number(member.id), name: member.name } : { id, name: `Observer ${id}` };
+        });
+        const primaryObserver = observerEntries[0] || null;
+        const newTaskData = {
+          id: result.taskId,
+          title: formData.title,
+          description: formData.description,
+          taskType: formData.taskType,
+          assignees: members ? sanitizedAssignees.map((id) => members.find((m) => Number(m.id) === Number(id))).filter(Boolean) : [],
+          sprints: [],
+          status: "not_started",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          createdBy: creatorId,
+          deadline: formData.deadline,
+          resources: formData.resources,
+          observerId: primaryObserver?.id ?? null,
+          observerName: primaryObserver?.name || null,
+          observer: primaryObserver,
+          observers: observerEntries,
+        };
+        setPreviousTasks((prev) => [newTaskData, ...prev]);
+        setNewTask(newTaskData);
+        setSuccessMessage("Task assigned successfully");
+        setShowModal("postAssign");
+      }
+      if (!result.taskId) {
+        setShowModal(null);
+      }
+      setFormData((prev) => ({
+        ...prev,
+        title: "",
+        description: "",
         sprints: [],
-        status: "not_started",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        createdBy: parseInt(session?.user?.id),
-        deadline: formData.deadline,
-        resources: formData.resources,
-      };
-      setPreviousTasks((prev) => [newTaskData, ...prev]);
-      setNewTask(newTaskData);
-      setShowModal("postAssign");
-      setFormData((prev) => ({ ...prev, title: "", description: "", sprints: [], deadline: null, resources: "" }));
-      setSuccessMessage("Task assigned successfully");
+        deadline: null,
+        resources: "",
+        observers: [],
+      }));
       setTimeout(() => setSuccessMessage(""), 3000);
       await mutateTasks();
       await fetch("/api/managersCommon/assigned-task-logs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          taskId,
+          taskId: Array.isArray(result.taskIds) ? result.taskIds[0] : result.taskId,
           userId: session?.user?.id,
           action: "created",
-          details: `Task "${formData.title}" created by ${session?.user?.name || "Unknown"} with ${formData.assignees.length} assignees`,
+          details: `Task "${formData.title}" created by ${session?.user?.name || "Unknown"} with ${Array.isArray(result.taskIds) ? result.taskIds.length : sanitizedAssignees.length} assignee(s)` ,
           createdAt: new Date().toISOString(),
         }),
       });
@@ -467,6 +607,76 @@ export default function AssignTask() {
     } finally {
       setLoading(false);
       setLoadingAction("");
+    }
+  };
+
+  const handleTransfer = async () => {
+    if (!transferInfo.taskId || !transferInfo.fromMemberId || !transferInfo.toMemberId) {
+      setError("Select both the current doer and the new doer to transfer.");
+      return;
+    }
+
+    if (transferInfo.fromMemberId === transferInfo.toMemberId) {
+      setError("Choose a different member to transfer the task.");
+      return;
+    }
+
+    setIsTransferring(true);
+    try {
+      const response = await fetch("/api/managersCommon/assign-tasks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "transfer",
+          taskId: transferInfo.taskId,
+          fromMemberId: transferInfo.fromMemberId,
+          toMemberId: transferInfo.toMemberId,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${response.status}`);
+      }
+
+      await mutateTasks();
+
+      const replacementAssignee = members?.find((m) => Number(m.id) === Number(transferInfo.toMemberId));
+
+      const updateAssignees = (task) => {
+        if (!Array.isArray(task.assignees)) return task.assignees;
+        return task.assignees.map((assignee) =>
+          Number(assignee.id) === Number(transferInfo.fromMemberId)
+            ? replacementAssignee
+              ? { ...replacementAssignee }
+              : { id: transferInfo.toMemberId, name: `Member ${transferInfo.toMemberId}` }
+            : assignee
+        );
+      };
+
+      setPreviousTasks((prev) =>
+        prev.map((task) =>
+          task.id === transferInfo.taskId
+            ? { ...task, assignees: updateAssignees(task) }
+            : task
+        )
+      );
+
+      setSelectedTask((prev) =>
+        prev && prev.id === transferInfo.taskId
+          ? { ...prev, assignees: updateAssignees(prev) }
+          : prev
+      );
+
+      setSuccessMessage("Task transferred successfully");
+      setTimeout(() => setSuccessMessage(""), 3000);
+      setShowModal(null);
+      setTransferInfo({ taskId: null, fromMemberId: null, toMemberId: null });
+    } catch (err) {
+      console.error("Transfer error:", err);
+      setError(`Error transferring task: ${err.message}`);
+    } finally {
+      setIsTransferring(false);
     }
   };
 
@@ -729,65 +939,136 @@ export default function AssignTask() {
 
   return (
     <>
+      <AnimatePresence>
+        {(error || successMessage) && (
+          <motion.div
+            key={error ? "error" : "success"}
+            initial={{ y: -20, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: -20, opacity: 0 }}
+            transition={{ duration: 0.3, ease: "easeOut" }}
+            className={`fixed top-6 left-1/2 z-[80] w-[90vw] max-w-md -translate-x-1/2 rounded-2xl border p-4 text-sm sm:text-base shadow-xl backdrop-blur ${
+              error
+                ? "bg-rose-50/90 border-rose-200 text-rose-700"
+                : "bg-emerald-50/90 border-emerald-200 text-emerald-700"
+            }`}
+            onClick={() => {
+              setError("");
+              setSuccessMessage("");
+            }}
+          >
+            {error || successMessage}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.5 }}
-        className={`fixed inset-0 bg-gradient-to-br from-teal-50 via-blue-50 to-gray-100 p-4 sm:p-6 flex items-center justify-center ${loading ? "blur-sm" : ""}`}
+        className="min-h-screen w-full bg-gradient-to-br from-slate-50 via-sky-50 to-white px-4 py-8 sm:px-8 lg:px-12"
       >
-        <div className="w-full h-full bg-white rounded-2xl shadow-xl p-4 sm:p-6 flex flex-col sm:flex-row gap-4 sm:gap-6">
-          <AnimatePresence>
-            {(error || successMessage) && (
-              <motion.p
-                key={error ? "error" : "success"}
-                initial={{ opacity: 0, y: -20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                className={`absolute top-4 left-4 right-4 text-sm sm:text-base font-medium p-3 sm:p-4 rounded-lg shadow-md z-50 ${error ? "bg-red-50 text-red-600" : "bg-teal-50 text-teal-600"}`}
-                onClick={() => {
-                  setError("");
-                  setSuccessMessage("");
-                }}
+        <div className="relative mx-auto flex w-full max-w-7xl flex-col gap-8">
+          <div className="pointer-events-none absolute -top-24 right-0 h-64 w-64 rounded-full bg-sky-200/40 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-24 left-10 h-72 w-72 rounded-full bg-teal-200/40 blur-3xl" />
+
+          <div className="relative z-10">
+            <h1 className="text-xl sm:text-2xl font-semibold text-slate-800">Assign, observe, and unblock with ease</h1>
+          </div>
+
+          <div
+            className={`relative z-10 flex flex-col gap-4 ${
+              loading ? "pointer-events-none opacity-60" : ""
+            }`}
+          >
+            <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200/80 bg-white/80 p-2 shadow-sm">
+              <motion.button
+                onClick={() => setActiveTab("create")}
+                className={`flex-1 min-w-[140px] rounded-xl px-4 py-2 text-xs sm:text-sm font-semibold transition-colors ${
+                  activeTab === "create"
+                    ? "bg-teal-600 text-white shadow"
+                    : "bg-white text-slate-600 border border-slate-200"
+                }`}
+                whileHover={{ scale: activeTab === "create" ? 1 : 1.02 }}
+                whileTap={{ scale: activeTab === "create" ? 1 : 0.98 }}
               >
-                {error || successMessage} (Click to dismiss)
-              </motion.p>
-            )}
-          </AnimatePresence>
-          <TaskList
-            filteredTasks={filteredTasks}
-            fetchingTasks={fetchingTasks}
-            filterType={filterType}
-            setFilterType={setFilterType}
-            filterMember={filterMember}
-            setFilterMember={setFilterMember}
-            members={members}
-            dateRange={dateRange}
-            setDateRange={setDateRange}
-            showAllTasks={showAllTasks}
-            setShowAllTasks={setShowAllTasks}
-            setShowModal={setShowModal}
-            selectedTaskIds={selectedTaskIds}
-            setSelectedTaskIds={setSelectedTaskIds}
-            handleBulkDelete={handleBulkDelete}
-            deleting={deleting}
-            getStatusColor={getStatusColor}
-            setSelectedTask={setSelectedTask}
-            refreshTasks={refreshTasks}
-          />
-          <TaskForm
-            formData={formData}
-            setFormData={setFormData}
-            members={members}
-            loading={loading}
-            isRecording={isRecording}
-            isTranslating={isTranslating}
-            handleSubmit={handleSubmit}
-            inputMode={inputMode}
-            setInputMode={setInputMode}
-            setShowModal={setShowModal}
-            setVoiceInput={setVoiceInput}
-            setTempAssignees={setTempAssignees}
-          />
+                Create Task
+              </motion.button>
+              <motion.button
+                onClick={() => setActiveTab("history")}
+                className={`flex-1 min-w-[140px] rounded-xl px-4 py-2 text-xs sm:text-sm font-semibold transition-colors ${
+                  activeTab === "history"
+                    ? "bg-sky-600 text-white shadow"
+                    : "bg-white text-slate-600 border border-slate-200"
+                }`}
+                whileHover={{ scale: activeTab === "history" ? 1 : 1.02 }}
+                whileTap={{ scale: activeTab === "history" ? 1 : 0.98 }}
+              >
+                Task History
+              </motion.button>
+            </div>
+            <div className="relative">
+              <AnimatePresence mode="wait">
+                {activeTab === "create" ? (
+                  <motion.div
+                    key="create-tab"
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -16 }}
+                    transition={{ duration: 0.22, ease: "easeOut" }}
+                    className="flex"
+                  >
+                    <TaskForm
+                      formData={formData}
+                      setFormData={setFormData}
+                      members={members}
+                      loading={loading}
+                      isRecording={isRecording}
+                      isTranslating={isTranslating}
+                      handleSubmit={handleSubmit}
+                      inputMode={inputMode}
+                      setInputMode={setInputMode}
+                      setShowModal={setShowModal}
+                      setVoiceInput={setVoiceInput}
+                      setTempAssignees={setTempAssignees}
+                      autoObserverIds={STATIC_DEFAULT_OBSERVER_IDS}
+                    />
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="history-tab"
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -16 }}
+                    transition={{ duration: 0.22, ease: "easeOut" }}
+                    className="flex"
+                  >
+                    <TaskList
+                      filteredTasks={filteredTasks}
+                      fetchingTasks={fetchingTasks}
+                      filterType={filterType}
+                      setFilterType={setFilterType}
+                      filterMember={filterMember}
+                      setFilterMember={setFilterMember}
+                      members={members}
+                      dateRange={dateRange}
+                      setDateRange={setDateRange}
+                      showAllTasks={showAllTasks}
+                      setShowAllTasks={setShowAllTasks}
+                      setShowModal={setShowModal}
+                      selectedTaskIds={selectedTaskIds}
+                      setSelectedTaskIds={setSelectedTaskIds}
+                      handleBulkDelete={handleBulkDelete}
+                      deleting={deleting}
+                      getStatusColor={getStatusColor}
+                      setSelectedTask={setSelectedTask}
+                      refreshTasks={refreshTasks}
+                    />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
         </div>
       </motion.div>
       <AnimatePresence>
@@ -923,10 +1204,24 @@ export default function AssignTask() {
                     <strong>Assigned By:</strong>{" "}
                     {members ? members.find((m) => m.id === (newTask || selectedTask).createdBy)?.name || "You" : "Loading..."}
                   </p>
+                  <p className="text-gray-500 text-xs sm:text-base mb-2">
+                    <strong>Observers:</strong>{" "}
+                    {(() => {
+                      const task = newTask || selectedTask;
+                      const observers = Array.isArray(task?.observers) ? task.observers : [];
+                      if (observers.length) return observers.map((o) => o.name || `Observer ${o.id}`).join(", ");
+                      const observerId = task?.observerId || task?.observer?.id;
+                      if (observerId) {
+                        const member = members?.find((m) => Number(m.id) === Number(observerId));
+                        if (member) return member.name;
+                      }
+                      return "Not assigned";
+                    })()}
+                  </p>
                   <p className="text-gray-500 text-xs sm:text-base mb-4">
                     <strong>Resources:</strong> {(newTask || selectedTask).resources || "None"}
                   </p>
-                  <div className="flex gap-3">
+                  <div className="flex gap-3 flex-wrap">
                     <motion.button
                       onClick={() => {
                         setEditingTask({
@@ -955,6 +1250,38 @@ export default function AssignTask() {
                     >
                       Manage Sprints
                     </motion.button>
+                    {(() => {
+                      const task = newTask || selectedTask;
+                      const observerIdsSet = new Set(
+                        Array.isArray(task?.observers)
+                          ? task.observers.map((observer) => Number(observer.id))
+                          : []
+                      );
+                      if (task?.observerId) observerIdsSet.add(Number(task.observerId));
+                      const isObserver = observerIdsSet.has(Number(session?.user?.id));
+                      const canTransfer =
+                        session?.user?.role === "admin" ||
+                        session?.user?.role === "team_manager" ||
+                        isObserver;
+                      return canTransfer && task?.assignees?.length ? (
+                        <motion.button
+                          onClick={() => {
+                            const defaultAssignee = task.assignees?.[0]?.id ? Number(task.assignees[0].id) : null;
+                            setTransferInfo({
+                              taskId: task.id,
+                              fromMemberId: defaultAssignee,
+                              toMemberId: null,
+                            });
+                            setShowModal("transfer");
+                          }}
+                          className="flex-1 px-3 py-2 sm:px-6 sm:py-3 bg-blue-600 text-white rounded-lg text-xs sm:text-base font-semibold hover:bg-blue-700"
+                          whileHover={{ scale: 1.03 }}
+                          whileTap={{ scale: 0.95 }}
+                        >
+                          Transfer Task
+                        </motion.button>
+                      ) : null;
+                    })()}
                     <motion.button
                       onClick={() => {
                         setDeleteTaskId((newTask || selectedTask).id);
@@ -1091,6 +1418,95 @@ export default function AssignTask() {
                       whileTap={{ scale: 0.95 }}
                     >
                       Cancel
+                    </motion.button>
+                  </div>
+                </>
+              )}
+              {showModal === "transfer" && transferTask && (
+                <>
+                  <h3 className="text-lg sm:text-2xl font-bold text-gray-800 mb-4">Transfer Task</h3>
+                  <p className="text-gray-500 text-xs sm:text-base mb-2">
+                    <strong>Task:</strong> {transferTask.title}
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs sm:text-sm font-medium text-gray-700">Current Doer</label>
+                      <select
+                        value={transferInfo.fromMemberId ?? ""}
+                        onChange={(e) =>
+                          setTransferInfo((prev) => ({
+                            ...prev,
+                            fromMemberId: e.target.value ? parseInt(e.target.value) : null,
+                            toMemberId: prev.toMemberId === (e.target.value ? parseInt(e.target.value) : null)
+                              ? null
+                              : prev.toMemberId,
+                          }))
+                        }
+                        className="mt-1 w-full px-3 py-2 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-xs sm:text-sm bg-white"
+                      >
+                        {transferTask.assignees?.map((assignee) => (
+                          <option key={`from-${assignee.id}`} value={assignee.id}>
+                            {assignee.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs sm:text-sm font-medium text-gray-700">Transfer To</label>
+                      <select
+                        value={transferInfo.toMemberId ?? ""}
+                        onChange={(e) =>
+                          setTransferInfo((prev) => ({
+                            ...prev,
+                            toMemberId: e.target.value ? parseInt(e.target.value) : null,
+                          }))
+                        }
+                        className="mt-1 w-full px-3 py-2 border border-teal-200 rounded-lg focus:ring-2 focus:ring-teal-500 text-xs sm:text-sm bg-white"
+                      >
+                        <option value="">Select member</option>
+                        {(members || [])
+                          .filter((member) => {
+                            const takenIds = new Set(
+                              (transferTask.assignees || []).map((assignee) => Number(assignee.id))
+                            );
+                            takenIds.delete(Number(transferInfo.fromMemberId));
+                            return !takenIds.has(Number(member.id));
+                          })
+                          .map((member) => (
+                            <option key={`to-${member.id}`} value={member.id}>
+                              {member.name}
+                            </option>
+                          ))}
+                      </select>
+                      <p className="text-[11px] text-gray-500 mt-1">
+                        The new doer will start from the beginning of the workflow.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-3 mt-4">
+                    <motion.button
+                      onClick={() => {
+                        setShowModal(null);
+                        setTransferInfo({ taskId: null, fromMemberId: null, toMemberId: null });
+                      }}
+                      className="flex-1 px-3 py-2 sm:px-6 sm:py-3 bg-gray-200 text-gray-800 rounded-lg text-xs sm:text-base font-semibold hover:bg-gray-300"
+                      whileHover={{ scale: 1.03 }}
+                      whileTap={{ scale: 0.95 }}
+                    >
+                      Cancel
+                    </motion.button>
+                    <motion.button
+                      onClick={handleTransfer}
+                      disabled={isTransferring || !transferInfo.toMemberId}
+                      className={`flex-1 px-3 py-2 sm:px-6 sm:py-3 rounded-lg text-xs sm:text-base font-semibold ${
+                        isTransferring || !transferInfo.toMemberId
+                          ? "bg-gray-400 cursor-not-allowed"
+                          : "bg-blue-600 text-white hover:bg-blue-700"
+                      }`}
+                      whileHover={{ scale: isTransferring || !transferInfo.toMemberId ? 1 : 1.03 }}
+                      whileTap={{ scale: isTransferring || !transferInfo.toMemberId ? 1 : 0.95 }}
+                    >
+                      {isTransferring ? "Transferring..." : "Confirm Transfer"}
                     </motion.button>
                   </div>
                 </>

@@ -13,7 +13,7 @@ import {
   ArrowDownCircle,
   Edit,
 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 /* ------------------------------------------------------- */
 /* Helpers                                                 */
@@ -119,13 +119,6 @@ const AssignedTaskDetails = ({
   setNewLogComment,
   isAddingLog,
   onAddLog,
-  newTaskStatuses,
-  setNewTaskStatuses,
-  newSprintStatuses,
-  setNewSprintStatuses,
-  handleUpdateTaskStatus,
-  handleUpdateSprintStatus,
-  isUpdating,
 }) => {
   const [showFullDescription, setShowFullDescription] = useState(false);
   const [showFullLogs, setShowFullLogs] = useState(false);
@@ -149,8 +142,23 @@ const AssignedTaskDetails = ({
   const taskStatus = isManager ? managerRolledStatus : (myAssigneeRow?.status || "not_started");
 
   const assignees = isManager ? dedupeAssignees(task?.assignees || []) : [];
+  const observerIdSet = useMemo(() => {
+    const ids = new Set();
+    if (task?.observerId != null) ids.add(Number(task.observerId));
+    if (Array.isArray(task?.observers)) {
+      task.observers.forEach((observer) => {
+        if (observer?.id != null) ids.add(Number(observer.id));
+      });
+    }
+    return ids;
+  }, [task]);
+  const viewerIsObserver = observerIdSet.has(Number(currentUserId));
+  const observerName =
+    task?.observer?.name ||
+    task?.observerName ||
+    (task?.observerId ? getUserName(task.observerId, users, currentUserId, currentUserName) : null);
 
-  const sprintsGrid = (sprints, isSprintManager = false, assigneeId) => (
+  const sprintsGrid = (sprints = []) => (
     <div className="mt-3">
       <h3 className="text-base font-semibold text-gray-800 dark:text-white mb-3 flex items-center gap-2">
         <FileText className="w-4 h-4 text-teal-600" />
@@ -164,58 +172,19 @@ const AssignedTaskDetails = ({
               p-4 rounded-2xl shadow group transition-all
               border-2 ${statusStyles(s.status)}
               hover:shadow-xl hover:-translate-y-1 hover:bg-white/90 dark:hover:bg-slate-800/90
-              cursor-pointer
             `}
           >
             <div className="flex items-center justify-between mb-1">
               <span className="font-semibold text-gray-900 dark:text-white text-[15px] truncate">
                 {s.title || "Untitled Sprint"}
               </span>
-              {!isSprintManager ? (
-                <span
-                  className={`ml-2 px-2 py-0.5 text-xs font-bold rounded-xl border ${statusStyles(
-                    s.status
-                  )} uppercase tracking-wide shadow-sm`}
-                >
-                  {capitalize(s.status.replace("_", " "))}
-                </span>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <select
-                    value={newSprintStatuses[`${assigneeId}-${s.id}`] || s.status}
-                    onChange={(e) =>
-                      setNewSprintStatuses((prev) => ({
-                        ...prev,
-                        [`${assigneeId}-${s.id}`]: e.target.value,
-                      }))
-                    }
-                    className="px-2 py-1 border rounded-lg text-xs bg-gray-50 dark:bg-slate-800 focus:ring-2 focus:ring-teal-500 text-gray-700 dark:text-gray-200"
-                  >
-                    <option value="not_started">Not Started</option>
-                    <option value="in_progress">In Progress</option>
-                    <option value="pending_verification">Pending Verification</option>
-                    <option value="done">Done</option>
-                    <option value="verified">Verified</option>
-                  </select>
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() =>
-                      handleUpdateSprintStatus(
-                        assigneeId,
-                        s.id,
-                        newSprintStatuses[`${assigneeId}-${s.id}`] || s.status
-                      )
-                    }
-                    disabled={isUpdating}
-                    className={`px-2 py-1 bg-teal-600 text-white rounded-lg text-xs font-medium ${
-                      isUpdating ? "opacity-50 cursor-not-allowed" : ""
-                    }`}
-                  >
-                    {isUpdating ? "Updating..." : "Update"}
-                  </motion.button>
-                </div>
-              )}
+              <span
+                className={`ml-2 px-2 py-0.5 text-xs font-bold rounded-xl border ${statusStyles(
+                  s.status
+                )} uppercase tracking-wide shadow-sm`}
+              >
+                {capitalize((s.status || "not_started").replace("_", " "))}
+              </span>
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-1">
               {s.description || <span className="italic text-gray-300 dark:text-gray-600">No description.</span>}
@@ -274,7 +243,7 @@ const AssignedTaskDetails = ({
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                onClick={onUpdateStatusClick}
+                onClick={() => onUpdateStatusClick?.(task)}
                 className="w-fit px-4 py-2 bg-teal-600 text-white rounded-xl text-sm font-medium hover:bg-teal-700 dark:bg-teal-700 dark:hover:bg-teal-800 flex items-center gap-1 shadow-lg border border-teal-200 transition-all mb-4"
               >
                 <Edit className="w-4 h-4" />
@@ -338,6 +307,14 @@ const AssignedTaskDetails = ({
                   <span className="italic text-gray-400 dark:text-gray-500">No deadline</span>
                 )}
               </div>
+
+              {observerName && (
+                <div className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
+                  <UserCircle className="w-4 h-4 text-sky-500" />
+                  <span className="font-medium">Observer:</span>
+                  <span className="font-semibold">{observerName}</span>
+                </div>
+              )}
             </div>
 
             <div className="text-sm text-gray-700 dark:text-gray-200 mb-3">
@@ -352,77 +329,55 @@ const AssignedTaskDetails = ({
             {/* Manager: assignees block */}
             {isManager && assignees.length > 0 && (
               <div className="mt-2">
-                <h3 className="text-base font-semibold text-gray-800 dark:text-white mb-2">
-                  Assignees
-                </h3>
-                <div className="space-y-2">
-                  {assignees.map((assignee) => (
-                    <div
-                      key={assignee.id}
-                      className="bg-gray-50 dark:bg-slate-800/60 p-3 rounded-xl border border-gray-200 dark:border-slate-700 shadow flex flex-col gap-2"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="w-8 h-8 flex items-center justify-center bg-teal-100 text-teal-800 rounded-full font-bold mr-2">
-                          {getInitials(getUserName(assignee.id, users))}
-                        </span>
-                        <div>
-                          <span className="font-semibold text-gray-900 dark:text-gray-200">
-                            {getUserName(assignee.id, users, currentUserId, currentUserName)}
+                <h3 className="text-base font-semibold text-gray-800 dark:text-white">Assignees</h3>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  Status changes follow the doer/observer workflow. Use the status panel to move work forward when you are the assigned observer.
+                </p>
+                <div className="space-y-2 mt-3">
+                  {assignees.map((assignee) => {
+                    const statusValue = assignee.status || "not_started";
+                    const statusLabel = capitalize(statusValue.replace("_", " "));
+                    const youAreDoer = Number(assignee.id) === Number(currentUserId);
+                    const youObserveThisTask = viewerIsObserver && !youAreDoer;
+                    return (
+                      <div
+                        key={assignee.id}
+                        className="bg-gray-50 dark:bg-slate-800/60 p-3 rounded-xl border border-gray-200 dark:border-slate-700 shadow flex flex-col gap-2"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="w-8 h-8 flex items-center justify-center bg-teal-100 text-teal-800 rounded-full font-bold mr-2">
+                            {getInitials(getUserName(assignee.id, users))}
                           </span>
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs text-gray-600 dark:text-gray-400">
-                              Status:{" "}
-                              <span
-                                className={`px-2 py-0.5 rounded-xl border font-semibold shadow-sm ${statusStyles(
-                                  assignee.status || "not_started"
-                                )}`}
-                              >
-                                {capitalize((assignee.status || "not_started").replace("_", " "))}
-                              </span>
+                          <div>
+                            <span className="font-semibold text-gray-900 dark:text-gray-200">
+                              {getUserName(assignee.id, users, currentUserId, currentUserName)}
                             </span>
-                            <select
-                              value={newTaskStatuses[assignee.id] || assignee.status || "not_started"}
-                              onChange={(e) =>
-                                setNewTaskStatuses((prev) => ({
-                                  ...prev,
-                                  [assignee.id]: e.target.value,
-                                }))
-                              }
-                              className="px-2 py-1 border rounded-lg text-xs bg-gray-50 dark:bg-slate-800 focus:ring-2 focus:ring-teal-500 text-gray-700 dark:text-gray-200"
-                            >
-                              <option value="not_started">Not Started</option>
-                              <option value="in_progress">In Progress</option>
-                              <option value="pending_verification">Pending Verification</option>
-                              <option value="done">Done</option>
-                              <option value="verified">Verified</option>
-                            </select>
-                            <motion.button
-                              whileHover={{ scale: 1.05 }}
-                              whileTap={{ scale: 0.95 }}
-                              onClick={() =>
-                                handleUpdateTaskStatus(
-                                  assignee.id,
-                                  newTaskStatuses[assignee.id] || assignee.status || "not_started"
-                                )
-                              }
-                              disabled={isUpdating}
-                              className={`px-2 py-1 bg-teal-600 text-white rounded-lg text-xs font-medium ${
-                                isUpdating ? "opacity-50 cursor-not-allowed" : ""
-                              }`}
-                            >
-                              {isUpdating ? "Updating..." : "Update Task Status"}
-                            </motion.button>
+                            <div className="flex items-center gap-2 mt-1">
+                              <span
+                                className={`px-2 py-0.5 rounded-xl border font-semibold shadow-sm ${statusStyles(statusValue)}`}
+                              >
+                                {statusLabel}
+                              </span>
+                              {youAreDoer && (
+                                <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                                  You are the doer
+                                </span>
+                              )}
+                              {youObserveThisTask && (
+                                <span className="text-[11px] font-medium text-sky-600 dark:text-sky-400">
+                                  You can verify updates
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
 
-                      {assignee.sprints?.length > 0 &&
-                        sprintsGrid(assignee.sprints, true, assignee.id)}
-                    </div>
-                  ))}
+                        {assignee.sprints?.length > 0 && sprintsGrid(assignee.sprints)}
+                      </div>
+                    );
+                  })}
                 </div>
 
-                {/* Manager overall rolled-up status badge */}
                 <div className="mt-3 flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
                   <AlertCircle className="w-4 h-4 text-teal-500" />
                   <span className="font-medium">Overall Status:</span>

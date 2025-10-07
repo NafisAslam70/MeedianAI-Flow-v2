@@ -141,8 +141,6 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
   const [taskLogs, setTaskLogs] = useState([]);
   const [newLogComment, setNewLogComment] = useState("");
   const [selectedLogSprint, setSelectedLogSprint] = useState("");
-  const [newTaskStatuses, setNewTaskStatuses] = useState({});
-  const [newSprintStatuses, setNewSprintStatuses] = useState({});
   const [isAddingLog, setIsAddingLog] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isReminding, setIsReminding] = useState({});
@@ -292,8 +290,6 @@ const teamDigest = useMemo(() => {
           sprintStatuses[`${assignee.id}-${sprint.id}`] = sprint.status;
         });
       });
-      setNewTaskStatuses(taskStatuses);
-      setNewSprintStatuses(sprintStatuses);
     }
   }, [selectedTask]);
 
@@ -315,7 +311,7 @@ const teamDigest = useMemo(() => {
 
   const fetchTask = async (taskId) => {
     try {
-      const response = await fetch(`/api/member/assignedTasks?taskId=${taskId}&action=task`);
+      const response = await fetch(`/api/managersCommon/assign-tasks?taskId=${taskId}`);
       if (!response.ok) throw new Error("Failed to fetch task");
       const data = await response.json();
       return data.task || null;
@@ -330,14 +326,12 @@ const teamDigest = useMemo(() => {
     const baseTask = await fetchTask(taskId);
     if (!baseTask) return null;
 
-    const enrichedAssignees = await Promise.all(
-      (baseTask.assignees || []).map(async (assignee) => ({
-        ...assignee,
-        sprints: await fetchSprints(baseTask.id, assignee.id),
-      }))
-    );
+    const assignees = (baseTask.assignees || []).map((assignee) => ({
+      ...assignee,
+      sprints: Array.isArray(assignee.sprints) ? assignee.sprints : [],
+    }));
 
-    return { ...baseTask, assignees: enrichedAssignees };
+    return { ...baseTask, assignees };
   };
 
   const handleOpenTask = async (taskId) => {
@@ -347,18 +341,6 @@ const teamDigest = useMemo(() => {
       return;
     }
     await handleViewTaskDetails(hydrated);
-  };
-
-  const fetchSprints = async (taskId, assigneeId) => {
-    try {
-      const response = await fetch(`/api/member/assignedTasks?taskId=${taskId}&memberId=${assigneeId}&action=sprints`);
-      if (!response.ok) throw new Error("Failed to fetch sprints");
-      const data = await response.json();
-      return data.sprints || [];
-    } catch (err) {
-      console.error(err);
-      return [];
-    }
   };
 
   const handleViewTaskDetails = async (task) => {
@@ -443,85 +425,6 @@ const teamDigest = useMemo(() => {
       setError("Could not save the log. Try again.");
     } finally {
       setIsAddingLog(false);
-    }
-  };
-
-  const handleUpdateTaskStatus = async (memberId, status) => {
-    if (!selectedTask) return;
-    setIsUpdating(true);
-    try {
-      const response = await fetch(`/api/member/assignedTasks`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          taskId: selectedTask.id,
-          status,
-          action: "update_task",
-          memberId,
-          notifyAssignees: true,
-          notifyWhatsapp: false,
-          newLogComment,
-        }),
-      });
-
-      if (!response.ok) throw new Error("Failed to update task");
-
-      setSelectedTask((prev) => ({
-        ...prev,
-        assignees: prev.assignees.map((assignee) =>
-          assignee.id === memberId ? { ...assignee, status } : assignee
-        ),
-      }));
-      setNewTaskStatuses((prev) => ({ ...prev, [memberId]: status }));
-      setNewLogComment("");
-      mutate(dashboardKey);
-    } catch (err) {
-      console.error(err);
-      setError("Unable to update status right now");
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  const handleUpdateSprintStatus = async (memberId, sprintId, status) => {
-    if (!selectedTask) return;
-    setIsUpdating(true);
-    try {
-      const response = await fetch(`/api/member/assignedTasks`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          taskId: selectedTask.id,
-          status,
-          sprintId,
-          action: "update_sprint",
-          memberId,
-          notifyAssignees: true,
-          notifyWhatsapp: false,
-          newLogComment,
-        }),
-      });
-
-      if (!response.ok) throw new Error("Failed to update sprint");
-
-      setSelectedTask((prev) => ({
-        ...prev,
-        assignees: prev.assignees.map((assignee) => {
-          if (assignee.id !== memberId) return assignee;
-          const updatedSprints = assignee.sprints.map((sprint) =>
-            sprint.id === sprintId ? { ...sprint, status } : sprint
-          );
-          return { ...assignee, sprints: updatedSprints };
-        }),
-      }));
-      setNewSprintStatuses((prev) => ({ ...prev, [`${memberId}-${sprintId}`]: status }));
-      setNewLogComment("");
-      mutate(dashboardKey);
-    } catch (err) {
-      console.error(err);
-      setError("Unable to update sprint status");
-    } finally {
-      setIsUpdating(false);
     }
   };
 
@@ -1017,13 +920,6 @@ const teamDigest = useMemo(() => {
                 setNewLogComment={setNewLogComment}
                 isAddingLog={isAddingLog}
                 onAddLog={() => handleAddLog(selectedTask.id, true)}
-                newTaskStatuses={newTaskStatuses}
-                setNewTaskStatuses={setNewTaskStatuses}
-                newSprintStatuses={newSprintStatuses}
-                setNewSprintStatuses={setNewSprintStatuses}
-                handleUpdateTaskStatus={handleUpdateTaskStatus}
-                handleUpdateSprintStatus={handleUpdateSprintStatus}
-                isUpdating={isUpdating}
                 currentUserId={session?.user?.id}
                 currentUserName={session?.user?.name}
               />
