@@ -1,7 +1,7 @@
 // Full updated code for /api/managersCommon/assign-tasks.js
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { assignedTasks, assignedTaskStatus, assignedTaskObservers, users, sprints, messages } from "@/lib/schema";
+import { assignedTasks, assignedTaskStatus, assignedTaskObservers, assignedTaskLogs, users, sprints, messages } from "@/lib/schema";
 import { auth } from "@/lib/auth";
 import { eq, inArray, or, sql, and } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
