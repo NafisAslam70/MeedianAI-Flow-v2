@@ -208,10 +208,6 @@ export default function AssignedTasksStepView({
 
   const handleUpdateTaskStatus = async (memberId, status) => {
     if (!taskDetails) return;
-    if (!newLogComment) {
-      setError("Comment required");
-      return;
-    }
 
     const assignee = taskDetails.assignees.find((a) => Number(a.id) === Number(memberId));
     if (!assignee) return;
@@ -236,6 +232,7 @@ export default function AssignedTasksStepView({
 
     setIsUpdating(true);
     try {
+      const trimmedComment = newLogComment.trim();
       const body = {
         taskId: taskDetails.id,
         status,
@@ -243,7 +240,7 @@ export default function AssignedTasksStepView({
         memberId,
         notifyAssignees: true,
         notifyWhatsapp: false,
-        newLogComment,
+        newLogComment: trimmedComment,
       };
       const response = await fetch(`/api/member/assignedTasks`, {
         method: "PATCH",
@@ -258,17 +255,19 @@ export default function AssignedTasksStepView({
           existing.id === memberId ? { ...existing, status } : existing
         ),
       }));
-      setTaskLogs((prev) => [
-        {
-          id: Date.now(),
-          userId: session?.user?.id,
-          userName: session?.user?.name,
-          action: "status_update",
-          details: newLogComment,
-          createdAt: new Date(),
-        },
-        ...prev,
-      ]);
+      if (trimmedComment) {
+        setTaskLogs((prev) => [
+          {
+            id: Date.now(),
+            userId: session?.user?.id,
+            userName: session?.user?.name,
+            action: "status_update",
+            details: trimmedComment,
+            createdAt: new Date(),
+          },
+          ...prev,
+        ]);
+      }
       setNewTaskStatuses((prev) => ({ ...prev, [memberId]: status }));
       setNewLogComment("");
     } catch (err) {

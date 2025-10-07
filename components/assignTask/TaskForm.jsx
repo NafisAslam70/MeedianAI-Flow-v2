@@ -3,7 +3,7 @@ import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const TaskForm = ({
   formData,
@@ -61,8 +61,24 @@ const TaskForm = ({
     return defaultObserverIds.every((id) => selected.has(Number(id)));
   }, [defaultObserverIds, formData.observers]);
 
+  const hasAutoAppliedDefaults = useRef(false);
+
+  const defaultObserverSignature = useMemo(
+    () => defaultObserverIds.slice().sort((a, b) => a - b).join(","),
+    [defaultObserverIds]
+  );
+
   useEffect(() => {
-    if (!defaultObserverIds.length || areDefaultsApplied) return;
+    hasAutoAppliedDefaults.current = false;
+  }, [defaultObserverSignature]);
+
+  useEffect(() => {
+    if (hasAutoAppliedDefaults.current) return;
+
+    if (!defaultObserverIds.length || areDefaultsApplied) {
+      hasAutoAppliedDefaults.current = true;
+      return;
+    }
 
     setFormData((prev) => {
       const observerSet = new Set((prev.observers || []).map((id) => Number(id)));
@@ -78,6 +94,7 @@ const TaskForm = ({
         return prev;
       }
 
+      hasAutoAppliedDefaults.current = true;
       return { ...prev, observers: Array.from(observerSet) };
     });
   }, [areDefaultsApplied, defaultObserverIds, setFormData]);
