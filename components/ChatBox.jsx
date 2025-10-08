@@ -5,6 +5,8 @@ import {
   PaperAirplaneIcon,
   ClockIcon,
   DocumentTextIcon,
+  SpeakerWaveIcon,
+  SpeakerXMarkIcon,
 } from "@heroicons/react/24/solid";
 import { motion, AnimatePresence } from "framer-motion";
 import QuickCallInvite from "@/components/QuickCallInvite";
@@ -60,6 +62,9 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
 
   const { data: session } = useSession();
 
+  const userRole = userDetails?.role || session?.user?.role || "member";
+  const muteStorageKey = userDetails?.id ? `chat-mute-${userDetails.id}` : null;
+
   const [messages, setMessages] = useState([]);
   const [users, setUsers] = useState([]);
   const [selectedRecipient, setSelectedRecipient] = useState(recipientId || "");
@@ -91,6 +96,17 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
   // Typing indicators per userId
   const [typingMap, setTypingMap] = useState({});
   const typingTimeoutRef = useRef(null);
+
+  const [isMuted, setIsMuted] = useState(() => {
+    if (typeof window === "undefined" || !muteStorageKey) return false;
+    try {
+      return localStorage.getItem(muteStorageKey) === "true";
+    } catch {
+      return false;
+    }
+  });
+  const [canMute, setCanMute] = useState(false);
+  const [muteConfigLoaded, setMuteConfigLoaded] = useState(false);
 
   // position + drag
   const [pos, setPos] = useState({ x: 16, y: -16 });
@@ -131,18 +147,86 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
     if (recipientId) setSelectedRecipient(String(recipientId));
   }, [recipientId]);
 
+  useEffect(() => {
+    let active = true;
+    const loadMuteSettings = async () => {
+      try {
+        const res = await fetch("/api/others/chat/settings", { cache: "no-store" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const cfg = await res.json();
+        if (!active) return;
+        const allowed =
+          (userRole === "admin" && cfg.allowAdmins) ||
+          (userRole === "team_manager" && cfg.allowManagers) ||
+          (userRole === "member" && cfg.allowMembers);
+        setCanMute(!!allowed);
+      } catch (err) {
+        if (active) {
+          console.error("Failed to load chat mute settings:", err);
+          setCanMute(false);
+        }
+      } finally {
+        if (active) setMuteConfigLoaded(true);
+      }
+    };
+
+    loadMuteSettings();
+    return () => {
+      active = false;
+    };
+  }, [userRole]);
+
+  useEffect(() => {
+    if (!muteConfigLoaded) return;
+    if (!canMute) {
+      if (isMuted) setIsMuted(false);
+      if (typeof window !== "undefined" && muteStorageKey) {
+        try {
+          localStorage.removeItem(muteStorageKey);
+        } catch {}
+      }
+      return;
+    }
+
+    if (!muteStorageKey || typeof window === "undefined") return;
+    try {
+      const stored = localStorage.getItem(muteStorageKey);
+      if (stored === null) return;
+      const next = stored === "true";
+      if (isMuted !== next) setIsMuted(next);
+    } catch {}
+  }, [canMute, isMuted, muteConfigLoaded, muteStorageKey]);
+
   const playSound = useCallback(() => {
-    if (!audioRef.current) return;
+    if (!audioRef.current || isMuted) return;
     audioRef.current.loop = true;
     audioRef.current.currentTime = 0;
     audioRef.current.play().catch(() => {});
-  }, []);
+  }, [isMuted]);
 
   const stopSound = useCallback(() => {
     if (!audioRef.current) return;
     audioRef.current.pause();
     audioRef.current.currentTime = 0;
   }, []);
+
+  const toggleMute = useCallback(() => {
+    if (!canMute) return;
+    setIsMuted((prev) => {
+      const next = !prev;
+      if (typeof window !== "undefined" && muteStorageKey) {
+        try {
+          if (next) {
+            localStorage.setItem(muteStorageKey, "true");
+          } else {
+            localStorage.removeItem(muteStorageKey);
+          }
+        } catch {}
+      }
+      if (next) stopSound();
+      return next;
+    });
+  }, [canMute, muteStorageKey, stopSound]);
 
   const playSend = useCallback(() => {
     if (!sendAudioRef.current) return;
@@ -151,10 +235,10 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
   }, []);
 
   const playReceive = useCallback(() => {
-    if (!receiveAudioRef.current) return;
+    if (!receiveAudioRef.current || isMuted) return;
     receiveAudioRef.current.currentTime = 0;
     receiveAudioRef.current.play().catch(() => {});
-  }, []);
+  }, [isMuted]);
 
   const scrollBottom = useCallback(() => {
     if (!messagesEndRef.current) return;
@@ -714,16 +798,34 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
             >
               <div className="chatbox-header flex justify-between items-center bg-gradient-to-r from-teal-500 to-cyan-600 text-white px-3 py-2 sm:px-4 sm:py-3">
                 <h3 className="text-sm sm:text-base font-semibold">Messages</h3>
-                <button
-                  onClick={() => {
-                    setShowChatbox(false);
-                    if (setIsOpen) setIsOpen(false);
-                  }}
-                  className="text-white/90 hover:text-white text-lg"
-                  aria-label="Close Chatbox"
-                >
-                  ✕
-                </button>
+                <div className="flex items-center gap-1.5">
+                  {muteConfigLoaded && canMute && (
+                    <button
+                      onClick={toggleMute}
+                      className={`rounded-full p-1.5 transition-colors focus:outline-none focus:ring-2 focus:ring-white/60 ${
+                        isMuted ? "bg-white/20 hover:bg-white/30" : "bg-white/10 hover:bg-white/20"
+                      }`}
+                      aria-label={isMuted ? "Unmute chat alerts" : "Mute chat alerts"}
+                      title={isMuted ? "Unmute chat alerts" : "Mute chat alerts"}
+                    >
+                      {isMuted ? (
+                        <SpeakerXMarkIcon className="h-4 w-4 text-white" />
+                      ) : (
+                        <SpeakerWaveIcon className="h-4 w-4 text-white" />
+                      )}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      setShowChatbox(false);
+                      if (setIsOpen) setIsOpen(false);
+                    }}
+                    className="text-white/90 hover:text-white text-lg"
+                    aria-label="Close Chatbox"
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
 
               <div className="p-2 sm:p-3 space-y-2 sm:space-y-3 flex-1 flex flex-col overflow-hidden">

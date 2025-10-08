@@ -905,36 +905,6 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
     openedAtMs,
   } = useDashboardData(session, selectedDate, role, router, viewUserId);
 
-  const { activeSlot, timeLeft } = useSlotTiming(mriData);
-  const [showAllMrnsModal, setShowAllMrnsModal] = useState(false);
-  const [hideSelfInMrns, setHideSelfInMrns] = useState(false);
-  const { data: mrrFeedData } = useSWR("/api/member/meRightNow?action=feed", fetcher, { refreshInterval: 12000, revalidateOnFocus: false });
-  const mrrFeed = Array.isArray(mrrFeedData?.feed) ? mrrFeedData.feed : [];
-
-  // Fallback: if mri-status is unavailable (e.g., non-member) or empty, read from day open/close history for the selected date
-  const ocParams = new URLSearchParams();
-  ocParams.set('from', selectedDate);
-  ocParams.set('to', selectedDate);
-  ocParams.set('type', 'open');
-  const { data: ocHist } = useSWR(session?.user ? `/api/member/dayOpenClose/history?${ocParams.toString()}` : null, fetcher, { refreshInterval: 15000, revalidateOnFocus: false });
-  const historyOpenedAtMs = useMemo(() => {
-    try {
-      const rows = Array.isArray(ocHist?.history) ? ocHist.history : [];
-      const row = rows[0];
-      if (!row?.openedAt) return null;
-      return new Date(`${selectedDate}T${row.openedAt}`).getTime();
-    } catch { return null; }
-  }, [ocHist?.history, selectedDate]);
-
-  // General Dashboard-style current block (from slots)
-  const { data: slotData } = useSWR("/api/admin/manageMeedian?section=slots", fetcher);
-  const [slotsGD, setSlotsGD] = useState([]);
-  const [currentSlotGD, setCurrentSlotGD] = useState(null);
-  const [currentBlockGD, setCurrentBlockGD] = useState(null);
-  const [showOpenedBanner, setShowOpenedBanner] = useState(false);
-  const [openedAtOverride, setOpenedAtOverride] = useState(null);
-  const effectiveOpenedAt = openedAtOverride || openedAtMs || historyOpenedAtMs;
-
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -1005,6 +975,36 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
       router.replace("/dashboard/member", { scroll: false });
     }
   }, [pendingExternalFocus, state.assignedTasks, router]);
+
+  const { activeSlot, timeLeft } = useSlotTiming(mriData);
+  const [showAllMrnsModal, setShowAllMrnsModal] = useState(false);
+  const [hideSelfInMrns, setHideSelfInMrns] = useState(false);
+  const { data: mrrFeedData } = useSWR("/api/member/meRightNow?action=feed", fetcher, { refreshInterval: 12000, revalidateOnFocus: false });
+  const mrrFeed = Array.isArray(mrrFeedData?.feed) ? mrrFeedData.feed : [];
+
+  // Fallback: if mri-status is unavailable (e.g., non-member) or empty, read from day open/close history for the selected date
+  const ocParams = new URLSearchParams();
+  ocParams.set('from', selectedDate);
+  ocParams.set('to', selectedDate);
+  ocParams.set('type', 'open');
+  const { data: ocHist } = useSWR(session?.user ? `/api/member/dayOpenClose/history?${ocParams.toString()}` : null, fetcher, { refreshInterval: 15000, revalidateOnFocus: false });
+  const historyOpenedAtMs = useMemo(() => {
+    try {
+      const rows = Array.isArray(ocHist?.history) ? ocHist.history : [];
+      const row = rows[0];
+      if (!row?.openedAt) return null;
+      return new Date(`${selectedDate}T${row.openedAt}`).getTime();
+    } catch { return null; }
+  }, [ocHist?.history, selectedDate]);
+
+  // General Dashboard-style current block (from slots)
+  const { data: slotData } = useSWR("/api/admin/manageMeedian?section=slots", fetcher);
+  const [slotsGD, setSlotsGD] = useState([]);
+  const [currentSlotGD, setCurrentSlotGD] = useState(null);
+  const [currentBlockGD, setCurrentBlockGD] = useState(null);
+  const [showOpenedBanner, setShowOpenedBanner] = useState(false);
+  const [openedAtOverride, setOpenedAtOverride] = useState(null);
+  const effectiveOpenedAt = openedAtOverride || openedAtMs || historyOpenedAtMs;
 
   async function handleOpenDay() {
     // Open modal to scan manager's session QR or share personal token

@@ -19,12 +19,18 @@ export default function RandomsPage() {
   const [isSavingWaitFs, setIsSavingWaitFs] = useState(false);
   const [isSavingWait, setIsSavingWait] = useState(false);
   const [isSavingMobileBlock, setIsSavingMobileBlock] = useState(false);
+  const [isSavingChatMuteAdmins, setIsSavingChatMuteAdmins] = useState(false);
+  const [isSavingChatMuteManagers, setIsSavingChatMuteManagers] = useState(false);
+  const [isSavingChatMuteMembers, setIsSavingChatMuteMembers] = useState(false);
 
   const showDayCloseBypass = data?.showDayCloseBypass ?? false;
   const showIprJourney = data?.showIprJourney ?? true;
   const dayCloseWaitCompulsory = data?.dayCloseWaitCompulsory ?? false;
   const dayCloseWaitFullscreen = data?.dayCloseWaitFullscreen ?? false;
   const blockMobileDayClose = data?.blockMobileDayClose ?? false;
+  const chatMuteAllowAdmins = data?.chatMuteAllowAdmins ?? true;
+  const chatMuteAllowManagers = data?.chatMuteAllowManagers ?? true;
+  const chatMuteAllowMembers = data?.chatMuteAllowMembers ?? true;
 
   const updateFlag = async ({ payload, setSaving, successMessage }) => {
     if (setSaving) setSaving(true);
@@ -105,6 +111,42 @@ export default function RandomsPage() {
       successMessage: nextValue
         ? "Members must use desktop to close their day."
         : "Mobile Day Close submissions are allowed again.",
+    });
+  };
+
+  const handleToggleChatMuteAdmins = () => {
+    if (isSavingChatMuteAdmins) return;
+    const nextValue = !chatMuteAllowAdmins;
+    updateFlag({
+      payload: { chatMuteAllowAdmins: nextValue },
+      setSaving: setIsSavingChatMuteAdmins,
+      successMessage: nextValue
+        ? "Admins can mute chat notification sounds."
+        : "Admins will always hear chat notification sounds.",
+    });
+  };
+
+  const handleToggleChatMuteManagers = () => {
+    if (isSavingChatMuteManagers) return;
+    const nextValue = !chatMuteAllowManagers;
+    updateFlag({
+      payload: { chatMuteAllowManagers: nextValue },
+      setSaving: setIsSavingChatMuteManagers,
+      successMessage: nextValue
+        ? "Team Managers can mute chat notification sounds."
+        : "Team Managers will always hear chat notification sounds.",
+    });
+  };
+
+  const handleToggleChatMuteMembers = () => {
+    if (isSavingChatMuteMembers) return;
+    const nextValue = !chatMuteAllowMembers;
+    updateFlag({
+      payload: { chatMuteAllowMembers: nextValue },
+      setSaving: setIsSavingChatMuteMembers,
+      successMessage: nextValue
+        ? "Members can mute chat notification sounds."
+        : "Members will always hear chat notification sounds.",
     });
   };
 
@@ -279,6 +321,121 @@ export default function RandomsPage() {
           </motion.button>
       </div>
     </div>
+
+      <div className="max-w-xl rounded-2xl border border-cyan-100 bg-white/90 shadow-sm p-6 space-y-5">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-800">Chatbox Mute Permissions</h2>
+          <p className="text-sm text-gray-600">
+            Choose which roles can silence the chat notification sound. Others will continue to hear alerts for new messages.
+          </p>
+        </div>
+
+        <div className="space-y-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h3 className="text-sm font-medium text-gray-800">Admins</h3>
+              <p className="text-xs text-gray-500">Show or hide the mute toggle for admins.</p>
+            </div>
+            <motion.button
+              type="button"
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={handleToggleChatMuteAdmins}
+              disabled={isLoading || isSavingChatMuteAdmins}
+              className={`relative inline-flex h-8 w-14 items-center rounded-full border transition-colors duration-200 ${
+                chatMuteAllowAdmins ? "bg-cyan-500 border-cyan-500" : "bg-gray-200 border-gray-300"
+              } ${isSavingChatMuteAdmins ? "opacity-70 cursor-not-allowed" : "cursor-pointer"}`}
+              aria-pressed={chatMuteAllowAdmins}
+            >
+              <span
+                className={`ml-1 inline-flex h-6 w-6 transform items-center justify-center rounded-full bg-white shadow transition-transform duration-200 ${
+                  chatMuteAllowAdmins ? "translate-x-6" : "translate-x-0"
+                }`}
+              >
+                {isSavingChatMuteAdmins ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-cyan-600" />
+                ) : chatMuteAllowAdmins ? (
+                  <Check className="h-4 w-4 text-cyan-600" />
+                ) : (
+                  <X className="h-4 w-4 text-gray-500" />
+                )}
+              </span>
+            </motion.button>
+          </div>
+
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h3 className="text-sm font-medium text-gray-800">Team Managers</h3>
+              <p className="text-xs text-gray-500">Let managers mute chat audio during busy shifts.</p>
+            </div>
+            <motion.button
+              type="button"
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={handleToggleChatMuteManagers}
+              disabled={isLoading || isSavingChatMuteManagers}
+              className={`relative inline-flex h-8 w-14 items-center rounded-full border transition-colors duration-200 ${
+                chatMuteAllowManagers ? "bg-cyan-500 border-cyan-500" : "bg-gray-200 border-gray-300"
+              } ${isSavingChatMuteManagers ? "opacity-70 cursor-not-allowed" : "cursor-pointer"}`}
+              aria-pressed={chatMuteAllowManagers}
+            >
+              <span
+                className={`ml-1 inline-flex h-6 w-6 transform items-center justify-center rounded-full bg-white shadow transition-transform duration-200 ${
+                  chatMuteAllowManagers ? "translate-x-6" : "translate-x-0"
+                }`}
+              >
+                {isSavingChatMuteManagers ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-cyan-600" />
+                ) : chatMuteAllowManagers ? (
+                  <Check className="h-4 w-4 text-cyan-600" />
+                ) : (
+                  <X className="h-4 w-4 text-gray-500" />
+                )}
+              </span>
+            </motion.button>
+          </div>
+
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h3 className="text-sm font-medium text-gray-800">Members</h3>
+              <p className="text-xs text-gray-500">Keep the mute option available for members who need quiet focus.</p>
+            </div>
+            <motion.button
+              type="button"
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={handleToggleChatMuteMembers}
+              disabled={isLoading || isSavingChatMuteMembers}
+              className={`relative inline-flex h-8 w-14 items-center rounded-full border transition-colors duration-200 ${
+                chatMuteAllowMembers ? "bg-cyan-500 border-cyan-500" : "bg-gray-200 border-gray-300"
+              } ${isSavingChatMuteMembers ? "opacity-70 cursor-not-allowed" : "cursor-pointer"}`}
+              aria-pressed={chatMuteAllowMembers}
+            >
+              <span
+                className={`ml-1 inline-flex h-6 w-6 transform items-center justify-center rounded-full bg-white shadow transition-transform duration-200 ${
+                  chatMuteAllowMembers ? "translate-x-6" : "translate-x-0"
+                }`}
+              >
+                {isSavingChatMuteMembers ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-cyan-600" />
+                ) : chatMuteAllowMembers ? (
+                  <Check className="h-4 w-4 text-cyan-600" />
+                ) : (
+                  <X className="h-4 w-4 text-gray-500" />
+                )}
+              </span>
+            </motion.button>
+          </div>
+        </div>
+
+        <div className="text-sm text-gray-500">
+          Status: {isLoading
+            ? "Loading…"
+            : `Admins ${chatMuteAllowAdmins ? "can" : "cannot"} mute · Managers ${
+                chatMuteAllowManagers ? "can" : "cannot"
+              } mute · Members ${chatMuteAllowMembers ? "can" : "cannot"} mute.`}
+        </div>
+      </div>
 
       <div className="max-w-xl rounded-2xl border border-amber-100 bg-white/90 shadow-sm p-6 space-y-4">
         <div className="flex items-start justify-between gap-4">

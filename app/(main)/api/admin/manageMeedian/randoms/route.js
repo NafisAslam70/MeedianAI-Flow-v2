@@ -10,6 +10,9 @@ const FLAG_KEYS = {
   wait: "day_close_wait_compulsory",
   waitFullscreen: "day_close_wait_fullscreen",
   mobileBlock: "block_mobile_day_close",
+  chatMuteAdmin: "chat_mute_allow_admins",
+  chatMuteManager: "chat_mute_allow_managers",
+  chatMuteMember: "chat_mute_allow_members",
 };
 
 const FLAG_DEFAULTS = {
@@ -18,6 +21,9 @@ const FLAG_DEFAULTS = {
   dayCloseWaitCompulsory: false,
   dayCloseWaitFullscreen: false,
   blockMobileDayClose: false,
+  chatMuteAllowAdmins: true,
+  chatMuteAllowManagers: true,
+  chatMuteAllowMembers: true,
 };
 
 async function requireAccess({ write = false } = {}) {
@@ -77,6 +83,15 @@ export async function GET() {
       blockMobileDayClose: map.has(FLAG_KEYS.mobileBlock)
         ? !!map.get(FLAG_KEYS.mobileBlock)
         : FLAG_DEFAULTS.blockMobileDayClose,
+      chatMuteAllowAdmins: map.has(FLAG_KEYS.chatMuteAdmin)
+        ? !!map.get(FLAG_KEYS.chatMuteAdmin)
+        : FLAG_DEFAULTS.chatMuteAllowAdmins,
+      chatMuteAllowManagers: map.has(FLAG_KEYS.chatMuteManager)
+        ? !!map.get(FLAG_KEYS.chatMuteManager)
+        : FLAG_DEFAULTS.chatMuteAllowManagers,
+      chatMuteAllowMembers: map.has(FLAG_KEYS.chatMuteMember)
+        ? !!map.get(FLAG_KEYS.chatMuteMember)
+        : FLAG_DEFAULTS.chatMuteAllowMembers,
     },
     { status: 200 }
   );
@@ -104,6 +119,15 @@ export async function POST(req) {
   if (body.hasOwnProperty("blockMobileDayClose")) {
     updates.push({ key: FLAG_KEYS.mobileBlock, value: !!body.blockMobileDayClose });
   }
+  if (body.hasOwnProperty("chatMuteAllowAdmins")) {
+    updates.push({ key: FLAG_KEYS.chatMuteAdmin, value: !!body.chatMuteAllowAdmins });
+  }
+  if (body.hasOwnProperty("chatMuteAllowManagers")) {
+    updates.push({ key: FLAG_KEYS.chatMuteManager, value: !!body.chatMuteAllowManagers });
+  }
+  if (body.hasOwnProperty("chatMuteAllowMembers")) {
+    updates.push({ key: FLAG_KEYS.chatMuteMember, value: !!body.chatMuteAllowMembers });
+  }
 
   if (!updates.length) {
     return NextResponse.json({ error: "No updates provided" }, { status: 400 });
@@ -129,6 +153,9 @@ export async function POST(req) {
       dayCloseWaitCompulsory: updates.find((item) => item.key === FLAG_KEYS.wait)?.value ?? undefined,
       dayCloseWaitFullscreen: updates.find((item) => item.key === FLAG_KEYS.waitFullscreen)?.value ?? undefined,
       blockMobileDayClose: updates.find((item) => item.key === FLAG_KEYS.mobileBlock)?.value ?? undefined,
+      chatMuteAllowAdmins: updates.find((item) => item.key === FLAG_KEYS.chatMuteAdmin)?.value ?? undefined,
+      chatMuteAllowManagers: updates.find((item) => item.key === FLAG_KEYS.chatMuteManager)?.value ?? undefined,
+      chatMuteAllowMembers: updates.find((item) => item.key === FLAG_KEYS.chatMuteMember)?.value ?? undefined,
     },
     { status: 200 }
   );

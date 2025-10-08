@@ -360,40 +360,46 @@ const teamDigest = useMemo(() => {
 
   const openStatusModal = (task) => {
     if (!task) return;
-    setSelectedTask(task);
     const context = evaluateTaskContext(task);
     if (!context.isObserver && !context.isDoer) {
       setError("You don't have permission to update this task.");
       setTimeout(() => setError(""), 3000);
       return;
     }
+
     const assigneeList = Array.isArray(task?.assignees) ? task.assignees : [];
     const pendingAssignee = assigneeList.find(
       (assignee) => normalizeTaskStatus(assignee.status) === "pending_verification"
     );
-    const normalizedStatus = normalizeTaskStatus(task.status);
-    const options = getTaskStatusOptions(normalizedStatus, {
+    const observerAssignee = assigneeList.find(
+      (assignee) => Number(assignee.id) === Number(context.sessionUserId)
+    );
+    const defaultAssignee = pendingAssignee || observerAssignee || assigneeList[0] || null;
+
+    const currentStatus = defaultAssignee
+      ? normalizeTaskStatus(defaultAssignee.status)
+      : normalizeTaskStatus(task.status);
+    const options = getTaskStatusOptions(currentStatus, {
       isDoer: context.isDoer,
       isObserver: context.isObserver,
     });
 
-    const defaultAssigneeId = pendingAssignee
-      ? Number(pendingAssignee.id)
-      : context.viewedMemberId;
+    const enrichedTask = {
+      ...task,
+      status: currentStatus,
+      sprints: defaultAssignee?.sprints || task.sprints || [],
+    };
 
+    setSelectedTask(enrichedTask);
     setActorContext({ ...context });
-    setActiveMemberId(defaultAssigneeId);
+    setActiveMemberId(defaultAssignee ? Number(defaultAssignee.id) : null);
     setStatusModalMode("task");
     setStatusOptions(options);
     const defaultStatus =
-      options.find((opt) => opt.value !== normalizedStatus) || options[0] || null;
+      options.find((opt) => opt.value !== currentStatus) || options[0] || null;
     setNewStatus(defaultStatus?.value || "");
     setSelectedSprint("");
-    setSprints(
-      Array.isArray(task.assignees)
-        ? task.assignees.flatMap((assignee) => assignee.sprints || [])
-        : []
-    );
+    setSprints(defaultAssignee?.sprints || []);
     setSendNotification(true);
     setSendWhatsapp(false);
     setIsRecording(false);
@@ -405,10 +411,16 @@ const teamDigest = useMemo(() => {
     const referenceTask = taskOverride || selectedTask;
     setSelectedSprint(sprintId);
     if (!referenceTask) return;
+
+    const assignee = referenceTask.assignees?.find(
+      (entry) => Number(entry.id) === Number(activeMemberId)
+    ) || referenceTask.assignees?.[0];
+    if (!assignee) return;
+
     const context = evaluateTaskContext(referenceTask);
 
     if (!sprintId) {
-      const normalizedStatus = normalizeTaskStatus(referenceTask.status);
+      const normalizedStatus = normalizeTaskStatus(assignee.status || referenceTask.status);
       const options = getTaskStatusOptions(normalizedStatus, {
         isDoer: context.isDoer,
         isObserver: context.isObserver,
@@ -421,10 +433,7 @@ const teamDigest = useMemo(() => {
       return;
     }
 
-    const allSprints = Array.isArray(referenceTask?.assignees)
-      ? referenceTask.assignees.flatMap((assignee) => assignee.sprints || [])
-      : [];
-    const sprintObj = allSprints.find((s) => String(s.id) === String(sprintId));
+    const sprintObj = assignee.sprints?.find((s) => String(s.id) === String(sprintId));
     if (!sprintObj) return;
 
     const options = getSprintStatusOptions(normalizeTaskStatus(sprintObj.status), {
