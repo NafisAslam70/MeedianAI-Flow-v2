@@ -107,6 +107,8 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
   });
   const [canMute, setCanMute] = useState(false);
   const [muteConfigLoaded, setMuteConfigLoaded] = useState(false);
+  const [showMuteConfirm, setShowMuteConfirm] = useState(false);
+  const [pendingMuteState, setPendingMuteState] = useState(null);
 
   // position + drag
   const [pos, setPos] = useState({ x: 16, y: -16 });
@@ -197,6 +199,13 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
     } catch {}
   }, [canMute, isMuted, muteConfigLoaded, muteStorageKey]);
 
+  useEffect(() => {
+    if (!canMute) {
+      setShowMuteConfirm(false);
+      setPendingMuteState(null);
+    }
+  }, [canMute]);
+
   const playSound = useCallback(() => {
     if (!audioRef.current || isMuted) return;
     audioRef.current.loop = true;
@@ -210,23 +219,46 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
     audioRef.current.currentTime = 0;
   }, []);
 
-  const toggleMute = useCallback(() => {
-    if (!canMute) return;
-    setIsMuted((prev) => {
-      const next = !prev;
-      if (typeof window !== "undefined" && muteStorageKey) {
-        try {
-          if (next) {
-            localStorage.setItem(muteStorageKey, "true");
-          } else {
-            localStorage.removeItem(muteStorageKey);
-          }
-        } catch {}
-      }
-      if (next) stopSound();
-      return next;
-    });
-  }, [canMute, muteStorageKey, stopSound]);
+  const updateMute = useCallback(
+    (next) => {
+      if (!canMute) return;
+      setIsMuted(() => {
+        if (typeof window !== "undefined" && muteStorageKey) {
+          try {
+            if (next) {
+              localStorage.setItem(muteStorageKey, "true");
+            } else {
+              localStorage.removeItem(muteStorageKey);
+            }
+          } catch {}
+        }
+        if (next) stopSound();
+        return next;
+      });
+    },
+    [canMute, muteStorageKey, stopSound]
+  );
+
+  const requestMuteChange = useCallback(
+    (next) => {
+      if (!canMute) return;
+      setPendingMuteState(next);
+      setShowMuteConfirm(true);
+    },
+    [canMute]
+  );
+
+  const confirmMuteChange = useCallback(() => {
+    if (pendingMuteState === null) return;
+    updateMute(!!pendingMuteState);
+    setPendingMuteState(null);
+    setShowMuteConfirm(false);
+  }, [pendingMuteState, updateMute]);
+
+  const cancelMuteChange = useCallback(() => {
+    setPendingMuteState(null);
+    setShowMuteConfirm(false);
+  }, []);
 
   useEffect(() => {
     if (!muteConfigLoaded) return;
@@ -1044,7 +1076,7 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
                 <div className="flex items-center gap-2">
                   {muteConfigLoaded && canMute && (
                     <button
-                      onClick={toggleMute}
+                      onClick={() => requestMuteChange(!isMuted)}
                       className={`rounded-full p-1.5 transition-colors focus:outline-none focus:ring-2 focus:ring-white/60 ${
                         isMuted ? "bg-white/20 hover:bg-white/30" : "bg-white/10 hover:bg-white/20"
                       }`}
@@ -1295,6 +1327,43 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
             </motion.div>
           )}
         </AnimatePresence>
+
+        {showMuteConfirm && (
+          <div
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-[999]"
+            onClick={cancelMuteChange}
+          >
+            <div
+              className="bg-white rounded-2xl shadow-2xl border border-cyan-200 w-full max-w-sm p-5 space-y-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div>
+                <h2 className="text-lg font-semibold text-gray-800">
+                  {pendingMuteState ? "Mute chat alerts?" : "Unmute chat alerts?"}
+                </h2>
+                <p className="text-sm text-gray-600 mt-1">
+                  {pendingMuteState
+                    ? "We will pause the notification sound for new messages. You can turn it back on anytime."
+                    : "We will resume the notification sound whenever a new message arrives while the chat is closed."}
+                </p>
+              </div>
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={cancelMuteChange}
+                  className="px-3 py-1.5 rounded-md border border-gray-300 text-sm text-gray-700 hover:bg-gray-100"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmMuteChange}
+                  className="px-3 py-1.5 rounded-md text-sm text-white bg-cyan-600 hover:bg-cyan-700"
+                >
+                  {pendingMuteState ? "Mute" : "Unmute"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <AnimatePresence>
           {showComingSoonModal && (
