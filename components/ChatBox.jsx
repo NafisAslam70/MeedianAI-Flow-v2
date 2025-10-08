@@ -219,34 +219,33 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
     audioRef.current.currentTime = 0;
   }, []);
 
-  const forcePlayAlert = useCallback(() => {
-    if (!audioRef.current) return;
-    audioRef.current.loop = true;
-    audioRef.current.currentTime = 0;
-    audioRef.current.play().catch(() => {});
-  }, []);
-
   const updateMute = useCallback(
     (next) => {
       if (!canMute) return;
-      setIsMuted(() => {
-        if (typeof window !== "undefined" && muteStorageKey) {
-          try {
-            if (next) {
-              localStorage.setItem(muteStorageKey, "true");
-            } else {
-              localStorage.removeItem(muteStorageKey);
-            }
-          } catch {}
+      setIsMuted(next);
+      if (typeof window !== "undefined" && muteStorageKey) {
+        try {
+          if (next) {
+            localStorage.setItem(muteStorageKey, "true");
+          } else {
+            localStorage.removeItem(muteStorageKey);
+          }
+        } catch {}
+      }
+      if (next) {
+        stopSound();
+      } else {
+        lastAlertedId.current = null;
+        if (hasUnread && !showChatbox && !showHistory && audioRef.current) {
+          const audio = audioRef.current;
+          audio.loop = true;
+          audio.muted = false;
+          audio.currentTime = 0;
+          audio.play().catch(() => {});
         }
-        if (next) stopSound();
-        return next;
-      });
-      if (!next && hasUnread && !showChatbox && !showHistory) {
-        requestAnimationFrame(() => forcePlayAlert());
       }
     },
-    [canMute, muteStorageKey, stopSound, hasUnread, showChatbox, showHistory, forcePlayAlert]
+    [canMute, muteStorageKey, stopSound, hasUnread, showChatbox, showHistory]
   );
 
   const requestMuteChange = useCallback(
