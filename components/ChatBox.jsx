@@ -799,22 +799,6 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
               <div className="chatbox-header flex justify-between items-center bg-gradient-to-r from-teal-500 to-cyan-600 text-white px-3 py-2 sm:px-4 sm:py-3">
                 <h3 className="text-sm sm:text-base font-semibold">Messages</h3>
                 <div className="flex items-center gap-1.5">
-                  {muteConfigLoaded && canMute && (
-                    <button
-                      onClick={toggleMute}
-                      className={`rounded-full p-1.5 transition-colors focus:outline-none focus:ring-2 focus:ring-white/60 ${
-                        isMuted ? "bg-white/20 hover:bg-white/30" : "bg-white/10 hover:bg-white/20"
-                      }`}
-                      aria-label={isMuted ? "Unmute chat alerts" : "Mute chat alerts"}
-                      title={isMuted ? "Unmute chat alerts" : "Mute chat alerts"}
-                    >
-                      {isMuted ? (
-                        <SpeakerXMarkIcon className="h-4 w-4 text-white" />
-                      ) : (
-                        <SpeakerWaveIcon className="h-4 w-4 text-white" />
-                      )}
-                    </button>
-                  )}
                   <button
                     onClick={() => {
                       setShowChatbox(false);
@@ -1035,6 +1019,22 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
               <div className="flex justify-between items-center bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-3 py-2 sm:px-4 sm:py-3 rounded-t-2xl">
                 <h3 className="text-sm sm:text-base font-semibold">Chat History</h3>
                 <div className="flex items-center gap-2">
+                  {muteConfigLoaded && canMute && (
+                    <button
+                      onClick={toggleMute}
+                      className={`rounded-full p-1.5 transition-colors focus:outline-none focus:ring-2 focus:ring-white/60 ${
+                        isMuted ? "bg-white/20 hover:bg-white/30" : "bg-white/10 hover:bg-white/20"
+                      }`}
+                      aria-label={isMuted ? "Unmute chat alerts" : "Mute chat alerts"}
+                      title={isMuted ? "Unmute chat alerts" : "Mute chat alerts"}
+                    >
+                      {isMuted ? (
+                        <SpeakerXMarkIcon className="h-4 w-4 text-white" />
+                      ) : (
+                        <SpeakerWaveIcon className="h-4 w-4 text-white" />
+                      )}
+                    </button>
+                  )}
                   <button
                     onClick={markAllRead}
                     className="text-[11px] sm:text-xs px-2.5 py-1 rounded-md bg-white/15 hover:bg-white/25 border border-white/25"
@@ -1043,12 +1043,12 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
                     Read all
                   </button>
                   <button
-                  onClick={() => setShowHistory(false)}
-                  className="text-white/90 hover:text-white text-lg"
-                  aria-label="Close Chat History"
-                >
-                  ✕
-                </button>
+                    onClick={() => setShowHistory(false)}
+                    className="text-white/90 hover:text-white text-lg"
+                    aria-label="Close Chat History"
+                  >
+                    ✕
+                  </button>
                 </div>
               </div>
 
