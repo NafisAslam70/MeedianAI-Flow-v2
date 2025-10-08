@@ -219,6 +219,13 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
     audioRef.current.currentTime = 0;
   }, []);
 
+  const forcePlayAlert = useCallback(() => {
+    if (!audioRef.current) return;
+    audioRef.current.loop = true;
+    audioRef.current.currentTime = 0;
+    audioRef.current.play().catch(() => {});
+  }, []);
+
   const updateMute = useCallback(
     (next) => {
       if (!canMute) return;
@@ -235,8 +242,11 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
         if (next) stopSound();
         return next;
       });
+      if (!next && hasUnread && !showChatbox && !showHistory) {
+        requestAnimationFrame(() => forcePlayAlert());
+      }
     },
-    [canMute, muteStorageKey, stopSound]
+    [canMute, muteStorageKey, stopSound, hasUnread, showChatbox, showHistory, forcePlayAlert]
   );
 
   const requestMuteChange = useCallback(
@@ -1089,6 +1099,11 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
                         <SpeakerWaveIcon className="h-4 w-4 text-white" />
                       )}
                     </button>
+                  )}
+                  {muteConfigLoaded && canMute && (
+                    <span className="text-[11px] text-white/85 font-medium">
+                      {isMuted ? "Muted" : "Sound on"}
+                    </span>
                   )}
                   <button
                     onClick={markAllRead}
