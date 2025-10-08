@@ -354,10 +354,11 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
     setUnreadCounts((prev) => {
       const copy = { ...prev };
       delete copy[partnerId];
+      const stillHasUnread = Object.keys(copy).length > 0;
+      setHasUnread(stillHasUnread);
+      if (!stillHasUnread) stopSound();
       return copy;
     });
-    setHasUnread(Object.keys(unreadCounts).length > 1);
-    if (Object.keys(unreadCounts).length <= 1) stopSound();
 
     await Promise.all(
       toMark.map((m) =>
@@ -368,7 +369,7 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
         })
       )
     );
-  }, [messages, userDetails?.id, unreadCounts, stopSound]);
+  }, [messages, userDetails?.id, stopSound]);
 
   const sendMessage = useCallback(async () => {
     if (!selectedRecipient || !messageContent.trim()) {
@@ -523,29 +524,40 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
 
   // Socket realtime bindings
   useEffect(() => {
-    if (!socket) return;
+    if (!socket || !userDetails?.id) return;
+    const myId = Number(userDetails.id);
     const onMessage = (m) => {
-      // Only process messages related to me
-      if (
-        m.senderId === Number(userDetails.id) ||
-        m.recipientId === Number(userDetails.id)
-      ) {
-        setMessages((prev) => {
-          // avoid duplicates by id
-          if (prev.some((x) => x.id === m.id)) return prev;
-          return [...prev, m];
+      if (m.senderId !== myId && m.recipientId !== myId) return;
+
+      let inserted = false;
+      setMessages((prev) => {
+        if (prev.some((x) => x.id === m.id)) return prev;
+        inserted = true;
+        return [...prev, m];
+      });
+
+      const partnerId = m.senderId === myId ? m.recipientId : m.senderId;
+      const isIncoming = m.recipientId === myId && m.senderId !== myId;
+      const isFocusedPartner = showChatbox && String(partnerId) === String(selectedRecipient);
+
+      if (isIncoming && isFocusedPartner) {
+        setMessages((prev) => prev.map((x) => (x.id === m.id ? { ...x, status: "read" } : x)));
+        fetch("/api/others/chat", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messageId: m.id, status: "read" }),
+        }).catch(() => {});
+      }
+
+      if (isIncoming && inserted && !isFocusedPartner) {
+        setUnreadCounts((prev) => {
+          const copy = { ...prev, [m.senderId]: (prev[m.senderId] || 0) + 1 };
+          setHasUnread(true);
+          return copy;
         });
-        // Auto-read when chat is open with this partner
-        const partnerId = m.senderId === Number(userDetails.id) ? m.recipientId : m.senderId;
-        if (showChatbox && String(partnerId) === String(selectedRecipient)) {
-          // optimistically mark as read in UI
-          setMessages((prev) => prev.map((x) => (x.id === m.id ? { ...x, status: "read" } : x)));
-          // best-effort notify server
-          fetch("/api/others/chat", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ messageId: m.id, status: "read" }),
-          }).catch(() => {});
+        if (!showChatbox && !showHistory && lastAlertedId.current !== m.id) {
+          lastAlertedId.current = m.id;
+          if (!isMuted) playSound();
         }
       }
     };
@@ -558,7 +570,7 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
       socket.off("message", onMessage);
       socket.off("typing", onTyping);
     };
-  }, [socket, userDetails?.id, showChatbox, selectedRecipient]);
+  }, [socket, userDetails?.id, showChatbox, selectedRecipient, showHistory, isMuted, playSound]);
 
   // Emit typing events when composing
   const emitTyping = useCallback((isTyping) => {
