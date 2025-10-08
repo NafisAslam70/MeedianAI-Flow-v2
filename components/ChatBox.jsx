@@ -228,6 +228,17 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
     });
   }, [canMute, muteStorageKey, stopSound]);
 
+  useEffect(() => {
+    if (!muteConfigLoaded) return;
+    if (isMuted) {
+      stopSound();
+      return;
+    }
+    if (hasUnread && !showChatbox && !showHistory) {
+      playSound();
+    }
+  }, [isMuted, muteConfigLoaded, hasUnread, showChatbox, showHistory, playSound, stopSound]);
+
   const playSend = useCallback(() => {
     if (!sendAudioRef.current) return;
     sendAudioRef.current.currentTime = 0;

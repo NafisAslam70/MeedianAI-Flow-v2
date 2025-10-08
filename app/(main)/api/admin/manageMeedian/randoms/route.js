@@ -103,6 +103,16 @@ export async function POST(req) {
 
   const body = await req.json().catch(() => ({}));
 
+  const isAdmin = session.user?.role === "admin";
+  const wantsChatMuteUpdate =
+    body.hasOwnProperty("chatMuteAllowAdmins") ||
+    body.hasOwnProperty("chatMuteAllowManagers") ||
+    body.hasOwnProperty("chatMuteAllowMembers");
+
+  if (wantsChatMuteUpdate && !isAdmin) {
+    return NextResponse.json({ error: "Only admins can update chat mute permissions." }, { status: 403 });
+  }
+
   const updates = [];
   if (body.hasOwnProperty("showDayCloseBypass")) {
     updates.push({ key: FLAG_KEYS.bypass, value: !!body.showDayCloseBypass });

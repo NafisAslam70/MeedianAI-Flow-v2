@@ -4,6 +4,7 @@ import { useState } from "react";
 import useSWR from "swr";
 import { motion } from "framer-motion";
 import { Loader2, Sparkles, Check, X, Eye, EyeOff, Lock, Smartphone } from "lucide-react";
+import { useSession } from "next-auth/react";
 
 const fetcher = (url) =>
   fetch(url, { headers: { "Content-Type": "application/json" } }).then((res) => {
@@ -12,6 +13,8 @@ const fetcher = (url) =>
   });
 
 export default function RandomsPage() {
+  const { data: session } = useSession();
+  const isAdmin = session?.user?.role === "admin";
   const { data, error, mutate, isLoading } = useSWR("/api/admin/manageMeedian/randoms", fetcher);
   const [feedback, setFeedback] = useState(null);
   const [isSavingBypass, setIsSavingBypass] = useState(false);
@@ -115,6 +118,10 @@ export default function RandomsPage() {
   };
 
   const handleToggleChatMuteAdmins = () => {
+    if (!isAdmin) {
+      setFeedback({ type: "error", text: "Only admins can update chat mute permissions." });
+      return;
+    }
     if (isSavingChatMuteAdmins) return;
     const nextValue = !chatMuteAllowAdmins;
     updateFlag({
@@ -127,6 +134,10 @@ export default function RandomsPage() {
   };
 
   const handleToggleChatMuteManagers = () => {
+    if (!isAdmin) {
+      setFeedback({ type: "error", text: "Only admins can update chat mute permissions." });
+      return;
+    }
     if (isSavingChatMuteManagers) return;
     const nextValue = !chatMuteAllowManagers;
     updateFlag({
@@ -139,6 +150,10 @@ export default function RandomsPage() {
   };
 
   const handleToggleChatMuteMembers = () => {
+    if (!isAdmin) {
+      setFeedback({ type: "error", text: "Only admins can update chat mute permissions." });
+      return;
+    }
     if (isSavingChatMuteMembers) return;
     const nextValue = !chatMuteAllowMembers;
     updateFlag({
@@ -341,10 +356,10 @@ export default function RandomsPage() {
               whileHover={{ scale: 1.03 }}
               whileTap={{ scale: 0.97 }}
               onClick={handleToggleChatMuteAdmins}
-              disabled={isLoading || isSavingChatMuteAdmins}
+              disabled={isLoading || isSavingChatMuteAdmins || !isAdmin}
               className={`relative inline-flex h-8 w-14 items-center rounded-full border transition-colors duration-200 ${
                 chatMuteAllowAdmins ? "bg-cyan-500 border-cyan-500" : "bg-gray-200 border-gray-300"
-              } ${isSavingChatMuteAdmins ? "opacity-70 cursor-not-allowed" : "cursor-pointer"}`}
+              } ${isSavingChatMuteAdmins || !isAdmin ? "opacity-70 cursor-not-allowed" : "cursor-pointer"}`}
               aria-pressed={chatMuteAllowAdmins}
             >
               <span
@@ -373,10 +388,10 @@ export default function RandomsPage() {
               whileHover={{ scale: 1.03 }}
               whileTap={{ scale: 0.97 }}
               onClick={handleToggleChatMuteManagers}
-              disabled={isLoading || isSavingChatMuteManagers}
+              disabled={isLoading || isSavingChatMuteManagers || !isAdmin}
               className={`relative inline-flex h-8 w-14 items-center rounded-full border transition-colors duration-200 ${
                 chatMuteAllowManagers ? "bg-cyan-500 border-cyan-500" : "bg-gray-200 border-gray-300"
-              } ${isSavingChatMuteManagers ? "opacity-70 cursor-not-allowed" : "cursor-pointer"}`}
+              } ${isSavingChatMuteManagers || !isAdmin ? "opacity-70 cursor-not-allowed" : "cursor-pointer"}`}
               aria-pressed={chatMuteAllowManagers}
             >
               <span
@@ -405,10 +420,10 @@ export default function RandomsPage() {
               whileHover={{ scale: 1.03 }}
               whileTap={{ scale: 0.97 }}
               onClick={handleToggleChatMuteMembers}
-              disabled={isLoading || isSavingChatMuteMembers}
+              disabled={isLoading || isSavingChatMuteMembers || !isAdmin}
               className={`relative inline-flex h-8 w-14 items-center rounded-full border transition-colors duration-200 ${
                 chatMuteAllowMembers ? "bg-cyan-500 border-cyan-500" : "bg-gray-200 border-gray-300"
-              } ${isSavingChatMuteMembers ? "opacity-70 cursor-not-allowed" : "cursor-pointer"}`}
+              } ${isSavingChatMuteMembers || !isAdmin ? "opacity-70 cursor-not-allowed" : "cursor-pointer"}`}
               aria-pressed={chatMuteAllowMembers}
             >
               <span
@@ -435,6 +450,11 @@ export default function RandomsPage() {
                 chatMuteAllowManagers ? "can" : "cannot"
               } mute · Members ${chatMuteAllowMembers ? "can" : "cannot"} mute.`}
         </div>
+        {!isAdmin && (
+          <p className="text-xs text-gray-500">
+            Only admins can change these permissions.
+          </p>
+        )}
       </div>
 
       <div className="max-w-xl rounded-2xl border border-amber-100 bg-white/90 shadow-sm p-6 space-y-4">
