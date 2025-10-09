@@ -962,6 +962,83 @@ const teamDigest = useMemo(() => {
           </div>
         </div>
 
+        <div className="mt-6 grid gap-5 lg:grid-cols-2">
+          <div className="rounded-3xl bg-white/90 p-5 shadow-2xl">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-slate-400">Most recently touched</p>
+                <h2 className="text-xl font-semibold text-slate-900">Momentum tracker</h2>
+              </div>
+            </div>
+            {latestTouched.length === 0 ? (
+              <p className="mt-4 text-sm text-slate-500">Updates will show here as soon as tasks move.</p>
+            ) : (
+              <div className="mt-4 space-y-3">
+                {latestTouched.map((task) => (
+                  <div key={task.id} className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">{task.title}</p>
+                        <p className="text-xs text-slate-500">
+                          Last touch: {new Date(task.lastTouched).toLocaleString()}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => handleOpenTask(task.id)}
+                        className="inline-flex items-center gap-1 rounded-2xl border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                      >
+                        Inspect
+                        <ArrowRight className="h-3 w-3" />
+                      </button>
+                    </div>
+                    <p className="mt-2 text-xs text-slate-500">
+                      {task.assignees.map((assignee) => assignee.name).join(", ")}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-3xl bg-white/90 p-5 shadow-2xl">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-slate-400">Latest signals</p>
+                <h2 className="text-xl font-semibold text-slate-900">Activity stream</h2>
+              </div>
+            </div>
+            {recentLogs.length === 0 ? (
+              <p className="mt-4 text-sm text-slate-500">No new logs yet.</p>
+            ) : (
+              <div className="mt-4 space-y-3">
+                {recentLogs.map((log) => (
+                  <div key={log.id} className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">
+                          {log.userName || getUserName(log.userId)}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          {new Date(log.createdAt).toLocaleString()}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => handleOpenTask(log.taskId)}
+                        className="inline-flex items-center gap-1 rounded-2xl border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                      >
+                        View
+                        <ArrowRight className="h-3 w-3" />
+                      </button>
+                    </div>
+                    <p className="mt-2 text-sm text-slate-600">{log.details}</p>
+                    <p className="mt-2 text-xs text-slate-500">Task #{log.taskId}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
         {error && (
           <p className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
             {error}
@@ -1040,84 +1117,6 @@ const teamDigest = useMemo(() => {
           </div>
         )}
       </section>
-
-      <section className="grid gap-5 lg:grid-cols-2">
-        <div className="rounded-3xl bg-white/90 p-5 shadow-2xl">
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <p className="text-xs uppercase tracking-wide text-slate-400">Most recently touched</p>
-              <h2 className="text-xl font-semibold text-slate-900">Momentum tracker</h2>
-            </div>
-          </div>
-          {latestTouched.length === 0 ? (
-            <p className="mt-4 text-sm text-slate-500">Updates will show here as soon as tasks move.</p>
-          ) : (
-            <div className="mt-4 space-y-3">
-              {latestTouched.map((task) => (
-                <div key={task.id} className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-slate-900">{task.title}</p>
-                      <p className="text-xs text-slate-500">
-                        Last touch: {new Date(task.lastTouched).toLocaleString()}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => handleOpenTask(task.id)}
-                      className="inline-flex items-center gap-1 rounded-2xl border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100"
-                    >
-                      Inspect
-                      <ArrowRight className="h-3 w-3" />
-                    </button>
-                  </div>
-                  <p className="mt-2 text-xs text-slate-500">
-                    {task.assignees.map((assignee) => assignee.name).join(", ")}
-                  </p>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="rounded-3xl bg-white/90 p-5 shadow-2xl">
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <p className="text-xs uppercase tracking-wide text-slate-400">Latest signals</p>
-              <h2 className="text-xl font-semibold text-slate-900">Activity stream</h2>
-            </div>
-          </div>
-          {recentLogs.length === 0 ? (
-            <p className="mt-4 text-sm text-slate-500">No new logs yet.</p>
-          ) : (
-            <div className="mt-4 space-y-3">
-              {recentLogs.map((log) => (
-                <div key={log.id} className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-slate-900">
-                        {log.userName || getUserName(log.userId)}
-                      </p>
-                      <p className="text-xs text-slate-500">
-                        {new Date(log.createdAt).toLocaleString()}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => handleOpenTask(log.taskId)}
-                      className="inline-flex items-center gap-1 rounded-2xl border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100"
-                    >
-                      View
-                      <ArrowRight className="h-3 w-3" />
-                    </button>
-                  </div>
-                  <p className="mt-2 text-sm text-slate-600">{log.details}</p>
-                  <p className="mt-2 text-xs text-slate-500">Task #{log.taskId}</p>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </section>
-
       <AnimatePresence>
         {showDetailsModal && selectedTask && (
           <motion.div
