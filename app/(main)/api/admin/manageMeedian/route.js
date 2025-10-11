@@ -137,6 +137,80 @@ export async function GET(req) {
         .where(eq(users.role, 'team_manager'));
       return NextResponse.json({ managers: mgrs, grants, sections: Array.from(grantableSections), programs: await (async()=>{ const progs = await db.select({ id: mriPrograms.id, name: mriPrograms.name, programKey: mriPrograms.programKey }).from(mriPrograms); return progs; })() }, { status: 200 });
     }
+    if (section === "classTeachers") {
+      const classId = Number(body?.classId);
+      const userId = Number(body?.userId);
+      if (!classId || !userId) {
+        return NextResponse.json({ error: "Invalid selection" }, { status: 400 });
+      }
+
+      const [klass] = await db
+        .select({ id: Classes.id })
+        .from(Classes)
+        .where(eq(Classes.id, classId))
+        .limit(1);
+      if (!klass) {
+        return NextResponse.json({ error: "Class not found" }, { status: 404 });
+      }
+
+      const [teacher] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+      if (!teacher) {
+        return NextResponse.json({ error: "Teacher not found" }, { status: 404 });
+      }
+
+      const normalizeDate = (value) => {
+        if (!value) return null;
+        if (value instanceof Date && !Number.isNaN(value.getTime())) {
+          return value.toISOString().slice(0, 10);
+        }
+        const str = String(value).trim();
+        if (!str) return null;
+        const parsed = new Date(str);
+        if (Number.isNaN(parsed.getTime())) return null;
+        return parsed.toISOString().slice(0, 10);
+      };
+
+      const startDate = normalizeDate(body?.startDate) ?? new Date().toISOString().slice(0, 10);
+
+      await db
+        .update(classParentTeachers)
+        .set({ active: false, endDate: startDate })
+        .where(and(eq(classParentTeachers.classId, classId), eq(classParentTeachers.active, true)));
+
+      const [row] = await db
+        .insert(classParentTeachers)
+        .values({
+          classId,
+          userId,
+          startDate,
+          endDate: null,
+          active: true,
+        })
+        .returning({
+          id: classParentTeachers.id,
+          classId: classParentTeachers.classId,
+          userId: classParentTeachers.userId,
+          startDate: classParentTeachers.startDate,
+          endDate: classParentTeachers.endDate,
+          active: classParentTeachers.active,
+          createdAt: classParentTeachers.createdAt,
+        });
+
+      await db
+        .insert(userMriRoles)
+        .values({ userId, role: "pt_moderator", active: true })
+        .onConflictDoUpdate({
+          target: [userMriRoles.userId, userMriRoles.role],
+          set: { active: true },
+        });
+
+      return NextResponse.json({ classTeacher: row, message: "Class teacher assigned" }, { status: 201 });
+    }
+
     if (section === "classes") {
       const track = (searchParams.get("track") || "").toLowerCase();
       const rows = await db

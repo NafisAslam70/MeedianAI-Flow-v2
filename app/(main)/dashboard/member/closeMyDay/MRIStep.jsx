@@ -31,6 +31,17 @@ const DEFAULT_AMRI_PROGRAMS = [
   { key: "MGHP", label: "MGHP" },
 ];
 
+const RESOLVED_REPORT_STATUSES = new Set(["submitted", "verified", "waived"]);
+
+const REPORT_STATUS_STYLES = {
+  pending: "bg-slate-100 text-slate-700 border border-slate-200",
+  draft: "bg-amber-100 text-amber-700 border border-amber-200",
+  submitted: "bg-teal-100 text-teal-700 border border-teal-200",
+  verified: "bg-emerald-100 text-emerald-700 border border-emerald-200",
+  waived: "bg-indigo-100 text-indigo-700 border border-indigo-200",
+  default: "bg-slate-100 text-slate-700 border border-slate-200",
+};
+
 const BUILTIN_CATEGORY_FALLBACK = new Map(
   [
     ["nmri_moderator", "nmri"],
@@ -51,6 +62,27 @@ const Tag = ({ children }) => (
     {children}
   </span>
 );
+
+const formatCellLabel = (key) => {
+  if (!key) return "";
+  const spaced = String(key)
+    .replace(/([A-Z])/g, " $1")
+    .replace(/_/g, " ");
+  return toTitle(spaced, key);
+};
+
+const formatCellValue = (value) => {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => (typeof item === "object" ? JSON.stringify(item) : String(item)))
+      .join(", ");
+  }
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (value === null || value === undefined) return "—";
+  const raw = String(value).trim();
+  return raw.length ? raw : "—";
+};
 
 const MODAL_ACCENT_STYLES = {
   teal: {
@@ -86,6 +118,19 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
   const [activeAmriProgramKey, setActiveAmriProgramKey] = useState(null);
   const [modalData, setModalData] = useState(null);
   const router = useRouter();
+  const todayIso = useMemo(() => format(new Date(), "yyyy-MM-dd"), []);
+
+  const {
+    data: reportsData,
+    error: reportsError,
+    isLoading: isReportsLoading,
+    mutate: mutateReports,
+  } = useSWR(`/api/member/mri-reports?date=${todayIso}`, fetcher);
+
+  const [activeReport, setActiveReport] = useState(null);
+  const [reportNote, setReportNote] = useState("");
+  const [reportError, setReportError] = useState("");
+  const [isSavingReport, setIsSavingReport] = useState(false);
 
   const { amriRoleBundles, rmriRoleBundles, omriRoleBundles, otherRoleBundles } = useMemo(() => {
     const amri = [];
@@ -146,6 +191,118 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
     }
     return { amriRoleBundles: amri, rmriRoleBundles: rmri, omriRoleBundles: omri, otherRoleBundles: other };
   }, [roleTaskBundles]);
+
+  const mriReports = useMemo(() => {
+    if (!reportsData || !Array.isArray(reportsData.reports)) return [];
+    return reportsData.reports;
+  }, [reportsData]);
+
+  const pendingReportCount = useMemo(
+    () => mriReports.filter((report) => !RESOLVED_REPORT_STATUSES.has(String(report?.status || "").toLowerCase())).length,
+    [mriReports]
+  );
+
+  const reportSnapshot = useMemo(
+    () =>
+      mriReports.map((report) => ({
+        instanceId: report?.instanceId ?? null,
+        templateKey: report?.templateKey || null,
+        templateName: report?.templateName || null,
+        status: report?.status || "pending",
+        class: report?.class || null,
+        targetLabel: report?.targetLabel || null,
+      })),
+    [mriReports]
+  );
+
+  const openReportModal = (report) => {
+    if (!report || !report.instanceId) return;
+    setActiveReport(report);
+    setReportNote(report.confirmationNote || "");
+    setReportError("");
+  };
+
+  const closeReportModal = () => {
+    setActiveReport(null);
+    setReportNote("");
+    setReportError("");
+  };
+
+  const handleReportAction = async (action) => {
+    if (!activeReport || !activeReport.instanceId) return;
+    setIsSavingReport(true);
+    setReportError("");
+    try {
+      const res = await fetch("/api/member/mri-reports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          instanceId: activeReport.instanceId,
+          action,
+          confirmationNote: reportNote || null,
+        }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(payload?.error || "Failed to update report");
+      }
+      await mutateReports();
+      if (action === "submit") {
+        closeReportModal();
+      }
+    } catch (err) {
+      setReportError(err.message || "Failed to update report");
+    } finally {
+      setIsSavingReport(false);
+    }
+  };
+
+  const activeReportPayload = useMemo(() => {
+    if (!activeReport) return null;
+    const payload = activeReport.payload;
+    if (payload && typeof payload === "object") return payload;
+    try {
+      return payload ? JSON.parse(payload) : null;
+    } catch {
+      return null;
+    }
+  }, [activeReport]);
+
+  const activeReportCddRows = useMemo(() => {
+    if (!activeReportPayload) return [];
+    const rows = activeReportPayload.cddRows;
+    return Array.isArray(rows) ? rows : [];
+  }, [activeReportPayload]);
+
+  const activeReportCcdRows = useMemo(() => {
+    if (!activeReportPayload) return [];
+    const rows = activeReportPayload.ccdRows;
+    return Array.isArray(rows) ? rows : [];
+  }, [activeReportPayload]);
+
+  const activeReportExtraEntries = useMemo(() => {
+    if (!activeReportPayload) return [];
+    const exclude = new Set(["cddRows", "ccdRows"]);
+    return Object.entries(activeReportPayload).filter(([key]) => !exclude.has(key));
+  }, [activeReportPayload]);
+
+  const activeReportStatus = useMemo(() => {
+    if (!activeReport) return "pending";
+    return String(activeReport.status || "pending").toLowerCase();
+  }, [activeReport]);
+
+  const activeReportBadgeClass = useMemo(
+    () => REPORT_STATUS_STYLES[activeReportStatus] || REPORT_STATUS_STYLES.default,
+    [activeReportStatus]
+  );
+
+  const activeReportClassLabel = useMemo(() => {
+    if (!activeReport) return "";
+    if (activeReport?.class?.name) {
+      return `Class ${activeReport.class.name}${activeReport.class.section ? ` ${activeReport.class.section}` : ""}`;
+    }
+    return activeReport?.targetLabel || activeReport?.templateName || "Assigned Report";
+  }, [activeReport]);
 
   const amriProgramOptions = useMemo(() => {
     const map = new Map();
@@ -252,10 +409,24 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
   }, [amriProgramOptions, activeAmriProgramKey]);
 
   useEffect(() => {
-    if (isLoading) return;
-    onMriClearedChange?.(true);
-    onMriPayloadChange?.({ groupedRoles: roleTaskBundles.length });
-  }, [isLoading, roleTaskBundles.length, onMriClearedChange, onMriPayloadChange]);
+    if (isLoading || isReportsLoading) return;
+    const cleared = reportsError ? false : pendingReportCount === 0;
+    onMriClearedChange?.(cleared);
+    onMriPayloadChange?.({
+      groupedRoles: roleTaskBundles.length,
+      reports: reportSnapshot,
+      reportError: reportsError ? reportsError.message || "Failed to load MRI reports" : null,
+    });
+  }, [
+    isLoading,
+    isReportsLoading,
+    pendingReportCount,
+    reportsError,
+    roleTaskBundles.length,
+    onMriClearedChange,
+    onMriPayloadChange,
+    reportSnapshot,
+  ]);
 
   const openRolesModal = (config) => {
     setModalData({
@@ -298,6 +469,90 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
         <p className="text-sm text-gray-600">Loading your MRI roles…</p>
       ) : (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          {/* MRI Reports Card */}
+          <motion.div
+            className="lg:col-span-3 h-full bg-white/80 backdrop-blur-md rounded-2xl shadow-md p-5 border border-indigo-100/60"
+            whileHover={{ scale: 1.005 }}
+          >
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <CheckCircle className="w-6 h-6 text-indigo-600" />
+                  <h4 className="text-base font-bold text-gray-800">PT Daily MRI Reports</h4>
+                </div>
+                <p className="mt-1 text-sm text-gray-600">
+                  Office assistants capture the Class Discipline &amp; Curriculum Diaries here. Review and confirm before closing the day.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Tag>PT Report</Tag>
+                {pendingReportCount > 0 && (
+                  <span className="inline-flex items-center justify-center rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-xs font-semibold text-rose-600">
+                    {pendingReportCount} pending
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-4">
+              {isReportsLoading ? (
+                <p className="text-sm text-gray-600">Checking today&apos;s report assignments…</p>
+              ) : reportsError ? (
+                <p className="text-sm text-red-600 flex items-center gap-2">
+                  <AlertCircle size={16} /> {reportsError.message || "Failed to load PT reports."}
+                </p>
+              ) : mriReports.length === 0 ? (
+                <p className="text-sm text-gray-600">No PT daily reports assigned to you right now.</p>
+              ) : (
+                <div className="space-y-3">
+                  {mriReports.map((report) => {
+                    const status = String(report?.status || "pending").toLowerCase();
+                    const badgeClass = REPORT_STATUS_STYLES[status] || REPORT_STATUS_STYLES.default;
+                    const classLabel = report?.class?.name
+                      ? `Class ${report.class.name}${report.class.section ? ` ${report.class.section}` : ""}`
+                      : report?.targetLabel || report?.templateName || "Assigned Report";
+                    return (
+                      <div
+                        key={report?.instanceId || report?.assignmentId}
+                        className="rounded-xl border border-indigo-100 bg-indigo-50/70 p-4 shadow-sm"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-indigo-800">{classLabel}</p>
+                            <p className="text-xs text-indigo-700/80">{report?.templateName || "PT Daily Report"}</p>
+                            {report?.confirmationNote ? (
+                              <p className="mt-2 text-[0.7rem] text-indigo-700/80">
+                                Teacher note: {report.confirmationNote}
+                              </p>
+                            ) : null}
+                          </div>
+                          <span className={`px-2 py-0.5 text-[0.65rem] font-semibold rounded-full ${badgeClass}`}>
+                            {toTitle(status, "Pending")}
+                          </span>
+                        </div>
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            className="rounded-md bg-indigo-600 px-3 py-1 text-xs font-semibold text-white shadow hover:bg-indigo-700 transition disabled:cursor-not-allowed disabled:opacity-60"
+                            onClick={() => openReportModal(report)}
+                            disabled={!report?.instanceId}
+                          >
+                            Review &amp; Confirm
+                          </button>
+                          {report?.payload ? (
+                            <span className="text-[0.65rem] text-indigo-700/70">Data captured</span>
+                          ) : (
+                            <span className="text-[0.65rem] text-slate-500">Awaiting data entry</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </motion.div>
+
           {/* Academic MRIs Card */}
           <motion.div
             className="h-full bg-white/80 backdrop-blur-md rounded-2xl shadow-md p-5 border border-teal-100/50"
@@ -600,6 +855,162 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
           Next
         </motion.button>
       </div>
+
+      <AnimatePresence>
+        {activeReport && (
+          <motion.div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={closeReportModal}
+          >
+            <motion.div
+              className="relative w-full max-w-3xl rounded-3xl bg-white p-6 shadow-2xl md:p-8"
+              initial={{ y: 40, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 40, opacity: 0 }}
+              transition={{ duration: 0.25 }}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <button
+                type="button"
+                onClick={closeReportModal}
+                className="absolute right-4 top-4 rounded-full p-2 text-slate-500 transition hover:bg-slate-100"
+              >
+                <X className="h-4 w-4" />
+              </button>
+
+              <div className="space-y-2 pr-6">
+                <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-900">
+                      {activeReport?.templateName || "PT Daily Report"}
+                    </h3>
+                    <p className="text-sm text-slate-600">{activeReportClassLabel || "Assigned Report"}</p>
+                  </div>
+                  <span className={`inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[0.7rem] font-semibold ${activeReportBadgeClass}`}>
+                    {toTitle(activeReportStatus, "Pending")}
+                  </span>
+                </div>
+                {activeReport?.templateDescription ? (
+                  <p className="text-xs text-slate-500">{activeReport.templateDescription}</p>
+                ) : null}
+              </div>
+
+              <div className="mt-5 space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+                <div>
+                  <h4 className="text-sm font-semibold text-slate-700">Class Discipline Diary (CDD)</h4>
+                  {activeReportCddRows.length === 0 ? (
+                    <p className="mt-1 text-xs text-slate-500">No CDD entries captured yet.</p>
+                  ) : (
+                    <div className="mt-2 space-y-3">
+                      {activeReportCddRows.map((row, idx) => (
+                        <div key={idx} className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                          <p className="text-xs font-semibold text-slate-700 mb-2">
+                            {row?.date ? `Date: ${formatCellValue(row.date)}` : `Entry ${idx + 1}`}
+                          </p>
+                          <div className="space-y-1">
+                            {Object.entries(row || {}).map(([key, value]) => (
+                              <div key={key} className="flex gap-2 text-[0.7rem] text-slate-600">
+                                <span className="w-44 font-semibold text-slate-700">{formatCellLabel(key)}</span>
+                                <span className="flex-1">{formatCellValue(value)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <h4 className="text-sm font-semibold text-slate-700">Class Curriculum Diary (CCD)</h4>
+                  {activeReportCcdRows.length === 0 ? (
+                    <p className="mt-1 text-xs text-slate-500">No CCD entries captured yet.</p>
+                  ) : (
+                    <div className="mt-2 space-y-3">
+                      {activeReportCcdRows.map((row, idx) => (
+                        <div key={idx} className="rounded-xl border border-slate-200 bg-white p-3">
+                          <p className="text-xs font-semibold text-slate-700 mb-2">
+                            {row?.period ? `Period: ${formatCellValue(row.period)}` : `Entry ${idx + 1}`}
+                          </p>
+                          <div className="space-y-1">
+                            {Object.entries(row || {}).map(([key, value]) => (
+                              <div key={key} className="flex gap-2 text-[0.7rem] text-slate-600">
+                                <span className="w-44 font-semibold text-slate-700">{formatCellLabel(key)}</span>
+                                <span className="flex-1">{formatCellValue(value)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {activeReportExtraEntries.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-semibold text-slate-700">Additional Details</h4>
+                    <div className="mt-2 space-y-2 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                      {activeReportExtraEntries.map(([key, value]) => (
+                        <div key={key} className="flex gap-2 text-[0.7rem] text-slate-600">
+                          <span className="w-44 font-semibold text-slate-700">{formatCellLabel(key)}</span>
+                          <span className="flex-1">{formatCellValue(value)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {!activeReportPayload && (
+                  <pre className="rounded-xl border border-slate-200 bg-slate-50/60 p-3 text-xs text-slate-600">
+                    No digital entries yet. Please review the physical register before confirming.
+                  </pre>
+                )}
+              </div>
+
+              <div className="mt-5">
+                <label className="block text-xs font-semibold text-slate-600 mb-1">
+                  Confirmation Note (optional)
+                </label>
+                <textarea
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                  rows={3}
+                  value={reportNote}
+                  onChange={(event) => setReportNote(event.target.value)}
+                  placeholder="Add clarifications, follow-up items or acknowledgements before confirming."
+                  disabled={isSavingReport}
+                />
+                {reportError && (
+                  <p className="mt-2 text-xs text-red-600 flex items-center gap-1">
+                    <AlertCircle size={14} /> {reportError}
+                  </p>
+                )}
+              </div>
+
+              <div className="mt-5 flex flex-wrap justify-end gap-2">
+                <button
+                  type="button"
+                  className="rounded-md border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  onClick={() => handleReportAction("draft")}
+                  disabled={isSavingReport}
+                >
+                  Save Draft
+                </button>
+                <button
+                  type="button"
+                  className="rounded-md bg-indigo-600 px-3 py-1 text-xs font-semibold text-white shadow hover:bg-indigo-700 transition disabled:cursor-not-allowed disabled:opacity-60"
+                  onClick={() => handleReportAction("submit")}
+                  disabled={isSavingReport}
+                >
+                  Confirm &amp; Submit
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {modalData && (

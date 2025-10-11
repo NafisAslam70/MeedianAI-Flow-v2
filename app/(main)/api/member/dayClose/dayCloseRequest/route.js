@@ -19,7 +19,7 @@ export async function POST(req) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const userId = Number(session.user.id);
-  const { date, assignedTasksUpdates, routineTasksUpdates, routineLog, generalLog, mriCleared, bypass = false } = await req.json(); // TO BE REMOVED FOR PRODUCTION: Remove bypass parameter
+  const { date, assignedTasksUpdates, routineTasksUpdates, routineLog, generalLog, mriCleared, mriReport, bypass = false } = await req.json(); // TO BE REMOVED FOR PRODUCTION: Remove bypass parameter
 
   try {
     // Validate inputs
@@ -164,6 +164,7 @@ export async function POST(req) {
         routineLog: routineLog || null,
         generalLog: generalLog || null,
         mriCleared: mriCleared ?? true,
+        mriReport: mriReport || null,
         createdAt: new Date(),
       })
       .returning();
