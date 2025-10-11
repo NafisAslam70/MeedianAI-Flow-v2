@@ -32,6 +32,48 @@ const joinMultiValue = (value) => {
   return String(value);
 };
 
+const formatPreviewValue = (value) => {
+  if (Array.isArray(value)) return joinMultiValue(value) || "—";
+  if (value === null || value === undefined) return "—";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  const str = String(value).trim();
+  return str.length ? str : "—";
+};
+
+const YES_NO_OPTIONS = ["", "Yes", "No"];
+
+const FALLBACK_CDD_SECTION = {
+  key: "cddRows",
+  title: "Class Discipline Diary",
+  repeat: true,
+  fields: [
+    { id: "date", type: "date", label: "Date" },
+    { id: "assemblyUniformDefaulters", type: "chips", label: "Assembly/Uniform Defaulters" },
+    { id: "languageDefaulters", type: "chips", label: "Language Defaulters" },
+    { id: "homeworkDefaulters", type: "chips", label: "Homework Defaulters" },
+    { id: "disciplineDefaulters", type: "chips", label: "Discipline Defaulters" },
+    { id: "bestStudentOfDay", type: "chips", label: "Best Student(s) of the Day" },
+    { id: "absentStudents", type: "chips", label: "Absent Students" },
+    { id: "teacherSigned", type: "select", label: "CT Sign", options: YES_NO_OPTIONS.slice(1) },
+    { id: "principalStamp", type: "select", label: "Principal Stamp", options: YES_NO_OPTIONS.slice(1) },
+  ],
+};
+
+const FALLBACK_CCD_SECTION = {
+  key: "ccdRows",
+  title: "Class Curriculum Diary",
+  repeat: true,
+  fields: [
+    { id: "period", type: "text", label: "Period" },
+    { id: "subject", type: "text", label: "Subject" },
+    { id: "topic", type: "text", label: "Topic" },
+    { id: "classwork", type: "textarea", label: "Classwork (What happened)" },
+    { id: "homework", type: "textarea", label: "Homework (Assigned)" },
+    { id: "teacherSignature", type: "select", label: "Teacher Sign", options: YES_NO_OPTIONS.slice(1) },
+    { id: "monitorInitials", type: "select", label: "Monitor Initials", options: YES_NO_OPTIONS.slice(1) },
+  ],
+};
+
 const sectionDefaults = (section) => {
   const defaults = {};
   const fields = Array.isArray(section?.fields) ? section.fields : [];
@@ -44,7 +86,16 @@ const sectionDefaults = (section) => {
   return defaults;
 };
 
-const PERIOD_LABELS = ["1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th"];
+const PERIOD_LABELS = ["1", "2", "3", "4", "5", "6", "7", "8"];
+
+const normalizeYesNoValue = (value) => {
+  if (value === true) return "Yes";
+  if (value === false) return "No";
+  const str = String(value || "").trim().toLowerCase();
+  if (str === "yes" || str === "y" || str === "1") return "Yes";
+  if (str === "no" || str === "n" || str === "0") return "No";
+  return "";
+};
 
 const buildDefaultCddRows = (section, selectedDate) => {
   if (!section) return [];
@@ -72,8 +123,8 @@ export default function PtAssistPage() {
   const [payloadState, setPayloadState] = useState({ cddRows: [], ccdRows: [], extras: {} });
   const [saveStatus, setSaveStatus] = useState({ message: "", error: "" });
   const [savingAction, setSavingAction] = useState(null);
-  const [isFormOpen, setIsFormOpen] = useState(false);
   const [accessMessage, setAccessMessage] = useState("");
+  const [activeModal, setActiveModal] = useState(null);
 
   const { data, error, isLoading, mutate } = useSWR(
     `/api/managersCommon/pt-assist?date=${selectedDate}`,
@@ -103,11 +154,12 @@ export default function PtAssistPage() {
     () => templateSections.find((section) => section?.key === "ccdRows" || section?.title === "Class Curriculum Diary") || null,
     [templateSections]
   );
+  const resolvedCddSection = cddSection || FALLBACK_CDD_SECTION;
+  const resolvedCcdSection = ccdSection || FALLBACK_CCD_SECTION;
 
   useEffect(() => {
     if (!assignments.length) {
       if (selectedAssignmentId !== null) setSelectedAssignmentId(null);
-      setIsFormOpen(false);
       setAccessMessage("");
       return;
     }
@@ -122,27 +174,68 @@ export default function PtAssistPage() {
     [assignments, selectedAssignmentId]
   );
 
+  const classIdForStudents = useMemo(() => {
+    if (!selectedAssignment) return null;
+    const fromAssignment = selectedAssignment.classId;
+    if (typeof fromAssignment === "number" && Number.isFinite(fromAssignment) && fromAssignment > 0) {
+      return fromAssignment;
+    }
+    const metaClassId = selectedAssignment?.scopeMeta?.class?.id;
+    if (typeof metaClassId === "number" && Number.isFinite(metaClassId) && metaClassId > 0) {
+      return metaClassId;
+    }
+    const parsed = Number(metaClassId || fromAssignment);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }, [selectedAssignment]);
+
+  const {
+    data: classStudentsResponse,
+    error: classStudentsError,
+  } = useSWR(
+    classIdForStudents ? `/api/member/mris/students?status=active&classId=${classIdForStudents}` : null,
+    fetcher,
+    { dedupingInterval: 60000 }
+  );
+
+  const classStudents = useMemo(() => {
+    if (!classIdForStudents) return [];
+    const rows = Array.isArray(classStudentsResponse?.students) ? classStudentsResponse.students : [];
+    return rows
+      .map((row) => ({ id: row.id, name: row.name || `Student #${row.id}` }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [classStudentsResponse, classIdForStudents]);
+
+  const isLoadingClassStudents = Boolean(classIdForStudents) && !classStudentsResponse && !classStudentsError;
+
+  const viewerIsAssistant = useMemo(() => {
+    if (!selectedAssignment) return false;
+    const assistantId = Number(selectedAssignment.assistantUserId || 0);
+    return viewerId !== null && assistantId === viewerId;
+  }, [selectedAssignment, viewerId]);
+  const canEdit = viewerIsAssistant;
+
   useEffect(() => {
     if (!selectedAssignment) {
       setPayloadState({ cddRows: [], ccdRows: [], extras: {} });
-      setIsFormOpen(false);
+      setActiveModal(null);
       setAccessMessage("");
       return;
     }
     const payload = selectedAssignment.payload || {};
     const { cddRows = [], ccdRows = [], ...extras } = payload;
     setPayloadState({
-      cddRows: Array.isArray(cddRows) && cddRows.length > 0 ? cddRows : buildDefaultCddRows(cddSection, selectedDate),
-      ccdRows: Array.isArray(ccdRows) && ccdRows.length > 0 ? ccdRows : buildDefaultCcdRows(ccdSection),
+      cddRows:
+        Array.isArray(cddRows) && cddRows.length > 0
+          ? cddRows
+          : buildDefaultCddRows(resolvedCddSection, selectedDate),
+      ccdRows:
+        Array.isArray(ccdRows) && ccdRows.length > 0 ? ccdRows : buildDefaultCcdRows(resolvedCcdSection),
       extras,
     });
-    setSaveStatus({ message: "", error: "" });
-  }, [selectedAssignment, cddSection, ccdSection, selectedDate]);
-
-  useEffect(() => {
-    setIsFormOpen(false);
+    setActiveModal(null);
     setAccessMessage("");
-  }, [selectedAssignmentId]);
+    setSaveStatus({ message: "", error: "" });
+  }, [selectedAssignment, resolvedCddSection, resolvedCcdSection, selectedDate]);
 
   const updateRow = (sectionKey, index, updater) => {
     setPayloadState((prev) => {
@@ -158,7 +251,19 @@ export default function PtAssistPage() {
     const defaults = sectionDefaults(section);
     setPayloadState((prev) => {
       const rows = Array.isArray(prev[sectionKey]) ? [...prev[sectionKey]] : [];
-      rows.push({ ...defaults });
+      const nextRow = { ...defaults };
+      if (sectionKey === "ccdRows") {
+        const numericPeriods = rows
+          .map((row) => {
+            const raw = row?.period;
+            const parsed = Number.parseInt(raw, 10);
+            return Number.isFinite(parsed) ? parsed : null;
+          })
+          .filter((value) => value !== null);
+        const nextPeriod = (numericPeriods.length ? Math.max(...numericPeriods) + 1 : rows.length + 1);
+        nextRow.period = String(nextPeriod);
+      }
+      rows.push(nextRow);
       return { ...prev, [sectionKey]: rows };
     });
   };
@@ -167,6 +272,25 @@ export default function PtAssistPage() {
     setPayloadState((prev) => {
       const rows = Array.isArray(prev[sectionKey]) ? [...prev[sectionKey]] : [];
       rows.splice(index, 1);
+      return { ...prev, [sectionKey]: rows };
+    });
+  };
+
+  const toggleChipValue = (sectionKey, rowIndex, fieldId, value) => {
+    const normalized = String(value || "").trim();
+    if (!normalized) return;
+    setPayloadState((prev) => {
+      const rows = Array.isArray(prev[sectionKey]) ? [...prev[sectionKey]] : [];
+      const currentRow = { ...(rows[rowIndex] || {}) };
+      const currentValues = Array.isArray(currentRow[fieldId]) ? [...currentRow[fieldId]] : [];
+      const existingIndex = currentValues.findIndex((entry) => entry.trim() === normalized);
+      if (existingIndex >= 0) {
+        currentValues.splice(existingIndex, 1);
+      } else {
+        currentValues.push(normalized);
+      }
+      currentRow[fieldId] = currentValues;
+      rows[rowIndex] = currentRow;
       return { ...prev, [sectionKey]: rows };
     });
   };
@@ -196,30 +320,27 @@ export default function PtAssistPage() {
     return next;
   };
 
-  const handleOpenForm = () => {
+  const handleOpenDiary = (diaryKey) => {
     if (!selectedAssignment) return;
     const assistantId = Number(selectedAssignment.assistantUserId || 0);
     if (!assistantId) {
-      setIsFormOpen(false);
       setAccessMessage("No assistant has been assigned for this class yet.");
       return;
     }
     if (viewerId === null) {
-      setIsFormOpen(false);
       setAccessMessage("Unable to verify your assistant role.");
       return;
     }
     if (assistantId !== viewerId) {
-      setIsFormOpen(false);
       setAccessMessage("You are not the assistant for this class.");
       return;
     }
     setAccessMessage("");
-    setIsFormOpen(true);
+    setActiveModal(diaryKey);
   };
 
-  const handleCloseForm = () => {
-    setIsFormOpen(false);
+  const handleCloseModal = () => {
+    setActiveModal(null);
     setAccessMessage("");
   };
 
@@ -250,161 +371,15 @@ export default function PtAssistPage() {
     }
   };
 
-  const renderSection = (sectionKey, sectionData, rows) => {
-    if (!sectionData) return null;
-    if (sectionKey === "cddRows") return renderCddSection(sectionData, rows);
-    if (sectionKey === "ccdRows") return renderCcdSection(sectionData, rows);
-    // fallback to generic renderer if future sections added
-    return renderGenericSection(sectionKey, sectionData, rows);
-  };
-
-  const renderGenericSection = (sectionKey, sectionData, rows) => {
-    const fields = Array.isArray(sectionData?.fields) ? sectionData.fields : [];
-    const label = sectionData?.title || sectionData?.key || sectionKey;
-    return (
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-gray-800">{label}</h3>
-          <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant="light"
-              type="button"
-              onClick={() => addRow(sectionKey, sectionData)}
-            >
-              Add Row
-            </Button>
-            {rows.length > 0 && (
-              <Button
-                size="sm"
-                variant="ghost"
-                type="button"
-                onClick={() =>
-                  setPayloadState((prev) => ({
-                    ...prev,
-                    [sectionKey]: [],
-                  }))
-                }
-              >
-                Clear
-              </Button>
-            )}
-          </div>
-        </div>
-
-        {rows.length === 0 ? (
-          <p className="text-xs text-gray-500">No entries yet. Add rows to start capturing data.</p>
-        ) : (
-          <div className="space-y-4">
-            {rows.map((row, rowIndex) => (
-              <div key={`${sectionKey}-${rowIndex}`} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-gray-500">Entry {rowIndex + 1}</span>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    type="button"
-                    className="text-red-600 hover:text-red-700"
-                    onClick={() => removeRow(sectionKey, rowIndex)}
-                  >
-                    Remove
-                  </Button>
-                </div>
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  {fields.map((field) => {
-                    const fieldId = field?.id;
-                    const type = String(field?.type || "text").toLowerCase();
-                    const value = (row && row[fieldId]) ?? (type === "chips" ? [] : type === "boolean" ? false : "");
-
-                    if (type === "textarea") {
-                      return (
-                        <label key={fieldId} className="flex flex-col gap-1 text-sm text-gray-700 md:col-span-2">
-                          {field?.label || fieldId}
-                          <textarea
-                            className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
-                            rows={3}
-                            value={String(value || "")}
-                            onChange={(event) =>
-                              updateRow(sectionKey, rowIndex, () => ({
-                                [fieldId]: event.target.value,
-                              }))
-                            }
-                          />
-                        </label>
-                      );
-                    }
-
-                    if (type === "chips") {
-                      return (
-                        <label key={fieldId} className="flex flex-col gap-1 text-sm text-gray-700 md:col-span-2">
-                          {field?.label || fieldId}
-                          <textarea
-                            className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
-                            rows={2}
-                            placeholder="Separate entries with commas or new lines"
-                            value={joinMultiValue(value)}
-                            onChange={(event) =>
-                              updateRow(sectionKey, rowIndex, () => ({
-                                [fieldId]: splitMultiValue(event.target.value),
-                              }))
-                            }
-                          />
-                        </label>
-                      );
-                    }
-
-                    if (type === "boolean") {
-                      return (
-                        <label key={fieldId} className="flex items-center gap-2 text-sm text-gray-700">
-                          <input
-                            type="checkbox"
-                            checked={Boolean(value)}
-                            onChange={(event) =>
-                              updateRow(sectionKey, rowIndex, () => ({
-                                [fieldId]: event.target.checked,
-                              }))
-                            }
-                          />
-                          {field?.label || fieldId}
-                        </label>
-                      );
-                    }
-
-                    const inputType = type === "date" ? "date" : "text";
-                    return (
-                      <label key={fieldId} className="flex flex-col gap-1 text-sm text-gray-700">
-                        {field?.label || fieldId}
-                        <input
-                          type={inputType}
-                          className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
-                          value={String(value || "")}
-                          onChange={(event) =>
-                            updateRow(sectionKey, rowIndex, () => ({
-                              [fieldId]: event.target.value,
-                            }))
-                          }
-                        />
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  };
-
   const renderCcdSection = (sectionData, rows) => {
     const headers = [
-      { id: "period", label: "Period" },
-      { id: "subject", label: "Subject" },
-      { id: "topic", label: "Topic" },
-      { id: "classwork", label: "C.W. (what happened)" },
-      { id: "homework", label: "H.W. (assigned)" },
-      { id: "teacherSignature", label: "T.S." },
-      { id: "monitorInitials", label: "Monitor Initials" },
+      { id: "period", label: "Period", type: "text", placeholder: "1" },
+      { id: "subject", label: "Subject", type: "text", placeholder: "Math" },
+      { id: "topic", label: "Topic", type: "text", placeholder: "Ch-4" },
+      { id: "classwork", label: "C.W. (what happened)", type: "textarea", placeholder: "Test taken" },
+      { id: "homework", label: "H.W. (assigned)", type: "textarea", placeholder: "Memorise Ques/Ans" },
+      { id: "teacherSignature", label: "T.S.", type: "select", options: YES_NO_OPTIONS },
+      { id: "monitorInitials", label: "Monitor Initials", type: "select", options: YES_NO_OPTIONS },
     ];
 
     return (
@@ -457,15 +432,44 @@ export default function PtAssistPage() {
                   <tr key={`ccd-${rowIndex}`} className="odd:bg-white even:bg-gray-50">
                     {headers.map((header) => {
                       const fieldId = header.id;
-                      const type = fieldId === "teacherSignature" ? "boolean" : fieldId === "classwork" || fieldId === "homework" ? "textarea" : "text";
-                      const value = row?.[fieldId];
-                      if (type === "textarea") {
+                      const fieldType = header.type || "text";
+                      const rawValue = row?.[fieldId];
+                      const normalizedValue =
+                        typeof rawValue === "boolean" ? (rawValue ? "Yes" : "No") : rawValue ?? "";
+
+                      if (fieldType === "select" || fieldId === "teacherSignature" || fieldId === "monitorInitials") {
+                        const selectOptions = Array.isArray(header.options) && header.options.length
+                          ? ["", ...header.options]
+                          : YES_NO_OPTIONS;
+                        return (
+                          <td key={fieldId} className="border border-gray-200 px-2 py-2">
+                            <select
+                              className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                              value={normalizeYesNoValue(normalizedValue)}
+                              onChange={(event) =>
+                                updateRow("ccdRows", rowIndex, () => ({
+                                  [fieldId]: event.target.value,
+                                }))
+                              }
+                            >
+                              {selectOptions.map((option) => (
+                                <option key={`${fieldId}-${option || "unset"}`} value={option}>
+                                  {option === "" ? "Select…" : option}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                        );
+                      }
+
+                      if (fieldType === "textarea") {
                         return (
                           <td key={fieldId} className="border border-gray-200 px-2 py-2 align-top">
                             <textarea
                               className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
-                              rows={3}
-                              value={String(value || "")}
+                              rows={fieldId === "teacherSignature" ? 2 : 3}
+                              placeholder={header.placeholder || ""}
+                              value={String(normalizedValue || "")}
                               onChange={(event) =>
                                 updateRow("ccdRows", rowIndex, () => ({
                                   [fieldId]: event.target.value,
@@ -475,12 +479,13 @@ export default function PtAssistPage() {
                           </td>
                         );
                       }
-                      if (type === "boolean") {
+
+                      if (fieldType === "boolean") {
                         return (
                           <td key={fieldId} className="border border-gray-200 px-2 py-2 text-center align-middle">
                             <input
                               type="checkbox"
-                              checked={Boolean(value)}
+                              checked={Boolean(rawValue)}
                               onChange={(event) =>
                                 updateRow("ccdRows", rowIndex, () => ({
                                   [fieldId]: event.target.checked,
@@ -490,12 +495,14 @@ export default function PtAssistPage() {
                           </td>
                         );
                       }
+
                       return (
                         <td key={fieldId} className="border border-gray-200 px-2 py-2">
                           <input
                             type="text"
                             className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
-                            value={String(value || "")}
+                            placeholder={header.placeholder || ""}
+                            value={String(normalizedValue || "")}
                             onChange={(event) =>
                               updateRow("ccdRows", rowIndex, () => ({
                                 [fieldId]: event.target.value,
@@ -529,14 +536,14 @@ export default function PtAssistPage() {
   const renderCddSection = (sectionData, rows) => {
     const headers = [
       { id: "date", label: "Date", type: "date" },
-      { id: "assemblyUniformDefaulters", label: "Assembly/Uniform Defaulters", type: "chips" },
-      { id: "languageDefaulters", label: "Language Defaulters", type: "chips" },
-      { id: "homeworkDefaulters", label: "Homework Defaulters", type: "chips" },
-      { id: "disciplineDefaulters", label: "Discipline Defaulters", type: "chips" },
-      { id: "bestStudentOfDay", label: "Best Student of the Day", type: "chips" },
-      { id: "absentStudents", label: "Absent Students", type: "chips" },
-      { id: "teacherSigned", label: "CT Sign", type: "boolean" },
-      { id: "principalStamp", label: "Principal Stamp", type: "boolean" },
+      { id: "assemblyUniformDefaulters", label: "Assembly/Uniform Defaulters", type: "chips", placeholder: "Sajid, Zaki" },
+      { id: "languageDefaulters", label: "Language Defaulters", type: "chips", placeholder: "None" },
+      { id: "homeworkDefaulters", label: "Homework Defaulters", type: "chips", placeholder: "None" },
+      { id: "disciplineDefaulters", label: "Discipline Defaulters", type: "chips", placeholder: "None" },
+      { id: "bestStudentOfDay", label: "Best Student of the Day", type: "chips", placeholder: "Zaki; Ahmad" },
+      { id: "absentStudents", label: "Absent Students", type: "chips", placeholder: "None" },
+      { id: "teacherSigned", label: "CT Sign", type: "text", placeholder: "Yes (19/05/25)" },
+      { id: "principalStamp", label: "Principal Stamp", type: "text", placeholder: "Yes (stamp, 19/05/25)" },
     ];
 
     return (
@@ -590,46 +597,101 @@ export default function PtAssistPage() {
                     {headers.map((header) => {
                       const fieldId = header.id;
                       const type = header.type;
-                      const value = row?.[fieldId];
-                      if (type === "chips") {
+                      const rawValue = row?.[fieldId];
+
+                      if (fieldId === "teacherSigned" || fieldId === "principalStamp") {
+                        const selectOptions = Array.isArray(header.options) && header.options.length
+                          ? ["", ...header.options]
+                          : YES_NO_OPTIONS;
                         return (
                           <td key={fieldId} className="border border-gray-200 px-2 py-2">
+                            <select
+                              className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                              value={normalizeYesNoValue(rawValue)}
+                              onChange={(event) =>
+                                updateRow("cddRows", rowIndex, () => ({
+                                  [fieldId]: event.target.value,
+                                }))
+                              }
+                            >
+                              {selectOptions.map((option) => (
+                                <option key={`${fieldId}-${option || "unset"}`} value={option}>
+                                  {option === "" ? "Select…" : option}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                        );
+                      }
+
+                      if (type === "chips") {
+                        const selectedValues = Array.isArray(rawValue) ? rawValue : [];
+                        return (
+                          <td key={fieldId} className="border border-gray-200 px-2 py-2 align-top">
                             <textarea
                               className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
                               rows={2}
-                              placeholder="Separate entries with commas or new lines"
-                              value={joinMultiValue(value)}
+                              placeholder={header.placeholder || "Select or type names (comma separated)"}
+                              value={joinMultiValue(selectedValues)}
                               onChange={(event) =>
                                 updateRow("cddRows", rowIndex, () => ({
                                   [fieldId]: splitMultiValue(event.target.value),
                                 }))
                               }
                             />
+                            {classIdForStudents && (
+                              <div className="mt-2 space-y-1">
+                                {isLoadingClassStudents && (
+                                  <p className="text-[0.65rem] text-gray-500">Loading class roster…</p>
+                                )}
+                                {!isLoadingClassStudents && classStudents.length > 0 && (
+                                  <>
+                                    <p className="text-[0.65rem] text-gray-500">Tap to toggle students:</p>
+                                    <div className="max-h-28 overflow-y-auto rounded-lg border border-gray-200 bg-white/80 p-2">
+                                      <div className="flex flex-wrap gap-1">
+                                        {classStudents.map((student) => {
+                                          const label = student.name;
+                                          const isSelected = selectedValues.some(
+                                            (entry) => entry.trim() === label
+                                          );
+                                          return (
+                                            <button
+                                              type="button"
+                                              key={`${fieldId}-${student.id}`}
+                                              className={`rounded-full px-2 py-1 text-[0.65rem] transition ${
+                                                isSelected
+                                                  ? "bg-teal-600 text-white hover:bg-teal-700"
+                                                  : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                                              }`}
+                                              onClick={() => toggleChipValue("cddRows", rowIndex, fieldId, label)}
+                                              title={label}
+                                            >
+                                              {label}
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  </>
+                                )}
+                                {!isLoadingClassStudents && classStudents.length === 0 && (
+                                  <p className="text-[0.65rem] text-amber-600">
+                                    No students found for this class.
+                                  </p>
+                                )}
+                              </div>
+                            )}
                           </td>
                         );
                       }
-                      if (type === "boolean") {
-                        return (
-                          <td key={fieldId} className="border border-gray-200 px-2 py-2 text-center align-middle">
-                            <input
-                              type="checkbox"
-                              checked={Boolean(value)}
-                              onChange={(event) =>
-                                updateRow("cddRows", rowIndex, () => ({
-                                  [fieldId]: event.target.checked,
-                                }))
-                              }
-                            />
-                          </td>
-                        );
-                      }
+
                       if (type === "date") {
                         return (
                           <td key={fieldId} className="border border-gray-200 px-2 py-2">
                             <input
                               type="date"
                               className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
-                              value={value || ""}
+                              value={rawValue || ""}
                               onChange={(event) =>
                                 updateRow("cddRows", rowIndex, () => ({
                                   [fieldId]: event.target.value,
@@ -639,12 +701,32 @@ export default function PtAssistPage() {
                           </td>
                         );
                       }
+
+                      if (type === "boolean") {
+                        return (
+                          <td key={fieldId} className="border border-gray-200 px-2 py-2 text-center align-middle">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(rawValue)}
+                              onChange={(event) =>
+                                updateRow("cddRows", rowIndex, () => ({
+                                  [fieldId]: event.target.checked,
+                                }))
+                              }
+                            />
+                          </td>
+                        );
+                      }
+
                       return (
                         <td key={fieldId} className="border border-gray-200 px-2 py-2">
                           <input
                             type="text"
                             className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
-                            value={String(value || "")}
+                            placeholder={header.placeholder || ""}
+                            value={String(
+                              typeof rawValue === "boolean" ? (rawValue ? "Yes" : "") : rawValue || ""
+                            )}
                             onChange={(event) =>
                               updateRow("cddRows", rowIndex, () => ({
                                 [fieldId]: event.target.value,
@@ -670,6 +752,124 @@ export default function PtAssistPage() {
               )}
             </tbody>
           </table>
+        </div>
+      </div>
+    );
+  };
+
+  const renderCddPreview = (rows) => {
+    if (!rows || rows.length === 0) {
+      return <p className="text-xs text-gray-500">No CDD entries captured yet.</p>;
+    }
+    return (
+      <div className="mt-2 space-y-2">
+        {rows.slice(0, 2).map((row, index) => {
+          const dateLabel = (() => {
+            const formatted = formatPreviewValue(row?.date);
+            return formatted === "—" ? `Entry ${index + 1}` : formatted;
+          })();
+          return (
+            <div
+              key={`cdd-preview-${index}`}
+              className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600"
+            >
+              <p className="font-semibold text-gray-700">{dateLabel}</p>
+              <p>
+                <span className="font-semibold text-gray-700">Best Student:</span>{" "}
+                {formatPreviewValue(row?.bestStudentOfDay)}
+              </p>
+              <p>
+                <span className="font-semibold text-gray-700">Assembly Defaulters:</span>{" "}
+                {formatPreviewValue(row?.assemblyUniformDefaulters)}
+              </p>
+              <p>
+                <span className="font-semibold text-gray-700">CT Sign:</span>{" "}
+                {formatPreviewValue(row?.teacherSigned)}
+              </p>
+              <p>
+                <span className="font-semibold text-gray-700">Principal Stamp:</span>{" "}
+                {formatPreviewValue(row?.principalStamp)}
+              </p>
+            </div>
+          );
+        })}
+        {rows.length > 2 && (
+          <p className="text-[0.65rem] text-gray-500">
+            + {rows.length - 2} more entries recorded for the day.
+          </p>
+        )}
+      </div>
+    );
+  };
+
+  const renderCcdPreview = (rows) => {
+    if (!rows || rows.length === 0) {
+      return <p className="text-xs text-gray-500">No CCD entries captured yet.</p>;
+    }
+    return (
+      <div className="mt-2 space-y-2">
+        {rows.slice(0, 3).map((row, index) => (
+          <div
+            key={`ccd-preview-${index}`}
+            className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600 shadow-sm"
+          >
+            <p className="font-semibold text-gray-700">
+              Period {formatPreviewValue(row?.period)} • {formatPreviewValue(row?.subject)} —{" "}
+              {formatPreviewValue(row?.topic)}
+            </p>
+            <p>
+              <span className="font-semibold text-gray-700">Classwork:</span>{" "}
+              {formatPreviewValue(row?.classwork)}
+            </p>
+            <p>
+              <span className="font-semibold text-gray-700">Homework:</span>{" "}
+              {formatPreviewValue(row?.homework)}
+            </p>
+            <p>
+              <span className="font-semibold text-gray-700">Teacher Sign / Notes:</span>{" "}
+              {formatPreviewValue(row?.teacherSignature)}
+            </p>
+          </div>
+        ))}
+        {rows.length > 3 && (
+          <p className="text-[0.65rem] text-gray-500">
+            + {rows.length - 3} more periods captured for the day.
+          </p>
+        )}
+      </div>
+    );
+  };
+
+  const renderDiaryModal = () => {
+    if (!activeModal) return null;
+    const isCdd = activeModal === "cdd";
+    const sectionData = isCdd ? resolvedCddSection : resolvedCcdSection;
+    const rows = isCdd ? payloadState.cddRows || [] : payloadState.ccdRows || [];
+    const title = isCdd ? "Class Discipline Diary (CDD)" : "Class Curriculum Diary (CCD)";
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 px-4 py-8">
+        <div className="absolute inset-0" onClick={handleCloseModal} aria-hidden="true" />
+        <div className="relative z-10 w-full max-w-6xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+          <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
+            <h2 className="text-base font-semibold text-gray-900">{title}</h2>
+            <button
+              type="button"
+              onClick={handleCloseModal}
+              className="rounded-full p-2 text-gray-500 transition hover:bg-gray-100"
+              aria-label="Close diary modal"
+            >
+              <span className="text-lg leading-none">×</span>
+            </button>
+          </div>
+          <div className="max-h-[70vh] overflow-y-auto px-5 py-6 space-y-6">
+            {isCdd ? renderCddSection(sectionData, rows) : renderCcdSection(sectionData, rows)}
+          </div>
+          <div className="flex justify-end gap-2 border-t border-gray-200 px-5 py-4">
+            <Button variant="ghost" onClick={handleCloseModal}>
+              Close
+            </Button>
+          </div>
         </div>
       </div>
     );
@@ -821,73 +1021,91 @@ export default function PtAssistPage() {
       )}
 
       {selectedAssignment && (
-        <div className="flex flex-col gap-2 rounded-lg border border-gray-100 bg-white px-4 py-3 text-sm text-gray-700 md:flex-row md:items-center md:justify-between">
-          <div className="flex flex-col gap-1">
-            <span className="font-semibold text-gray-800">Ready to update the PT diary?</span>
-            {accessMessage && <span className="text-xs text-red-600">{accessMessage}</span>}
-            {!accessMessage && !isFormOpen && viewerId !== null && selectedAssignment.assistantUserId === viewerId && (
-              <span className="text-xs text-emerald-600">You are the assigned assistant for this class.</span>
-            )}
-          </div>
-          <div className="flex items-center gap-3">
-            {!isFormOpen ? (
-              <Button variant="primary" onClick={handleOpenForm}>
-                Fill PT Form
-              </Button>
-            ) : (
-              <Button variant="ghost" onClick={handleCloseForm}>
-                Hide Form
-              </Button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {selectedAssignment && isFormOpen && (
-        <>
-          <Card>
-            <CardBody className="space-y-8">
-              {renderSection("cddRows", cddSection, payloadState.cddRows || [])}
-              {renderSection("ccdRows", ccdSection, payloadState.ccdRows || [])}
-            </CardBody>
-          </Card>
-
-          {saveStatus.error && (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              {saveStatus.error}
+        <Card>
+          <CardBody className="space-y-6">
+            <div className="space-y-1">
+              <h2 className="text-base font-semibold text-gray-900">PT Daily Diaries</h2>
+              <p className="text-xs text-gray-600">
+                Use the pop-up editors to capture or review today's Class Discipline Diary (CDD) and Class Curriculum Diary (CCD) before submitting to the class teacher.
+              </p>
+              {!canEdit && (
+                <p className="text-xs text-amber-600">
+                  Only the assigned assistant can make changes. You can still review the previews below.
+                </p>
+              )}
+              {!selectedAssignment.assistantUserId && (
+                <p className="text-xs text-amber-600">No PT assistant has been assigned to this class yet.</p>
+              )}
+              {classStudentsError && (
+                <p className="text-xs text-red-600">Failed to load class roster. Please try refreshing.</p>
+              )}
+              {accessMessage && <p className="text-xs text-red-600">{accessMessage}</p>}
             </div>
-          )}
-          {saveStatus.message && (
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-              {saveStatus.message}
-            </div>
-          )}
 
-          <div className="flex flex-wrap items-center gap-3">
-            <Button
-              variant="primary"
-              onClick={() => handleSave("draft")}
-              disabled={savingAction !== null}
-            >
-              {savingAction === "draft" ? "Saving…" : "Save Draft"}
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => handleSave("submit")}
-              disabled={savingAction !== null}
-            >
-              {savingAction === "submit" ? "Submitting…" : "Submit to Teacher"}
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() => mutate()}
-              disabled={savingAction !== null}
-            >
-              Refresh
-            </Button>
-          </div>
-        </>
+            <div className="space-y-3 rounded-xl border border-gray-100 bg-gray-50/60 p-4">
+              <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-800">Class Discipline Diary (CDD)</h3>
+                  <p className="text-xs text-gray-500">
+                    Track defaulters, best student of the day and signatures.
+                  </p>
+                </div>
+                <Button variant="primary" onClick={() => handleOpenDiary("cdd")}>
+                  Open CDD Form
+                </Button>
+              </div>
+              {renderCddPreview(payloadState.cddRows || [])}
+            </div>
+
+            <div className="space-y-3 rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+              <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-800">Class Curriculum Diary (CCD)</h3>
+                  <p className="text-xs text-gray-500">
+                    Record period-wise subject coverage and homework instructions.
+                  </p>
+                </div>
+                <Button variant="secondary" onClick={() => handleOpenDiary("ccd")}>
+                  Open CCD Form
+                </Button>
+              </div>
+              {renderCcdPreview(payloadState.ccdRows || [])}
+            </div>
+
+            {saveStatus.error && (
+              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {saveStatus.error}
+              </div>
+            )}
+            {saveStatus.message && (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                {saveStatus.message}
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                variant="primary"
+                onClick={() => handleSave("draft")}
+                disabled={!canEdit || savingAction !== null}
+              >
+                {savingAction === "draft" ? "Saving…" : "Save Draft"}
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => handleSave("submit")}
+                disabled={!canEdit || savingAction !== null}
+              >
+                {savingAction === "submit" ? "Submitting…" : "Submit to Teacher"}
+              </Button>
+              <Button variant="ghost" onClick={() => mutate()} disabled={savingAction !== null}>
+                Refresh
+              </Button>
+            </div>
+          </CardBody>
+        </Card>
       )}
+      {renderDiaryModal()}
     </div>
   );
 }

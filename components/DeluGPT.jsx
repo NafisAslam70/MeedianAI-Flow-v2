@@ -3,11 +3,13 @@ import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { MessageSquare, Send, X, Sparkles, Mic, MicOff, Volume2, VolumeX } from "lucide-react";
 import { useSession } from "next-auth/react";
+import { usePathname } from "next/navigation";
 
 export default function DeluGPT() {
   const MAX_CONTEXT_TURNS = 12; // how many recent messages to send to API
   const MAX_RENDER_MESSAGES = 100; // cap DOM rendering for smooth scroll
   const { data: session } = useSession();
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [input, setInput] = useState("");
@@ -157,6 +159,9 @@ export default function DeluGPT() {
       ? [{ label: "Add user", text: "Guide me to add a new user." }]
       : []),
   ];
+
+  const hideFloating = pathname?.startsWith("/dashboard/member/workTogether");
+  if (hideFloating) return null;
 
   return (
     <>

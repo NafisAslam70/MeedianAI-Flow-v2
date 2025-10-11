@@ -423,7 +423,11 @@ export default function WorkTogether() {
   async function checkMRN() {
     try {
       setMrrChecking(true);
-      const { json } = await mrrFetch("?action=current", { cache: "no-store" });
+      const { status, json } = await mrrFetch("?action=current", { cache: "no-store" });
+      if (status === 304) {
+        setMrrErr("");
+        return;
+      }
       const next = json?.current || null;
       setMrrCurrent((prev) => {
         const same = !!prev && !!next &&

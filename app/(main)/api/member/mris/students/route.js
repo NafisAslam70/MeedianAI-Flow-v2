@@ -13,8 +13,18 @@ export async function GET(req) {
 
   const { searchParams } = new URL(req.url);
   const statusFilter = (searchParams.get("status") || "active").toLowerCase();
+  const classIdParam = searchParams.get("classId");
+  const classId = classIdParam ? Number(classIdParam) : null;
 
-  const rows = await db
+  const conditions = [];
+  if (statusFilter) {
+    conditions.push(sql`lower(${Students.status}) = ${statusFilter}`);
+  }
+  if (classId && Number.isFinite(classId)) {
+    conditions.push(eq(Students.classId, classId));
+  }
+
+  let query = db
     .select({
       id: Students.id,
       name: Students.name,
@@ -23,9 +33,15 @@ export async function GET(req) {
       status: Students.status,
     })
     .from(Students)
-    .leftJoin(Classes, eq(Students.classId, Classes.id))
-    // optional: push filtering to SQL (case-insensitive)
-    .where(sql`lower(${Students.status}) = ${statusFilter}`);
+    .leftJoin(Classes, eq(Students.classId, Classes.id));
+
+  if (conditions.length === 1) {
+    query = query.where(conditions[0]);
+  } else if (conditions.length > 1) {
+    query = query.where(and(...conditions));
+  }
+
+  const rows = await query.orderBy(Students.name);
 
   return NextResponse.json({ students: rows });
 }

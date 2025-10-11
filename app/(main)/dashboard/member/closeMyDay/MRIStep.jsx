@@ -504,6 +504,9 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
                 <div className="space-y-3">
                   {mriReports.map((report) => {
                     const status = String(report?.status || "pending").toLowerCase();
+                    const hasSubmittedStatus = ["submitted", "verified", "waived"].includes(status);
+                    const hasPayload = Boolean(report?.payload);
+                    const showDataCaptured = hasPayload || hasSubmittedStatus;
                     const badgeClass = REPORT_STATUS_STYLES[status] || REPORT_STATUS_STYLES.default;
                     const classLabel = report?.class?.name
                       ? `Class ${report.class.name}${report.class.section ? ` ${report.class.section}` : ""}`
@@ -536,8 +539,10 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
                           >
                             Review &amp; Confirm
                           </button>
-                          {report?.payload ? (
-                            <span className="text-[0.65rem] text-indigo-700/70">Data captured</span>
+                          {showDataCaptured ? (
+                            <span className="text-[0.65rem] text-indigo-700/70">
+                              {hasSubmittedStatus ? toTitle(status, "Submitted") : "Data captured"}
+                            </span>
                           ) : (
                             <span className="text-[0.65rem] text-slate-500">Awaiting data entry</span>
                           )}
