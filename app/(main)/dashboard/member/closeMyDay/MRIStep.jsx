@@ -119,7 +119,6 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
   const [modalData, setModalData] = useState(null);
   const router = useRouter();
   const todayIso = useMemo(() => format(new Date(), "yyyy-MM-dd"), []);
-
   const {
     data: reportsData,
     error: reportsError,
@@ -439,8 +438,6 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
   const closeModal = () => setModalData(null);
 
   const modalAccent = MODAL_ACCENT_STYLES[modalData?.accent] || MODAL_ACCENT_STYLES.teal;
-
-  const todayIso = useMemo(() => format(new Date(), "yyyy-MM-dd"), []);
   const { data: todayMRIsData, error: todayMRIsError } = useSWR(
     "/api/member/myMRIs?section=today",
     fetcher
