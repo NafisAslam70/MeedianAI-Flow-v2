@@ -91,6 +91,7 @@ const FALLBACK_ATTENDANCE_SECTION = {
   repeat: true,
   fields: [
     { id: "session", type: "text", label: "Session" },
+    { id: "absentStudents", type: "chips", label: "Absent Students" },
     { id: "presentCount", type: "text", label: "Present Count" },
     { id: "absentCount", type: "text", label: "Absent Count" },
     { id: "notes", type: "textarea", label: "Notes" },
@@ -146,6 +147,9 @@ const buildDefaultAttendanceRows = (section) => {
     {
       ...defaults,
       session: "Morning",
+      absentStudents: [],
+      absentCount: "0",
+      presentCount: defaults.presentCount || "0",
     },
   ];
 };
@@ -250,6 +254,7 @@ export default function PtAssistPage() {
   }, [classStudentsResponse, classIdForStudents]);
 
   const isLoadingClassStudents = Boolean(classIdForStudents) && !classStudentsResponse && !classStudentsError;
+  const totalStudents = classStudents.length;
 
   const viewerIsAssistant = useMemo(() => {
     if (!selectedAssignment) return false;
@@ -260,7 +265,7 @@ export default function PtAssistPage() {
 
   useEffect(() => {
     if (!selectedAssignment) {
-    setPayloadState({ cddRows: [], ccdRows: [], attendanceRows: [], extras: {} });
+      setPayloadState({ cddRows: [], ccdRows: [], attendanceRows: [], extras: {} });
       setActiveModal(null);
       setAccessMessage("");
       return;
@@ -280,10 +285,28 @@ export default function PtAssistPage() {
           : buildDefaultAttendanceRows(resolvedAttendanceSection),
       extras,
     });
-    setActiveModal(null);
-    setAccessMessage("");
-    setSaveStatus({ message: "", error: "" });
+      setActiveModal(null);
+      setAccessMessage("");
+      setSaveStatus({ message: "", error: "" });
   }, [selectedAssignment, resolvedCddSection, resolvedCcdSection, resolvedAttendanceSection, selectedDate]);
+
+  useEffect(() => {
+    if (!totalStudents) return;
+    setPayloadState((prev) => {
+      const rows = Array.isArray(prev.attendanceRows) ? prev.attendanceRows : [];
+      let changed = false;
+      const nextRows = rows.map((row) => {
+        const absentList = Array.isArray(row.absentStudents) ? row.absentStudents : [];
+        const absentCount = String(absentList.length);
+        const presentCount = String(Math.max(totalStudents - absentList.length, 0));
+        if (row.absentCount === absentCount && row.presentCount === presentCount) return row;
+        changed = true;
+        return { ...row, absentCount, presentCount };
+      });
+      if (!changed) return prev;
+      return { ...prev, attendanceRows: nextRows };
+    });
+  }, [totalStudents]);
 
   const updateRow = (sectionKey, index, updater) => {
     setPayloadState((prev) => {
@@ -312,6 +335,12 @@ export default function PtAssistPage() {
         nextRow.period = String(nextPeriod);
       } else if (sectionKey === "attendanceRows") {
         nextRow.session = nextRow.session || `Session ${rows.length + 1}`;
+        const absentList = Array.isArray(nextRow.absentStudents) ? nextRow.absentStudents : [];
+        const absentCount = absentList.length;
+        const presentCount = Math.max(totalStudents - absentCount, 0);
+        nextRow.absentStudents = absentList;
+        nextRow.absentCount = String(absentCount);
+        nextRow.presentCount = String(presentCount < 0 ? 0 : presentCount);
       }
       rows.push(nextRow);
       return { ...prev, [sectionKey]: rows };
@@ -342,6 +371,29 @@ export default function PtAssistPage() {
       currentRow[fieldId] = currentValues;
       rows[rowIndex] = currentRow;
       return { ...prev, [sectionKey]: rows };
+    });
+  };
+
+  const toggleAttendanceStudent = (rowIndex, label) => {
+    const normalized = String(label || "").trim();
+    if (!normalized) return;
+    setPayloadState((prev) => {
+      const rows = Array.isArray(prev.attendanceRows) ? [...prev.attendanceRows] : [];
+      const current = { ...(rows[rowIndex] || {}) };
+      const list = Array.isArray(current.absentStudents) ? [...current.absentStudents] : [];
+      const idx = list.findIndex((name) => name === normalized);
+      if (idx >= 0) {
+        list.splice(idx, 1);
+      } else {
+        list.push(normalized);
+      }
+      const absentCount = list.length;
+      const presentCount = Math.max(totalStudents - absentCount, 0);
+      current.absentStudents = list;
+      current.absentCount = String(absentCount);
+      current.presentCount = String(presentCount < 0 ? 0 : presentCount);
+      rows[rowIndex] = current;
+      return { ...prev, attendanceRows: rows };
     });
   };
 
@@ -595,9 +647,10 @@ export default function PtAssistPage() {
 
   const renderAttendanceSection = (sectionData, rows) => {
     const headers = [
-      { id: "session", label: "Session" },
-      { id: "presentCount", label: "Present Count" },
-      { id: "absentCount", label: "Absent Count" },
+      { id: "session", label: "Session", type: "text", placeholder: "Morning" },
+      { id: "absentStudents", label: "Absent Students", type: "chips" },
+      { id: "presentCount", label: "Present Count", type: "readonly" },
+      { id: "absentCount", label: "Absent Count", type: "readonly" },
       { id: "notes", label: "Notes", type: "textarea" },
     ];
 
@@ -626,6 +679,9 @@ export default function PtAssistPage() {
             )}
           </div>
         </div>
+        {totalStudents > 0 && (
+          <p className="text-[0.65rem] text-gray-500">Class roster size: {totalStudents} student{totalStudents > 1 ? "s" : ""}</p>
+        )}
 
         <div className="overflow-x-auto">
           <table className="min-w-full border border-gray-200 text-xs text-gray-700">
@@ -651,8 +707,10 @@ export default function PtAssistPage() {
                   <tr key={`attendance-${rowIndex}`} className="odd:bg-white even:bg-gray-50">
                     {headers.map((header) => {
                       const fieldId = header.id;
-                      const value = row?.[fieldId] ?? "";
-                      if (header.type === "textarea") {
+                      const type = header.type || "text";
+                      const value = row?.[fieldId];
+
+                      if (type === "textarea") {
                         return (
                           <td key={fieldId} className="border border-gray-200 px-2 py-2 align-top">
                             <textarea
@@ -668,11 +726,90 @@ export default function PtAssistPage() {
                           </td>
                         );
                       }
+
+                      if (type === "readonly") {
+                        return (
+                          <td key={fieldId} className="border border-gray-200 px-2 py-2">
+                            <input
+                              type="text"
+                              readOnly
+                              className="w-full rounded-md border border-gray-200 bg-gray-100 px-2 py-1 text-xs text-gray-700"
+                              value={String(value || "0")}
+                            />
+                          </td>
+                        );
+                      }
+
+                      if (type === "chips") {
+                        const selectedValues = Array.isArray(value) ? value : [];
+                        return (
+                          <td key={fieldId} className="border border-gray-200 px-2 py-2 align-top">
+                            <textarea
+                              className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                              rows={2}
+                              placeholder={header.placeholder || "Tap names below or type manually"}
+                              value={joinMultiValue(selectedValues)}
+                              onChange={(event) => {
+                                const values = splitMultiValue(event.target.value);
+                                updateRow("attendanceRows", rowIndex, () => {
+                                  const absentCount = values.length;
+                                  const presentCount = Math.max(totalStudents - absentCount, 0);
+                                  return {
+                                    [fieldId]: values,
+                                    absentCount: String(absentCount),
+                                    presentCount: String(presentCount),
+                                  };
+                                });
+                              }}
+                            />
+                            {classIdForStudents && (
+                              <div className="mt-2 space-y-1">
+                                {isLoadingClassStudents && (
+                                  <p className="text-[0.65rem] text-gray-500">Loading class roster…</p>
+                                )}
+                                {!isLoadingClassStudents && classStudents.length > 0 && (
+                                  <>
+                                    <p className="text-[0.65rem] text-gray-500">Tap to toggle absent students:</p>
+                                    <div className="max-h-28 overflow-y-auto rounded-lg border border-gray-200 bg-white/80 p-2">
+                                      <div className="flex flex-wrap gap-1">
+                                        {classStudents.map((student) => {
+                                          const label = student.name;
+                                          const isSelected = selectedValues.some((entry) => entry.trim() === label);
+                                          return (
+                                            <button
+                                              type="button"
+                                              key={`${fieldId}-${student.id}`}
+                                              className={`rounded-full px-2 py-1 text-[0.65rem] transition ${
+                                                isSelected
+                                                  ? "bg-rose-600 text-white hover:bg-rose-700"
+                                                  : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                                              }`}
+                                              onClick={() => toggleAttendanceStudent(rowIndex, label)}
+                                              title={label}
+                                            >
+                                              {label}
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  </>
+                                )}
+                                {!isLoadingClassStudents && classStudents.length === 0 && (
+                                  <p className="text-[0.65rem] text-amber-600">No students found for this class.</p>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                        );
+                      }
+
                       return (
                         <td key={fieldId} className="border border-gray-200 px-2 py-2">
                           <input
                             type="text"
                             className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                            placeholder={header.placeholder || ""}
                             value={String(value || "")}
                             onChange={(event) =>
                               updateRow("attendanceRows", rowIndex, () => ({
@@ -1021,6 +1158,7 @@ export default function PtAssistPage() {
           <thead className="bg-gray-100">
             <tr>
               <th className="px-3 py-2 text-left font-semibold">Session</th>
+              <th className="px-3 py-2 text-left font-semibold">Absent Students</th>
               <th className="px-3 py-2 text-left font-semibold">Present</th>
               <th className="px-3 py-2 text-left font-semibold">Absent</th>
               <th className="px-3 py-2 text-left font-semibold">Notes</th>
@@ -1030,6 +1168,12 @@ export default function PtAssistPage() {
             {rows.map((row, index) => (
               <tr key={`attendance-preview-${index}`} className={index % 2 === 0 ? "bg-white" : "bg-gray-50"}>
                 <td className="px-3 py-2 font-medium text-gray-800">{row?.session || `Session ${index + 1}`}</td>
+                <td className="px-3 py-2">
+                  {(() => {
+                    const absentDisplay = formatPreviewValue(row?.absentStudents || []);
+                    return absentDisplay === "—" ? "All present" : absentDisplay;
+                  })()}
+                </td>
                 <td className="px-3 py-2">{row?.presentCount || "—"}</td>
                 <td className="px-3 py-2">{row?.absentCount || "—"}</td>
                 <td className="px-3 py-2">{row?.notes ? String(row.notes) : "—"}</td>

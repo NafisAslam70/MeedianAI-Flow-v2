@@ -66,6 +66,7 @@ const PT_CCD_COLUMNS = [
 
 const PT_ATTENDANCE_COLUMNS = [
   { key: "session", label: "Session" },
+  { key: "absentStudents", label: "Absent Students" },
   { key: "presentCount", label: "Present Count" },
   { key: "absentCount", label: "Absent Count" },
   { key: "notes", label: "Notes" },
@@ -486,10 +487,13 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
                 <td className="px-4 py-3 align-top font-semibold text-slate-500">{rowIndex + 1}</td>
                 {PT_ATTENDANCE_COLUMNS.map((column) => {
                   const rawValue = row?.[column.key];
-                  const displayValue = formatCellValue(rawValue);
+                  const formatted = formatCellValue(rawValue);
+                  const displayValue = column.key === "absentStudents"
+                    ? formatted || "All present"
+                    : formatted || "—";
                   return (
                     <td key={`${column.key}-${rowIndex}`} className="px-4 py-3 align-top">
-                      {displayValue || "—"}
+                      {displayValue}
                     </td>
                   );
                 })}

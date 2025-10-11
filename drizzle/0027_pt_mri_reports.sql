@@ -101,8 +101,8 @@ VALUES (
             { "id": "disciplineDefaulters", "type": "chips", "label": "Discipline Defaulters" },
             { "id": "bestStudentOfDay", "type": "chips", "label": "Best Student(s) of the Day" },
             { "id": "absentStudents", "type": "chips", "label": "Absent Students" },
-            { "id": "teacherSigned", "type": "boolean", "label": "Class Teacher Signed" },
-            { "id": "principalStamp", "type": "boolean", "label": "Principal Stamp" }
+            { "id": "teacherSigned", "type": "select", "label": "CT Sign", "options": ["Yes", "No"] },
+            { "id": "principalStamp", "type": "select", "label": "Principal Stamp", "options": ["Yes", "No"] }
           ]
         },
         {
@@ -115,14 +115,26 @@ VALUES (
             { "id": "topic", "type": "text", "label": "Topic" },
             { "id": "classwork", "type": "textarea", "label": "Classwork (What happened)" },
             { "id": "homework", "type": "textarea", "label": "Homework (Assigned)" },
-            { "id": "teacherSignature", "type": "boolean", "label": "Teacher Sign" },
-            { "id": "monitorInitials", "type": "text", "label": "Monitor Initials" }
+            { "id": "teacherSignature", "type": "select", "label": "Teacher Sign", "options": ["Yes", "No"] },
+            { "id": "monitorInitials", "type": "select", "label": "Monitor Initials", "options": ["Yes", "No"] }
+          ]
+        },
+        {
+          "key": "attendanceRows",
+          "title": "Attendance Snapshot",
+          "repeat": true,
+          "fields": [
+            { "id": "session", "type": "text", "label": "Session (e.g., Morning)" },
+            { "id": "absentStudents", "type": "chips", "label": "Absent Students" },
+            { "id": "presentCount", "type": "text", "label": "Present Count" },
+            { "id": "absentCount", "type": "text", "label": "Absent Count" },
+            { "id": "notes", "type": "textarea", "label": "Notes / Exceptions" }
           ]
         }
       ]
     }$$::jsonb,
     $${
-      "version": 1,
+      "version": 4,
       "schema": "pt_daily_v1"
     }$$::jsonb
 )
