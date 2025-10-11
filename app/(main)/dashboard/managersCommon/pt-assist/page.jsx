@@ -5,11 +5,9 @@ import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import Button from "@/components/ui/Button";
 import { Card, CardBody } from "@/components/ui/Card";
+import { formatISTDate, formatISTDateTime } from "@/lib/timezone";
 
-const todayIso = () => {
-  const now = new Date();
-  return now.toISOString().slice(0, 10);
-};
+const todayIso = () => formatISTDate(new Date());
 
 const fetcher = (url) =>
   fetch(url, { headers: { "Content-Type": "application/json" } }).then((res) => {
@@ -36,8 +34,21 @@ const formatPreviewValue = (value) => {
   if (Array.isArray(value)) return joinMultiValue(value) || "—";
   if (value === null || value === undefined) return "—";
   if (typeof value === "boolean") return value ? "Yes" : "No";
+
+  if (value instanceof Date) {
+    return formatISTDateTime(value);
+  }
+
   const str = String(value).trim();
-  return str.length ? str : "—";
+  if (!str) return "—";
+
+  const parsed = new Date(str);
+  if (!Number.isNaN(parsed.getTime())) {
+    const hasTime = /[T\s]\d/.test(str);
+    return hasTime ? formatISTDateTime(parsed) : formatISTDate(parsed);
+  }
+
+  return str;
 };
 
 const YES_NO_OPTIONS = ["", "Yes", "No"];
@@ -71,6 +82,18 @@ const FALLBACK_CCD_SECTION = {
     { id: "homework", type: "textarea", label: "Homework (Assigned)" },
     { id: "teacherSignature", type: "select", label: "Teacher Sign", options: YES_NO_OPTIONS.slice(1) },
     { id: "monitorInitials", type: "select", label: "Monitor Initials", options: YES_NO_OPTIONS.slice(1) },
+  ],
+};
+
+const FALLBACK_ATTENDANCE_SECTION = {
+  key: "attendanceRows",
+  title: "Attendance",
+  repeat: true,
+  fields: [
+    { id: "session", type: "text", label: "Session" },
+    { id: "presentCount", type: "text", label: "Present Count" },
+    { id: "absentCount", type: "text", label: "Absent Count" },
+    { id: "notes", type: "textarea", label: "Notes" },
   ],
 };
 
@@ -116,11 +139,27 @@ const buildDefaultCcdRows = (section) => {
   }));
 };
 
+const buildDefaultAttendanceRows = (section) => {
+  if (!section) return [];
+  const defaults = sectionDefaults(section);
+  return [
+    {
+      ...defaults,
+      session: "Morning",
+    },
+  ];
+};
+
 export default function PtAssistPage() {
   const router = useRouter();
   const [selectedDate, setSelectedDate] = useState(todayIso());
   const [selectedAssignmentId, setSelectedAssignmentId] = useState(null);
-  const [payloadState, setPayloadState] = useState({ cddRows: [], ccdRows: [], extras: {} });
+  const [payloadState, setPayloadState] = useState({
+    cddRows: [],
+    ccdRows: [],
+    attendanceRows: [],
+    extras: {},
+  });
   const [saveStatus, setSaveStatus] = useState({ message: "", error: "" });
   const [savingAction, setSavingAction] = useState(null);
   const [accessMessage, setAccessMessage] = useState("");
@@ -154,8 +193,13 @@ export default function PtAssistPage() {
     () => templateSections.find((section) => section?.key === "ccdRows" || section?.title === "Class Curriculum Diary") || null,
     [templateSections]
   );
+  const attendanceSection = useMemo(
+    () => templateSections.find((section) => section?.key === "attendanceRows" || section?.title === "Attendance") || null,
+    [templateSections]
+  );
   const resolvedCddSection = cddSection || FALLBACK_CDD_SECTION;
   const resolvedCcdSection = ccdSection || FALLBACK_CCD_SECTION;
+  const resolvedAttendanceSection = attendanceSection || FALLBACK_ATTENDANCE_SECTION;
 
   useEffect(() => {
     if (!assignments.length) {
@@ -216,13 +260,13 @@ export default function PtAssistPage() {
 
   useEffect(() => {
     if (!selectedAssignment) {
-      setPayloadState({ cddRows: [], ccdRows: [], extras: {} });
+    setPayloadState({ cddRows: [], ccdRows: [], attendanceRows: [], extras: {} });
       setActiveModal(null);
       setAccessMessage("");
       return;
     }
     const payload = selectedAssignment.payload || {};
-    const { cddRows = [], ccdRows = [], ...extras } = payload;
+    const { cddRows = [], ccdRows = [], attendanceRows = [], ...extras } = payload;
     setPayloadState({
       cddRows:
         Array.isArray(cddRows) && cddRows.length > 0
@@ -230,12 +274,16 @@ export default function PtAssistPage() {
           : buildDefaultCddRows(resolvedCddSection, selectedDate),
       ccdRows:
         Array.isArray(ccdRows) && ccdRows.length > 0 ? ccdRows : buildDefaultCcdRows(resolvedCcdSection),
+      attendanceRows:
+        Array.isArray(attendanceRows) && attendanceRows.length > 0
+          ? attendanceRows
+          : buildDefaultAttendanceRows(resolvedAttendanceSection),
       extras,
     });
     setActiveModal(null);
     setAccessMessage("");
     setSaveStatus({ message: "", error: "" });
-  }, [selectedAssignment, resolvedCddSection, resolvedCcdSection, selectedDate]);
+  }, [selectedAssignment, resolvedCddSection, resolvedCcdSection, resolvedAttendanceSection, selectedDate]);
 
   const updateRow = (sectionKey, index, updater) => {
     setPayloadState((prev) => {
@@ -262,6 +310,8 @@ export default function PtAssistPage() {
           .filter((value) => value !== null);
         const nextPeriod = (numericPeriods.length ? Math.max(...numericPeriods) + 1 : rows.length + 1);
         nextRow.period = String(nextPeriod);
+      } else if (sectionKey === "attendanceRows") {
+        nextRow.session = nextRow.session || `Session ${rows.length + 1}`;
       }
       rows.push(nextRow);
       return { ...prev, [sectionKey]: rows };
@@ -308,6 +358,16 @@ export default function PtAssistPage() {
       return output;
     });
     next.ccdRows = (state.ccdRows || []).map((row) => {
+      const output = {};
+      Object.entries(row || {}).forEach(([fieldId, value]) => {
+        if (Array.isArray(value)) output[fieldId] = value;
+        else if (typeof value === "boolean") output[fieldId] = value;
+        else if (value === "" || value === null) output[fieldId] = "";
+        else output[fieldId] = value;
+      });
+      return output;
+    });
+    next.attendanceRows = (state.attendanceRows || []).map((row) => {
       const output = {};
       Object.entries(row || {}).forEach(([fieldId, value]) => {
         if (Array.isArray(value)) output[fieldId] = value;
@@ -519,6 +579,117 @@ export default function PtAssistPage() {
                         type="button"
                         className="text-red-600 hover:text-red-700"
                         onClick={() => removeRow("ccdRows", rowIndex)}
+                      >
+                        Remove
+                      </Button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  const renderAttendanceSection = (sectionData, rows) => {
+    const headers = [
+      { id: "session", label: "Session" },
+      { id: "presentCount", label: "Present Count" },
+      { id: "absentCount", label: "Absent Count" },
+      { id: "notes", label: "Notes", type: "textarea" },
+    ];
+
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-gray-800">Attendance Snapshot</h3>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="light" type="button" onClick={() => addRow("attendanceRows", sectionData)}>
+              Add Session
+            </Button>
+            {rows.length > 0 && (
+              <Button
+                size="sm"
+                variant="ghost"
+                type="button"
+                onClick={() =>
+                  setPayloadState((prev) => ({
+                    ...prev,
+                    attendanceRows: [],
+                  }))
+                }
+              >
+                Clear
+              </Button>
+            )}
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="min-w-full border border-gray-200 text-xs text-gray-700">
+            <thead className="bg-gray-100">
+              <tr>
+                {headers.map((header) => (
+                  <th key={header.id} className="border border-gray-200 px-3 py-2 text-left font-semibold">
+                    {header.label}
+                  </th>
+                ))}
+                <th className="border border-gray-200 px-3 py-2 text-left font-semibold">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 ? (
+                <tr>
+                  <td colSpan={headers.length + 1} className="px-3 py-4 text-center text-sm text-gray-500">
+                    No attendance captured yet. Use "Add Session" to record attendance details.
+                  </td>
+                </tr>
+              ) : (
+                rows.map((row, rowIndex) => (
+                  <tr key={`attendance-${rowIndex}`} className="odd:bg-white even:bg-gray-50">
+                    {headers.map((header) => {
+                      const fieldId = header.id;
+                      const value = row?.[fieldId] ?? "";
+                      if (header.type === "textarea") {
+                        return (
+                          <td key={fieldId} className="border border-gray-200 px-2 py-2 align-top">
+                            <textarea
+                              className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                              rows={3}
+                              value={String(value || "")}
+                              onChange={(event) =>
+                                updateRow("attendanceRows", rowIndex, () => ({
+                                  [fieldId]: event.target.value,
+                                }))
+                              }
+                            />
+                          </td>
+                        );
+                      }
+                      return (
+                        <td key={fieldId} className="border border-gray-200 px-2 py-2">
+                          <input
+                            type="text"
+                            className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                            value={String(value || "")}
+                            onChange={(event) =>
+                              updateRow("attendanceRows", rowIndex, () => ({
+                                [fieldId]: event.target.value,
+                              }))
+                            }
+                          />
+                        </td>
+                      );
+                    })}
+                    <td className="border border-gray-200 px-2 py-2 text-center align-middle">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        type="button"
+                        className="text-red-600 hover:text-red-700"
+                        onClick={() => removeRow("attendanceRows", rowIndex)}
                       >
                         Remove
                       </Button>
@@ -840,12 +1011,56 @@ export default function PtAssistPage() {
     );
   };
 
+  const renderAttendancePreview = (rows) => {
+    if (!rows || rows.length === 0) {
+      return <p className="text-xs text-gray-500">No attendance snapshots captured yet.</p>;
+    }
+    return (
+      <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+        <table className="min-w-full text-xs text-gray-700">
+          <thead className="bg-gray-100">
+            <tr>
+              <th className="px-3 py-2 text-left font-semibold">Session</th>
+              <th className="px-3 py-2 text-left font-semibold">Present</th>
+              <th className="px-3 py-2 text-left font-semibold">Absent</th>
+              <th className="px-3 py-2 text-left font-semibold">Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={`attendance-preview-${index}`} className={index % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                <td className="px-3 py-2 font-medium text-gray-800">{row?.session || `Session ${index + 1}`}</td>
+                <td className="px-3 py-2">{row?.presentCount || "—"}</td>
+                <td className="px-3 py-2">{row?.absentCount || "—"}</td>
+                <td className="px-3 py-2">{row?.notes ? String(row.notes) : "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
   const renderDiaryModal = () => {
     if (!activeModal) return null;
     const isCdd = activeModal === "cdd";
-    const sectionData = isCdd ? resolvedCddSection : resolvedCcdSection;
-    const rows = isCdd ? payloadState.cddRows || [] : payloadState.ccdRows || [];
-    const title = isCdd ? "Class Discipline Diary (CDD)" : "Class Curriculum Diary (CCD)";
+    const isCcd = activeModal === "ccd";
+    const isAttendance = activeModal === "attendance";
+    const sectionData = isCdd
+      ? resolvedCddSection
+      : isCcd
+      ? resolvedCcdSection
+      : resolvedAttendanceSection;
+    const rows = isCdd
+      ? payloadState.cddRows || []
+      : isCcd
+      ? payloadState.ccdRows || []
+      : payloadState.attendanceRows || [];
+    const title = isCdd
+      ? "Class Discipline Diary (CDD)"
+      : isCcd
+      ? "Class Curriculum Diary (CCD)"
+      : "Attendance Snapshot";
 
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 px-4 py-8">
@@ -863,7 +1078,11 @@ export default function PtAssistPage() {
             </button>
           </div>
           <div className="max-h-[70vh] overflow-y-auto px-5 py-6 space-y-6">
-            {isCdd ? renderCddSection(sectionData, rows) : renderCcdSection(sectionData, rows)}
+            {isCdd
+              ? renderCddSection(sectionData, rows)
+              : isCcd
+              ? renderCcdSection(sectionData, rows)
+              : renderAttendanceSection(sectionData, rows)}
           </div>
           <div className="flex justify-end gap-2 border-t border-gray-200 px-5 py-4">
             <Button variant="ghost" onClick={handleCloseModal}>
@@ -1070,6 +1289,21 @@ export default function PtAssistPage() {
                 </Button>
               </div>
               {renderCcdPreview(payloadState.ccdRows || [])}
+            </div>
+
+            <div className="space-y-3 rounded-xl border border-gray-100 bg-gray-50/70 p-4">
+              <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-800">Attendance Snapshot</h3>
+                  <p className="text-xs text-gray-500">
+                    Log present/absent counts or quick notes for each attendance session.
+                  </p>
+                </div>
+                <Button variant="secondary" onClick={() => handleOpenDiary("attendance")}>
+                  Open Attendance Form
+                </Button>
+              </div>
+              {renderAttendancePreview(payloadState.attendanceRows || [])}
             </div>
 
             {saveStatus.error && (

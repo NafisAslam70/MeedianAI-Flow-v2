@@ -585,6 +585,15 @@ export default function WorkTogether() {
       setErr("Please push your Me Right Now first.");
       return;
     }
+    if (!jwt) {
+      setErr("Still securing the room token. Please wait a moment and try again.");
+      return;
+    }
+    if (!ready) {
+      setErr("Loading the meeting controls. Give it a moment and retry.");
+      return;
+    }
+    setErr(null);
     setModal(false);
     init();
   };
@@ -810,6 +819,8 @@ export default function WorkTogether() {
 
   const hostActive = !!notesHostId && notesHostId !== currentUserInfo?.id;
   const isFollower = hostActive && notesFollowing;
+  const waitingForBridge = !!mrrCurrent && (!jwt || !ready);
+  const connectDisabled = !mrrCurrent;
 
   return (
     <motion.div
@@ -1312,14 +1323,27 @@ export default function WorkTogether() {
               <div className="mt-4 flex justify-end">
                 <button
                   onClick={join}
-                  disabled={!jwt || !ready || !mrrCurrent}
-                  className={`px-4 py-2 rounded-xl font-semibold ${
-                    jwt && ready && mrrCurrent
-                      ? "bg-purple-600/80 text-white hover:bg-purple-700/80"
-                      : "bg-cyan-800/50 text-cyan-400 cursor-not-allowed"
+                  disabled={connectDisabled}
+                  title={
+                    !mrrCurrent
+                      ? "Start or resume your Me Right Now first."
+                      : waitingForBridge
+                        ? "Hang tight—setting up the bridge."
+                        : "Join the room"
+                  }
+                  className={`px-4 py-2 rounded-xl font-semibold transition ${
+                    connectDisabled
+                      ? "bg-cyan-800/50 text-cyan-400 cursor-not-allowed"
+                      : waitingForBridge
+                        ? "bg-amber-500/80 text-white hover:bg-amber-500/90"
+                        : "bg-purple-600/80 text-white hover:bg-purple-700/80"
                   } backdrop-blur-sm`}
                 >
-                  {mrrCurrent ? "Connect" : "Enter MRN to continue"}
+                  {!mrrCurrent
+                    ? "Enter MRN to continue"
+                    : waitingForBridge
+                      ? "Preparing…"
+                      : "Connect"}
                 </button>
               </div>
             </motion.div>

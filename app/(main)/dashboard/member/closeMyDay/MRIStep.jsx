@@ -3,9 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { AnimatePresence, motion } from "framer-motion";
-import { CheckCircle, AlertCircle, X } from "lucide-react";
-import { format } from "date-fns";
+import { CheckCircle, AlertCircle, X, ChevronDown, ChevronUp } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { formatISTDate, formatISTDateTime } from "@/lib/timezone";
 
 const fetcher = (url) =>
   fetch(url, { headers: { "Content-Type": "application/json" } }).then((res) => {
@@ -42,6 +42,35 @@ const REPORT_STATUS_STYLES = {
   default: "bg-slate-100 text-slate-700 border border-slate-200",
 };
 
+const PT_CDD_COLUMNS = [
+  { key: "date", label: "Date", formatter: formatISTDate },
+  { key: "assemblyUniformDefaulters", label: "Assembly / Uniform Defaulters" },
+  { key: "languageDefaulters", label: "Language Defaulters" },
+  { key: "homeworkDefaulters", label: "Homework Defaulters" },
+  { key: "disciplineDefaulters", label: "Discipline Defaulters" },
+  { key: "bestStudentOfDay", label: "Best Student of the Day" },
+  { key: "absentStudents", label: "Absent Students" },
+  { key: "teacherSigned", label: "CT Sign" },
+  { key: "principalStamp", label: "Principal Stamp" },
+];
+
+const PT_CCD_COLUMNS = [
+  { key: "period", label: "Period" },
+  { key: "subject", label: "Subject" },
+  { key: "topic", label: "Topic" },
+  { key: "classwork", label: "Classwork (What happened)" },
+  { key: "homework", label: "Homework (Assigned)" },
+  { key: "teacherSignature", label: "Teacher Sign" },
+  { key: "monitorInitials", label: "Monitor Initials" },
+];
+
+const PT_ATTENDANCE_COLUMNS = [
+  { key: "session", label: "Session" },
+  { key: "presentCount", label: "Present Count" },
+  { key: "absentCount", label: "Absent Count" },
+  { key: "notes", label: "Notes" },
+];
+
 const BUILTIN_CATEGORY_FALLBACK = new Map(
   [
     ["nmri_moderator", "nmri"],
@@ -77,11 +106,22 @@ const formatCellValue = (value) => {
       .map((item) => (typeof item === "object" ? JSON.stringify(item) : String(item)))
       .join(", ");
   }
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  if (value instanceof Date) return formatISTDateTime(value);
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (value === null || value === undefined) return "—";
+
   const raw = String(value).trim();
-  return raw.length ? raw : "—";
+  if (!raw) return "—";
+
+  if (/\d/.test(raw)) {
+    const parsed = new Date(raw);
+    if (!Number.isNaN(parsed.getTime())) {
+      const hasTimeComponent = /[T\s]\d/.test(raw);
+      return hasTimeComponent ? formatISTDateTime(parsed) : formatISTDate(parsed);
+    }
+  }
+
+  return raw;
 };
 
 const MODAL_ACCENT_STYLES = {
@@ -118,7 +158,7 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
   const [activeAmriProgramKey, setActiveAmriProgramKey] = useState(null);
   const [modalData, setModalData] = useState(null);
   const router = useRouter();
-  const todayIso = useMemo(() => format(new Date(), "yyyy-MM-dd"), []);
+  const todayIso = useMemo(() => formatISTDate(new Date()), []);
   const {
     data: reportsData,
     error: reportsError,
@@ -127,9 +167,11 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
   } = useSWR(`/api/member/mri-reports?date=${todayIso}`, fetcher);
 
   const [activeReport, setActiveReport] = useState(null);
+  const [ptActiveSection, setPtActiveSection] = useState("cdd");
   const [reportNote, setReportNote] = useState("");
   const [reportError, setReportError] = useState("");
   const [isSavingReport, setIsSavingReport] = useState(false);
+  const [showConfirmationNote, setShowConfirmationNote] = useState(false);
 
   const { amriRoleBundles, rmriRoleBundles, omriRoleBundles, otherRoleBundles } = useMemo(() => {
     const amri = [];
@@ -219,12 +261,14 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
     setActiveReport(report);
     setReportNote(report.confirmationNote || "");
     setReportError("");
+    setShowConfirmationNote(Boolean(report.confirmationNote));
   };
 
   const closeReportModal = () => {
     setActiveReport(null);
     setReportNote("");
     setReportError("");
+    setShowConfirmationNote(false);
   };
 
   const handleReportAction = async (action) => {
@@ -278,12 +322,184 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
     const rows = activeReportPayload.ccdRows;
     return Array.isArray(rows) ? rows : [];
   }, [activeReportPayload]);
+  const activeReportAttendanceRows = useMemo(() => {
+    if (!activeReportPayload) return [];
+    const rows = activeReportPayload.attendanceRows;
+    return Array.isArray(rows) ? rows : [];
+  }, [activeReportPayload]);
 
   const activeReportExtraEntries = useMemo(() => {
     if (!activeReportPayload) return [];
-    const exclude = new Set(["cddRows", "ccdRows"]);
+    const exclude = new Set(["cddRows", "ccdRows", "attendanceRows"]);
     return Object.entries(activeReportPayload).filter(([key]) => !exclude.has(key));
   }, [activeReportPayload]);
+
+  const isPtReport = useMemo(() => activeReport?.templateKey === "pt_daily_report", [activeReport?.templateKey]);
+
+  useEffect(() => {
+    if (isPtReport) {
+      setPtActiveSection("cdd");
+    }
+  }, [isPtReport, activeReport?.instanceId]);
+
+  const renderAdditionalDetails = () => {
+    if (activeReportExtraEntries.length === 0) return null;
+    return (
+      <div>
+        <h4 className="text-sm font-semibold text-slate-700">Additional Details</h4>
+        <div className="mt-2 space-y-2 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+          {activeReportExtraEntries.map(([key, value]) => (
+            <div key={key} className="flex gap-2 text-[0.7rem] text-slate-600">
+              <span className="w-44 font-semibold text-slate-700">{formatCellLabel(key)}</span>
+              <span className="flex-1">{formatCellValue(value)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  const renderNoDigitalEntriesNotice = () => {
+    if (activeReportPayload) return null;
+    return (
+      <pre className="rounded-xl border border-slate-200 bg-slate-50/60 p-3 text-xs text-slate-600">
+        No digital entries yet. Please review the physical register before confirming.
+      </pre>
+    );
+  };
+
+  const renderPtCddTable = () => {
+    if (!activeReportCddRows.length) {
+      return (
+        <div className="flex h-full items-center justify-center text-xs text-slate-500">
+          No CDD entries captured yet.
+        </div>
+      );
+    }
+
+    return (
+      <div className="h-full overflow-auto">
+        <table className="min-w-[1100px] table-fixed text-xs text-slate-700">
+          <thead className="bg-slate-100">
+            <tr>
+              <th className="px-4 py-2 text-left font-semibold text-slate-700">#</th>
+              {PT_CDD_COLUMNS.map((column) => (
+                <th key={column.key} className="px-4 py-2 text-left font-semibold text-slate-700">
+                  {column.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {activeReportCddRows.map((row, rowIndex) => (
+              <tr key={`pt-cdd-${rowIndex}`} className={rowIndex % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                <td className="px-4 py-3 align-top font-semibold text-slate-500">{rowIndex + 1}</td>
+                {PT_CDD_COLUMNS.map((column) => {
+                  const rawValue = row?.[column.key];
+                  const displayValue = column.formatter
+                    ? column.formatter(rawValue)
+                    : formatCellValue(rawValue);
+                  return (
+                    <td key={`${column.key}-${rowIndex}`} className="px-4 py-3 align-top">
+                      {displayValue || "—"}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
+  const renderPtCcdTable = () => {
+    if (!activeReportCcdRows.length) {
+      return (
+        <div className="flex h-full items-center justify-center text-xs text-slate-500">
+          No CCD entries captured yet.
+        </div>
+      );
+    }
+
+    return (
+      <div className="h-full overflow-auto">
+        <table className="min-w-[1100px] table-fixed text-xs text-slate-700">
+          <thead className="bg-slate-100">
+            <tr>
+              <th className="px-4 py-2 text-left font-semibold text-slate-700">#</th>
+              {PT_CCD_COLUMNS.map((column) => (
+                <th key={column.key} className="px-4 py-2 text-left font-semibold text-slate-700">
+                  {column.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {activeReportCcdRows.map((row, rowIndex) => (
+              <tr key={`pt-ccd-${rowIndex}`} className={rowIndex % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                <td className="px-4 py-3 align-top font-semibold text-slate-500">{rowIndex + 1}</td>
+                {PT_CCD_COLUMNS.map((column) => {
+                  const rawValue = row?.[column.key];
+                  const displayValue = column.formatter
+                    ? column.formatter(rawValue)
+                    : formatCellValue(rawValue);
+                  return (
+                    <td key={`${column.key}-${rowIndex}`} className="px-4 py-3 align-top">
+                      {displayValue || "—"}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
+  const renderPtAttendanceTable = () => {
+    if (!activeReportAttendanceRows.length) {
+      return (
+        <div className="flex h-full items-center justify-center text-xs text-slate-500">
+          No attendance entries captured yet.
+        </div>
+      );
+    }
+
+    return (
+      <div className="h-full overflow-auto">
+        <table className="min-w-[900px] table-fixed text-xs text-slate-700">
+          <thead className="bg-slate-100">
+            <tr>
+              <th className="px-4 py-2 text-left font-semibold text-slate-700">#</th>
+              {PT_ATTENDANCE_COLUMNS.map((column) => (
+                <th key={column.key} className="px-4 py-2 text-left font-semibold text-slate-700">
+                  {column.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {activeReportAttendanceRows.map((row, rowIndex) => (
+              <tr key={`pt-attendance-${rowIndex}`} className={rowIndex % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                <td className="px-4 py-3 align-top font-semibold text-slate-500">{rowIndex + 1}</td>
+                {PT_ATTENDANCE_COLUMNS.map((column) => {
+                  const rawValue = row?.[column.key];
+                  const displayValue = formatCellValue(rawValue);
+                  return (
+                    <td key={`${column.key}-${rowIndex}`} className="px-4 py-3 align-top">
+                      {displayValue || "—"}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
 
   const activeReportStatus = useMemo(() => {
     if (!activeReport) return "pending";
@@ -868,7 +1084,7 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
             onClick={closeReportModal}
           >
             <motion.div
-              className="relative w-full max-w-3xl rounded-3xl bg-white p-6 shadow-2xl md:p-8"
+              className="relative w-full max-w-5xl lg:max-w-6xl rounded-3xl bg-white p-6 shadow-2xl md:p-8 lg:p-10"
               initial={{ y: 40, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: 40, opacity: 0 }}
@@ -900,94 +1116,163 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
                 ) : null}
               </div>
 
-              <div className="mt-5 space-y-4 max-h-[60vh] overflow-y-auto pr-2">
-                <div>
-                  <h4 className="text-sm font-semibold text-slate-700">Class Discipline Diary (CDD)</h4>
-                  {activeReportCddRows.length === 0 ? (
-                    <p className="mt-1 text-xs text-slate-500">No CDD entries captured yet.</p>
-                  ) : (
-                    <div className="mt-2 space-y-3">
-                      {activeReportCddRows.map((row, idx) => (
-                        <div key={idx} className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
-                          <p className="text-xs font-semibold text-slate-700 mb-2">
-                            {row?.date ? `Date: ${formatCellValue(row.date)}` : `Entry ${idx + 1}`}
-                          </p>
-                          <div className="space-y-1">
-                            {Object.entries(row || {}).map(([key, value]) => (
-                              <div key={key} className="flex gap-2 text-[0.7rem] text-slate-600">
-                                <span className="w-44 font-semibold text-slate-700">{formatCellLabel(key)}</span>
-                                <span className="flex-1">{formatCellValue(value)}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
+              <div className="mt-5 flex max-h-[65vh] flex-col gap-4 overflow-hidden pr-2">
+                {isPtReport ? (
+                  <div className="flex h-full flex-col gap-4">
+                    <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                      <button
+                        type="button"
+                        onClick={() => setPtActiveSection("cdd")}
+                        className={`rounded-2xl border p-4 text-left transition focus:outline-none focus:ring-2 focus:ring-indigo-400 ${
+                          ptActiveSection === "cdd"
+                            ? "border-indigo-400 bg-indigo-600 text-white shadow"
+                            : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                        }`}
+                      >
+                        <span className="text-sm font-semibold">Class Discipline Diary (CDD)</span>
+                        <span className="mt-1 block text-xs opacity-80">
+                          {activeReportCddRows.length
+                            ? `${activeReportCddRows.length} entr${activeReportCddRows.length > 1 ? "ies" : "y"}`
+                            : "No entries yet"}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPtActiveSection("ccd")}
+                        className={`rounded-2xl border p-4 text-left transition focus:outline-none focus:ring-2 focus:ring-indigo-400 ${
+                          ptActiveSection === "ccd"
+                            ? "border-indigo-400 bg-indigo-600 text-white shadow"
+                            : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                        }`}
+                      >
+                        <span className="text-sm font-semibold">Class Curriculum Diary (CCD)</span>
+                        <span className="mt-1 block text-xs opacity-80">
+                          {activeReportCcdRows.length
+                            ? `${activeReportCcdRows.length} entr${activeReportCcdRows.length > 1 ? "ies" : "y"}`
+                            : "No entries yet"}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPtActiveSection("attendance")}
+                        className={`rounded-2xl border p-4 text-left transition focus:outline-none focus:ring-2 focus:ring-indigo-400 ${
+                          ptActiveSection === "attendance"
+                            ? "border-indigo-400 bg-indigo-600 text-white shadow"
+                            : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                        }`}
+                      >
+                        <span className="text-sm font-semibold">Attendance Snapshot</span>
+                        <span className="mt-1 block text-xs opacity-80">
+                          {activeReportAttendanceRows.length
+                            ? `${activeReportAttendanceRows.length} entr${activeReportAttendanceRows.length > 1 ? "ies" : "y"}`
+                            : "No entries yet"}
+                        </span>
+                      </button>
                     </div>
-                  )}
-                </div>
 
-                <div>
-                  <h4 className="text-sm font-semibold text-slate-700">Class Curriculum Diary (CCD)</h4>
-                  {activeReportCcdRows.length === 0 ? (
-                    <p className="mt-1 text-xs text-slate-500">No CCD entries captured yet.</p>
-                  ) : (
-                    <div className="mt-2 space-y-3">
-                      {activeReportCcdRows.map((row, idx) => (
-                        <div key={idx} className="rounded-xl border border-slate-200 bg-white p-3">
-                          <p className="text-xs font-semibold text-slate-700 mb-2">
-                            {row?.period ? `Period: ${formatCellValue(row.period)}` : `Entry ${idx + 1}`}
-                          </p>
-                          <div className="space-y-1">
-                            {Object.entries(row || {}).map(([key, value]) => (
-                              <div key={key} className="flex gap-2 text-[0.7rem] text-slate-600">
-                                <span className="w-44 font-semibold text-slate-700">{formatCellLabel(key)}</span>
-                                <span className="flex-1">{formatCellValue(value)}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
+                    <div className="flex-1 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                      {ptActiveSection === "cdd"
+                        ? renderPtCddTable()
+                        : ptActiveSection === "ccd"
+                        ? renderPtCcdTable()
+                        : renderPtAttendanceTable()}
                     </div>
-                  )}
-                </div>
 
-                {activeReportExtraEntries.length > 0 && (
-                  <div>
-                    <h4 className="text-sm font-semibold text-slate-700">Additional Details</h4>
-                    <div className="mt-2 space-y-2 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
-                      {activeReportExtraEntries.map(([key, value]) => (
-                        <div key={key} className="flex gap-2 text-[0.7rem] text-slate-600">
-                          <span className="w-44 font-semibold text-slate-700">{formatCellLabel(key)}</span>
-                          <span className="flex-1">{formatCellValue(value)}</span>
-                        </div>
-                      ))}
-                    </div>
+                    {renderAdditionalDetails()}
+                    {renderNoDigitalEntriesNotice()}
                   </div>
-                )}
+                ) : (
+                  <>
+                    <div>
+                      <h4 className="text-sm font-semibold text-slate-700">Class Discipline Diary (CDD)</h4>
+                      {activeReportCddRows.length === 0 ? (
+                        <p className="mt-1 text-xs text-slate-500">No CDD entries captured yet.</p>
+                      ) : (
+                        <div className="mt-2 space-y-3">
+                          {activeReportCddRows.map((row, idx) => (
+                            <div key={idx} className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                              <p className="text-xs font-semibold text-slate-700 mb-2">
+                                {row?.date ? `Date: ${formatCellValue(row.date)}` : `Entry ${idx + 1}`}
+                              </p>
+                              <div className="space-y-1">
+                                {Object.entries(row || {}).map(([key, value]) => (
+                                  <div key={key} className="flex gap-2 text-[0.7rem] text-slate-600">
+                                    <span className="w-44 font-semibold text-slate-700">{formatCellLabel(key)}</span>
+                                    <span className="flex-1">{formatCellValue(value)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
 
-                {!activeReportPayload && (
-                  <pre className="rounded-xl border border-slate-200 bg-slate-50/60 p-3 text-xs text-slate-600">
-                    No digital entries yet. Please review the physical register before confirming.
-                  </pre>
+                    <div>
+                      <h4 className="text-sm font-semibold text-slate-700">Class Curriculum Diary (CCD)</h4>
+                      {activeReportCcdRows.length === 0 ? (
+                        <p className="mt-1 text-xs text-slate-500">No CCD entries captured yet.</p>
+                      ) : (
+                        <div className="mt-2 space-y-3">
+                          {activeReportCcdRows.map((row, idx) => (
+                            <div key={idx} className="rounded-xl border border-slate-200 bg-white p-3">
+                              <p className="text-xs font-semibold text-slate-700 mb-2">
+                                {row?.period ? `Period: ${formatCellValue(row.period)}` : `Entry ${idx + 1}`}
+                              </p>
+                              <div className="space-y-1">
+                                {Object.entries(row || {}).map(([key, value]) => (
+                                  <div key={key} className="flex gap-2 text-[0.7rem] text-slate-600">
+                                    <span className="w-44 font-semibold text-slate-700">{formatCellLabel(key)}</span>
+                                    <span className="flex-1">{formatCellValue(value)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {renderAdditionalDetails()}
+                    {renderNoDigitalEntriesNotice()}
+                  </>
                 )}
               </div>
 
-              <div className="mt-5">
-                <label className="block text-xs font-semibold text-slate-600 mb-1">
-                  Confirmation Note (optional)
-                </label>
-                <textarea
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                  rows={3}
-                  value={reportNote}
-                  onChange={(event) => setReportNote(event.target.value)}
-                  placeholder="Add clarifications, follow-up items or acknowledgements before confirming."
+              <div className="mt-5 border-t border-slate-200 pt-4">
+                <button
+                  type="button"
+                  className="flex items-center gap-2 text-xs font-semibold text-indigo-600 transition hover:text-indigo-700"
+                  onClick={() => setShowConfirmationNote((prev) => !prev)}
                   disabled={isSavingReport}
-                />
-                {reportError && (
-                  <p className="mt-2 text-xs text-red-600 flex items-center gap-1">
-                    <AlertCircle size={14} /> {reportError}
+                >
+                  {showConfirmationNote ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  {showConfirmationNote ? "Hide Confirmation Note" : "Add Confirmation Note"}
+                </button>
+                {!showConfirmationNote && reportNote && (
+                  <p className="mt-2 rounded-lg border border-indigo-100 bg-indigo-50/70 px-3 py-2 text-[0.7rem] text-indigo-700">
+                    Current note: {reportNote}
                   </p>
+                )}
+                {showConfirmationNote && (
+                  <div className="mt-3 space-y-2">
+                    <label className="block text-xs font-semibold text-slate-600">
+                      Confirmation Note (optional)
+                    </label>
+                    <textarea
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                      rows={3}
+                      value={reportNote}
+                      onChange={(event) => setReportNote(event.target.value)}
+                      placeholder="Add clarifications, follow-up items or acknowledgements before confirming."
+                      disabled={isSavingReport}
+                    />
+                    {reportError && (
+                      <p className="text-xs text-red-600 flex items-center gap-1">
+                        <AlertCircle size={14} /> {reportError}
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
 
