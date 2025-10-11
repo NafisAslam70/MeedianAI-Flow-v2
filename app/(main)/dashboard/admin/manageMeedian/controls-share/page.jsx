@@ -95,6 +95,13 @@ export default function ControlsSharePage() {
       description: 'MRI families/roles and their tasks.'
     },
     {
+      key: 'dailyReports',
+      label: 'Daily Reports',
+      sections: ['mriReportTemplates','mriReportAssignments'],
+      doables: ['View PT template', 'Assign holders', 'Sync class teachers'],
+      description: 'PT daily report template plus report holder assignments.',
+    },
+    {
       key: 'mspCodes',
       label: 'MSP Codes',
       sections: ['mspCodes','mspCodeAssignments'],

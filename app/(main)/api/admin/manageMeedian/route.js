@@ -215,95 +215,8 @@ export async function GET(req) {
     }
 
     if (section === "classTeachers") {
-      const normalizeId = (value) => {
-        if (typeof value === "number" && Number.isFinite(value)) return value;
-        if (typeof value === "string") {
-          const trimmed = value.trim();
-          if (!trimmed) return null;
-          const parsed = Number(trimmed);
-          if (Number.isFinite(parsed)) return parsed;
-        }
-        return null;
-      };
-
-      let classId = normalizeId(body?.classId);
-      let userId = normalizeId(body?.userId);
-
-      // Optional fallbacks for legacy payloads
-      if (!classId && typeof body?.className === "string") {
-        const lookup = await db
-          .select({ id: Classes.id })
-          .from(Classes)
-          .where(eq(Classes.name, body.className.trim()))
-          .limit(1);
-        if (lookup.length) classId = lookup[0].id;
-      }
-      if (!userId && typeof body?.userEmail === "string") {
-        const lookup = await db
-          .select({ id: users.id })
-          .from(users)
-          .where(eq(users.email, body.userEmail.trim().toLowerCase()))
-          .limit(1);
-        if (lookup.length) userId = lookup[0].id;
-      }
-
-      if (!Number.isInteger(classId) || classId <= 0 || !Number.isInteger(userId) || userId <= 0) {
-        console.warn("classTeachers.assign invalid payload", {
-          classIdRaw: body?.classId,
-          userIdRaw: body?.userId,
-          className: body?.className,
-          userEmail: body?.userEmail,
-        });
-        return NextResponse.json({ error: "Invalid selection" }, { status: 400 });
-      }
-
-      const [klass] = await db
-        .select({ id: Classes.id })
-        .from(Classes)
-        .where(eq(Classes.id, classId))
-        .limit(1);
-      if (!klass) {
-        return NextResponse.json({ error: "Class not found" }, { status: 404 });
-      }
-
-      const [teacher] = await db
-        .select({ id: users.id })
-        .from(users)
-        .where(eq(users.id, userId))
-        .limit(1);
-      if (!teacher) {
-        return NextResponse.json({ error: "Teacher not found" }, { status: 404 });
-      }
-
-      const normalizeDate = (value) => {
-        if (!value) return null;
-        if (value instanceof Date && !Number.isNaN(value.getTime())) {
-          return value.toISOString().slice(0, 10);
-        }
-        const str = String(value).trim();
-        if (!str) return null;
-        const parsed = new Date(str);
-        if (Number.isNaN(parsed.getTime())) return null;
-        return parsed.toISOString().slice(0, 10);
-      };
-
-      const startDate = normalizeDate(body?.startDate) ?? new Date().toISOString().slice(0, 10);
-
-      await db
-        .update(classParentTeachers)
-        .set({ active: false, endDate: startDate })
-        .where(and(eq(classParentTeachers.classId, classId), eq(classParentTeachers.active, true)));
-
-      const [row] = await db
-        .insert(classParentTeachers)
-        .values({
-          classId,
-          userId,
-          startDate,
-          endDate: null,
-          active: true,
-        })
-        .returning({
+      const rows = await db
+        .select({
           id: classParentTeachers.id,
           classId: classParentTeachers.classId,
           userId: classParentTeachers.userId,
@@ -311,17 +224,9 @@ export async function GET(req) {
           endDate: classParentTeachers.endDate,
           active: classParentTeachers.active,
           createdAt: classParentTeachers.createdAt,
-        });
-
-      await db
-        .insert(userMriRoles)
-        .values({ userId, role: "pt_moderator", active: true })
-        .onConflictDoUpdate({
-          target: [userMriRoles.userId, userMriRoles.role],
-          set: { active: true },
-        });
-
-      return NextResponse.json({ classTeacher: row, message: "Class teacher assigned" }, { status: 201 });
+        })
+        .from(classParentTeachers);
+      return NextResponse.json({ classTeachers: rows }, { status: 200 });
     }
 
     if (section === "classes") {
@@ -966,6 +871,123 @@ export async function POST(req) {
       await ensurePtAssignmentsForUser(userId, startDate);
 
       return NextResponse.json({ assignment: row }, { status: 200 });
+    }
+    if (section === "classTeachers") {
+      const normalizeId = (value) => {
+        if (typeof value === "number" && Number.isFinite(value)) return value;
+        if (typeof value === "string") {
+          const trimmed = value.trim();
+          if (!trimmed) return null;
+          const parsed = Number(trimmed);
+          if (Number.isFinite(parsed)) return parsed;
+        }
+        return null;
+      };
+
+      let classId = normalizeId(body?.classId);
+      let userId = normalizeId(body?.userId);
+
+      if (!classId && typeof body?.className === "string" && body.className.trim()) {
+        const [lookup] = await db
+          .select({ id: Classes.id })
+          .from(Classes)
+          .where(eq(Classes.name, body.className.trim()))
+          .limit(1);
+        if (lookup) classId = lookup.id;
+      }
+      if (!userId && typeof body?.userEmail === "string" && body.userEmail.trim()) {
+        const [lookup] = await db
+          .select({ id: users.id })
+          .from(users)
+          .where(eq(users.email, body.userEmail.trim().toLowerCase()))
+          .limit(1);
+        if (lookup) userId = lookup.id;
+      }
+
+      if (!Number.isInteger(classId) || classId <= 0 || !Number.isInteger(userId) || userId <= 0) {
+        const details = {
+          classIdResolved: classId,
+          userIdResolved: userId,
+          classIdRaw: body?.classId,
+          userIdRaw: body?.userId,
+          className: body?.className,
+          userEmail: body?.userEmail,
+        };
+        console.warn("classTeachers.assign invalid payload", details);
+        return NextResponse.json(
+          {
+            error: `Invalid selection (classId=${details.classIdRaw ?? details.classIdResolved}, userId=${details.userIdRaw ?? details.userIdResolved})`,
+            details,
+          },
+          { status: 400 }
+        );
+      }
+
+      const [klass] = await db
+        .select({ id: Classes.id })
+        .from(Classes)
+        .where(eq(Classes.id, classId))
+        .limit(1);
+      if (!klass) {
+        return NextResponse.json({ error: "Class not found" }, { status: 404 });
+      }
+
+      const [teacher] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+      if (!teacher) {
+        return NextResponse.json({ error: "Teacher not found" }, { status: 404 });
+      }
+
+      const normalizeDate = (value) => {
+        if (!value) return null;
+        if (value instanceof Date && !Number.isNaN(value.getTime())) {
+          return value.toISOString().slice(0, 10);
+        }
+        const str = String(value).trim();
+        if (!str) return null;
+        const parsed = new Date(str);
+        if (Number.isNaN(parsed.getTime())) return null;
+        return parsed.toISOString().slice(0, 10);
+      };
+
+      const startDate = normalizeDate(body?.startDate) ?? new Date().toISOString().slice(0, 10);
+
+      await db
+        .update(classParentTeachers)
+        .set({ active: false, endDate: startDate })
+        .where(and(eq(classParentTeachers.classId, classId), eq(classParentTeachers.active, true)));
+
+      const [row] = await db
+        .insert(classParentTeachers)
+        .values({
+          classId,
+          userId,
+          startDate,
+          endDate: null,
+          active: true,
+        })
+        .returning({
+          id: classParentTeachers.id,
+          classId: classParentTeachers.classId,
+          userId: classParentTeachers.userId,
+          startDate: classParentTeachers.startDate,
+          endDate: classParentTeachers.endDate,
+          active: classParentTeachers.active,
+          createdAt: classParentTeachers.createdAt,
+        });
+
+      await db
+        .insert(userMriRoles)
+        .values({ userId, role: "pt_moderator", active: true })
+        .onConflictDoUpdate({
+          target: [userMriRoles.userId, userMriRoles.role],
+          set: { active: true },
+        });
+
+      return NextResponse.json({ classTeacher: row, message: "Class teacher assigned" }, { status: 201 });
     }
     if (section === "seedSlotsWeekly") {
       // Seed templates for all slots and weekdays

@@ -185,7 +185,7 @@ export default function AdminSidebar() {
 						if (h.endsWith('/calendar')) return 'schoolCalendar';
 						if (h.endsWith('/mri-roles')) return 'mriRoles';
 						if (h.endsWith('/mri-programs')) return 'metaPrograms';
-						if (h.endsWith('/mri-reports')) return 'mriReportTemplates';
+						if (h.endsWith('/mri-reports')) return ['mriReportTemplates','mriReportAssignments'];
 						if (h.endsWith('/msp-codes')) return 'mspCodes';
 						if (h.endsWith('/class-teachers')) return 'classTeachers';
 						if (h.endsWith('/team')) return 'team';
@@ -194,7 +194,14 @@ export default function AdminSidebar() {
 						return null;
 					};
 					const sec = mapHrefToSection(href);
-					const disabled = role === 'team_manager' && sec && !allowed.has(sec);
+					let disabled = false;
+					if (role === 'team_manager' && sec) {
+						if (Array.isArray(sec)) {
+							disabled = !sec.some((s) => allowed.has(s));
+						} else {
+							disabled = !allowed.has(sec);
+						}
+					}
 					return (
 						<Link
 							key={href}

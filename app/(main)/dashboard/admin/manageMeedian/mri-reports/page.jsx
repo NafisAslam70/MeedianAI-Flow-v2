@@ -156,7 +156,7 @@ export default function ManageMriReportsPage() {
     }
   };
 
-  const renderTemplateMeta = () => {
+  const renderTemplateDetails = () => {
     if (!ptTemplate) {
       return (
         <p className="text-sm text-red-600">
@@ -170,60 +170,56 @@ export default function ManageMriReportsPage() {
       : [];
 
     return (
-      <Card>
-        <CardHeader>
-          <div className="flex flex-col gap-1">
-            <h2 className="text-base font-semibold text-gray-900">{ptTemplate.name}</h2>
-            <p className="text-sm text-gray-600">
-              Key: <span className="font-mono">{ptTemplate.key}</span> • Frequency:{" "}
-              {ptTemplate.defaultFrequency || "daily"}
-            </p>
+      <div className="space-y-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-col gap-1">
+          <h3 className="text-base font-semibold text-gray-900">{ptTemplate.name}</h3>
+          <p className="text-sm text-gray-600">
+            Key: <span className="font-mono">{ptTemplate.key}</span> • Frequency:{" "}
+            {ptTemplate.defaultFrequency || "daily"}
+          </p>
+        </div>
+        {ptTemplate.description && (
+          <p className="text-sm text-gray-700">{ptTemplate.description}</p>
+        )}
+        {ptTemplate.instructions && (
+          <div className="rounded-xl border border-indigo-100 bg-indigo-50/70 p-3 text-sm text-indigo-800">
+            <h4 className="font-semibold">Instructions</h4>
+            <p className="mt-1 whitespace-pre-wrap">{ptTemplate.instructions}</p>
           </div>
-        </CardHeader>
-        <CardBody className="space-y-4">
-          {ptTemplate.description && (
-            <p className="text-sm text-gray-700">{ptTemplate.description}</p>
-          )}
-          {ptTemplate.instructions && (
-            <div className="rounded-xl bg-indigo-50/70 border border-indigo-100 p-3 text-sm text-indigo-800">
-              <h3 className="font-semibold">Instructions</h3>
-              <p className="mt-1 whitespace-pre-wrap">{ptTemplate.instructions}</p>
+        )}
+        {formSections.length > 0 && (
+          <div className="space-y-3">
+            <h4 className="text-sm font-semibold text-gray-800">Form Sections</h4>
+            <div className="space-y-2">
+              {formSections.map((section) => (
+                <div
+                  key={section?.key || section?.title}
+                  className="rounded-lg border border-gray-200 bg-white p-3"
+                >
+                  <p className="text-sm font-semibold text-gray-800">
+                    {section?.title || section?.key || "Section"}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    Repeatable: {section?.repeat ? "Yes" : "No"}
+                  </p>
+                  {Array.isArray(section?.fields) && section.fields.length > 0 ? (
+                    <ul className="mt-2 space-y-1 text-xs text-gray-600">
+                      {section.fields.map((field) => (
+                        <li key={field?.id || field?.label}>
+                          <span className="font-medium">{field?.label || field?.id}</span> (
+                          {field?.type || "text"})
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="mt-2 text-xs text-gray-500">No fields defined.</p>
+                  )}
+                </div>
+              ))}
             </div>
-          )}
-          {formSections.length > 0 && (
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold text-gray-800">Form Sections</h3>
-              <div className="space-y-2">
-                {formSections.map((section) => (
-                  <div
-                    key={section?.key || section?.title}
-                    className="rounded-lg border border-gray-200 bg-white p-3"
-                  >
-                    <p className="text-sm font-semibold text-gray-800">
-                      {section?.title || section?.key || "Section"}
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      Repeatable: {section?.repeat ? "Yes" : "No"}
-                    </p>
-                    {Array.isArray(section?.fields) && section.fields.length > 0 ? (
-                      <ul className="mt-2 space-y-1 text-xs text-gray-600">
-                        {section.fields.map((field) => (
-                          <li key={field?.id || field?.label}>
-                            <span className="font-medium">{field?.label || field?.id}</span> (
-                            {field?.type || "text"})
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="mt-2 text-xs text-gray-500">No fields defined.</p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </CardBody>
-      </Card>
+          </div>
+        )}
+      </div>
     );
   };
 
@@ -308,7 +304,35 @@ export default function ManageMriReportsPage() {
       {error && <p className="text-sm text-red-600">{error}</p>}
       {message && <p className="text-sm text-emerald-600">{message}</p>}
 
-      {renderTemplateMeta()}
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col gap-1">
+            <h2 className="text-base font-semibold text-gray-900">Existing Reports</h2>
+            <p className="text-sm text-gray-600">
+              Review the PT daily template and see who is currently responsible for it.
+            </p>
+          </div>
+        </CardHeader>
+        <CardBody>
+          <div className="space-y-6">
+            <section className="space-y-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-teal-600">
+                  PT Daily Report
+                </p>
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Current PT Report Template
+                </h3>
+              </div>
+              {renderTemplateDetails()}
+            </section>
+            <section className="space-y-3">
+              <h3 className="text-base font-semibold text-gray-900">Assigned PT Report Holders</h3>
+              {renderAssignmentsTable()}
+            </section>
+          </div>
+        </CardBody>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -416,13 +440,6 @@ export default function ManageMriReportsPage() {
             </div>
           )}
         </CardBody>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <h2 className="text-base font-semibold text-gray-900">Current Assignments</h2>
-        </CardHeader>
-        <CardBody>{renderAssignmentsTable()}</CardBody>
       </Card>
 
       {classes.length > 0 && (
