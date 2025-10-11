@@ -51,7 +51,7 @@ import bcrypt from "bcrypt";
 import formidable from 'formidable';
 import fetch from 'node-fetch';
 import { v2 as cloudinary } from 'cloudinary';
-import { ensurePtAssignmentsForUser, ensurePtAssignmentsForAllClassTeachers } from "@/lib/mriReports";
+import { ensurePtAssignmentsForUser, ensurePtAssignmentsForAllClassTeachers, ensurePtTemplate } from "@/lib/mriReports";
 
 /* ============================== GET ============================== */
 export async function GET(req) {
@@ -144,6 +144,7 @@ export async function GET(req) {
       return NextResponse.json({ managers: mgrs, grants, sections: Array.from(grantableSections), programs: await (async()=>{ const progs = await db.select({ id: mriPrograms.id, name: mriPrograms.name, programKey: mriPrograms.programKey }).from(mriPrograms); return progs; })() }, { status: 200 });
     }
     if (section === "mriReportTemplates") {
+      await ensurePtTemplate();
       const templateKey = searchParams.get("templateKey");
       const query = db
         .select({
@@ -720,6 +721,7 @@ export async function POST(req) {
       return NextResponse.json({ upserts, deletes }, { status: 200 });
     }
     if (section === "mriReportAssignments") {
+      await ensurePtTemplate();
       const action = typeof body?.action === "string" ? body.action.trim() : "";
       if (action === "syncClassTeachers") {
         const targetDate = body?.targetDate;
@@ -777,9 +779,17 @@ export async function POST(req) {
         }
       }
 
-      const scopeMeta =
+      const assistantId = body?.assistantUserId ? Number(body.assistantUserId) : null;
+      if (assistantId && Number.isFinite(assistantId)) {
+        const [assistantRow] = await db.select({ id: users.id }).from(users).where(eq(users.id, assistantId)).limit(1);
+        if (!assistantRow) {
+          return NextResponse.json({ error: "Assistant user not found" }, { status: 404 });
+        }
+      }
+
+      let scopeMeta =
         typeof body?.scopeMeta === "object" && body.scopeMeta !== null
-          ? body.scopeMeta
+          ? { ...body.scopeMeta }
           : classRow
           ? {
               class: {
@@ -790,6 +800,14 @@ export async function POST(req) {
               },
             }
           : {};
+
+      if (assistantId && Number.isFinite(assistantId)) {
+        scopeMeta = { ...scopeMeta, assistantUserId: assistantId };
+      } else if (scopeMeta && typeof scopeMeta === "object" && "assistantUserId" in scopeMeta) {
+        const next = { ...scopeMeta };
+        delete next.assistantUserId;
+        scopeMeta = next;
+      }
 
       const startDate = normalizeDate(body?.startDate) ?? new Date().toISOString().slice(0, 10);
       const endDate = normalizeDate(body?.endDate);
@@ -1582,7 +1600,7 @@ export async function PATCH(req) {
         "team","bulkAssignMriRole",
         "slots","slotsWeekly","slotRoleAssignments",
         "mspCodes","mspCodeAssignments",
-        "classes","classTeachers",
+        "classes","classTeachers","mriReportAssignments",
         "metaFamilies","metaPrograms","metaProgramRoles","metaRoleDefs","metaRoleTasks",
         "programPeriods","programScheduleCells",
         "openCloseTimes","userOpenCloseTimes",
@@ -1745,6 +1763,82 @@ export async function PATCH(req) {
       return NextResponse.json({ updated }, { status: 200 });
     }
 
+    if (section === "mriReportAssignments") {
+      const updatesRaw = Array.isArray(body?.updates)
+        ? body.updates
+        : Array.isArray(body)
+        ? body
+        : body?.id
+        ? [body]
+        : [];
+      if (!updatesRaw.length) return NextResponse.json({ error: "updates[] required" }, { status: 400 });
+
+      const normalizeDate = (value) => {
+        if (value === undefined) return undefined;
+        if (value === null || value === "") return null;
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) return null;
+        return parsed.toISOString().slice(0, 10);
+      };
+
+      let updated = 0;
+      for (const u of updatesRaw) {
+        const id = Number(u?.id);
+        if (!id) continue;
+        const setObj = {};
+        if (u.targetLabel !== undefined) {
+          const label = String(u.targetLabel || "").trim();
+          setObj.targetLabel = label || null;
+        }
+        if (u.startDate !== undefined) {
+          const normalized = normalizeDate(u.startDate);
+          setObj.startDate = normalized;
+        }
+        if (u.endDate !== undefined) {
+          const normalized = normalizeDate(u.endDate);
+          setObj.endDate = normalized;
+        }
+        if (u.active !== undefined) {
+          setObj.active = !!u.active;
+        }
+        if (u.assistantUserId !== undefined) {
+          const assistantIdRaw = u.assistantUserId;
+          const assistantId = assistantIdRaw === null || assistantIdRaw === ""
+            ? null
+            : Number(assistantIdRaw);
+          if (assistantId && Number.isFinite(assistantId)) {
+            const [assistantRow] = await db
+              .select({ id: users.id })
+              .from(users)
+              .where(eq(users.id, assistantId))
+              .limit(1);
+            if (!assistantRow) {
+              return NextResponse.json({ error: `Assistant user ${assistantId} not found` }, { status: 404 });
+            }
+          }
+          const [existing] = await db
+            .select({ scopeMeta: mriReportAssignments.scopeMeta })
+            .from(mriReportAssignments)
+            .where(eq(mriReportAssignments.id, id))
+            .limit(1);
+          const currentMeta = existing?.scopeMeta && typeof existing.scopeMeta === "object"
+            ? { ...existing.scopeMeta }
+            : {};
+          if (assistantId && Number.isFinite(assistantId)) {
+            currentMeta.assistantUserId = assistantId;
+          } else {
+            delete currentMeta.assistantUserId;
+          }
+          setObj.scopeMeta = currentMeta;
+        }
+        if (Object.keys(setObj).length === 0) continue;
+        setObj.updatedAt = new Date();
+        await db.update(mriReportAssignments).set(setObj).where(eq(mriReportAssignments.id, id));
+        updated += 1;
+      }
+      return NextResponse.json({ updated }, { status: 200 });
+    }
+
     if (section === "slotRoleAssignments") {
       const updates = Array.isArray(body) ? body : Array.isArray(body.updates) ? body.updates : [];
       if (!updates.length) return NextResponse.json({ error: "updates[] required" }, { status: 400 });
@@ -1847,7 +1941,7 @@ export async function DELETE(req) {
     // Team manager write-gating across admin sections
     if (session.user?.role === 'team_manager') {
       const allowedWrite = new Set([
-        "slots","mspCodes","mspCodeAssignments","metaFamilies",
+        "slots","mspCodes","mspCodeAssignments","metaFamilies","mriReportAssignments",
       ]);
       if (!allowedWrite.has(section)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
       const wr = await db
@@ -1887,6 +1981,13 @@ export async function DELETE(req) {
       } catch {}
       try { await db.delete(dailySlotAssignments).where(eq(dailySlotAssignments.slotId, slotId)); } catch {}
       await db.delete(dailySlots).where(eq(dailySlots.id, slotId));
+      return NextResponse.json({ deleted: 1 }, { status: 200 });
+    }
+
+    if (section === "mriReportAssignments") {
+      const id = Number(body?.id);
+      if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+      await db.delete(mriReportAssignments).where(eq(mriReportAssignments.id, id));
       return NextResponse.json({ deleted: 1 }, { status: 200 });
     }
 

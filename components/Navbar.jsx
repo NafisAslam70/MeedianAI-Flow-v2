@@ -15,6 +15,7 @@ import {
   Mountain,
   ClipboardList,
   ClipboardCheck,
+  NotebookPen,
   AlertTriangle,
   CalendarCheck2,
   CalendarX2,
@@ -616,19 +617,57 @@ export default function Navbar() {
               </button>
             );
           })()}
-          {/* Support Tickets (with counts) already added above; removed duplicate button */}
 
-          <button
-            className="action-row"
-            onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/managersCommon/routineTasks"); }}
-          >
-            <span className="row-icon"><ClipboardList size={18} /></span>
-            <span className="row-main">
-              <span className="row-title">Routine Tasks</span>
-              <span className="row-sub">Daily/weekly ops checklists</span>
-            </span>
-            <ArrowRight size={16} className="row-go" />
-          </button>
+          <div className="sheet-club">
+            <div className="sheet-club-header">
+              <span className="sheet-club-title">Managerial Club</span>
+              <span className="sheet-club-sub">Clubbed tools for PT support & daily ops</span>
+            </div>
+            <div className="sheet-club-grid">
+              <button
+                className="club-tile"
+                onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/admin/manageMeedian/mri-reports/pt"); }}
+              >
+                <span className="club-icon"><ClipboardList size={18} /></span>
+                <span className="club-label">PT Daily Reports</span>
+              </button>
+
+              <button
+                className="club-tile"
+                onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/managersCommon/pt-assist"); }}
+              >
+                <span className="club-icon"><NotebookPen size={18} /></span>
+                <span className="club-label">CCD / CDD Help</span>
+              </button>
+
+              <button
+                className="club-tile"
+                onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/managersCommon/routineTasks"); }}
+              >
+                <span className="club-icon"><ClipboardCheck size={18} /></span>
+                <span className="club-label">Routine Tasks</span>
+              </button>
+
+              <a
+                href="https://meed-recruitment.onrender.com/login"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="club-tile link-row"
+                onClick={() => setIsManagerialOpen(false)}
+              >
+                <span className="club-icon"><UserPlus size={18} /></span>
+                <span className="club-label">Recruit</span>
+              </a>
+
+              <button
+                className="club-tile"
+                onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/managersCommon/resources"); }}
+              >
+                <span className="club-icon"><Boxes size={18} /></span>
+                <span className="club-label">Resources</span>
+              </button>
+            </div>
+          </div>
 
           <button
             className="action-row"
@@ -686,33 +725,6 @@ export default function Navbar() {
               </button>
             );
           })()}
-
-          <a
-            href="https://meed-recruitment.onrender.com/login"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="action-row link-row"
-            onClick={() => setIsManagerialOpen(false)}
-          >
-            <span className="row-icon"><UserPlus size={18} /></span>
-            <span className="row-main">
-              <span className="row-title">Recruit</span>
-              <span className="row-sub">Open recruiting portal</span>
-            </span>
-            <ArrowRight size={16} className="row-go" />
-          </a>
-
-          <button
-            className="action-row"
-            onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/managersCommon/resources"); }}
-          >
-            <span className="row-icon"><Boxes size={18} /></span>
-            <span className="row-main">
-              <span className="row-title">Resource Management</span>
-              <span className="row-sub">Track equipment, rooms, and assets</span>
-            </span>
-            <ArrowRight size={16} className="row-go" />
-          </button>
 
           <button
             className="action-row"
@@ -1679,6 +1691,74 @@ export default function Navbar() {
           display: grid;
           gap: 8px;
           overflow-y: auto;
+        }
+        .sheet-club {
+          display: grid;
+          gap: 8px;
+          padding: 10px;
+          border-radius: 14px;
+          border: 1px solid rgba(191, 247, 255, 0.1);
+          background: linear-gradient(180deg, rgba(15,33,48,0.85), rgba(11,22,34,0.92));
+        }
+        .sheet-club-header {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+        .sheet-club-title {
+          font-size: 0.82rem;
+          font-weight: 600;
+          color: #c2f9ff;
+          letter-spacing: 0.01em;
+        }
+        .sheet-club-sub {
+          font-size: 0.7rem;
+          color: rgba(226, 248, 255, 0.55);
+        }
+        .sheet-club-grid {
+          display: grid;
+          gap: 10px;
+          grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+        }
+        .club-tile {
+          position: relative;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          padding: 14px 12px;
+          border-radius: 14px;
+          border: 1px solid rgba(191, 247, 255, 0.15);
+          background: linear-gradient(180deg, rgba(10,25,39,0.92), rgba(8,19,30,0.88));
+          color: #e8fdff;
+          text-align: center;
+          transition: transform .12s ease, border-color .12s ease, background .12s ease;
+        }
+        .club-tile:hover {
+          transform: translateY(-1px);
+          border-color: rgba(191, 247, 255, 0.4);
+          background: linear-gradient(180deg, rgba(16,37,54,0.96), rgba(10,24,36,0.94));
+        }
+        .club-tile:active {
+          transform: translateY(0);
+        }
+        .club-icon {
+          width: 42px;
+          height: 42px;
+          border-radius: 50%;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          background: rgba(191, 247, 255, 0.12);
+          border: 1px solid rgba(191, 247, 255, 0.2);
+          color: #c8f9ff;
+        }
+        .club-label {
+          font-size: 0.72rem;
+          font-weight: 600;
+          line-height: 1.1;
+          color: rgba(232, 253, 255, 0.92);
         }
         .action-row {
           display: grid;
