@@ -72,6 +72,23 @@ const PT_ATTENDANCE_COLUMNS = [
   { key: "notes", label: "Notes" },
 ];
 
+const summarizeAttendanceRow = (row) => {
+  const list = Array.isArray(row?.absentStudents) ? row.absentStudents : [];
+  if (!list.length) return "All present";
+  const details = row?.absenceDetails || {};
+  return list
+    .map((student) => {
+      const detail = details[student] || {};
+      const status = (detail.applicationSubmitted || "No").toLowerCase();
+      if (status === "yes") {
+        const reason = detail.reason ? ` - ${detail.reason}` : "";
+        return `${student} (Yes${reason})`;
+      }
+      return `${student} (No - follow up)`;
+    })
+    .join(", ");
+};
+
 const BUILTIN_CATEGORY_FALLBACK = new Map(
   [
     ["nmri_moderator", "nmri"],
@@ -486,11 +503,13 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
               <tr key={`pt-attendance-${rowIndex}`} className={rowIndex % 2 === 0 ? "bg-white" : "bg-slate-50"}>
                 <td className="px-4 py-3 align-top font-semibold text-slate-500">{rowIndex + 1}</td>
                 {PT_ATTENDANCE_COLUMNS.map((column) => {
-                  const rawValue = row?.[column.key];
-                  const formatted = formatCellValue(rawValue);
-                  const displayValue = column.key === "absentStudents"
-                    ? formatted || "All present"
-                    : formatted || "—";
+                  let displayValue;
+                  if (column.key === "absentStudents") {
+                    displayValue = summarizeAttendanceRow(row);
+                  } else {
+                    const rawValue = row?.[column.key];
+                    displayValue = formatCellValue(rawValue) || "—";
+                  }
                   return (
                     <td key={`${column.key}-${rowIndex}`} className="px-4 py-3 align-top">
                       {displayValue}

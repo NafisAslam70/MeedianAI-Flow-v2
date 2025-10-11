@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import Button from "@/components/ui/Button";
@@ -52,6 +52,8 @@ const formatPreviewValue = (value) => {
 };
 
 const YES_NO_OPTIONS = ["", "Yes", "No"];
+const ATTENDANCE_APPLICATION_REASONS = ["Sickness", "Family Event", "Out of Station", "Other"];
+const DEFAULT_APPLICATION_FOLLOWUP = "Please collect application tomorrow.";
 
 const FALLBACK_CDD_SECTION = {
   key: "cddRows",
@@ -150,8 +152,27 @@ const buildDefaultAttendanceRows = (section) => {
       absentStudents: [],
       absentCount: "0",
       presentCount: defaults.presentCount || "0",
+      absenceDetails: {},
+      notes: "",
     },
   ];
+};
+
+const summarizeAttendanceAbsent = (row) => {
+  const list = Array.isArray(row?.absentStudents) ? row.absentStudents : [];
+  if (!list.length) return "All present";
+  const details = row?.absenceDetails || {};
+  return list
+    .map((student) => {
+      const detail = details[student] || {};
+      const status = detail.applicationSubmitted || "No";
+      if (status === "Yes") {
+        const reason = detail.reason ? ` - ${detail.reason}` : "";
+        return `${student} (Yes${reason})`;
+      }
+      return `${student} (No - follow up)`;
+    })
+    .join(", ");
 };
 
 export default function PtAssistPage() {
@@ -374,28 +395,74 @@ export default function PtAssistPage() {
     });
   };
 
-  const toggleAttendanceStudent = (rowIndex, label) => {
-    const normalized = String(label || "").trim();
-    if (!normalized) return;
+  const updateAttendanceDetail = (rowIndex, studentName, patch) => {
     setPayloadState((prev) => {
       const rows = Array.isArray(prev.attendanceRows) ? [...prev.attendanceRows] : [];
       const current = { ...(rows[rowIndex] || {}) };
-      const list = Array.isArray(current.absentStudents) ? [...current.absentStudents] : [];
-      const idx = list.findIndex((name) => name === normalized);
-      if (idx >= 0) {
-        list.splice(idx, 1);
-      } else {
-        list.push(normalized);
+      const details = { ...(current.absenceDetails || {}) };
+      const normalized = String(studentName || "").trim();
+      if (!normalized) return prev;
+      const existing = {
+        applicationSubmitted: "No",
+        reason: "",
+        note: DEFAULT_APPLICATION_FOLLOWUP,
+        ...(details[normalized] || {}),
+      };
+      const updated = { ...existing, ...patch };
+      if (updated.applicationSubmitted === "No") {
+        updated.reason = "";
+        updated.note = DEFAULT_APPLICATION_FOLLOWUP;
+      } else if (existing.applicationSubmitted === "No" && updated.applicationSubmitted === "Yes") {
+        if (!patch.note || patch.note === DEFAULT_APPLICATION_FOLLOWUP) {
+          updated.note = "";
+        }
       }
-      const absentCount = list.length;
+      details[normalized] = updated;
+
+      const absentList = Array.isArray(current.absentStudents) ? current.absentStudents : [];
+      const absentCount = absentList.length;
       const presentCount = Math.max(totalStudents - absentCount, 0);
-      current.absentStudents = list;
+
+      current.absenceDetails = details;
       current.absentCount = String(absentCount);
       current.presentCount = String(presentCount < 0 ? 0 : presentCount);
       rows[rowIndex] = current;
       return { ...prev, attendanceRows: rows };
     });
   };
+
+const toggleAttendanceStudent = (rowIndex, label) => {
+  const normalized = String(label || "").trim();
+  if (!normalized) return;
+  setPayloadState((prev) => {
+    const rows = Array.isArray(prev.attendanceRows) ? [...prev.attendanceRows] : [];
+    const current = { ...(rows[rowIndex] || {}) };
+    const list = Array.isArray(current.absentStudents) ? [...current.absentStudents] : [];
+    const details = { ...(current.absenceDetails || {}) };
+    const idx = list.findIndex((name) => name === normalized);
+    if (idx >= 0) {
+      list.splice(idx, 1);
+      delete details[normalized];
+    } else {
+      list.push(normalized);
+      if (!details[normalized]) {
+        details[normalized] = {
+          applicationSubmitted: "No",
+          reason: "",
+          note: DEFAULT_APPLICATION_FOLLOWUP,
+        };
+      }
+    }
+    const absentCount = list.length;
+    const presentCount = Math.max(totalStudents - absentCount, 0);
+    current.absentStudents = list;
+    current.absentCount = String(absentCount);
+    current.presentCount = String(presentCount < 0 ? 0 : presentCount);
+    current.absenceDetails = details;
+    rows[rowIndex] = current;
+    return { ...prev, attendanceRows: rows };
+  });
+};
 
   const normalizePayloadForSave = (state) => {
     const next = { ...state.extras };
@@ -703,136 +770,232 @@ export default function PtAssistPage() {
                   </td>
                 </tr>
               ) : (
-                rows.map((row, rowIndex) => (
-                  <tr key={`attendance-${rowIndex}`} className="odd:bg-white even:bg-gray-50">
-                    {headers.map((header) => {
-                      const fieldId = header.id;
-                      const type = header.type || "text";
-                      const value = row?.[fieldId];
+                rows.map((row, rowIndex) => {
+                  const selectedValues = Array.isArray(row.absentStudents) ? row.absentStudents : [];
+                  const details = row.absenceDetails || {};
+                  return (
+                    <Fragment key={`attendance-${rowIndex}`}>
+                      <tr className="odd:bg-white even:bg-gray-50">
+                        {headers.map((header) => {
+                          const fieldId = header.id;
+                          const type = header.type || "text";
+                          const value = row?.[fieldId];
 
-                      if (type === "textarea") {
-                        return (
-                          <td key={fieldId} className="border border-gray-200 px-2 py-2 align-top">
-                            <textarea
-                              className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
-                              rows={3}
-                              value={String(value || "")}
-                              onChange={(event) =>
-                                updateRow("attendanceRows", rowIndex, () => ({
-                                  [fieldId]: event.target.value,
-                                }))
-                              }
-                            />
-                          </td>
-                        );
-                      }
+                          if (type === "textarea") {
+                            return (
+                              <td key={fieldId} className="border border-gray-200 px-2 py-2 align-top">
+                                <textarea
+                                  className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                                  rows={3}
+                                  value={String(value || "")}
+                                  onChange={(event) =>
+                                    updateRow("attendanceRows", rowIndex, () => ({
+                                      [fieldId]: event.target.value,
+                                    }))
+                                  }
+                                />
+                              </td>
+                            );
+                          }
 
-                      if (type === "readonly") {
-                        return (
-                          <td key={fieldId} className="border border-gray-200 px-2 py-2">
-                            <input
-                              type="text"
-                              readOnly
-                              className="w-full rounded-md border border-gray-200 bg-gray-100 px-2 py-1 text-xs text-gray-700"
-                              value={String(value || "0")}
-                            />
-                          </td>
-                        );
-                      }
+                          if (type === "readonly") {
+                            return (
+                              <td key={fieldId} className="border border-gray-200 px-2 py-2">
+                                <input
+                                  type="text"
+                                  readOnly
+                                  className="w-full rounded-md border border-gray-200 bg-gray-100 px-2 py-1 text-xs text-gray-700"
+                                  value={String(value || "0")}
+                                />
+                              </td>
+                            );
+                          }
 
-                      if (type === "chips") {
-                        const selectedValues = Array.isArray(value) ? value : [];
-                        return (
-                          <td key={fieldId} className="border border-gray-200 px-2 py-2 align-top">
-                            <textarea
-                              className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
-                              rows={2}
-                              placeholder={header.placeholder || "Tap names below or type manually"}
-                              value={joinMultiValue(selectedValues)}
-                              onChange={(event) => {
-                                const values = splitMultiValue(event.target.value);
-                                updateRow("attendanceRows", rowIndex, () => {
-                                  const absentCount = values.length;
-                                  const presentCount = Math.max(totalStudents - absentCount, 0);
-                                  return {
-                                    [fieldId]: values,
-                                    absentCount: String(absentCount),
-                                    presentCount: String(presentCount),
-                                  };
-                                });
-                              }}
-                            />
-                            {classIdForStudents && (
-                              <div className="mt-2 space-y-1">
-                                {isLoadingClassStudents && (
-                                  <p className="text-[0.65rem] text-gray-500">Loading class roster…</p>
+                          if (type === "chips") {
+                            return (
+                              <td key={fieldId} className="border border-gray-200 px-2 py-2 align-top">
+                                <textarea
+                                  className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                                  rows={2}
+                                  placeholder={header.placeholder || "Tap names below or type manually"}
+                                  value={joinMultiValue(selectedValues)}
+                                  onChange={(event) => {
+                                    const values = splitMultiValue(event.target.value);
+                                    updateRow("attendanceRows", rowIndex, () => {
+                                      const absentCount = values.length;
+                                      const presentCount = Math.max(totalStudents - absentCount, 0);
+                                      const nextDetails = values.reduce((acc, name) => {
+                                        const normalized = String(name || "").trim();
+                                        if (!normalized) return acc;
+                                        acc[normalized] = details[normalized] || {
+                                          applicationSubmitted: "No",
+                                          reason: "",
+                                          note: DEFAULT_APPLICATION_FOLLOWUP,
+                                        };
+                                        return acc;
+                                      }, {});
+                                      return {
+                                        [fieldId]: values,
+                                        absentCount: String(absentCount),
+                                        presentCount: String(presentCount),
+                                        absenceDetails: nextDetails,
+                                      };
+                                    });
+                                  }}
+                                />
+                                {classIdForStudents && (
+                                  <div className="mt-2 space-y-1">
+                                    {isLoadingClassStudents && (
+                                      <p className="text-[0.65rem] text-gray-500">Loading class roster…</p>
+                                    )}
+                                    {!isLoadingClassStudents && classStudents.length > 0 && (
+                                      <>
+                                        <p className="text-[0.65rem] text-gray-500">Tap to toggle absent students:</p>
+                                        <div className="max-h-28 overflow-y-auto rounded-lg border border-gray-200 bg-white/80 p-2">
+                                          <div className="flex flex-wrap gap-1">
+                                            {classStudents.map((student) => {
+                                              const label = student.name;
+                                              const isSelected = selectedValues.some((entry) => entry.trim() === label);
+                                              return (
+                                                <button
+                                                  type="button"
+                                                  key={`${fieldId}-${student.id}`}
+                                                  className={`rounded-full px-2 py-1 text-[0.65rem] transition ${
+                                                    isSelected
+                                                      ? "bg-rose-600 text-white hover:bg-rose-700"
+                                                      : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                                                  }`}
+                                                  onClick={() => toggleAttendanceStudent(rowIndex, label)}
+                                                  title={label}
+                                                >
+                                                  {label}
+                                                </button>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
+                                      </>
+                                    )}
+                                    {!isLoadingClassStudents && classStudents.length === 0 && (
+                                      <p className="text-[0.65rem] text-amber-600">No students found for this class.</p>
+                                    )}
+                                  </div>
                                 )}
-                                {!isLoadingClassStudents && classStudents.length > 0 && (
-                                  <>
-                                    <p className="text-[0.65rem] text-gray-500">Tap to toggle absent students:</p>
-                                    <div className="max-h-28 overflow-y-auto rounded-lg border border-gray-200 bg-white/80 p-2">
-                                      <div className="flex flex-wrap gap-1">
-                                        {classStudents.map((student) => {
-                                          const label = student.name;
-                                          const isSelected = selectedValues.some((entry) => entry.trim() === label);
-                                          return (
-                                            <button
-                                              type="button"
-                                              key={`${fieldId}-${student.id}`}
-                                              className={`rounded-full px-2 py-1 text-[0.65rem] transition ${
-                                                isSelected
-                                                  ? "bg-rose-600 text-white hover:bg-rose-700"
-                                                  : "bg-gray-200 text-gray-700 hover:bg-gray-300"
-                                              }`}
-                                              onClick={() => toggleAttendanceStudent(rowIndex, label)}
-                                              title={label}
-                                            >
-                                              {label}
-                                            </button>
-                                          );
-                                        })}
+                              </td>
+                            );
+                          }
+
+                          return (
+                            <td key={fieldId} className="border border-gray-200 px-2 py-2">
+                              <input
+                                type="text"
+                                className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                                placeholder={header.placeholder || ""}
+                                value={String(value || "")}
+                                onChange={(event) =>
+                                  updateRow("attendanceRows", rowIndex, () => ({
+                                    [fieldId]: event.target.value,
+                                  }))
+                                }
+                              />
+                            </td>
+                          );
+                        })}
+                        <td className="border border-gray-200 px-2 py-2 text-center align-middle">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            type="button"
+                            className="text-red-600 hover:text-red-700"
+                            onClick={() => removeRow("attendanceRows", rowIndex)}
+                          >
+                            Remove
+                          </Button>
+                        </td>
+                      </tr>
+                      {selectedValues.length > 0 && (
+                        <tr className="bg-gray-50">
+                          <td colSpan={headers.length + 1} className="border border-gray-200 px-4 py-3">
+                            <div className="space-y-3">
+                              {selectedValues.map((studentName) => {
+                                const detail = details[studentName] || {
+                                  applicationSubmitted: "No",
+                                  reason: "",
+                                  note: DEFAULT_APPLICATION_FOLLOWUP,
+                                };
+                                return (
+                                  <div
+                                    key={`${rowIndex}-${studentName}`}
+                                    className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-700"
+                                  >
+                                    <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                                      <div className="font-semibold text-gray-800">{studentName}</div>
+                                      <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
+                                        <label className="flex items-center gap-2">
+                                          <span className="text-[0.75rem] text-gray-600">Application Submitted?</span>
+                                          <select
+                                            className="rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                                            value={detail.applicationSubmitted || "No"}
+                                            onChange={(event) =>
+                                              updateAttendanceDetail(rowIndex, studentName, {
+                                                applicationSubmitted: event.target.value,
+                                              })
+                                            }
+                                          >
+                                            {YES_NO_OPTIONS.slice(1).map((option) => (
+                                              <option key={option} value={option}>
+                                                {option}
+                                              </option>
+                                            ))}
+                                          </select>
+                                        </label>
+                                        <label className="flex items-center gap-2">
+                                          <span className="text-[0.75rem] text-gray-600">Reason</span>
+                                          <select
+                                            className="rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                                            value={detail.reason || ""}
+                                            onChange={(event) =>
+                                              updateAttendanceDetail(rowIndex, studentName, {
+                                                reason: event.target.value,
+                                              })
+                                            }
+                                            disabled={detail.applicationSubmitted !== "Yes"}
+                                          >
+                                            <option value="">Select reason</option>
+                                            {ATTENDANCE_APPLICATION_REASONS.map((option) => (
+                                              <option key={option} value={option}>
+                                                {option}
+                                              </option>
+                                            ))}
+                                          </select>
+                                        </label>
                                       </div>
                                     </div>
-                                  </>
-                                )}
-                                {!isLoadingClassStudents && classStudents.length === 0 && (
-                                  <p className="text-[0.65rem] text-amber-600">No students found for this class.</p>
-                                )}
-                              </div>
-                            )}
+                                    <div className="mt-2">
+                                      <label className="text-[0.75rem] font-semibold text-gray-600">
+                                        Follow-up Note
+                                      </label>
+                                      <textarea
+                                        className="mt-1 w-full rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                                        rows={2}
+                                        value={detail.note || ""}
+                                        onChange={(event) =>
+                                          updateAttendanceDetail(rowIndex, studentName, {
+                                            note: event.target.value,
+                                          })
+                                        }
+                                      />
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
                           </td>
-                        );
-                      }
-
-                      return (
-                        <td key={fieldId} className="border border-gray-200 px-2 py-2">
-                          <input
-                            type="text"
-                            className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
-                            placeholder={header.placeholder || ""}
-                            value={String(value || "")}
-                            onChange={(event) =>
-                              updateRow("attendanceRows", rowIndex, () => ({
-                                [fieldId]: event.target.value,
-                              }))
-                            }
-                          />
-                        </td>
-                      );
-                    })}
-                    <td className="border border-gray-200 px-2 py-2 text-center align-middle">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        type="button"
-                        className="text-red-600 hover:text-red-700"
-                        onClick={() => removeRow("attendanceRows", rowIndex)}
-                      >
-                        Remove
-                      </Button>
-                    </td>
-                  </tr>
-                ))
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -1168,12 +1331,7 @@ export default function PtAssistPage() {
             {rows.map((row, index) => (
               <tr key={`attendance-preview-${index}`} className={index % 2 === 0 ? "bg-white" : "bg-gray-50"}>
                 <td className="px-3 py-2 font-medium text-gray-800">{row?.session || `Session ${index + 1}`}</td>
-                <td className="px-3 py-2">
-                  {(() => {
-                    const absentDisplay = formatPreviewValue(row?.absentStudents || []);
-                    return absentDisplay === "—" ? "All present" : absentDisplay;
-                  })()}
-                </td>
+                <td className="px-3 py-2">{summarizeAttendanceAbsent(row)}</td>
                 <td className="px-3 py-2">{row?.presentCount || "—"}</td>
                 <td className="px-3 py-2">{row?.absentCount || "—"}</td>
                 <td className="px-3 py-2">{row?.notes ? String(row.notes) : "—"}</td>
