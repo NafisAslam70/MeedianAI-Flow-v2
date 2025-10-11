@@ -44,6 +44,27 @@ const sectionDefaults = (section) => {
   return defaults;
 };
 
+const PERIOD_LABELS = ["1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th"];
+
+const buildDefaultCddRows = (section, selectedDate) => {
+  if (!section) return [];
+  const defaults = sectionDefaults(section);
+  const firstRow = { ...defaults };
+  if (Object.prototype.hasOwnProperty.call(firstRow, "date")) {
+    firstRow.date = selectedDate || todayIso();
+  }
+  return [firstRow];
+};
+
+const buildDefaultCcdRows = (section) => {
+  if (!section) return [];
+  const defaults = sectionDefaults(section);
+  return PERIOD_LABELS.map((label) => ({
+    ...defaults,
+    period: label,
+  }));
+};
+
 export default function PtAssistPage() {
   const router = useRouter();
   const [selectedDate, setSelectedDate] = useState(todayIso());
@@ -51,6 +72,8 @@ export default function PtAssistPage() {
   const [payloadState, setPayloadState] = useState({ cddRows: [], ccdRows: [], extras: {} });
   const [saveStatus, setSaveStatus] = useState({ message: "", error: "" });
   const [savingAction, setSavingAction] = useState(null);
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [accessMessage, setAccessMessage] = useState("");
 
   const { data, error, isLoading, mutate } = useSWR(
     `/api/managersCommon/pt-assist?date=${selectedDate}`,
@@ -60,6 +83,7 @@ export default function PtAssistPage() {
 
   const template = data?.template || null;
   const assignments = data?.assignments || [];
+  const viewerId = data?.viewerId == null ? null : Number(data.viewerId);
 
   const templateSections = useMemo(() => {
     if (!template?.formSchema?.sections) return [];
@@ -83,6 +107,8 @@ export default function PtAssistPage() {
   useEffect(() => {
     if (!assignments.length) {
       if (selectedAssignmentId !== null) setSelectedAssignmentId(null);
+      setIsFormOpen(false);
+      setAccessMessage("");
       return;
     }
     const exists = assignments.some((assignment) => assignment.id === selectedAssignmentId);
@@ -99,17 +125,24 @@ export default function PtAssistPage() {
   useEffect(() => {
     if (!selectedAssignment) {
       setPayloadState({ cddRows: [], ccdRows: [], extras: {} });
+      setIsFormOpen(false);
+      setAccessMessage("");
       return;
     }
     const payload = selectedAssignment.payload || {};
     const { cddRows = [], ccdRows = [], ...extras } = payload;
     setPayloadState({
-      cddRows: Array.isArray(cddRows) ? cddRows : [],
-      ccdRows: Array.isArray(ccdRows) ? ccdRows : [],
+      cddRows: Array.isArray(cddRows) && cddRows.length > 0 ? cddRows : buildDefaultCddRows(cddSection, selectedDate),
+      ccdRows: Array.isArray(ccdRows) && ccdRows.length > 0 ? ccdRows : buildDefaultCcdRows(ccdSection),
       extras,
     });
     setSaveStatus({ message: "", error: "" });
-  }, [selectedAssignment]);
+  }, [selectedAssignment, cddSection, ccdSection, selectedDate]);
+
+  useEffect(() => {
+    setIsFormOpen(false);
+    setAccessMessage("");
+  }, [selectedAssignmentId]);
 
   const updateRow = (sectionKey, index, updater) => {
     setPayloadState((prev) => {
@@ -161,6 +194,33 @@ export default function PtAssistPage() {
       return output;
     });
     return next;
+  };
+
+  const handleOpenForm = () => {
+    if (!selectedAssignment) return;
+    const assistantId = Number(selectedAssignment.assistantUserId || 0);
+    if (!assistantId) {
+      setIsFormOpen(false);
+      setAccessMessage("No assistant has been assigned for this class yet.");
+      return;
+    }
+    if (viewerId === null) {
+      setIsFormOpen(false);
+      setAccessMessage("Unable to verify your assistant role.");
+      return;
+    }
+    if (assistantId !== viewerId) {
+      setIsFormOpen(false);
+      setAccessMessage("You are not the assistant for this class.");
+      return;
+    }
+    setAccessMessage("");
+    setIsFormOpen(true);
+  };
+
+  const handleCloseForm = () => {
+    setIsFormOpen(false);
+    setAccessMessage("");
   };
 
   const handleSave = async (action = "draft") => {
@@ -696,7 +756,7 @@ export default function PtAssistPage() {
                   {assignment.className ? `Class ${assignment.className}${assignment.classSection ? ` ${assignment.classSection}` : ""}` : assignment.targetLabel || "Unlabelled"}{" "}
                   — {assignment.teacherName || "Teacher"}
                   {assignment.assistantUserId
-                    ? ` • Assistant: ${assignment.assistantUserId === viewerId ? "You" : assignment.assistantName || `User #${assignment.assistantUserId}`}`
+                    ? ` • Assistant: ${viewerId !== null && assignment.assistantUserId === viewerId ? "You" : assignment.assistantName || `User #${assignment.assistantUserId}`}`
                     : " • Assistant: Unassigned"}
                 </option>
               ))}
@@ -761,6 +821,29 @@ export default function PtAssistPage() {
       )}
 
       {selectedAssignment && (
+        <div className="flex flex-col gap-2 rounded-lg border border-gray-100 bg-white px-4 py-3 text-sm text-gray-700 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-col gap-1">
+            <span className="font-semibold text-gray-800">Ready to update the PT diary?</span>
+            {accessMessage && <span className="text-xs text-red-600">{accessMessage}</span>}
+            {!accessMessage && !isFormOpen && viewerId !== null && selectedAssignment.assistantUserId === viewerId && (
+              <span className="text-xs text-emerald-600">You are the assigned assistant for this class.</span>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            {!isFormOpen ? (
+              <Button variant="primary" onClick={handleOpenForm}>
+                Fill PT Form
+              </Button>
+            ) : (
+              <Button variant="ghost" onClick={handleCloseForm}>
+                Hide Form
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {selectedAssignment && isFormOpen && (
         <>
           <Card>
             <CardBody className="space-y-8">
