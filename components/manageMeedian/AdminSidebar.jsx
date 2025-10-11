@@ -3,7 +3,7 @@ import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { Users, GraduationCap, Boxes, CalendarDays, Workflow, Sparkles, Megaphone } from "lucide-react";
+import { Users, GraduationCap, Boxes, CalendarDays, Workflow, Sparkles, Megaphone, ClipboardList } from "lucide-react";
 import useSWR from "swr";
 
 const groups = [
@@ -24,6 +24,11 @@ const groups = [
 				href: "/dashboard/admin/manageMeedian/mri-roles",
 				label: "MRI & Roles",
 				icon: Workflow,
+			},
+			{
+				href: "/dashboard/admin/manageMeedian/mri-reports",
+				label: "MRI Reports",
+				icon: ClipboardList,
 			},
 			{
 				href: "/dashboard/admin/manageMeedian/mri-programs",
@@ -180,6 +185,7 @@ export default function AdminSidebar() {
 						if (h.endsWith('/calendar')) return 'schoolCalendar';
 						if (h.endsWith('/mri-roles')) return 'mriRoles';
 						if (h.endsWith('/mri-programs')) return 'metaPrograms';
+						if (h.endsWith('/mri-reports')) return 'mriReportTemplates';
 						if (h.endsWith('/msp-codes')) return 'mspCodes';
 						if (h.endsWith('/class-teachers')) return 'classTeachers';
 						if (h.endsWith('/team')) return 'team';

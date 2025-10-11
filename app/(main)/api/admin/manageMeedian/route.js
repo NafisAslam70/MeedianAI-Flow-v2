@@ -35,6 +35,9 @@ import {
   mriProgramRoles,
   mriRoleDefs,
   mriRoleTasks,
+  mriReportTemplates,
+  mriReportAssignments,
+  mriReportInstances,
   programPeriods,
   programScheduleCells,
   programScheduleDays,
@@ -48,6 +51,7 @@ import bcrypt from "bcrypt";
 import formidable from 'formidable';
 import fetch from 'node-fetch';
 import { v2 as cloudinary } from 'cloudinary';
+import { ensurePtAssignmentsForUser, ensurePtAssignmentsForAllClassTeachers } from "@/lib/mriReports";
 
 /* ============================== GET ============================== */
 export async function GET(req) {
@@ -86,12 +90,14 @@ export async function GET(req) {
     "metaProgramRoles",
     "metaRoleDefs",
     "metaRoleTasks",
-    "programPeriods",
-    "programScheduleCells",
-    "openCloseTimes",
-    "userOpenCloseTimes",
-    "randomsLab",
-  ]);
+  "programPeriods",
+  "programScheduleCells",
+  "mriReportTemplates",
+  "mriReportAssignments",
+  "openCloseTimes",
+  "userOpenCloseTimes",
+  "randomsLab",
+]);
   if (memberReadable.has(section)) {
     if (!session || !["admin", "team_manager", "member"].includes(session.user?.role)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -137,10 +143,117 @@ export async function GET(req) {
         .where(eq(users.role, 'team_manager'));
       return NextResponse.json({ managers: mgrs, grants, sections: Array.from(grantableSections), programs: await (async()=>{ const progs = await db.select({ id: mriPrograms.id, name: mriPrograms.name, programKey: mriPrograms.programKey }).from(mriPrograms); return progs; })() }, { status: 200 });
     }
+    if (section === "mriReportTemplates") {
+      const templateKey = searchParams.get("templateKey");
+      const query = db
+        .select({
+          id: mriReportTemplates.id,
+          key: mriReportTemplates.key,
+          name: mriReportTemplates.name,
+          description: mriReportTemplates.description,
+          allowPreSubmit: mriReportTemplates.allowPreSubmit,
+          defaultFrequency: mriReportTemplates.defaultFrequency,
+          defaultDueTime: mriReportTemplates.defaultDueTime,
+          instructions: mriReportTemplates.instructions,
+          formSchema: mriReportTemplates.formSchema,
+          meta: mriReportTemplates.meta,
+          active: mriReportTemplates.active,
+          createdAt: mriReportTemplates.createdAt,
+          updatedAt: mriReportTemplates.updatedAt,
+        })
+        .from(mriReportTemplates);
+
+      if (templateKey) {
+        query.where(eq(mriReportTemplates.key, templateKey));
+      }
+
+      const templates = await query;
+      return NextResponse.json({ templates }, { status: 200 });
+    }
+
+    if (section === "mriReportAssignments") {
+      const templateKey = searchParams.get("templateKey");
+      const templateIdParam = searchParams.get("templateId");
+      const activeOnly = (searchParams.get("activeOnly") || "").toLowerCase() === "true";
+      const templateId = templateIdParam ? Number(templateIdParam) : null;
+
+      const rows = await db
+        .select({
+          id: mriReportAssignments.id,
+          templateId: mriReportAssignments.templateId,
+          templateKey: mriReportTemplates.key,
+          templateName: mriReportTemplates.name,
+          targetType: mriReportAssignments.targetType,
+          userId: mriReportAssignments.userId,
+          userName: users.name,
+          userEmail: users.email,
+          classId: mriReportAssignments.classId,
+          className: Classes.name,
+          classSection: Classes.section,
+          targetLabel: mriReportAssignments.targetLabel,
+          startDate: mriReportAssignments.startDate,
+          endDate: mriReportAssignments.endDate,
+          active: mriReportAssignments.active,
+          scopeMeta: mriReportAssignments.scopeMeta,
+          createdAt: mriReportAssignments.createdAt,
+          updatedAt: mriReportAssignments.updatedAt,
+        })
+        .from(mriReportAssignments)
+        .innerJoin(mriReportTemplates, eq(mriReportTemplates.id, mriReportAssignments.templateId))
+        .leftJoin(users, eq(users.id, mriReportAssignments.userId))
+        .leftJoin(Classes, eq(Classes.id, mriReportAssignments.classId))
+        .where(
+          and(
+            templateId ? eq(mriReportAssignments.templateId, templateId) : sql`true`,
+            templateKey ? eq(mriReportTemplates.key, templateKey) : sql`true`,
+            activeOnly ? eq(mriReportAssignments.active, true) : sql`true`
+          )
+        )
+        .orderBy(mriReportAssignments.updatedAt);
+
+      return NextResponse.json({ assignments: rows }, { status: 200 });
+    }
+
     if (section === "classTeachers") {
-      const classId = Number(body?.classId);
-      const userId = Number(body?.userId);
-      if (!classId || !userId) {
+      const normalizeId = (value) => {
+        if (typeof value === "number" && Number.isFinite(value)) return value;
+        if (typeof value === "string") {
+          const trimmed = value.trim();
+          if (!trimmed) return null;
+          const parsed = Number(trimmed);
+          if (Number.isFinite(parsed)) return parsed;
+        }
+        return null;
+      };
+
+      let classId = normalizeId(body?.classId);
+      let userId = normalizeId(body?.userId);
+
+      // Optional fallbacks for legacy payloads
+      if (!classId && typeof body?.className === "string") {
+        const lookup = await db
+          .select({ id: Classes.id })
+          .from(Classes)
+          .where(eq(Classes.name, body.className.trim()))
+          .limit(1);
+        if (lookup.length) classId = lookup[0].id;
+      }
+      if (!userId && typeof body?.userEmail === "string") {
+        const lookup = await db
+          .select({ id: users.id })
+          .from(users)
+          .where(eq(users.email, body.userEmail.trim().toLowerCase()))
+          .limit(1);
+        if (lookup.length) userId = lookup[0].id;
+      }
+
+      if (!Number.isInteger(classId) || classId <= 0 || !Number.isInteger(userId) || userId <= 0) {
+        console.warn("classTeachers.assign invalid payload", {
+          classIdRaw: body?.classId,
+          userIdRaw: body?.userId,
+          className: body?.className,
+          userEmail: body?.userEmail,
+        });
         return NextResponse.json({ error: "Invalid selection" }, { status: 400 });
       }
 
@@ -658,6 +771,7 @@ export async function POST(req) {
         "classes","classTeachers","randomsLab",
         "metaFamilies","metaPrograms","metaProgramRoles","metaRoleDefs","metaRoleTasks",
         "programPeriods","programScheduleCells",
+        "mriReportTemplates","mriReportAssignments",
         "openCloseTimes","userOpenCloseTimes",
       ]);
       if (sec !== 'upload' && sec !== 'controlsShare') {
@@ -699,6 +813,159 @@ export async function POST(req) {
         }
       }
       return NextResponse.json({ upserts, deletes }, { status: 200 });
+    }
+    if (section === "mriReportAssignments") {
+      const action = typeof body?.action === "string" ? body.action.trim() : "";
+      if (action === "syncClassTeachers") {
+        const targetDate = body?.targetDate;
+        const result = await ensurePtAssignmentsForAllClassTeachers(targetDate);
+        return NextResponse.json(result, { status: 200 });
+      }
+
+      const normalizeDate = (value) => {
+        if (!value) return null;
+        if (value instanceof Date && !Number.isNaN(value.getTime())) {
+          return value.toISOString().slice(0, 10);
+        }
+        const str = String(value).trim();
+        if (!str) return null;
+        const parsed = new Date(str);
+        if (Number.isNaN(parsed.getTime())) return null;
+        return parsed.toISOString().slice(0, 10);
+      };
+
+      let templateId = body?.templateId ? Number(body.templateId) : null;
+      const templateKey = typeof body?.templateKey === "string" ? body.templateKey.trim() : "";
+      if (!templateId) {
+        const lookupKey = templateKey || "pt_daily_report";
+        const [templateRow] = await db
+          .select({ id: mriReportTemplates.id })
+          .from(mriReportTemplates)
+          .where(eq(mriReportTemplates.key, lookupKey))
+          .limit(1);
+        if (!templateRow) {
+          return NextResponse.json({ error: "Template not found" }, { status: 404 });
+        }
+        templateId = templateRow.id;
+      }
+
+      const userId = body?.userId ? Number(body.userId) : null;
+      if (!userId) {
+        return NextResponse.json({ error: "userId is required" }, { status: 400 });
+      }
+
+      const [userRow] = await db.select({ id: users.id }).from(users).where(eq(users.id, userId)).limit(1);
+      if (!userRow) {
+        return NextResponse.json({ error: "User not found" }, { status: 404 });
+      }
+
+      const classId = body?.classId ? Number(body.classId) : null;
+      let classRow = null;
+      if (classId) {
+        [classRow] = await db
+          .select({ id: Classes.id, name: Classes.name, section: Classes.section, track: Classes.track })
+          .from(Classes)
+          .where(eq(Classes.id, classId))
+          .limit(1);
+        if (!classRow) {
+          return NextResponse.json({ error: "Class not found" }, { status: 404 });
+        }
+      }
+
+      const scopeMeta =
+        typeof body?.scopeMeta === "object" && body.scopeMeta !== null
+          ? body.scopeMeta
+          : classRow
+          ? {
+              class: {
+                id: classRow.id,
+                name: classRow.name,
+                section: classRow.section,
+                track: classRow.track,
+              },
+            }
+          : {};
+
+      const startDate = normalizeDate(body?.startDate) ?? new Date().toISOString().slice(0, 10);
+      const endDate = normalizeDate(body?.endDate);
+      const active = body?.active === false ? false : true;
+      const valueTargetType = typeof body?.targetType === "string" ? body.targetType.trim() : "user";
+      const targetLabel =
+        typeof body?.targetLabel === "string"
+          ? body.targetLabel.trim()
+          : classRow
+          ? `Class ${classRow.name}${classRow.section ? ` ${classRow.section}` : ""}`
+          : null;
+
+      const now = new Date();
+      const insertValues = {
+        templateId,
+        targetType: valueTargetType || "user",
+        userId,
+        classId: classRow ? classRow.id : null,
+        targetLabel: targetLabel || null,
+        startDate,
+        endDate,
+        scopeMeta,
+        active,
+        createdBy: Number(session.user.id),
+        updatedAt: now,
+      };
+
+      const [assignment] = await db
+        .insert(mriReportAssignments)
+        .values(insertValues)
+        .onConflictDoUpdate({
+          target: [mriReportAssignments.templateId, mriReportAssignments.userId, mriReportAssignments.classId],
+          set: {
+            targetType: insertValues.targetType,
+            targetLabel: insertValues.targetLabel,
+            startDate: insertValues.startDate,
+            endDate: insertValues.endDate,
+            scopeMeta: insertValues.scopeMeta,
+            active: insertValues.active,
+            updatedAt: now,
+          },
+        })
+        .returning({
+          id: mriReportAssignments.id,
+        });
+
+      if (!assignment) {
+        return NextResponse.json({ error: "Failed to upsert assignment" }, { status: 500 });
+      }
+
+      const [row] = await db
+        .select({
+          id: mriReportAssignments.id,
+          templateId: mriReportAssignments.templateId,
+          templateKey: mriReportTemplates.key,
+          templateName: mriReportTemplates.name,
+          targetType: mriReportAssignments.targetType,
+          userId: mriReportAssignments.userId,
+          userName: users.name,
+          userEmail: users.email,
+          classId: mriReportAssignments.classId,
+          className: Classes.name,
+          classSection: Classes.section,
+          targetLabel: mriReportAssignments.targetLabel,
+          startDate: mriReportAssignments.startDate,
+          endDate: mriReportAssignments.endDate,
+          active: mriReportAssignments.active,
+          scopeMeta: mriReportAssignments.scopeMeta,
+          createdAt: mriReportAssignments.createdAt,
+          updatedAt: mriReportAssignments.updatedAt,
+        })
+        .from(mriReportAssignments)
+        .innerJoin(mriReportTemplates, eq(mriReportTemplates.id, mriReportAssignments.templateId))
+        .leftJoin(users, eq(users.id, mriReportAssignments.userId))
+        .leftJoin(Classes, eq(Classes.id, mriReportAssignments.classId))
+        .where(eq(mriReportAssignments.id, assignment.id))
+        .limit(1);
+
+      await ensurePtAssignmentsForUser(userId, startDate);
+
+      return NextResponse.json({ assignment: row }, { status: 200 });
     }
     if (section === "seedSlotsWeekly") {
       // Seed templates for all slots and weekdays

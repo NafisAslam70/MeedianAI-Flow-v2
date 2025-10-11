@@ -35,6 +35,10 @@ export default function ClassTeachersPage() {
 
   const assign = async (e) => {
     e?.preventDefault?.();
+    if (!form.classId || !form.userId) {
+      setErr("Pick both class and teacher before assigning");
+      return;
+    }
     setBusy(true); setErr(""); setMsg("");
     try {
       const res = await fetch("/api/admin/manageMeedian?section=classTeachers", {
@@ -74,7 +78,7 @@ export default function ClassTeachersPage() {
                 <option key={u.id} value={u.id}>{u.name}</option>
               ))}
             </Select>
-            <div className="md:col-span-3"><Button disabled={busy}>Assign</Button></div>
+            <div className="md:col-span-3"><Button disabled={busy || !form.classId || !form.userId}>Assign</Button></div>
           </form>
         </CardBody>
       </Card>
@@ -111,4 +115,3 @@ export default function ClassTeachersPage() {
     </div>
   );
 }
-
