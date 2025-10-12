@@ -30,6 +30,8 @@ const joinMultiValue = (value) => {
   return String(value);
 };
 
+const looksLikeDateString = (str) => /-|\//.test(str) || /\d{2}:\d{2}/.test(str) || str.length > 10;
+
 const formatPreviewValue = (value) => {
   if (Array.isArray(value)) return joinMultiValue(value) || "—";
   if (value === null || value === undefined) return "—";
@@ -42,10 +44,12 @@ const formatPreviewValue = (value) => {
   const str = String(value).trim();
   if (!str) return "—";
 
-  const parsed = new Date(str);
-  if (!Number.isNaN(parsed.getTime())) {
-    const hasTime = /[T\s]\d/.test(str);
-    return hasTime ? formatISTDateTime(parsed) : formatISTDate(parsed);
+  if (looksLikeDateString(str)) {
+    const parsed = new Date(str);
+    if (!Number.isNaN(parsed.getTime())) {
+      const hasTime = /[T\s]\d/.test(str);
+      return hasTime ? formatISTDateTime(parsed) : formatISTDate(parsed);
+    }
   }
 
   return str;
@@ -238,10 +242,12 @@ export default function PtAssistPage() {
     }
   }, [assignments, selectedAssignmentId]);
 
-  const selectedAssignment = useMemo(
-    () => assignments.find((assignment) => assignment.id === selectedAssignmentId) || null,
-    [assignments, selectedAssignmentId]
-  );
+  const selectedAssignment = useMemo(() => {
+    const found = assignments.find((assignment) => assignment.id === selectedAssignmentId) || null;
+    if (found) return found;
+    if (!assignments.length) return null;
+    return assignments[0];
+  }, [assignments, selectedAssignmentId]);
 
   const classIdForStudents = useMemo(() => {
     if (!selectedAssignment) return null;

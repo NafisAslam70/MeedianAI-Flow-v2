@@ -118,6 +118,8 @@ const formatCellLabel = (key) => {
   return toTitle(spaced, key);
 };
 
+const looksLikeDateString = (str) => /-|\//.test(str) || /\d{2}:\d{2}/.test(str) || str.length > 10;
+
 const formatCellValue = (value) => {
   if (Array.isArray(value)) {
     return value
@@ -131,7 +133,7 @@ const formatCellValue = (value) => {
   const raw = String(value).trim();
   if (!raw) return "—";
 
-  if (/\d/.test(raw)) {
+  if (looksLikeDateString(raw)) {
     const parsed = new Date(raw);
     if (!Number.isNaN(parsed.getTime())) {
       const hasTimeComponent = /[T\s]\d/.test(raw);
