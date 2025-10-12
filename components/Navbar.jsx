@@ -15,9 +15,12 @@ import {
   Mountain,
   ClipboardList,
   ClipboardCheck,
+  AlertTriangle,
   CalendarCheck2,
+  CalendarX2,
   Calendar,
   Clock,
+  Boxes,
   ArrowRight,
   User,
   BarChart2,
@@ -566,6 +569,53 @@ export default function Navbar() {
         </div>
 
         <div className="sheet-content">
+          {(() => {
+            // fetch escalation counts only when open
+            // eslint-disable-next-line react-hooks/rules-of-hooks
+            const { data } = useSWR(isManagerialOpen ? "/api/managersCommon/escalations?section=counts" : null, (u)=>fetch(u).then(r=>r.json()));
+            const openCount = role === 'admin' ? (data?.openTotalCount ?? 0) : (data?.forYouCount ?? 0);
+            return (
+              <button
+                className="action-row"
+                onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/managersCommon/escalations"); }}
+              >
+                <span className="row-icon"><AlertTriangle size={18} /></span>
+                <span className="row-main">
+                  <span className="row-title">Escalations</span>
+                  <span className="row-sub">Raise, act, and review matters</span>
+                </span>
+                <span className="ml-2 inline-flex min-w-[20px] justify-center rounded-full bg-teal-600 text-white text-[11px] px-2 py-0.5">
+                  {openCount}
+                </span>
+                <ArrowRight size={16} className="row-go" />
+              </button>
+            );
+          })()}
+
+          {(() => {
+            // Support Tickets counts (open = not resolved/closed)
+            // eslint-disable-next-line react-hooks/rules-of-hooks
+            const { data: t } = useSWR(isManagerialOpen ? "/api/managersCommon/tickets?view=queue" : null, (u)=>fetch(u).then(r=>r.json()));
+            const status = t?.statusSummary || {};
+            const openTickets = Object.entries(status).reduce((acc,[k,v]) => acc + ((k!=="resolved" && k!=="closed") ? v : 0), 0);
+            return (
+              <button
+                className="action-row"
+                onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/managersCommon/tickets"); }}
+              >
+                <span className="row-icon"><MessageSquare size={18} /></span>
+                <span className="row-main">
+                  <span className="row-title">Support Tickets</span>
+                  <span className="row-sub">Open and pending tickets</span>
+                </span>
+                <span className="ml-2 inline-flex min-w-[20px] justify-center rounded-full bg-indigo-600 text-white text-[11px] px-2 py-0.5">
+                  {openTickets || 0}
+                </span>
+                <ArrowRight size={16} className="row-go" />
+              </button>
+            );
+          })()}
+
           <button
             className="action-row"
             onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/managersCommon/managerial-club"); }}
@@ -573,10 +623,96 @@ export default function Navbar() {
             <span className="row-icon"><ClipboardList size={18} /></span>
             <span className="row-main">
               <span className="row-title">Managerial Club</span>
-              <span className="row-sub">Open the consolidated workflows page</span>
+              <span className="row-sub">Open PT support & routine tools</span>
             </span>
             <ArrowRight size={16} className="row-go" />
           </button>
+
+          <button
+            className="action-row"
+            onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/managersCommon/assignTask"); }}
+          >
+            <span className="row-icon"><ClipboardCheck size={18} /></span>
+            <span className="row-main">
+              <span className="row-title">Assign Task</span>
+              <span className="row-sub">Create & dispatch tasks</span>
+            </span>
+            <ArrowRight size={16} className="row-go" />
+          </button>
+
+          {(() => {
+            // eslint-disable-next-line react-hooks/rules-of-hooks
+            const { data: dc } = useSWR(isManagerialOpen ? "/api/managersCommon/dayCloseRequests?section=counts" : null, (u)=>fetch(u).then(r=>r.json()));
+            const dcCount = dc?.pendingCount ?? 0;
+            return (
+              <button
+                className="action-row"
+                onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/managersCommon/approveCloseDay"); }}
+              >
+                <span className="row-icon"><CalendarCheck2 size={18} /></span>
+                <span className="row-main">
+                  <span className="row-title">Day Close Request</span>
+                  <span className="row-sub">Review and approve day closures</span>
+                </span>
+                <span className="ml-2 inline-flex min-w-[20px] justify-center rounded-full bg-indigo-600 text-white text-[11px] px-2 py-0.5">
+                  {dcCount}
+                </span>
+                <ArrowRight size={16} className="row-go" />
+              </button>
+            );
+          })()}
+
+          {(() => {
+            // Leave Requests count (pending)
+            // eslint-disable-next-line react-hooks/rules-of-hooks
+            const { data: lr } = useSWR(isManagerialOpen ? "/api/managersCommon/approve-leave-request" : null, (u)=>fetch(u).then(r=>r.json()));
+            const pendingLeaves = (lr?.requests || []).filter(r => (r.status || '').toLowerCase() === 'pending').length;
+            return (
+              <button
+                className="action-row"
+                onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/managersCommon/approveLeave"); }}
+              >
+                <span className="row-icon"><CalendarX2 size={18} /></span>
+                <span className="row-main">
+                  <span className="row-title">Leave Requests</span>
+                  <span className="row-sub">Pending approvals</span>
+                </span>
+                <span className="ml-2 inline-flex min-w-[20px] justify-center rounded-full bg-amber-600 text-white text-[11px] px-2 py-0.5">
+                  {pendingLeaves}
+                </span>
+                <ArrowRight size={16} className="row-go" />
+              </button>
+            );
+          })()}
+
+          <button
+            className="action-row"
+            onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/managersCommon/attendance-report"); }}
+          >
+            <span className="row-icon"><ClipboardCheck size={18} /></span>
+            <span className="row-main">
+              <span className="row-title">Daily Attendance Report</span>
+              <span className="row-sub">View and export present/absent lists</span>
+            </span>
+            <ArrowRight size={16} className="row-go" />
+          </button>
+
+          {(role === 'team_manager' || role === 'admin') && (
+            <>
+              <div className="my-2 border-t border-slate-700/40" />
+              <button
+                className="action-row"
+                onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/admin/manageMeedian"); }}
+              >
+                <span className="row-icon"><Boxes size={18} /></span>
+                <span className="row-main">
+                  <span className="row-title">Manage Meedian</span>
+                  <span className="row-sub">Open Admin sidebar (access-controlled)</span>
+                </span>
+                <ArrowRight size={16} className="row-go" />
+              </button>
+            </>
+          )}
         </div>
       </aside>
     </div>
