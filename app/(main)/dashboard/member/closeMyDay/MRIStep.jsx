@@ -58,6 +58,7 @@ const PT_CCD_COLUMNS = [
   { key: "period", label: "Period" },
   { key: "subject", label: "Subject" },
   { key: "topic", label: "Topic" },
+  { key: "teacherName", label: "Teacher" },
   { key: "classwork", label: "C.W. (what happened)" },
   { key: "homework", label: "H.W. (assigned)" },
   { key: "teacherSignature", label: "T.S." },
@@ -95,6 +96,7 @@ const PT_CCD_EDIT_HEADERS = [
   { id: "period", label: "Period", type: "text", placeholder: "1" },
   { id: "subject", label: "Subject", type: "text", placeholder: "Math" },
   { id: "topic", label: "Topic", type: "text", placeholder: "Ch-3 Fractions" },
+  { id: "teacherName", label: "Teacher", type: "teacherSelect" },
   { id: "classwork", label: "C.W. (what happened)", type: "textarea", placeholder: "Test taken" },
   { id: "homework", label: "H.W. (assigned)", type: "textarea", placeholder: "Memorise Ques/Ans" },
   { id: "teacherSignature", label: "T.S.", type: "select", options: ["Yes", "No"] },
@@ -200,6 +202,7 @@ const sanitizePtPayload = (payload) => {
     nextRow.period = row?.period != null ? String(row.period) : "";
     nextRow.subject = row?.subject != null ? String(row.subject) : "";
     nextRow.topic = row?.topic != null ? String(row.topic) : "";
+    nextRow.teacherName = row?.teacherName != null ? String(row.teacherName) : "";
     nextRow.classwork = row?.classwork != null ? String(row.classwork) : "";
     nextRow.homework = row?.homework != null ? String(row.homework) : "";
     nextRow.teacherSignature = normalizeYesNo(row?.teacherSignature);
@@ -214,7 +217,7 @@ const sanitizePtPayload = (payload) => {
     const rawDetails = row?.absenceDetails && typeof row.absenceDetails === "object" ? row.absenceDetails : {};
     const filteredDetails = {};
     absentList.forEach((student) => {
-      filteredDetails[student] = rawDetails[student] || {};
+      filteredDetails[student] = { ...getDefaultAttendanceDetail(), ...(rawDetails[student] || {}) };
     });
     nextRow.session = row?.session != null ? String(row.session) : "";
     nextRow.absentStudents = absentList;
@@ -278,6 +281,7 @@ const createEmptyCcdRow = (period = "") => ({
   period,
   subject: "",
   topic: "",
+  teacherName: "",
   classwork: "",
   homework: "",
   teacherSignature: "",
@@ -660,6 +664,19 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
 
   const ptClassStudentCount = ptClassStudents.length;
 
+  const {
+    data: ptTeacherDirectory,
+    isLoading: isPtTeachersLoading,
+    error: ptTeacherDirectoryError,
+  } = useSWR(isPtReport ? "/api/member/mris/teachers?onlyTeachers=true" : null, fetcher);
+
+  const ptTeacherOptions = useMemo(() => {
+    const rows = Array.isArray(ptTeacherDirectory?.teachers) ? ptTeacherDirectory.teachers : [];
+    return rows
+      .map((row) => ({ id: row.id, name: row.name || `Member #${row.id}` }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [ptTeacherDirectory]);
+
   const workingCddRows = useMemo(() => {
     if (isPtReport && ptEditablePayload) {
       return Array.isArray(ptEditablePayload.cddRows) ? ptEditablePayload.cddRows : [];
@@ -884,7 +901,10 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
         rows.push(createEmptyCddRow(lastDate || formatISTDate(new Date())));
       } else if (sectionKey === "ccdRows") {
         const nextPeriod = getNextCcdPeriod(rows);
-        rows.push(createEmptyCcdRow(nextPeriod));
+        const newRow = createEmptyCcdRow(nextPeriod);
+        const previousTeacher = rows.length ? rows[rows.length - 1]?.teacherName : ptTeacherOptions[0]?.name;
+        newRow.teacherName = previousTeacher || "";
+        rows.push(newRow);
       } else {
         rows.push(createEmptyAttendanceRow());
       }
@@ -1161,6 +1181,11 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
       return (
         <div className="space-y-3">
           {renderHeaderActions("cddRows", "Add Day", rosterNote)}
+          {ptTeacherDirectoryError && (
+            <p className="text-[0.65rem] text-rose-600">
+              Unable to load the teacher directory right now. You can still type the teacher's name manually.
+            </p>
+          )}
           <div className="overflow-x-auto rounded-2xl border border-slate-200">
           <table className="min-w-[1100px] text-xs text-slate-700">
             <thead className="bg-slate-100">
@@ -1360,6 +1385,49 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
                     {PT_CCD_EDIT_HEADERS.map((header) => {
                       const fieldId = header.id;
                       const value = row?.[fieldId];
+                      if (header.type === "teacherSelect") {
+                        const currentTeacher = String(value ?? "");
+                        const optionPool = ptTeacherOptions.some((teacher) => teacher.name === currentTeacher)
+                          ? ptTeacherOptions
+                          : currentTeacher
+                          ? [...ptTeacherOptions, { id: `current-${rowIndex}`, name: currentTeacher }]
+                          : ptTeacherOptions;
+                        if (!isPtTeachersLoading && !optionPool.length) {
+                          return (
+                            <td key={fieldId} className="border border-slate-200 px-2 py-2 align-top">
+                              <input
+                                type="text"
+                                className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:cursor-not-allowed"
+                                placeholder="Type teacher name"
+                                value={currentTeacher}
+                                onChange={(event) => updatePtRow("ccdRows", rowIndex, { [fieldId]: event.target.value })}
+                                disabled={disableEditing}
+                              />
+                            </td>
+                          );
+                        }
+                        return (
+                          <td key={fieldId} className="border border-slate-200 px-2 py-2 align-top">
+                            <select
+                              className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:cursor-not-allowed"
+                              value={String(value ?? "")}
+                              onChange={(event) =>
+                                updatePtRow("ccdRows", rowIndex, { [fieldId]: event.target.value })
+                              }
+                              disabled={disableEditing || isPtTeachersLoading}
+                            >
+                              <option value="">
+                                {isPtTeachersLoading ? "Loading teachers…" : "Select teacher"}
+                              </option>
+                              {optionPool.map((teacher) => (
+                                <option key={`${fieldId}-${teacher.id}`} value={teacher.name}>
+                                  {teacher.name}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                        );
+                      }
                       if (header.type === "textarea") {
                         return (
                           <td key={fieldId} className="border border-slate-200 px-2 py-2 align-top">

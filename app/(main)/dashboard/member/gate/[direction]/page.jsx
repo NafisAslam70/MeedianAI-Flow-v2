@@ -52,7 +52,7 @@ export default function StaffGateScanPage({ params }) {
         <div className="max-w-md rounded-2xl bg-slate-800/80 p-8 text-center shadow-xl">
           <h1 className="text-2xl font-semibold">Invalid gate code</h1>
           <p className="mt-3 text-sm text-slate-300">
-            This link is not recognised. Please scan the official Gate IN or Gate OUT QR code provided at the campus entrance.
+            This link is not recognised. Please scan the official Campus IN or Campus OUT QR code provided at the checkpoint.
           </p>
           <Link href="/dashboard/member" className="mt-6 inline-flex items-center text-teal-300 hover:text-teal-200">
             <ChevronRight className="mr-1 h-4 w-4" /> Go to dashboard
@@ -139,7 +139,7 @@ export default function StaffGateScanPage({ params }) {
     }
   };
 
-  const heading = direction === "out" ? "Gate OUT" : "Gate IN";
+  const heading = direction === "out" ? "Campus OUT" : "Campus IN";
   const helperText =
     direction === "out"
       ? "Tell us why you are stepping out. This note is visible to the admin team."

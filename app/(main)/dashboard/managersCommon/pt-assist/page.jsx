@@ -84,6 +84,7 @@ const FALLBACK_CCD_SECTION = {
     { id: "period", type: "text", label: "Period" },
     { id: "subject", type: "text", label: "Subject" },
     { id: "topic", type: "text", label: "Topic" },
+    { id: "teacherName", type: "select", label: "Teacher" },
     { id: "classwork", type: "textarea", label: "Classwork (What happened)" },
     { id: "homework", type: "textarea", label: "Homework (Assigned)" },
     { id: "teacherSignature", type: "select", label: "Teacher Sign", options: YES_NO_OPTIONS.slice(1) },
@@ -116,7 +117,7 @@ const sectionDefaults = (section) => {
   return defaults;
 };
 
-const PERIOD_LABELS = ["1", "2", "3", "4", "5", "6", "7", "8"];
+const PERIOD_LABELS = ["1", "2", "3", "4", "5", "6", "7"];
 
 const normalizeYesNoValue = (value) => {
   if (value === true) return "Yes";
@@ -137,12 +138,13 @@ const buildDefaultCddRows = (section, selectedDate) => {
   return [firstRow];
 };
 
-const buildDefaultCcdRows = (section) => {
+const buildDefaultCcdRows = (section, defaultTeacher = "") => {
   if (!section) return [];
   const defaults = sectionDefaults(section);
   return PERIOD_LABELS.map((label) => ({
     ...defaults,
     period: label,
+    teacherName: defaultTeacher || defaults.teacherName || "",
   }));
 };
 
@@ -272,6 +274,11 @@ export default function PtAssistPage() {
     { dedupingInterval: 60000 }
   );
 
+  const {
+    data: teacherDirectoryResponse,
+    error: teacherDirectoryError,
+  } = useSWR("/api/member/mris/teachers?onlyTeachers=true", fetcher, { dedupingInterval: 60000 });
+
   const classStudents = useMemo(() => {
     if (!classIdForStudents) return [];
     const rows = Array.isArray(classStudentsResponse?.students) ? classStudentsResponse.students : [];
@@ -282,6 +289,19 @@ export default function PtAssistPage() {
 
   const isLoadingClassStudents = Boolean(classIdForStudents) && !classStudentsResponse && !classStudentsError;
   const totalStudents = classStudents.length;
+  const teacherOptions = useMemo(() => {
+    const rows = Array.isArray(teacherDirectoryResponse?.teachers) ? teacherDirectoryResponse.teachers : [];
+    const mapped = rows.map((row) => ({ id: row.id, name: row.name || `Member #${row.id}` }));
+    const extras = [];
+    if (selectedAssignment?.teacherName) {
+      const exists = mapped.some((teacher) => teacher.name === selectedAssignment.teacherName);
+      if (!exists) {
+        extras.push({ id: `assignment-${selectedAssignment.teacherName}`, name: selectedAssignment.teacherName });
+      }
+    }
+    return [...mapped, ...extras].sort((a, b) => a.name.localeCompare(b.name));
+  }, [teacherDirectoryResponse, selectedAssignment?.teacherName]);
+  const isLoadingTeachers = !teacherDirectoryResponse && !teacherDirectoryError;
 
   const viewerIsAssistant = useMemo(() => {
     if (!selectedAssignment) return false;
@@ -298,18 +318,41 @@ export default function PtAssistPage() {
       return;
     }
     const payload = selectedAssignment.payload || {};
-    const { cddRows = [], ccdRows = [], attendanceRows = [], ...extras } = payload;
+    const {
+      cddRows: storedCddRows = [],
+      ccdRows: storedCcdRows = [],
+      attendanceRows: storedAttendanceRows = [],
+      ...extras
+    } = payload;
+
+    const normalizedCddRows = (Array.isArray(storedCddRows) && storedCddRows.length > 0
+      ? storedCddRows
+      : buildDefaultCddRows(resolvedCddSection, selectedDate)
+    ).map((row) => ({
+      ...row,
+      date: row?.date ? row.date : selectedDate || todayIso(),
+    }));
+
+    const normalizedCcdRows = (Array.isArray(storedCcdRows) && storedCcdRows.length > 0
+      ? storedCcdRows
+      : buildDefaultCcdRows(resolvedCcdSection, selectedAssignment?.teacherName || "")
+    ).map((row) => ({
+      ...row,
+      teacherName: row?.teacherName || selectedAssignment?.teacherName || "",
+    }));
+
+    const normalizedAttendanceRows = (Array.isArray(storedAttendanceRows) && storedAttendanceRows.length > 0
+      ? storedAttendanceRows
+      : buildDefaultAttendanceRows(resolvedAttendanceSection)
+    ).map((row, index) => ({
+      ...row,
+      session: row?.session || `Session ${index + 1}`,
+    }));
+
     setPayloadState({
-      cddRows:
-        Array.isArray(cddRows) && cddRows.length > 0
-          ? cddRows
-          : buildDefaultCddRows(resolvedCddSection, selectedDate),
-      ccdRows:
-        Array.isArray(ccdRows) && ccdRows.length > 0 ? ccdRows : buildDefaultCcdRows(resolvedCcdSection),
-      attendanceRows:
-        Array.isArray(attendanceRows) && attendanceRows.length > 0
-          ? attendanceRows
-          : buildDefaultAttendanceRows(resolvedAttendanceSection),
+      cddRows: normalizedCddRows,
+      ccdRows: normalizedCcdRows,
+      attendanceRows: normalizedAttendanceRows,
       extras,
     });
       setActiveModal(null);
@@ -360,6 +403,8 @@ export default function PtAssistPage() {
           .filter((value) => value !== null);
         const nextPeriod = (numericPeriods.length ? Math.max(...numericPeriods) + 1 : rows.length + 1);
         nextRow.period = String(nextPeriod);
+        const previousTeacher = rows.length ? rows[rows.length - 1]?.teacherName : selectedAssignment?.teacherName;
+        nextRow.teacherName = previousTeacher || "";
       } else if (sectionKey === "attendanceRows") {
         nextRow.session = nextRow.session || `Session ${rows.length + 1}`;
         const absentList = Array.isArray(nextRow.absentStudents) ? nextRow.absentStudents : [];
@@ -561,6 +606,7 @@ const toggleAttendanceStudent = (rowIndex, label) => {
       { id: "period", label: "Period", type: "text", placeholder: "1" },
       { id: "subject", label: "Subject", type: "text", placeholder: "Math" },
       { id: "topic", label: "Topic", type: "text", placeholder: "Ch-4" },
+      { id: "teacherName", label: "Teacher", type: "teacherSelect" },
       { id: "classwork", label: "C.W. (what happened)", type: "textarea", placeholder: "Test taken" },
       { id: "homework", label: "H.W. (assigned)", type: "textarea", placeholder: "Memorise Ques/Ans" },
       { id: "teacherSignature", label: "T.S.", type: "select", options: YES_NO_OPTIONS },
@@ -593,6 +639,12 @@ const toggleAttendanceStudent = (rowIndex, label) => {
           </div>
         </div>
 
+        {teacherDirectoryError && (
+          <p className="text-[0.65rem] text-red-600">
+            Failed to load teacher directory. You can still type the teacher name manually.
+          </p>
+        )}
+
         <div className="overflow-x-auto">
           <table className="min-w-full border border-gray-200 text-xs text-gray-700">
             <thead className="bg-gray-100">
@@ -621,6 +673,53 @@ const toggleAttendanceStudent = (rowIndex, label) => {
                       const rawValue = row?.[fieldId];
                       const normalizedValue =
                         typeof rawValue === "boolean" ? (rawValue ? "Yes" : "No") : rawValue ?? "";
+
+                      if (fieldType === "teacherSelect") {
+                        const currentTeacher = String(rawValue || "");
+                        const optionPool = teacherOptions.some((teacher) => teacher.name === currentTeacher)
+                          ? teacherOptions
+                          : currentTeacher
+                          ? [...teacherOptions, { id: `current-${rowIndex}`, name: currentTeacher }]
+                          : teacherOptions;
+                        if (!isLoadingTeachers && !optionPool.length) {
+                          return (
+                            <td key={fieldId} className="border border-gray-200 px-2 py-2 align-top">
+                              <input
+                                type="text"
+                                className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                                placeholder="Type teacher name"
+                                value={currentTeacher}
+                                onChange={(event) =>
+                                  updateRow("ccdRows", rowIndex, () => ({
+                                    [fieldId]: event.target.value,
+                                  }))
+                                }
+                              />
+                            </td>
+                          );
+                        }
+                        return (
+                          <td key={fieldId} className="border border-gray-200 px-2 py-2 align-top">
+                            <select
+                              className="w-full rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:cursor-not-allowed"
+                              value={String(rawValue || "")}
+                              onChange={(event) =>
+                                updateRow("ccdRows", rowIndex, () => ({
+                                  [fieldId]: event.target.value,
+                                }))
+                              }
+                              disabled={isLoadingTeachers}
+                            >
+                              <option value="">{isLoadingTeachers ? "Loading teachers…" : "Select teacher"}</option>
+                              {optionPool.map((teacher) => (
+                                <option key={`${fieldId}-${teacher.id}`} value={teacher.name}>
+                                  {teacher.name}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                        );
+                      }
 
                       if (fieldType === "select" || fieldId === "teacherSignature" || fieldId === "monitorInitials") {
                         const selectOptions = Array.isArray(header.options) && header.options.length
@@ -1301,6 +1400,10 @@ const toggleAttendanceStudent = (rowIndex, label) => {
             <p>
               <span className="font-semibold text-gray-700">Homework:</span>{" "}
               {formatPreviewValue(row?.homework)}
+            </p>
+            <p>
+              <span className="font-semibold text-gray-700">Teacher:</span>{" "}
+              {formatPreviewValue(row?.teacherName)}
             </p>
             <p>
               <span className="font-semibold text-gray-700">Teacher Sign / Notes:</span>{" "}

@@ -5,6 +5,7 @@ import useSWR from "swr";
 import Button from "@/components/ui/Button";
 import { Card, CardHeader, CardBody } from "@/components/ui/Card";
 import { Copy, RefreshCw, Trash2 } from "lucide-react";
+import QrCode from "@/components/QrCode";
 
 const fetcher = (url) =>
   fetch(url, { headers: { "Content-Type": "application/json" } }).then((res) => {
@@ -153,8 +154,9 @@ export default function GateLogsAdminPage() {
   const staffRows = useMemo(() => buildStaffRows(staffData?.logs || []), [staffData?.logs]);
   const guardianEntries = guardianData?.entries || [];
 
-  const gateOutUrl = origin ? `${origin}/dashboard/member/gate/out` : "/dashboard/member/gate/out";
-  const gateInUrl = origin ? `${origin}/dashboard/member/gate/in` : "/dashboard/member/gate/in";
+  const campusHubUrl = origin ? `${origin}/dashboard/member/gate` : "/dashboard/member/gate";
+  const campusOutUrl = origin ? `${origin}/dashboard/member/gate/out` : "/dashboard/member/gate/out";
+  const campusInUrl = origin ? `${origin}/dashboard/member/gate/in` : "/dashboard/member/gate/in";
 
   const handleCopy = async (value) => {
     if (!value) return;
@@ -264,24 +266,36 @@ export default function GateLogsAdminPage() {
           </div>
         </CardHeader>
         <CardBody className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid gap-4 lg:grid-cols-3">
             <div className="rounded-lg border border-dashed border-teal-300 bg-teal-50/60 p-4">
-              <div className="text-xs uppercase text-teal-700">Gate Out — record purpose</div>
-              <div className="mt-1 font-medium text-teal-900 break-all">{gateOutUrl}</div>
-              <div className="mt-2 flex items-center gap-2">
-                <Button variant="ghost" size="sm" onClick={() => handleCopy(gateOutUrl)}>
-                  <Copy className="mr-1 h-4 w-4" /> Copy
+              <div className="text-xs uppercase text-teal-700">Campus In/Out page</div>
+              <p className="mt-1 text-sm text-teal-900/80">
+                Print this link on staff posters or share via chat. Members open it in the app to access the scanner.
+              </p>
+              <div className="mt-2 break-all rounded-lg bg-white px-3 py-2 text-xs font-semibold text-teal-900 shadow-inner">
+                {campusHubUrl}
+              </div>
+              <div className="mt-3 flex items-center gap-2">
+                <Button variant="ghost" size="sm" onClick={() => handleCopy(campusHubUrl)}>
+                  <Copy className="mr-1 h-4 w-4" /> Copy link
                 </Button>
               </div>
             </div>
-            <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4">
-              <div className="text-xs uppercase text-gray-600">Gate In — quick scan</div>
-              <div className="mt-1 font-medium text-gray-900 break-all">{gateInUrl}</div>
-              <div className="mt-2 flex items-center gap-2">
-                <Button variant="ghost" size="sm" onClick={() => handleCopy(gateInUrl)}>
-                  <Copy className="mr-1 h-4 w-4" /> Copy
-                </Button>
-              </div>
+
+            <div className="flex flex-col items-center gap-3 rounded-lg border border-amber-200 bg-white p-4 shadow-sm">
+              <div className="text-xs uppercase font-semibold text-amber-700">Campus Out QR</div>
+              <QrCode value={campusOutUrl} size={180} className="rounded-xl border border-amber-200 bg-white p-2 shadow" />
+              <p className="text-center text-xs text-amber-700/80">
+                Stick this at the exit gate. Members scan it from the Campus In/Out page before leaving campus.
+              </p>
+            </div>
+
+            <div className="flex flex-col items-center gap-3 rounded-lg border border-emerald-200 bg-white p-4 shadow-sm">
+              <div className="text-xs uppercase font-semibold text-emerald-700">Campus In QR</div>
+              <QrCode value={campusInUrl} size={180} className="rounded-xl border border-emerald-200 bg-white p-2 shadow" />
+              <p className="text-center text-xs text-emerald-700/80">
+                Place near the entry checkpoint so returning members can scan it and mark that they are back in campus.
+              </p>
             </div>
           </div>
 
