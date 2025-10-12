@@ -40,6 +40,18 @@ const DEFAULT_AMRI_PROGRAMS = [
   { key: "MAP", label: "MAP" },
   { key: "MGHP", label: "MGHP" },
 ];
+const KNOWN_PROGRAM_KEYS = new Set([
+  "MSP",
+  "MHCP",
+  "MNP",
+  "MAP",
+  "MGHP",
+  "MOP",
+  "MOP2",
+  "NMRI",
+  "RMRI",
+  "AMRI",
+]);
 
 const DEFAULT_SCANNER_TITLE_PATTERN = /day\s*open|open\s*day|opening/i;
 const normalizeRoleKey = (value) => String(value || "").toLowerCase();
@@ -55,7 +67,101 @@ const SCANNER_ROLE_CONFIG = {
     track: "mop2",
   },
 };
-const getScannerConfig = (roleKey) => SCANNER_ROLE_CONFIG[normalizeRoleKey(roleKey)];
+const sanitizeTrackKey = (value) => {
+  const base = String(value || "").trim().toLowerCase();
+  if (!base) return "general";
+  const cleaned = base.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return cleaned || "general";
+};
+const parseScannerAction = (rawAction) => {
+  if (!rawAction) return null;
+  if (typeof rawAction === "object" && rawAction !== null) {
+    if (String(rawAction.type || "").toLowerCase() === "scanner" && rawAction.programKey) {
+      return {
+        programKey: String(rawAction.programKey).toUpperCase(),
+        track: sanitizeTrackKey(rawAction.track ?? rawAction.programTrack ?? rawAction.trackKey ?? null),
+        explicit: true,
+      };
+    }
+    return null;
+  }
+  const text = String(rawAction).trim();
+  if (!text) return null;
+  try {
+    const parsed = JSON.parse(text);
+    return parseScannerAction(parsed);
+  } catch {}
+  const match = text.match(/^scanner\s*:\s*([A-Za-z0-9_-]+)(?:\s*:\s*([A-Za-z0-9_-]+))?/i);
+  if (match) {
+    return {
+      programKey: match[1].toUpperCase(),
+      track: sanitizeTrackKey(match[2] || null),
+      explicit: true,
+    };
+  }
+  return null;
+};
+const deriveScannerConfigFromRole = (roleKey, bundle = null) => {
+  const preset = SCANNER_ROLE_CONFIG[normalizeRoleKey(roleKey)];
+  if (preset) return { ...preset, explicit: preset.explicit ?? false };
+  const guessProgramKey = () => {
+    if (!bundle) return null;
+    const bucket = new Set();
+    const collect = (value) => {
+      if (!value) return;
+      const upper = String(value).toUpperCase().trim();
+      if (!upper) return;
+      bucket.add(upper);
+      bucket.add(upper.replace(/[^A-Z0-9]/g, ""));
+      upper.split(/[^A-Z0-9]+/).forEach((token) => {
+        if (token) bucket.add(token);
+      });
+    };
+    collect(bundle.program?.name);
+    collect(bundle.subCategory);
+    collect(bundle.roleName);
+    collect(bundle.roleKey);
+    collect(bundle.category);
+    for (const candidate of bucket) {
+      if (KNOWN_PROGRAM_KEYS.has(candidate)) return candidate;
+    }
+    return null;
+  };
+  const programKey = String(bundle?.program?.programKey || guessProgramKey() || "").trim().toUpperCase();
+  if (!programKey) return null;
+  const trackSource =
+    bundle?.program?.track ??
+    bundle?.subCategory ??
+    bundle?.program?.name ??
+    bundle?.roleName ??
+    bundle?.roleKey;
+  return {
+    titlePattern: DEFAULT_SCANNER_TITLE_PATTERN,
+    programKey,
+    track: sanitizeTrackKey(trackSource),
+    explicit: false,
+  };
+};
+const resolveScannerConfig = (roleInfo, task = null) => {
+  const roleKey = typeof roleInfo === "string" ? roleInfo : roleInfo?.roleKey;
+  const bundle = typeof roleInfo === "string" ? null : roleInfo;
+  if (!roleKey) return null;
+  if (task) {
+    const actionConfig = parseScannerAction(task.action);
+    if (actionConfig) {
+      const fallback = deriveScannerConfigFromRole(roleKey, bundle);
+      const track =
+        actionConfig.track === "general" && fallback?.track ? fallback.track : actionConfig.track;
+      return {
+        titlePattern: DEFAULT_SCANNER_TITLE_PATTERN,
+        programKey: actionConfig.programKey,
+        track,
+        explicit: true,
+      };
+    }
+  }
+  return deriveScannerConfigFromRole(roleKey, bundle);
+};
 const getSessionStorageKey = (roleKey) => {
   const normalized = normalizeRoleKey(roleKey);
   return normalized ? `mri:session:${normalized}` : null;
@@ -114,9 +220,30 @@ export default function MyMRIs() {
     session?.user?.id ? "/api/member/mris/role-tasks" : null,
     fetcher
   );
+  const allRoleBundles = useMemo(
+    () => (Array.isArray(roleTasksData?.roles) ? roleTasksData.roles : []),
+    [roleTasksData]
+  );
 
   const todayIso = useMemo(() => format(new Date(), "yyyy-MM-dd"), []);
   const isIprFlowActive = isRoleExecuteOpen && selectedExecKind === 'ipr';
+  const activeRoleKey = normalizeRoleKey(selectedRoleBundle?.roleKey || scanPanel.roleKey);
+  const activeRoleBundle = useMemo(() => {
+    if (!activeRoleKey) return null;
+    if (selectedRoleBundle && normalizeRoleKey(selectedRoleBundle.roleKey) === activeRoleKey) {
+      return selectedRoleBundle;
+    }
+    return allRoleBundles.find((bundle) => normalizeRoleKey(bundle.roleKey) === activeRoleKey) || null;
+  }, [activeRoleKey, selectedRoleBundle, allRoleBundles]);
+  const activeScannerConfig = useMemo(() => {
+    if (!activeRoleKey) return null;
+    const roleContext = selectedRoleBundle || activeRoleBundle || { roleKey: activeRoleKey };
+    if (selectedExecKind === 'scanner' && selectedExecTask) {
+      const specific = resolveScannerConfig(roleContext, selectedExecTask);
+      if (specific) return specific;
+    }
+    return resolveScannerConfig(roleContext, null);
+  }, [activeRoleKey, selectedRoleBundle, activeRoleBundle, selectedExecKind, selectedExecTask]);
 
   const { data: iprUsersData } = useSWR(
     isIprFlowActive ? "/api/member/users" : null,
@@ -128,11 +255,8 @@ export default function MyMRIs() {
     fetcher
   );
 
-  const activeRoleKey = normalizeRoleKey(selectedRoleBundle?.roleKey);
-  const activeScannerConfig = getScannerConfig(activeRoleKey);
-
   const { amriRoleBundles, rmriRoleBundles, omriRoleBundles, otherRoleBundles } = useMemo(() => {
-    const bundles = Array.isArray(roleTasksData?.roles) ? roleTasksData.roles : [];
+    const bundles = allRoleBundles;
     const amri = [];
     const rmri = [];
     const omri = [];
@@ -145,7 +269,7 @@ export default function MyMRIs() {
       else other.push(bundle);
     }
     return { amriRoleBundles: amri, rmriRoleBundles: rmri, omriRoleBundles: omri, otherRoleBundles: other };
-  }, [roleTasksData]);
+  }, [allRoleBundles]);
 
   const amriProgramOptions = useMemo(() => {
     const map = new Map();
@@ -340,21 +464,25 @@ export default function MyMRIs() {
 
   // If role details modal is open but selectedRoleBundle lacks tasks, hydrate from latest roleTasksData
   useEffect(() => {
-    if (!rRoleModalOpen || !selectedRoleBundle || !roleTasksData?.roles) return;
+    if (!rRoleModalOpen || !selectedRoleBundle) return;
     if (Array.isArray(selectedRoleBundle.tasks) && selectedRoleBundle.tasks.length > 0) return;
-    const rb = (roleTasksData.roles || []).find(r => String(r.roleKey) === String(selectedRoleBundle.roleKey));
+    if (!allRoleBundles.length) return;
+    const rb = allRoleBundles.find((r) => String(r.roleKey) === String(selectedRoleBundle.roleKey));
     if (rb) setSelectedRoleBundle(rb);
-  }, [rRoleModalOpen, selectedRoleBundle, roleTasksData]);
+  }, [rRoleModalOpen, selectedRoleBundle, allRoleBundles]);
 
   // Decide execution kind for a role task (temporary router until schema supports it)
-  const getExecutionKind = (roleKey, task) => {
-  const rk = normalizeRoleKey(roleKey);
-  const title = String(task?.title || '').toLowerCase();
-  const scannerConfig = getScannerConfig(rk);
-  if (scannerConfig && scannerConfig.titlePattern.test(title)) return 'scanner';
-  if (rk === 'team_day_close_moderator' && /leaderboard/.test(title)) return 'ipr';
-  return 'none';
-};
+  const getExecutionKind = (roleInfo, task) => {
+    const rk = normalizeRoleKey(typeof roleInfo === 'string' ? roleInfo : roleInfo?.roleKey);
+    const title = String(task?.title || '').toLowerCase();
+    const scannerConfig = resolveScannerConfig(roleInfo, task);
+    if (scannerConfig) {
+      if (scannerConfig.explicit === true) return 'scanner';
+      if (scannerConfig.titlePattern?.test?.(title)) return 'scanner';
+    }
+    if (rk === 'team_day_close_moderator' && /leaderboard/.test(title)) return 'ipr';
+    return 'none';
+  };
 
   useEffect(() => {
     if (!isIprFlowActive) {
@@ -574,7 +702,7 @@ export default function MyMRIs() {
 
   // Restore scanner session per role when reopening execution surfaces
   useEffect(() => {
-    if (!activeRoleKey || !activeScannerConfig) return;
+    if (!activeRoleKey) return;
     if (!(rRoleModalOpen || isRoleExecuteOpen)) return;
     if (scanPanel.session?.id && scanPanel.roleKey === activeRoleKey) return;
     const restored = loadModeratorSession(activeRoleKey);
@@ -732,11 +860,33 @@ export default function MyMRIs() {
     }
   };
 
+  const formatTaskAction = (action) => {
+    if (!action) return null;
+    if (typeof action === 'string') return action;
+    if (typeof action === 'object') {
+      const { type, programKey, track, label } = action;
+      if (type === 'scanner') {
+        const parts = ['scanner'];
+        if (programKey) parts.push(String(programKey).toUpperCase());
+        if (track && String(track).toLowerCase() !== 'general') parts.push(String(track));
+        return parts.join(': ');
+      }
+      if (label) return String(label);
+      try {
+        return JSON.stringify(action);
+      } catch {
+        return '[action]';
+      }
+    }
+    return String(action);
+  };
+
   // Local component to render a task card with hooks safely
-  const TaskCard = ({ task: t, roleKey }) => {
+  const TaskCard = ({ task: t, roleBundle }) => {
     const cd = useTaskCountdown(t);
     const badge = availabilityBadge(t);
     const bcls = badge.tone==='green' ? 'bg-emerald-100 text-emerald-800' : badge.tone==='amber' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-800';
+    const actionLabel = formatTaskAction(t.action);
     return (
       <div className="bg-rose-50/70 border border-rose-100 rounded-xl p-3 snap-start">
         <div className="font-semibold text-rose-900 flex items-center gap-2">
@@ -765,7 +915,11 @@ export default function MyMRIs() {
             </ol>
           </div>
         )}
-        {t.action && <div className="text-[12px] text-gray-700 mt-2"><span className="font-semibold">Action:</span> {t.action}</div>}
+        {actionLabel && (
+          <div className="text-[12px] text-gray-700 mt-2">
+            <span className="font-semibold">Action:</span> {actionLabel}
+          </div>
+        )}
         <div className="mt-2">
           <button
             className="px-3 py-1.5 rounded text-white text-xs disabled:opacity-50 disabled:cursor-not-allowed"
@@ -774,7 +928,7 @@ export default function MyMRIs() {
             title={isWithinTaskWindow(t) ? 'Execute this task' : 'Outside allowed time window'}
             onClick={() => {
               setSelectedExecTask(t);
-              setSelectedExecKind(getExecutionKind(roleKey, t));
+              setSelectedExecKind(getExecutionKind(roleBundle, t));
               setRRoleModalOpen(false);
               setIsRoleExecuteOpen(true);
             }}
@@ -1838,7 +1992,7 @@ export default function MyMRIs() {
                         {selectedRoleBundle.tasks.map((t) => {
                           const nt = normalizeTask(t);
                           return (
-                            <TaskCard key={nt.id ?? t.id} task={nt} roleKey={selectedRoleBundle.roleKey} />
+                            <TaskCard key={nt.id ?? t.id} task={nt} roleBundle={selectedRoleBundle} />
                           );
                         })}
                       </div>

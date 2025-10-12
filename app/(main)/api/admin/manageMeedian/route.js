@@ -44,9 +44,11 @@ import {
   slotWeeklyRoles,
   slotRoleAssignments,
   managerSectionGrants,
+  campusGateStaffLogs,
+  guardianGateLogs,
   nmriTodRoleEnum,
 } from "@/lib/schema";
-import { eq, or, inArray, and, sql } from "drizzle-orm";
+import { eq, or, inArray, and, sql, gte, lt, desc } from "drizzle-orm";
 import bcrypt from "bcrypt";
 import formidable from 'formidable';
 import fetch from 'node-fetch';
@@ -97,6 +99,8 @@ export async function GET(req) {
   "openCloseTimes",
   "userOpenCloseTimes",
   "randomsLab",
+  "campusGateStaff",
+  "guardianGateLogs",
 ]);
   if (memberReadable.has(section)) {
     if (!session || !["admin", "team_manager", "member"].includes(session.user?.role)) {
@@ -619,6 +623,94 @@ export async function GET(req) {
       return NextResponse.json({ days: rows }, { status: 200 });
     }
 
+    if (section === "campusGateStaff") {
+      const dateParam = searchParams.get("date");
+      const targetDate = dateParam ? new Date(dateParam) : new Date();
+      if (Number.isNaN(targetDate.getTime())) {
+        return NextResponse.json({ error: "Invalid date" }, { status: 400 });
+      }
+      const dayStart = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate());
+      const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+
+      const rows = await db
+        .select({
+          id: campusGateStaffLogs.id,
+          userId: campusGateStaffLogs.userId,
+          userName: users.name,
+          direction: campusGateStaffLogs.direction,
+          purpose: campusGateStaffLogs.purpose,
+          recordedAt: campusGateStaffLogs.recordedAt,
+        })
+        .from(campusGateStaffLogs)
+        .innerJoin(users, eq(users.id, campusGateStaffLogs.userId))
+        .where(
+          and(
+            gte(campusGateStaffLogs.recordedAt, dayStart),
+            lt(campusGateStaffLogs.recordedAt, dayEnd)
+          )
+        )
+        .orderBy(desc(campusGateStaffLogs.recordedAt));
+
+      const logs = rows.map((row) => ({
+        id: row.id,
+        userId: row.userId,
+        userName: row.userName,
+        direction: row.direction,
+        purpose: row.purpose,
+        recordedAt: row.recordedAt instanceof Date ? row.recordedAt.toISOString() : row.recordedAt,
+      }));
+
+      return NextResponse.json({ logs }, { status: 200 });
+    }
+
+    if (section === "guardianGateLogs") {
+      const dateParam = searchParams.get("date");
+      const targetDate = dateParam ? new Date(dateParam) : new Date();
+      if (Number.isNaN(targetDate.getTime())) {
+        return NextResponse.json({ error: "Invalid date" }, { status: 400 });
+      }
+      const dayKey = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, "0")}-${String(targetDate.getDate()).padStart(2, "0")}`;
+
+      const rows = await db
+        .select({
+          id: guardianGateLogs.id,
+          visitDate: guardianGateLogs.visitDate,
+          guardianName: guardianGateLogs.guardianName,
+          studentName: guardianGateLogs.studentName,
+          className: guardianGateLogs.className,
+          purpose: guardianGateLogs.purpose,
+          inAt: guardianGateLogs.inAt,
+          outAt: guardianGateLogs.outAt,
+          signature: guardianGateLogs.signature,
+          createdBy: guardianGateLogs.createdBy,
+          createdAt: guardianGateLogs.createdAt,
+          updatedAt: guardianGateLogs.updatedAt,
+          createdByName: users.name,
+        })
+        .from(guardianGateLogs)
+        .leftJoin(users, eq(users.id, guardianGateLogs.createdBy))
+        .where(eq(guardianGateLogs.visitDate, dayKey))
+        .orderBy(desc(guardianGateLogs.createdAt));
+
+      const entries = rows.map((row) => ({
+        id: row.id,
+        visitDate: row.visitDate instanceof Date ? row.visitDate.toISOString().slice(0, 10) : row.visitDate,
+        guardianName: row.guardianName,
+        studentName: row.studentName,
+        className: row.className,
+        purpose: row.purpose,
+        inAt: row.inAt instanceof Date ? row.inAt.toISOString() : row.inAt,
+        outAt: row.outAt instanceof Date ? row.outAt.toISOString() : row.outAt,
+        signature: row.signature,
+        createdBy: row.createdBy,
+        createdByName: row.createdByName,
+        createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : row.createdAt,
+        updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : row.updatedAt,
+      }));
+
+      return NextResponse.json({ entries }, { status: 200 });
+    }
+
     // Note: DELETE handlers for mspCodes and mspCodeAssignments are implemented under DELETE, not GET.
 
     return NextResponse.json({ error: "Invalid section" }, { status: 400 });
@@ -679,6 +771,7 @@ export async function POST(req) {
         "programPeriods","programScheduleCells",
         "mriReportTemplates","mriReportAssignments",
         "openCloseTimes","userOpenCloseTimes",
+        "guardianGateLogs",
       ]);
       if (sec !== 'upload' && sec !== 'controlsShare') {
         if (!allowedWrite.has(sec)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -719,6 +812,100 @@ export async function POST(req) {
         }
       }
       return NextResponse.json({ upserts, deletes }, { status: 200 });
+    }
+    if (section === "guardianGateLogs") {
+      const visitDateRaw = typeof body?.visitDate === "string" ? body.visitDate.trim() : "";
+      const guardianName = typeof body?.guardianName === "string" ? body.guardianName.trim() : "";
+      const studentName = typeof body?.studentName === "string" ? body.studentName.trim() : "";
+      const className = typeof body?.className === "string" ? body.className.trim() : "";
+      const purpose = typeof body?.purpose === "string" ? body.purpose.trim() : "";
+      const signature = typeof body?.signature === "string" ? body.signature.trim() : "";
+
+      if (!visitDateRaw) {
+        return NextResponse.json({ error: "visitDate is required" }, { status: 400 });
+      }
+      const visitDate = new Date(visitDateRaw);
+      if (Number.isNaN(visitDate.getTime())) {
+        return NextResponse.json({ error: "Invalid visitDate" }, { status: 400 });
+      }
+      if (!guardianName || !studentName || !className || !purpose) {
+        return NextResponse.json({ error: "guardianName, studentName, className, and purpose are required" }, { status: 400 });
+      }
+
+      const parseTime = (raw) => {
+        if (!raw || (typeof raw === "string" && !raw.trim())) return null;
+        const value = typeof raw === "string" ? raw.trim() : String(raw);
+        if (!value) return null;
+        // Accept ISO strings or time-only values
+        const isoCandidate = value.includes("T") ? value : `${visitDateRaw}T${value}`;
+        const parsed = new Date(isoCandidate);
+        if (!Number.isNaN(parsed.getTime())) return parsed;
+        const parts = value.split(":").map((part) => Number(part));
+        if (parts.length >= 2 && parts.every((num) => Number.isFinite(num))) {
+          return new Date(
+            visitDate.getFullYear(),
+            visitDate.getMonth(),
+            visitDate.getDate(),
+            parts[0],
+            parts[1],
+            parts[2] || 0,
+            0
+          );
+        }
+        return null;
+      };
+
+      const inAt = parseTime(body?.inTime ?? body?.in_at);
+      const outAt = parseTime(body?.outTime ?? body?.out_at);
+
+      const now = new Date();
+
+      const [entry] = await db
+        .insert(guardianGateLogs)
+        .values({
+          visitDate: visitDateRaw,
+          guardianName,
+          studentName,
+          className,
+          purpose,
+          inAt,
+          outAt,
+          signature: signature || null,
+          createdBy: Number(session.user.id),
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning({
+          id: guardianGateLogs.id,
+          visitDate: guardianGateLogs.visitDate,
+          guardianName: guardianGateLogs.guardianName,
+          studentName: guardianGateLogs.studentName,
+          className: guardianGateLogs.className,
+          purpose: guardianGateLogs.purpose,
+          inAt: guardianGateLogs.inAt,
+          outAt: guardianGateLogs.outAt,
+          signature: guardianGateLogs.signature,
+          createdBy: guardianGateLogs.createdBy,
+          createdAt: guardianGateLogs.createdAt,
+          updatedAt: guardianGateLogs.updatedAt,
+        });
+
+      return NextResponse.json(
+        {
+          entry: {
+            ...entry,
+            visitDate:
+              entry.visitDate instanceof Date
+                ? entry.visitDate.toISOString().slice(0, 10)
+                : entry.visitDate,
+            inAt: entry.inAt instanceof Date ? entry.inAt.toISOString() : entry.inAt,
+            outAt: entry.outAt instanceof Date ? entry.outAt.toISOString() : entry.outAt,
+            createdAt: entry.createdAt instanceof Date ? entry.createdAt.toISOString() : entry.createdAt,
+            updatedAt: entry.updatedAt instanceof Date ? entry.updatedAt.toISOString() : entry.updatedAt,
+          },
+        },
+        { status: 200 }
+      );
     }
     if (section === "mriReportAssignments") {
       await ensurePtTemplate();
@@ -1941,7 +2128,7 @@ export async function DELETE(req) {
     // Team manager write-gating across admin sections
     if (session.user?.role === 'team_manager') {
       const allowedWrite = new Set([
-        "slots","mspCodes","mspCodeAssignments","metaFamilies","mriReportAssignments",
+        "slots","mspCodes","mspCodeAssignments","metaFamilies","mriReportAssignments","guardianGateLogs",
       ]);
       if (!allowedWrite.has(section)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
       const wr = await db
@@ -1988,6 +2175,14 @@ export async function DELETE(req) {
       const id = Number(body?.id);
       if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
       await db.delete(mriReportAssignments).where(eq(mriReportAssignments.id, id));
+      return NextResponse.json({ deleted: 1 }, { status: 200 });
+    }
+
+    if (section === "guardianGateLogs") {
+      const idParam = body?.id ?? searchParams.get("id");
+      const id = Number(idParam);
+      if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+      await db.delete(guardianGateLogs).where(eq(guardianGateLogs.id, id));
       return NextResponse.json({ deleted: 1 }, { status: 200 });
     }
 

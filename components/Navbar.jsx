@@ -16,6 +16,7 @@ import {
   ClipboardList,
   ClipboardCheck,
   AlertTriangle,
+  DoorOpen,
   CalendarCheck2,
   CalendarX2,
   Calendar,
@@ -773,6 +774,18 @@ export default function Navbar() {
             <span className="row-main">
               <span className="row-title text-sm sm:text-base">Open Your Day</span>
               <span className="row-sub text-[11px] sm:text-xs">Scan moderator’s session or share your code</span>
+            </span>
+            <ArrowRight size={16} className="row-go" />
+          </button>
+
+          <button
+            className="action-row sm:py-3 sm:px-3 py-2 px-2"
+            onClick={() => { setIsProfileOpen(false); router.push("/dashboard/member/gate"); }}
+          >
+            <span className="row-icon"><DoorOpen size={18} /></span>
+            <span className="row-main">
+              <span className="row-title text-sm sm:text-base">Campus In / Out</span>
+              <span className="row-sub text-[11px] sm:text-xs">Choose to log exit or confirm your return</span>
             </span>
             <ArrowRight size={16} className="row-go" />
           </button>

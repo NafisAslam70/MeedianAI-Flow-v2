@@ -67,6 +67,16 @@ const groups = [
 			},
 		],
 	},
+	{
+		title: "Operations",
+		items: [
+			{
+				href: "/dashboard/admin/manageMeedian/daily-reports/gate-logs",
+				label: "Daily Gate Logs",
+				icon: ClipboardList,
+			},
+		],
+	},
 	// Programs rendered dynamically; Academics excludes Slots/TOD
 	{
 		title: "Academics",
@@ -187,12 +197,13 @@ export default function AdminSidebar() {
 						if (h.endsWith('/mri-programs')) return 'metaPrograms';
 						if (h.endsWith('/mri-reports')) return ['mriReportTemplates','mriReportAssignments'];
 						if (h.endsWith('/msp-codes')) return 'mspCodes';
-						if (h.endsWith('/class-teachers')) return 'classTeachers';
-						if (h.endsWith('/team')) return 'team';
-						if (h.endsWith('/students')) return 'students';
-						if (h.endsWith('/randoms')) return 'randomsLab';
-						return null;
-					};
+				if (h.endsWith('/class-teachers')) return 'classTeachers';
+				if (h.endsWith('/team')) return 'team';
+				if (h.endsWith('/students')) return 'students';
+				if (h.endsWith('/randoms')) return 'randomsLab';
+				if (h.includes('/daily-reports/gate-logs')) return ['campusGateStaff','guardianGateLogs'];
+				return null;
+			};
 					const sec = mapHrefToSection(href);
 					let disabled = false;
 					if (role === 'team_manager' && sec) {

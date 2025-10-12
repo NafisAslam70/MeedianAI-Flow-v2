@@ -102,6 +102,13 @@ export default function ControlsSharePage() {
       description: 'PT daily report template plus report holder assignments.',
     },
     {
+      key: 'gateLogs',
+      label: 'Daily Gate Logs',
+      sections: ['campusGateStaff','guardianGateLogs'],
+      doables: ['View team gate scans', 'Enter guardian/visitor ledger'],
+      description: 'Campus in/out records for team members and guardian visitors.',
+    },
+    {
       key: 'mspCodes',
       label: 'MSP Codes',
       sections: ['mspCodes','mspCodeAssignments'],

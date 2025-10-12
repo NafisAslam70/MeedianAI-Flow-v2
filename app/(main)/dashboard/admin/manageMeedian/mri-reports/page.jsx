@@ -97,6 +97,39 @@ export default function ManageMriReportsPage() {
           </div>
         </CardBody>
       </Card>
+
+      <Card>
+        <CardHeader>
+          <h2 className="text-base font-semibold text-gray-900">Daily Gate Logs</h2>
+          <p className="text-sm text-gray-600">
+            Monitor team member gate scans and maintain guardian/visitor in-out registers from a single console.
+          </p>
+        </CardHeader>
+        <CardBody>
+          <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-3">
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Team logs</p>
+              <p className="mt-1 text-sm font-semibold text-gray-900">QR driven</p>
+              <p className="text-xs text-gray-500">Members scan OUT with a reason and IN on return.</p>
+            </div>
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Guardian ledger</p>
+              <p className="mt-1 text-sm font-semibold text-gray-900">Manual entry</p>
+              <p className="text-xs text-gray-500">Digitise the visitors register with quick forms.</p>
+            </div>
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Access control</p>
+              <p className="mt-1 text-sm font-semibold text-gray-900">Grant by section</p>
+              <p className="text-xs text-gray-500">Limit entry to designated office assistants.</p>
+            </div>
+          </div>
+          <div className="mt-4">
+            <Button variant="secondary" onClick={() => router.push("/dashboard/admin/manageMeedian/daily-reports/gate-logs")}>
+              Open Daily Gate Logs
+            </Button>
+          </div>
+        </CardBody>
+      </Card>
     </div>
   );
 }

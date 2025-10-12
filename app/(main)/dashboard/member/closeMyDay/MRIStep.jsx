@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { AnimatePresence, motion } from "framer-motion";
 import { CheckCircle, AlertCircle, X, ChevronDown, ChevronUp } from "lucide-react";
@@ -58,9 +58,9 @@ const PT_CCD_COLUMNS = [
   { key: "period", label: "Period" },
   { key: "subject", label: "Subject" },
   { key: "topic", label: "Topic" },
-  { key: "classwork", label: "Classwork (What happened)" },
-  { key: "homework", label: "Homework (Assigned)" },
-  { key: "teacherSignature", label: "Teacher Sign" },
+  { key: "classwork", label: "C.W. (what happened)" },
+  { key: "homework", label: "H.W. (assigned)" },
+  { key: "teacherSignature", label: "T.S." },
   { key: "monitorInitials", label: "Monitor Initials" },
 ];
 
@@ -71,6 +71,243 @@ const PT_ATTENDANCE_COLUMNS = [
   { key: "absentCount", label: "Absent Count" },
   { key: "notes", label: "Notes" },
 ];
+
+const YES_NO_OPTIONS = ["", "Yes", "No"];
+const ATTENDANCE_APPLICATION_REASONS = ["Sickness", "Family Event", "Out of Station", "Other"];
+const DEFAULT_APPLICATION_FOLLOWUP = "Please collect application tomorrow.";
+const PT_CDD_EDIT_HEADERS = [
+  { id: "date", label: "Date", type: "date" },
+  {
+    id: "assemblyUniformDefaulters",
+    label: "Assembly/Uniform Defaulters",
+    type: "chips",
+    placeholder: "Sajid, Zaki",
+  },
+  { id: "languageDefaulters", label: "Language Defaulters", type: "chips", placeholder: "None" },
+  { id: "homeworkDefaulters", label: "Homework Defaulters", type: "chips", placeholder: "None" },
+  { id: "disciplineDefaulters", label: "Discipline Defaulters", type: "chips", placeholder: "None" },
+  { id: "bestStudentOfDay", label: "Best Student of the Day", type: "chips", placeholder: "Zaki; Ahmad" },
+  { id: "absentStudents", label: "Absent Students", type: "chips", placeholder: "None" },
+  { id: "teacherSigned", label: "CT Sign", type: "select", options: ["Yes", "No"] },
+  { id: "principalStamp", label: "Principal Stamp", type: "select", options: ["Yes", "No"] },
+];
+const PT_CCD_EDIT_HEADERS = [
+  { id: "period", label: "Period", type: "text", placeholder: "1" },
+  { id: "subject", label: "Subject", type: "text", placeholder: "Math" },
+  { id: "topic", label: "Topic", type: "text", placeholder: "Ch-3 Fractions" },
+  { id: "classwork", label: "C.W. (what happened)", type: "textarea", placeholder: "Test taken" },
+  { id: "homework", label: "H.W. (assigned)", type: "textarea", placeholder: "Memorise Ques/Ans" },
+  { id: "teacherSignature", label: "T.S.", type: "select", options: ["Yes", "No"] },
+  { id: "monitorInitials", label: "Monitor Initials", type: "select", options: ["Yes", "No"] },
+];
+const PT_ATTENDANCE_EDIT_HEADERS = [
+  { id: "session", label: "Session", type: "text", placeholder: "Morning" },
+  { id: "absentStudents", label: "Absent Students", type: "chips", placeholder: "None" },
+  { id: "presentCount", label: "Present Count", type: "readonly" },
+  { id: "absentCount", label: "Absent Count", type: "readonly" },
+  { id: "notes", label: "Notes", type: "textarea", placeholder: "Applications submitted by..." },
+];
+
+const PT_SECTION_KEY_MAP = {
+  cdd: "cddRows",
+  ccd: "ccdRows",
+  attendance: "attendanceRows",
+};
+const PT_SECTION_LABELS = {
+  cdd: "Class Discipline Diary (CDD)",
+  ccd: "Class Curriculum Diary (CCD)",
+  attendance: "Attendance Snapshot",
+};
+const CDD_MULTI_FIELDS = new Set([
+  "assemblyUniformDefaulters",
+  "languageDefaulters",
+  "homeworkDefaulters",
+  "disciplineDefaulters",
+  "bestStudentOfDay",
+  "absentStudents",
+]);
+const CCD_TEXTAREA_FIELDS = new Set(["classwork", "homework"]);
+const CCD_SELECT_FIELDS = new Set(["teacherSignature", "monitorInitials"]);
+const CDD_SELECT_FIELDS = new Set(["teacherSigned", "principalStamp"]);
+const ATTENDANCE_MULTI_FIELDS = new Set(["absentStudents"]);
+
+const normalizeYesNo = (value) => {
+  if (value === "Yes" || value === "No") return value;
+  if (value === true) return "Yes";
+  if (value === false) return "No";
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return "";
+  if (["yes", "y", "1", "true"].includes(raw)) return "Yes";
+  if (["no", "n", "0", "false"].includes(raw)) return "No";
+  return "";
+};
+
+const ensureArray = (value) => {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => String(item || "").trim())
+      .filter((item) => item.length > 0);
+  }
+  if (!value) return [];
+  return String(value)
+    .split(/[\n,]/)
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+};
+
+const multiValueToString = (value) => {
+  const list = ensureArray(value);
+  return list.join(", ");
+};
+
+const parseMultiValueInput = (value) => {
+  if (Array.isArray(value)) return ensureArray(value);
+  return ensureArray(value);
+};
+
+const toDateInputValue = (value) => {
+  if (!value) return "";
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+    return value.trim();
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toISOString().slice(0, 10);
+};
+
+const sanitizePtPayload = (payload) => {
+  const source = payload && typeof payload === "object" ? payload : {};
+  const result = { ...source };
+
+  const cddRowsSource = Array.isArray(source.cddRows) ? source.cddRows : [];
+  result.cddRows = cddRowsSource.map((row) => {
+    const nextRow = { ...(row || {}) };
+    nextRow.date = row?.date ? toDateInputValue(row.date) || String(row.date) : "";
+    nextRow.assemblyUniformDefaulters = ensureArray(row?.assemblyUniformDefaulters);
+    nextRow.languageDefaulters = ensureArray(row?.languageDefaulters);
+    nextRow.homeworkDefaulters = ensureArray(row?.homeworkDefaulters);
+    nextRow.disciplineDefaulters = ensureArray(row?.disciplineDefaulters);
+    nextRow.bestStudentOfDay = ensureArray(row?.bestStudentOfDay);
+    nextRow.absentStudents = ensureArray(row?.absentStudents);
+    nextRow.teacherSigned = normalizeYesNo(row?.teacherSigned);
+    nextRow.principalStamp = normalizeYesNo(row?.principalStamp);
+    return nextRow;
+  });
+
+  const ccdRowsSource = Array.isArray(source.ccdRows) ? source.ccdRows : [];
+  result.ccdRows = ccdRowsSource.map((row) => {
+    const nextRow = { ...(row || {}) };
+    nextRow.period = row?.period != null ? String(row.period) : "";
+    nextRow.subject = row?.subject != null ? String(row.subject) : "";
+    nextRow.topic = row?.topic != null ? String(row.topic) : "";
+    nextRow.classwork = row?.classwork != null ? String(row.classwork) : "";
+    nextRow.homework = row?.homework != null ? String(row.homework) : "";
+    nextRow.teacherSignature = normalizeYesNo(row?.teacherSignature);
+    nextRow.monitorInitials = normalizeYesNo(row?.monitorInitials);
+    return nextRow;
+  });
+
+  const attendanceRowsSource = Array.isArray(source.attendanceRows) ? source.attendanceRows : [];
+  result.attendanceRows = attendanceRowsSource.map((row) => {
+    const nextRow = { ...(row || {}) };
+    const absentList = ensureArray(row?.absentStudents);
+    const rawDetails = row?.absenceDetails && typeof row.absenceDetails === "object" ? row.absenceDetails : {};
+    const filteredDetails = {};
+    absentList.forEach((student) => {
+      filteredDetails[student] = rawDetails[student] || {};
+    });
+    nextRow.session = row?.session != null ? String(row.session) : "";
+    nextRow.absentStudents = absentList;
+    nextRow.presentCount = row?.presentCount != null ? String(row.presentCount) : "";
+    nextRow.absentCount = row?.absentCount != null ? String(row.absentCount) : "";
+    nextRow.notes = row?.notes != null ? String(row.notes) : "";
+    nextRow.absenceDetails = filteredDetails;
+    return nextRow;
+  });
+
+  return result;
+};
+
+const buildInitialPtPayload = (payload) => {
+  let resolved = payload;
+  if (typeof resolved === "string") {
+    try {
+      resolved = JSON.parse(resolved);
+    } catch {
+      resolved = {};
+    }
+  }
+  const sanitized = sanitizePtPayload(resolved) || {};
+  return {
+    ...sanitized,
+    cddRows: Array.isArray(sanitized.cddRows) ? sanitized.cddRows : [],
+    ccdRows: Array.isArray(sanitized.ccdRows) ? sanitized.ccdRows : [],
+    attendanceRows: Array.isArray(sanitized.attendanceRows) ? sanitized.attendanceRows : [],
+  };
+};
+
+const createEmptyCddRow = (defaultDate = "") => ({
+  date: defaultDate,
+  assemblyUniformDefaulters: [],
+  languageDefaulters: [],
+  homeworkDefaulters: [],
+  disciplineDefaulters: [],
+  bestStudentOfDay: [],
+  absentStudents: [],
+  teacherSigned: "",
+  principalStamp: "",
+});
+
+const extractNumericPeriod = (value) => {
+  if (value == null) return null;
+  const match = String(value).match(/(\d+)/);
+  if (!match) return null;
+  return Number.parseInt(match[1], 10);
+};
+
+const getNextCcdPeriod = (rows) => {
+  if (!Array.isArray(rows) || rows.length === 0) return "1";
+  const max = rows.reduce((acc, row) => {
+    const current = extractNumericPeriod(row?.period);
+    return Number.isFinite(current) ? Math.max(acc, current) : acc;
+  }, 0);
+  return String(max + 1);
+};
+
+const createEmptyCcdRow = (period = "") => ({
+  period,
+  subject: "",
+  topic: "",
+  classwork: "",
+  homework: "",
+  teacherSignature: "",
+  monitorInitials: "",
+});
+
+const createEmptyAttendanceRow = () => ({
+  session: "",
+  absentStudents: [],
+  presentCount: "",
+  absentCount: "",
+  notes: "",
+  absenceDetails: {},
+});
+
+const getDefaultAttendanceDetail = () => ({
+  applicationSubmitted: "No",
+  reason: "",
+  note: DEFAULT_APPLICATION_FOLLOWUP,
+});
+
+const createEmptyRowForSection = (sectionKey) => {
+  if (sectionKey === "cddRows") {
+    return createEmptyCddRow();
+  }
+  if (sectionKey === "ccdRows") {
+    return createEmptyCcdRow();
+  }
+  return createEmptyAttendanceRow();
+};
 
 const summarizeAttendanceRow = (row) => {
   const list = Array.isArray(row?.absentStudents) ? row.absentStudents : [];
@@ -192,6 +429,8 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
   const [reportError, setReportError] = useState("");
   const [isSavingReport, setIsSavingReport] = useState(false);
   const [showConfirmationNote, setShowConfirmationNote] = useState(false);
+  const [ptEditablePayload, setPtEditablePayload] = useState(null);
+  const [ptEditModal, setPtEditModal] = useState(null);
 
   const { amriRoleBundles, rmriRoleBundles, omriRoleBundles, otherRoleBundles } = useMemo(() => {
     const amri = [];
@@ -282,6 +521,13 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
     setReportNote(report.confirmationNote || "");
     setReportError("");
     setShowConfirmationNote(Boolean(report.confirmationNote));
+    if (report?.templateKey === "pt_daily_report") {
+      setPtActiveSection("cdd");
+      setPtEditablePayload(buildInitialPtPayload(report?.payload));
+    } else {
+      setPtEditablePayload(null);
+    }
+    setPtEditModal(null);
   };
 
   const closeReportModal = () => {
@@ -289,6 +535,8 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
     setReportNote("");
     setReportError("");
     setShowConfirmationNote(false);
+    setPtEditablePayload(null);
+    setPtEditModal(null);
   };
 
   const handleReportAction = async (action) => {
@@ -296,12 +544,21 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
     setIsSavingReport(true);
     setReportError("");
     try {
+      let payloadForRequest;
+      if (isPtReport) {
+        const workingPayload = ptEditablePayload ?? buildInitialPtPayload(activeReportPayload);
+        const sanitized = sanitizePtPayload(workingPayload);
+        payloadForRequest = sanitized;
+        setPtEditablePayload(sanitized);
+      }
+
       const res = await fetch("/api/member/mri-reports", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           instanceId: activeReport.instanceId,
           action,
+          payload: payloadForRequest,
           confirmationNote: reportNote || null,
         }),
       });
@@ -309,7 +566,29 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
       if (!res.ok) {
         throw new Error(payload?.error || "Failed to update report");
       }
-      await mutateReports();
+      const updatedData = await mutateReports();
+      if (action !== "submit" && updatedData?.reports) {
+        const refreshed = updatedData.reports.find(
+          (report) => report?.instanceId === activeReport.instanceId
+        );
+        if (refreshed) {
+          setActiveReport(refreshed);
+          setReportNote(refreshed.confirmationNote || "");
+          setShowConfirmationNote(Boolean(refreshed.confirmationNote));
+          if (refreshed?.templateKey === "pt_daily_report") {
+            setPtEditablePayload(buildInitialPtPayload(refreshed.payload));
+          }
+        } else if (payloadForRequest) {
+          setActiveReport((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  payload: payloadForRequest,
+                }
+              : prev
+          );
+        }
+      }
       if (action === "submit") {
         closeReportModal();
       }
@@ -356,6 +635,52 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
 
   const isPtReport = useMemo(() => activeReport?.templateKey === "pt_daily_report", [activeReport?.templateKey]);
 
+  const ptActiveClassId = useMemo(() => {
+    if (!isPtReport) return null;
+    const directId = Number(activeReport?.class?.id);
+    if (Number.isFinite(directId) && directId > 0) return directId;
+    const metaClass = activeReport?.meta?.class;
+    const metaId = metaClass?.id ?? activeReport?.meta?.classId;
+    const parsedMetaId = Number(metaId);
+    return Number.isFinite(parsedMetaId) && parsedMetaId > 0 ? parsedMetaId : null;
+  }, [isPtReport, activeReport]);
+
+  const {
+    data: ptRosterData,
+    isLoading: isPtRosterLoading,
+  } = useSWR(
+    isPtReport && ptActiveClassId ? `/api/member/mris/students?classId=${ptActiveClassId}` : null,
+    fetcher
+  );
+
+  const ptClassStudents = useMemo(() => {
+    const list = ptRosterData?.students;
+    return Array.isArray(list) ? list : [];
+  }, [ptRosterData]);
+
+  const ptClassStudentCount = ptClassStudents.length;
+
+  const workingCddRows = useMemo(() => {
+    if (isPtReport && ptEditablePayload) {
+      return Array.isArray(ptEditablePayload.cddRows) ? ptEditablePayload.cddRows : [];
+    }
+    return activeReportCddRows;
+  }, [isPtReport, ptEditablePayload, activeReportCddRows]);
+
+  const workingCcdRows = useMemo(() => {
+    if (isPtReport && ptEditablePayload) {
+      return Array.isArray(ptEditablePayload.ccdRows) ? ptEditablePayload.ccdRows : [];
+    }
+    return activeReportCcdRows;
+  }, [isPtReport, ptEditablePayload, activeReportCcdRows]);
+
+  const workingAttendanceRows = useMemo(() => {
+    if (isPtReport && ptEditablePayload) {
+      return Array.isArray(ptEditablePayload.attendanceRows) ? ptEditablePayload.attendanceRows : [];
+    }
+    return activeReportAttendanceRows;
+  }, [isPtReport, ptEditablePayload, activeReportAttendanceRows]);
+
   useEffect(() => {
     if (isPtReport) {
       setPtActiveSection("cdd");
@@ -381,6 +706,13 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
 
   const renderNoDigitalEntriesNotice = () => {
     if (activeReportPayload) return null;
+    if (isPtReport) {
+      const hasEntries =
+        workingCddRows.length > 0 ||
+        workingCcdRows.length > 0 ||
+        workingAttendanceRows.length > 0;
+      if (hasEntries) return null;
+    }
     return (
       <pre className="rounded-xl border border-slate-200 bg-slate-50/60 p-3 text-xs text-slate-600">
         No digital entries yet. Please review the physical register before confirming.
@@ -389,7 +721,7 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
   };
 
   const renderPtCddTable = () => {
-    if (!activeReportCddRows.length) {
+    if (!workingCddRows.length) {
       return (
         <div className="flex h-full items-center justify-center text-xs text-slate-500">
           No CDD entries captured yet.
@@ -411,7 +743,7 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
             </tr>
           </thead>
           <tbody>
-            {activeReportCddRows.map((row, rowIndex) => (
+            {workingCddRows.map((row, rowIndex) => (
               <tr key={`pt-cdd-${rowIndex}`} className={rowIndex % 2 === 0 ? "bg-white" : "bg-slate-50"}>
                 <td className="px-4 py-3 align-top font-semibold text-slate-500">{rowIndex + 1}</td>
                 {PT_CDD_COLUMNS.map((column) => {
@@ -434,7 +766,7 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
   };
 
   const renderPtCcdTable = () => {
-    if (!activeReportCcdRows.length) {
+    if (!workingCcdRows.length) {
       return (
         <div className="flex h-full items-center justify-center text-xs text-slate-500">
           No CCD entries captured yet.
@@ -456,7 +788,7 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
             </tr>
           </thead>
           <tbody>
-            {activeReportCcdRows.map((row, rowIndex) => (
+            {workingCcdRows.map((row, rowIndex) => (
               <tr key={`pt-ccd-${rowIndex}`} className={rowIndex % 2 === 0 ? "bg-white" : "bg-slate-50"}>
                 <td className="px-4 py-3 align-top font-semibold text-slate-500">{rowIndex + 1}</td>
                 {PT_CCD_COLUMNS.map((column) => {
@@ -479,7 +811,7 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
   };
 
   const renderPtAttendanceTable = () => {
-    if (!activeReportAttendanceRows.length) {
+    if (!workingAttendanceRows.length) {
       return (
         <div className="flex h-full items-center justify-center text-xs text-slate-500">
           No attendance entries captured yet.
@@ -501,7 +833,7 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
             </tr>
           </thead>
           <tbody>
-            {activeReportAttendanceRows.map((row, rowIndex) => (
+            {workingAttendanceRows.map((row, rowIndex) => (
               <tr key={`pt-attendance-${rowIndex}`} className={rowIndex % 2 === 0 ? "bg-white" : "bg-slate-50"}>
                 <td className="px-4 py-3 align-top font-semibold text-slate-500">{rowIndex + 1}</td>
                 {PT_ATTENDANCE_COLUMNS.map((column) => {
@@ -526,6 +858,884 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
     );
   };
 
+  const getSectionKeyFromModal = (modal) => PT_SECTION_KEY_MAP[modal] || "cddRows";
+
+  const updatePtRow = (sectionKey, rowIndex, updater) => {
+    setPtEditablePayload((prev) => {
+      const base = prev ?? buildInitialPtPayload(activeReportPayload);
+      const next = { ...base };
+      const rows = Array.isArray(next[sectionKey]) ? [...next[sectionKey]] : [];
+      if (!rows[rowIndex]) rows[rowIndex] = {};
+      const currentRow = { ...rows[rowIndex] };
+      const patch = typeof updater === "function" ? updater(currentRow) : updater;
+      rows[rowIndex] = { ...currentRow, ...patch };
+      next[sectionKey] = rows;
+      return next;
+    });
+  };
+
+  const addPtRow = (sectionKey) => {
+    setPtEditablePayload((prev) => {
+      const base = prev ?? buildInitialPtPayload(activeReportPayload);
+      const next = { ...base };
+      const rows = Array.isArray(next[sectionKey]) ? [...next[sectionKey]] : [];
+      if (sectionKey === "cddRows") {
+        const lastDate = rows.length ? rows[rows.length - 1]?.date : formatISTDate(new Date());
+        rows.push(createEmptyCddRow(lastDate || formatISTDate(new Date())));
+      } else if (sectionKey === "ccdRows") {
+        const nextPeriod = getNextCcdPeriod(rows);
+        rows.push(createEmptyCcdRow(nextPeriod));
+      } else {
+        rows.push(createEmptyAttendanceRow());
+      }
+      next[sectionKey] = rows;
+      return next;
+    });
+  };
+
+  const removePtRow = (sectionKey, rowIndex) => {
+    setPtEditablePayload((prev) => {
+      const base = prev ?? buildInitialPtPayload(activeReportPayload);
+      const next = { ...base };
+      const rows = Array.isArray(next[sectionKey]) ? [...next[sectionKey]] : [];
+      if (rowIndex < 0 || rowIndex >= rows.length) return next;
+      rows.splice(rowIndex, 1);
+      next[sectionKey] = rows;
+      return next;
+    });
+  };
+
+  const clearPtSection = (sectionKey) => {
+    setPtEditablePayload((prev) => {
+      const base = prev ?? buildInitialPtPayload(activeReportPayload);
+      return { ...base, [sectionKey]: [] };
+    });
+  };
+
+  const setPtAbsentStudents = (rowIndex, rawList) => {
+    setPtEditablePayload((prev) => {
+      const base = prev ?? buildInitialPtPayload(activeReportPayload);
+      const next = { ...base };
+      const rows = Array.isArray(next.attendanceRows) ? [...next.attendanceRows] : [];
+      const current = { ...(rows[rowIndex] || createEmptyAttendanceRow()) };
+      const values = Array.from(
+        new Set(
+          rawList
+            .map((value) => String(value || "").trim())
+            .filter((value) => value.length > 0)
+        )
+      );
+      const existingDetails =
+        current.absenceDetails && typeof current.absenceDetails === "object" ? current.absenceDetails : {};
+      const normalizedDetails = {};
+      values.forEach((name) => {
+        normalizedDetails[name] = { ...getDefaultAttendanceDetail(), ...(existingDetails[name] || {}) };
+      });
+      const absentCount = values.length;
+      const presentCount =
+        ptClassStudentCount > 0 ? Math.max(ptClassStudentCount - absentCount, 0) : null;
+      current.absentStudents = values;
+      current.absentCount = String(absentCount);
+      if (presentCount !== null) {
+        current.presentCount = String(presentCount);
+      } else if (current.presentCount == null) {
+        current.presentCount = "";
+      }
+      current.absenceDetails = normalizedDetails;
+      rows[rowIndex] = current;
+      next.attendanceRows = rows;
+      return next;
+    });
+  };
+
+  const togglePtAbsentStudent = (rowIndex, studentName) => {
+    const normalized = String(studentName || "").trim();
+    if (!normalized) return;
+    setPtEditablePayload((prev) => {
+      const base = prev ?? buildInitialPtPayload(activeReportPayload);
+      const next = { ...base };
+      const rows = Array.isArray(next.attendanceRows) ? [...next.attendanceRows] : [];
+      const current = { ...(rows[rowIndex] || createEmptyAttendanceRow()) };
+      const list = Array.isArray(current.absentStudents) ? [...current.absentStudents] : [];
+      const details =
+        current.absenceDetails && typeof current.absenceDetails === "object"
+          ? { ...current.absenceDetails }
+          : {};
+      const idx = list.findIndex((name) => name === normalized);
+      if (idx >= 0) {
+        list.splice(idx, 1);
+        delete details[normalized];
+      } else {
+        list.push(normalized);
+        details[normalized] = { ...getDefaultAttendanceDetail(), ...(details[normalized] || {}) };
+      }
+      const uniqueList = Array.from(new Set(list));
+      const absentCount = uniqueList.length;
+      const presentCount =
+        ptClassStudentCount > 0 ? Math.max(ptClassStudentCount - absentCount, 0) : null;
+      current.absentStudents = uniqueList;
+      current.absentCount = String(absentCount);
+      if (presentCount !== null) {
+        current.presentCount = String(presentCount);
+      } else if (current.presentCount == null) {
+        current.presentCount = "";
+      }
+      current.absenceDetails = details;
+      rows[rowIndex] = current;
+      next.attendanceRows = rows;
+      return next;
+    });
+  };
+
+  const updatePtAttendanceDetail = (rowIndex, studentName, patch) => {
+    if (!studentName) return;
+    setPtEditablePayload((prev) => {
+      const base = prev ?? buildInitialPtPayload(activeReportPayload);
+      const next = { ...base };
+      const rows = Array.isArray(next.attendanceRows) ? [...next.attendanceRows] : [];
+      const current = { ...(rows[rowIndex] || createEmptyAttendanceRow()) };
+      const normalized = String(studentName || "").trim();
+      if (!normalized) return next;
+      const details = current.absenceDetails && typeof current.absenceDetails === "object" ? { ...current.absenceDetails } : {};
+      const existing = { ...getDefaultAttendanceDetail(), ...(details[normalized] || {}) };
+      const updated = { ...existing, ...(patch || {}) };
+      if (updated.applicationSubmitted === "No") {
+        updated.reason = "";
+        if (!updated.note) {
+          updated.note = DEFAULT_APPLICATION_FOLLOWUP;
+        }
+      }
+      details[normalized] = updated;
+      current.absenceDetails = details;
+      rows[rowIndex] = current;
+      next.attendanceRows = rows;
+      return next;
+    });
+  };
+
+  const setPtChipValues = (sectionKey, rowIndex, fieldId, rawList) => {
+    setPtEditablePayload((prev) => {
+      const base = prev ?? buildInitialPtPayload(activeReportPayload);
+      const next = { ...base };
+      const rows = Array.isArray(next[sectionKey]) ? [...next[sectionKey]] : [];
+      const current = { ...(rows[rowIndex] || createEmptyRowForSection(sectionKey)) };
+      const values = rawList
+        .map((value) => String(value || "").trim())
+        .filter((value) => value.length > 0);
+      current[fieldId] = values;
+      rows[rowIndex] = current;
+      next[sectionKey] = rows;
+      return next;
+    });
+  };
+
+  const togglePtChipValue = (sectionKey, rowIndex, fieldId, label) => {
+    const normalized = String(label || "").trim();
+    if (!normalized) return;
+    setPtEditablePayload((prev) => {
+      const base = prev ?? buildInitialPtPayload(activeReportPayload);
+      const next = { ...base };
+      const rows = Array.isArray(next[sectionKey]) ? [...next[sectionKey]] : [];
+      const current = { ...(rows[rowIndex] || createEmptyRowForSection(sectionKey)) };
+      const list = Array.isArray(current[fieldId]) ? [...current[fieldId]] : [];
+      const idx = list.findIndex((value) => value === normalized);
+      if (idx >= 0) {
+        list.splice(idx, 1);
+      } else {
+        list.push(normalized);
+      }
+      current[fieldId] = Array.from(new Set(list));
+      rows[rowIndex] = current;
+      next[sectionKey] = rows;
+      return next;
+    });
+  };
+
+  const handleOpenPtEditModal = (section) => {
+    if (!section || !isPtReport || !canEditPtReport) return;
+    if (!ptEditablePayload) {
+      setPtEditablePayload(buildInitialPtPayload(activeReportPayload));
+    }
+    setPtEditModal(section);
+  };
+
+  const handleClosePtEditModal = () => setPtEditModal(null);
+
+  const renderConfirmationNoteSection = (variant = "footer") => {
+    const inline = variant === "inline";
+    const containerClass = inline
+      ? "rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4 shadow-sm"
+      : "mt-5 border-t border-slate-200 pt-4";
+    const toggleButtonClass = inline
+      ? "flex items-center gap-2 rounded-lg bg-white/80 px-3 py-2 text-xs font-semibold text-indigo-600 shadow-sm transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+      : "flex items-center gap-2 text-xs font-semibold text-indigo-600 transition hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-60";
+    const summaryClass = inline
+      ? "mt-2 rounded-lg border border-indigo-100 bg-white px-3 py-2 text-[0.7rem] text-indigo-700 shadow-sm"
+      : "mt-2 rounded-lg border border-indigo-100 bg-indigo-50/70 px-3 py-2 text-[0.7rem] text-indigo-700";
+
+    return (
+      <div className={containerClass}>
+        <button
+          type="button"
+          className={toggleButtonClass}
+          onClick={() => setShowConfirmationNote((prev) => !prev)}
+          disabled={isSavingReport}
+        >
+          {showConfirmationNote ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          {showConfirmationNote ? "Hide Confirmation Note" : "Add Confirmation Note"}
+        </button>
+        {!showConfirmationNote && reportNote && (
+          <p className={summaryClass}>
+            Current note: {reportNote}
+          </p>
+        )}
+        {showConfirmationNote && (
+          <div className="mt-3 space-y-2">
+            <label className="block text-xs font-semibold text-slate-600">
+              Confirmation Note (optional)
+            </label>
+            <textarea
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+              rows={3}
+              value={reportNote}
+              onChange={(event) => setReportNote(event.target.value)}
+              placeholder="Add clarifications, follow-up items or acknowledgements before confirming."
+              disabled={isSavingReport}
+            />
+            {reportError && (
+              <p className="text-xs text-red-600 flex items-center gap-1">
+                <AlertCircle size={14} /> {reportError}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderPtEditModal = () => {
+    if (!ptEditModal || !isPtReport) return null;
+    const sectionKey = getSectionKeyFromModal(ptEditModal);
+    const editingPayload = ptEditablePayload ?? buildInitialPtPayload(activeReportPayload);
+    const rows = Array.isArray(editingPayload?.[sectionKey]) ? editingPayload[sectionKey] : [];
+    const disableEditing = !canEditPtReport || isSavingReport;
+    const sectionLabel = PT_SECTION_LABELS[ptEditModal] || "PT Diary Section";
+
+    const renderHeaderActions = (sectionKey, addLabel, infoText) => (
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h4 className="text-sm font-semibold text-slate-800">{sectionLabel}</h4>
+          {infoText && <p className="text-[0.7rem] text-slate-500">{infoText}</p>}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {canEditPtReport && (
+            <button
+              type="button"
+              className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={() => addPtRow(sectionKey)}
+              disabled={disableEditing}
+            >
+              {addLabel}
+            </button>
+          )}
+          {canEditPtReport && rows.length > 0 && (
+            <button
+              type="button"
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={() => clearPtSection(sectionKey)}
+              disabled={disableEditing}
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      </div>
+    );
+
+    const renderCddEditor = () => {
+      const rosterPlural = ptClassStudentCount === 1 ? "" : "s";
+      const rosterNote =
+        ptClassStudentCount > 0
+          ? `Capture defaulters, best student and signature details captured during the day. (Roster: ${ptClassStudentCount} student${rosterPlural})`
+          : "Capture defaulters, best student and signature details captured during the day.";
+      return (
+        <div className="space-y-3">
+          {renderHeaderActions("cddRows", "Add Day", rosterNote)}
+          <div className="overflow-x-auto rounded-2xl border border-slate-200">
+          <table className="min-w-[1100px] text-xs text-slate-700">
+            <thead className="bg-slate-100">
+              <tr>
+                {PT_CDD_EDIT_HEADERS.map((header) => (
+                  <th key={header.id} className="border border-slate-200 px-3 py-2 text-left font-semibold">
+                    {header.label}
+                  </th>
+                ))}
+                {canEditPtReport && (
+                  <th className="border border-slate-200 px-3 py-2 text-left font-semibold">Actions</th>
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={PT_CDD_EDIT_HEADERS.length + (canEditPtReport ? 1 : 0)}
+                    className="px-3 py-4 text-center text-slate-500"
+                  >
+                    No diary entries yet. Use “Add Day” to start recording CDD updates.
+                  </td>
+                </tr>
+              ) : (
+                rows.map((row, rowIndex) => (
+                  <tr key={`pt-edit-cdd-${rowIndex}`} className={rowIndex % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                    {PT_CDD_EDIT_HEADERS.map((header) => {
+                      const fieldId = header.id;
+                      const value = row?.[fieldId];
+                      if (header.type === "date") {
+                        return (
+                          <td key={fieldId} className="border border-slate-200 px-2 py-2 align-top">
+                            <input
+                              type="date"
+                              className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:cursor-not-allowed disabled:bg-slate-100"
+                              value={toDateInputValue(value) || ""}
+                              onChange={(event) =>
+                                updatePtRow("cddRows", rowIndex, { [fieldId]: event.target.value || "" })
+                              }
+                              disabled={disableEditing}
+                            />
+                          </td>
+                        );
+                      }
+                      if (header.type === "select") {
+                        const options = header.options?.length ? ["", ...header.options] : YES_NO_OPTIONS;
+                        return (
+                          <td key={fieldId} className="border border-slate-200 px-2 py-2 align-top">
+                            <select
+                              className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:cursor-not-allowed disabled:bg-slate-100"
+                              value={normalizeYesNo(value)}
+                              onChange={(event) =>
+                                updatePtRow("cddRows", rowIndex, { [fieldId]: normalizeYesNo(event.target.value) })
+                              }
+                              disabled={disableEditing}
+                            >
+                              {options.map((option) => (
+                                <option key={`${fieldId}-${option || "unset"}`} value={option}>
+                                  {option || "Select…"}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                        );
+                      }
+                      if (header.type === "chips") {
+                        const chipValues = Array.isArray(value) ? value : [];
+                        return (
+                          <td key={fieldId} className="border border-slate-200 px-2 py-2 align-top">
+                            <textarea
+                              className="h-16 w-full rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:cursor-not-allowed disabled:bg-slate-100"
+                              placeholder={header.placeholder || "Comma separated names"}
+                              value={multiValueToString(chipValues)}
+                              onChange={(event) =>
+                                setPtChipValues("cddRows", rowIndex, fieldId, parseMultiValueInput(event.target.value))
+                              }
+                              disabled={disableEditing}
+                            />
+                            {ptActiveClassId && (
+                              <div className="mt-2 space-y-1">
+                                {isPtRosterLoading ? (
+                                  <p className="text-[0.65rem] text-slate-500">Loading class roster…</p>
+                                ) : ptClassStudents.length > 0 ? (
+                                  <>
+                                    <p className="text-[0.65rem] text-slate-500">
+                                      Tap to toggle students for this field.
+                                    </p>
+                                    <div className="max-h-28 overflow-y-auto rounded-lg border border-slate-200 bg-white/80 p-2">
+                                      <div className="flex flex-wrap gap-1">
+                                        {ptClassStudents.map((student) => {
+                                          const rawLabel = student?.name || `Student #${student?.id ?? ""}`;
+                                          const label = String(rawLabel || "").trim();
+                                          if (!label) return null;
+                                          const isSelected = chipValues.includes(label);
+                                          return (
+                                            <button
+                                              type="button"
+                                              key={`${rowIndex}-${fieldId}-${student?.id ?? label}`}
+                                              className={`rounded-full px-2 py-1 text-[0.65rem] transition ${
+                                                isSelected
+                                                  ? "bg-indigo-600 text-white hover:bg-indigo-700"
+                                                  : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                                              } disabled:cursor-not-allowed disabled:opacity-60`}
+                                              onClick={() => togglePtChipValue("cddRows", rowIndex, fieldId, label)}
+                                              disabled={disableEditing}
+                                            >
+                                              {label}
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  </>
+                                ) : (
+                                  <p className="text-[0.65rem] text-amber-600">No roster found for this class.</p>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                        );
+                      }
+                      return (
+                        <td key={fieldId} className="border border-slate-200 px-2 py-2 align-top">
+                          <input
+                            type="text"
+                            className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:cursor-not-allowed disabled:bg-slate-100"
+                            placeholder={header.placeholder || ""}
+                            value={String(value ?? "")}
+                            onChange={(event) =>
+                              updatePtRow("cddRows", rowIndex, { [fieldId]: event.target.value })
+                            }
+                            disabled={disableEditing}
+                          />
+                        </td>
+                      );
+                    })}
+                    {canEditPtReport && (
+                      <td className="border border-slate-200 px-2 py-2 align-top">
+                        <button
+                          type="button"
+                          className="rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-[0.65rem] font-semibold text-rose-600 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          onClick={() => removePtRow("cddRows", rowIndex)}
+                          disabled={disableEditing}
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+          <p className="text-[0.65rem] text-slate-500">
+          Tip: use comma-separated names for defaulters and absent students. Leave sign fields blank until stamped.
+          </p>
+        </div>
+      );
+    };
+
+    const renderCcdEditor = () => (
+      <div className="space-y-3">
+        {renderHeaderActions(
+          "ccdRows",
+          "Add Period",
+          "Record period-wise coverage and homework before confirming with the class teacher."
+        )}
+        <div className="overflow-x-auto rounded-2xl border border-slate-200">
+          <table className="min-w-[1200px] text-xs text-slate-700">
+            <thead className="bg-slate-100">
+              <tr>
+                {PT_CCD_EDIT_HEADERS.map((header) => (
+                  <th key={header.id} className="border border-slate-200 px-3 py-2 text-left font-semibold">
+                    {header.label}
+                  </th>
+                ))}
+                {canEditPtReport && (
+                  <th className="border border-slate-200 px-3 py-2 text-left font-semibold">Actions</th>
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={PT_CCD_EDIT_HEADERS.length + (canEditPtReport ? 1 : 0)}
+                    className="px-3 py-4 text-center text-slate-500"
+                  >
+                    No periods recorded yet. Use “Add Period” to start logging CCD details.
+                  </td>
+                </tr>
+              ) : (
+                rows.map((row, rowIndex) => (
+                  <tr key={`pt-edit-ccd-${rowIndex}`} className={rowIndex % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                    {PT_CCD_EDIT_HEADERS.map((header) => {
+                      const fieldId = header.id;
+                      const value = row?.[fieldId];
+                      if (header.type === "textarea") {
+                        return (
+                          <td key={fieldId} className="border border-slate-200 px-2 py-2 align-top">
+                            <textarea
+                              className="h-20 w-full rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:cursor-not-allowed disabled:bg-slate-100"
+                              placeholder={header.placeholder || ""}
+                              value={String(value ?? "")}
+                              onChange={(event) =>
+                                updatePtRow("ccdRows", rowIndex, { [fieldId]: event.target.value })
+                              }
+                              disabled={disableEditing}
+                            />
+                          </td>
+                        );
+                      }
+                      if (header.type === "select") {
+                        const options = header.options?.length ? ["", ...header.options] : YES_NO_OPTIONS;
+                        return (
+                          <td key={fieldId} className="border border-slate-200 px-2 py-2 align-top">
+                            <select
+                              className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:cursor-not-allowed disabled:bg-slate-100"
+                              value={normalizeYesNo(value)}
+                              onChange={(event) =>
+                                updatePtRow("ccdRows", rowIndex, {
+                                  [fieldId]: normalizeYesNo(event.target.value),
+                                })
+                              }
+                              disabled={disableEditing}
+                            >
+                              {options.map((option) => (
+                                <option key={`${fieldId}-${option || "unset"}`} value={option}>
+                                  {option || "Select…"}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                        );
+                      }
+                      return (
+                        <td key={fieldId} className="border border-slate-200 px-2 py-2 align-top">
+                          <input
+                            type="text"
+                            className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:cursor-not-allowed disabled:bg-slate-100"
+                            placeholder={header.placeholder || ""}
+                            value={String(value ?? "")}
+                            onChange={(event) =>
+                              updatePtRow("ccdRows", rowIndex, { [fieldId]: event.target.value })
+                            }
+                            disabled={disableEditing}
+                          />
+                        </td>
+                      );
+                    })}
+                    {canEditPtReport && (
+                      <td className="border border-slate-200 px-2 py-2 align-top">
+                        <button
+                          type="button"
+                          className="rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-[0.65rem] font-semibold text-rose-600 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          onClick={() => removePtRow("ccdRows", rowIndex)}
+                          disabled={disableEditing}
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+        <p className="text-[0.65rem] text-slate-500">
+          Period number auto-increments. Adjust the subject/topic and include homework instructions teachers should review.
+        </p>
+      </div>
+    );
+
+    const renderAttendanceEditor = () => {
+      const rosterPlural = ptClassStudentCount === 1 ? "" : "s";
+      const attendanceInfo =
+        ptClassStudentCount > 0
+          ? `Keep a quick snapshot of attendance exceptions that the CT needs to confirm. (Roster: ${ptClassStudentCount} student${rosterPlural})`
+          : "Keep a quick snapshot of attendance exceptions that the CT needs to confirm.";
+      return (
+        <div className="space-y-3">
+          {renderHeaderActions("attendanceRows", "Add Session", attendanceInfo)}
+          <div className="overflow-x-auto rounded-2xl border border-slate-200">
+          <table className="min-w-[950px] text-xs text-slate-700">
+            <thead className="bg-slate-100">
+              <tr>
+                {PT_ATTENDANCE_EDIT_HEADERS.map((header) => (
+                  <th key={header.id} className="border border-slate-200 px-3 py-2 text-left font-semibold">
+                    {header.label}
+                  </th>
+                ))}
+                {canEditPtReport && (
+                  <th className="border border-slate-200 px-3 py-2 text-left font-semibold">Actions</th>
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={PT_ATTENDANCE_EDIT_HEADERS.length + (canEditPtReport ? 1 : 0)}
+                    className="px-3 py-4 text-center text-slate-500"
+                  >
+                    No attendance snapshots captured yet. Use “Add Session” to log morning/afternoon notes.
+                  </td>
+                </tr>
+              ) : (
+                rows.map((row, rowIndex) => {
+                  const absentList = Array.isArray(row?.absentStudents) ? row.absentStudents : [];
+                  const details =
+                    row?.absenceDetails && typeof row.absenceDetails === "object" ? row.absenceDetails : {};
+                  return (
+                    <Fragment key={`pt-edit-attendance-${rowIndex}`}>
+                      <tr className={rowIndex % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                        {PT_ATTENDANCE_EDIT_HEADERS.map((header) => {
+                          const fieldId = header.id;
+                          const value = row?.[fieldId];
+                          if (header.type === "textarea") {
+                            return (
+                              <td key={fieldId} className="border border-slate-200 px-2 py-2 align-top">
+                                <textarea
+                                  className="h-16 w-full rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:cursor-not-allowed disabled:bg-slate-100"
+                                  placeholder={header.placeholder || ""}
+                                  value={String(value ?? "")}
+                                  onChange={(event) =>
+                                    updatePtRow("attendanceRows", rowIndex, { [fieldId]: event.target.value })
+                                  }
+                                  disabled={disableEditing}
+                                />
+                              </td>
+                            );
+                          }
+                          if (header.type === "chips") {
+                            return (
+                              <td key={fieldId} className="border border-slate-200 px-2 py-2 align-top">
+                                <textarea
+                                  className="h-16 w-full rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:cursor-not-allowed disabled:bg-slate-100"
+                                  placeholder={header.placeholder || "Comma separated names"}
+                                  value={multiValueToString(value)}
+                                  onChange={(event) =>
+                                    setPtAbsentStudents(rowIndex, parseMultiValueInput(event.target.value))
+                                  }
+                                  disabled={disableEditing}
+                                />
+                                {ptActiveClassId && (
+                                  <div className="mt-2 space-y-1">
+                                    {isPtRosterLoading ? (
+                                      <p className="text-[0.65rem] text-slate-500">Loading class roster…</p>
+                                    ) : ptClassStudents.length > 0 ? (
+                                      <>
+                                        <p className="text-[0.65rem] text-slate-500">Tap to toggle absent students:</p>
+                                        <div className="max-h-28 overflow-y-auto rounded-lg border border-slate-200 bg-white/80 p-2">
+                                          <div className="flex flex-wrap gap-1">
+                                            {ptClassStudents.map((student) => {
+                                              const rawLabel = student?.name || `Student #${student?.id ?? ""}`;
+                                              const label = String(rawLabel || "").trim();
+                                              if (!label) return null;
+                                              const isSelected = absentList.some((name) => name === label);
+                                              return (
+                                                <button
+                                                  type="button"
+                                                  key={`${rowIndex}-${student?.id ?? label}`}
+                                                  className={`rounded-full px-2 py-1 text-[0.65rem] transition ${
+                                                    isSelected
+                                                      ? "bg-indigo-600 text-white hover:bg-indigo-700"
+                                                      : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                                                  } disabled:cursor-not-allowed disabled:opacity-60`}
+                                                  onClick={() => togglePtAbsentStudent(rowIndex, label)}
+                                                  disabled={disableEditing}
+                                                >
+                                                  {label}
+                                                </button>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
+                                      </>
+                                    ) : (
+                                      <p className="text-[0.65rem] text-amber-600">No roster found for this class.</p>
+                                    )}
+                                  </div>
+                                )}
+                              </td>
+                            );
+                          }
+                          if (header.type === "readonly") {
+                            return (
+                              <td key={fieldId} className="border border-slate-200 px-2 py-2 align-top">
+                                <input
+                                  type="text"
+                                  readOnly
+                                  className="w-full rounded-md border border-slate-200 bg-slate-100 px-2 py-1 text-xs text-slate-700"
+                                  value={String(value ?? "")}
+                                />
+                              </td>
+                            );
+                          }
+                          return (
+                            <td key={fieldId} className="border border-slate-200 px-2 py-2 align-top">
+                              <input
+                                type="text"
+                                className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:cursor-not-allowed disabled:bg-slate-100"
+                                placeholder={header.placeholder || ""}
+                                value={String(value ?? "")}
+                                onChange={(event) =>
+                                  updatePtRow("attendanceRows", rowIndex, { [fieldId]: event.target.value })
+                                }
+                                disabled={disableEditing}
+                              />
+                            </td>
+                          );
+                        })}
+                        {canEditPtReport && (
+                          <td className="border border-slate-200 px-2 py-2 align-top">
+                            <button
+                              type="button"
+                              className="rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-[0.65rem] font-semibold text-rose-600 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+                              onClick={() => removePtRow("attendanceRows", rowIndex)}
+                              disabled={disableEditing}
+                            >
+                              Remove
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                      {absentList.length > 0 && (
+                        <tr className="bg-slate-50/60">
+                          <td
+                            colSpan={PT_ATTENDANCE_EDIT_HEADERS.length + (canEditPtReport ? 1 : 0)}
+                            className="border border-slate-200 px-4 py-3"
+                          >
+                            <div className="space-y-3">
+                              {absentList.map((student) => {
+                                const detail = { ...getDefaultAttendanceDetail(), ...(details[student] || {}) };
+                                return (
+                                  <div
+                                    key={`${rowIndex}-${student}`}
+                                    className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-xs text-slate-700 shadow-sm"
+                                  >
+                                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                                      <p className="font-semibold text-slate-800">{student}</p>
+                                      <div className="flex flex-wrap items-center gap-3">
+                                        <label className="flex items-center gap-2">
+                                          <span className="text-[0.7rem] text-slate-600">Application Submitted?</span>
+                                          <select
+                                            className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:cursor-not-allowed"
+                                            value={detail.applicationSubmitted || "No"}
+                                            onChange={(event) =>
+                                              updatePtAttendanceDetail(rowIndex, student, {
+                                                applicationSubmitted: event.target.value,
+                                              })
+                                            }
+                                            disabled={disableEditing}
+                                          >
+                                            {YES_NO_OPTIONS.slice(1).map((option) => (
+                                              <option key={option} value={option}>
+                                                {option}
+                                              </option>
+                                            ))}
+                                          </select>
+                                        </label>
+                                        <label className="flex items-center gap-2">
+                                          <span className="text-[0.7rem] text-slate-600">Reason</span>
+                                          <select
+                                            className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:cursor-not-allowed"
+                                            value={detail.reason || ""}
+                                            onChange={(event) =>
+                                              updatePtAttendanceDetail(rowIndex, student, {
+                                                reason: event.target.value,
+                                              })
+                                            }
+                                            disabled={disableEditing || detail.applicationSubmitted !== "Yes"}
+                                          >
+                                            <option value="">Select…</option>
+                                            {ATTENDANCE_APPLICATION_REASONS.map((reason) => (
+                                              <option key={reason} value={reason}>
+                                                {reason}
+                                              </option>
+                                            ))}
+                                          </select>
+                                        </label>
+                                      </div>
+                                    </div>
+                                    <div className="mt-3">
+                                      <label className="mb-1 block text-[0.7rem] font-semibold text-slate-600">
+                                        Follow-up Note
+                                      </label>
+                                      <textarea
+                                        className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:cursor-not-allowed"
+                                        rows={2}
+                                        value={detail.note || ""}
+                                        onChange={(event) =>
+                                          updatePtAttendanceDetail(rowIndex, student, { note: event.target.value })
+                                        }
+                                        disabled={disableEditing}
+                                        placeholder="Add reminder or acknowledgement for the CT."
+                                      />
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+          <p className="text-[0.65rem] text-slate-500">
+            Attendance tips: list absent names separated by commas. Present/Absent counts auto-update when you toggle students.
+          </p>
+        </div>
+      );
+    };
+
+    const sectionEditor =
+      sectionKey === "cddRows" ? renderCddEditor() : sectionKey === "ccdRows" ? renderCcdEditor() : renderAttendanceEditor();
+
+    return (
+      <motion.div
+        className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/70 p-4"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={handleClosePtEditModal}
+      >
+        <motion.div
+          className="relative w-full max-w-6xl rounded-3xl bg-white p-6 shadow-2xl md:p-8"
+          initial={{ scale: 0.96, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          exit={{ scale: 0.96, opacity: 0 }}
+          transition={{ duration: 0.2 }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="absolute right-4 top-4 rounded-full p-2 text-slate-500 transition hover:bg-slate-100"
+            onClick={handleClosePtEditModal}
+            disabled={isSavingReport}
+          >
+            <X className="h-4 w-4" />
+          </button>
+          <div className="space-y-2 pr-6">
+            <h3 className="text-lg font-semibold text-slate-900">{sectionLabel}</h3>
+            <p className="text-xs text-slate-500">
+              Update the captured data before confirming your PT report. Changes are saved when you hit “Save Draft” or “Confirm &amp; Submit”.
+            </p>
+            {!canEditPtReport && (
+              <p className="text-xs text-amber-600">
+                This report is already verified/waived. Contact coordination if updates are required.
+              </p>
+            )}
+          </div>
+          <div className="mt-4 max-h-[65vh] overflow-y-auto pr-2">{sectionEditor}</div>
+          <div className="mt-5 flex justify-end gap-2">
+            <button
+              type="button"
+              className="rounded-md border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={handleClosePtEditModal}
+            >
+              Close
+            </button>
+          </div>
+        </motion.div>
+      </motion.div>
+    );
+  };
+
   const activeReportStatus = useMemo(() => {
     if (!activeReport) return "pending";
     return String(activeReport.status || "pending").toLowerCase();
@@ -534,6 +1744,11 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
   const activeReportBadgeClass = useMemo(
     () => REPORT_STATUS_STYLES[activeReportStatus] || REPORT_STATUS_STYLES.default,
     [activeReportStatus]
+  );
+
+  const canEditPtReport = useMemo(
+    () => isPtReport && !["verified", "waived"].includes(activeReportStatus),
+    [isPtReport, activeReportStatus]
   );
 
   const activeReportClassLabel = useMemo(() => {
@@ -1156,8 +2371,8 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
                       >
                         <span className="text-sm font-semibold">Class Discipline Diary (CDD)</span>
                         <span className="mt-1 block text-xs opacity-80">
-                          {activeReportCddRows.length
-                            ? `${activeReportCddRows.length} entr${activeReportCddRows.length > 1 ? "ies" : "y"}`
+                          {workingCddRows.length
+                            ? `${workingCddRows.length} entr${workingCddRows.length > 1 ? "ies" : "y"}`
                             : "No entries yet"}
                         </span>
                       </button>
@@ -1172,8 +2387,8 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
                       >
                         <span className="text-sm font-semibold">Class Curriculum Diary (CCD)</span>
                         <span className="mt-1 block text-xs opacity-80">
-                          {activeReportCcdRows.length
-                            ? `${activeReportCcdRows.length} entr${activeReportCcdRows.length > 1 ? "ies" : "y"}`
+                          {workingCcdRows.length
+                            ? `${workingCcdRows.length} entr${workingCcdRows.length > 1 ? "ies" : "y"}`
                             : "No entries yet"}
                         </span>
                       </button>
@@ -1188,11 +2403,45 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
                       >
                         <span className="text-sm font-semibold">Attendance Snapshot</span>
                         <span className="mt-1 block text-xs opacity-80">
-                          {activeReportAttendanceRows.length
-                            ? `${activeReportAttendanceRows.length} entr${activeReportAttendanceRows.length > 1 ? "ies" : "y"}`
+                          {workingAttendanceRows.length
+                            ? `${workingAttendanceRows.length} entr${workingAttendanceRows.length > 1 ? "ies" : "y"}`
                             : "No entries yet"}
                         </span>
                       </button>
+                    </div>
+
+                    <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 px-4 py-3 text-xs text-slate-700 shadow-sm">
+                      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                        <p className="leading-relaxed">
+                          Review the assistant&apos;s entries and edit anything that changed during the day. Updates are saved when you keep the modal open and choose Save Draft or Confirm.
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {["cdd", "ccd", "attendance"].map((section) => (
+                            <button
+                              key={`pt-edit-open-${section}`}
+                              type="button"
+                              className={`rounded-md px-3 py-1 text-[0.7rem] font-semibold transition ${
+                                ptActiveSection === section
+                                  ? "bg-indigo-600 text-white shadow"
+                                  : "border border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-100"
+                              } disabled:cursor-not-allowed disabled:opacity-60`}
+                              onClick={() => handleOpenPtEditModal(section)}
+                              disabled={!canEditPtReport || isSavingReport}
+                            >
+                              {section === "cdd"
+                                ? "Edit CDD Entries"
+                                : section === "ccd"
+                                ? "Edit CCD Entries"
+                                : "Edit Attendance"}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      {!canEditPtReport && (
+                        <p className="mt-2 text-[0.65rem] text-amber-600">
+                          This report is locked for edits because it has been verified or waived.
+                        </p>
+                      )}
                     </div>
 
                     <div className="flex-1 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -1205,6 +2454,7 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
 
                     {renderAdditionalDetails()}
                     {renderNoDigitalEntriesNotice()}
+                    {ptActiveSection === "ccd" && renderConfirmationNoteSection("inline")}
                   </div>
                 ) : (
                   <>
@@ -1264,42 +2514,7 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
                 )}
               </div>
 
-              <div className="mt-5 border-t border-slate-200 pt-4">
-                <button
-                  type="button"
-                  className="flex items-center gap-2 text-xs font-semibold text-indigo-600 transition hover:text-indigo-700"
-                  onClick={() => setShowConfirmationNote((prev) => !prev)}
-                  disabled={isSavingReport}
-                >
-                  {showConfirmationNote ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                  {showConfirmationNote ? "Hide Confirmation Note" : "Add Confirmation Note"}
-                </button>
-                {!showConfirmationNote && reportNote && (
-                  <p className="mt-2 rounded-lg border border-indigo-100 bg-indigo-50/70 px-3 py-2 text-[0.7rem] text-indigo-700">
-                    Current note: {reportNote}
-                  </p>
-                )}
-                {showConfirmationNote && (
-                  <div className="mt-3 space-y-2">
-                    <label className="block text-xs font-semibold text-slate-600">
-                      Confirmation Note (optional)
-                    </label>
-                    <textarea
-                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                      rows={3}
-                      value={reportNote}
-                      onChange={(event) => setReportNote(event.target.value)}
-                      placeholder="Add clarifications, follow-up items or acknowledgements before confirming."
-                      disabled={isSavingReport}
-                    />
-                    {reportError && (
-                      <p className="text-xs text-red-600 flex items-center gap-1">
-                        <AlertCircle size={14} /> {reportError}
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
+              {(!isPtReport || ptActiveSection !== "ccd") && renderConfirmationNoteSection("footer")}
 
               <div className="mt-5 flex flex-wrap justify-end gap-2">
                 <button
@@ -1323,6 +2538,8 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
           </motion.div>
         )}
       </AnimatePresence>
+
+      <AnimatePresence>{renderPtEditModal()}</AnimatePresence>
 
       <AnimatePresence>
         {modalData && (

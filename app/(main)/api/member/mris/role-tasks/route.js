@@ -4,6 +4,10 @@ import { db } from "@/lib/db";
 import { users, userMriRoles, mriRoleDefs, mriRoleTasks, mriPrograms } from "@/lib/schema";
 import { eq, and, inArray } from "drizzle-orm";
 
+const TASK_ACTION_OVERRIDES = new Map([
+  [11, { type: "scanner", programKey: "MOP", track: "mop" }],
+]);
+
 export const dynamic = "force-dynamic";
 
 export async function GET(req) {
@@ -60,12 +64,13 @@ export async function GET(req) {
         const arr = JSON.parse(t.submissables || "null");
         if (Array.isArray(arr)) subs = arr;
       } catch {}
+      const overrideAction = TASK_ACTION_OVERRIDES.get(Number(t.id));
       tasksByRoleId.get(t.roleDefId).push({
         id: t.id,
         title: t.title,
         description: t.description,
         submissables: subs,
-        action: t.action,
+        action: overrideAction ? { ...overrideAction } : t.action,
         active: t.active,
         timeSensitive: t.timeSensitive,
         execAt: t.execAt,
