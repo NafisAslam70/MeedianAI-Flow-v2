@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ClipboardList, NotebookPen, ClipboardCheck, UserPlus, Boxes } from "lucide-react";
+import { ClipboardList, NotebookPen, ClipboardCheck, UserPlus, Boxes, PhoneCall } from "lucide-react";
 
 const CLUB_TOOLS = [
   {
@@ -9,6 +9,12 @@ const CLUB_TOOLS = [
     label: "Guardian & Visitor Register",
     icon: ClipboardList,
     href: "/dashboard/managersCommon/guardian-register",
+  },
+  {
+    key: "guardian-calls",
+    label: "Guardian Call Log",
+    icon: PhoneCall,
+    href: "/dashboard/managersCommon/guardian-calls",
   },
   {
     key: "pt-assist",
