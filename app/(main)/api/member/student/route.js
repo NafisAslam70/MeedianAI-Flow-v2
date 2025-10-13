@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { students, Classes, academicYears } from "@/lib/schema";
+import { financeDb } from "@/lib/finance-db";
 import { booleanValue, emptyToNull } from "@/lib/student-helpers";
 import { and, desc, eq, ilike, or } from "drizzle-orm";
 
@@ -52,19 +53,34 @@ export async function GET(request) {
     }
 
     if (type === "years") {
-      const rows = await db
-        .select({
-          code: academicYears.code,
-          name: academicYears.name,
-          startDate: academicYears.startDate,
-          endDate: academicYears.endDate,
-          isActive: academicYears.isActive,
-          isCurrent: academicYears.isCurrent,
-        })
-        .from(academicYears)
-        .orderBy(desc(academicYears.isCurrent), desc(academicYears.code));
+      const queryAcademicYears = async (client) =>
+        client
+          .select({
+            code: academicYears.code,
+            name: academicYears.name,
+            startDate: academicYears.startDate,
+            endDate: academicYears.endDate,
+            isActive: academicYears.isActive,
+            isCurrent: academicYears.isCurrent,
+          })
+          .from(academicYears)
+          .orderBy(desc(academicYears.isCurrent), desc(academicYears.code));
 
-      return NextResponse.json({ academicYears: rows }, { status: 200 });
+      try {
+        const primaryClient = financeDb ?? db;
+        const rows = await queryAcademicYears(primaryClient);
+        return NextResponse.json({ academicYears: rows }, { status: 200 });
+      } catch (err) {
+        console.warn(
+          "[students] Failed to fetch academic years from finance database. Falling back to default.",
+          err?.message || err
+        );
+        if (financeDb) {
+          const fallbackRows = await queryAcademicYears(db);
+          return NextResponse.json({ academicYears: fallbackRows }, { status: 200 });
+        }
+        throw err;
+      }
     }
 
     const search = url.searchParams.get("search");
