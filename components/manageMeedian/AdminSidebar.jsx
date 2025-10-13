@@ -67,16 +67,6 @@ const groups = [
 			},
 		],
 	},
-	{
-		title: "Operations",
-		items: [
-			{
-				href: "/dashboard/admin/manageMeedian/daily-reports/gate-logs",
-				label: "Daily Gate Logs",
-				icon: ClipboardList,
-			},
-		],
-	},
 	// Programs rendered dynamically; Academics excludes Slots/TOD
 	{
 		title: "Academics",

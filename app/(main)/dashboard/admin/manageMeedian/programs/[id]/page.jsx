@@ -7,6 +7,7 @@ import { Card, CardHeader, CardBody, CardFooter } from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 
 const fetcher = (u) => fetch(u, { headers: { "Content-Type": "application/json" } }).then((r) => r.json());
+const INITIAL_DAYS_SEL = { Mon: true, Tue: true, Wed: true, Thu: true, Fri: false, Sat: true };
 
 export default function ProgramDetailPage() {
   // ...existing hooks and state...
@@ -253,7 +254,7 @@ export default function ProgramDetailPage() {
   const lockPushRef = useRef(null);
   // Scheduler day selection (for header controls)
   const [daysMode, setDaysMode] = useState('all'); // all | split
-  const [daysSel, setDaysSel] = useState({ Mon:true, Tue:true, Wed:true, Thu:true, Fri:false, Sat:true });
+  const [daysSel, setDaysSel] = useState({ ...INITIAL_DAYS_SEL });
   const [mspRMode, setMspRMode] = useState("class"); // class | teacher
   const [selectedTeacher, setSelectedTeacher] = useState("ALL");
   const [routineOpen, setRoutineOpen] = useState(false);
@@ -430,6 +431,55 @@ export default function ProgramDetailPage() {
   const [rowSaving, setRowSaving] = useState(null);
   const [bulkSaving, setBulkSaving] = useState(false);
 
+  useEffect(() => {
+    setTrack("pre_primary");
+    setPeriodTrack("pre_primary");
+    setPeriodCache({});
+    setPeriodLoading(false);
+    setActiveSection(null);
+    setView("cards");
+    setPreview({ open: false, track: "pre_primary" });
+    setCloneBusy(false);
+    setCloneMsg("");
+    setCloneErr("");
+    setFullscreen(false);
+    setShowNames(false);
+    setSchedTab("base");
+    setWeekDay("Mon");
+    setManageCodesOpen(false);
+    setDragMemberId(null);
+    setShowPeriodModal(false);
+    setShowMatrixModal(false);
+    setShowDefaultSeedModal(false);
+    setPeriodDraft([]);
+    setPeriodSnapshot("");
+    setPeriodSaving(false);
+    setPeriodError("");
+    setSelfSchedOpen(false);
+    setSelfStageOpen(false);
+    setSelfPlanMode("fixed_all_days");
+    setSelfSchedFull(false);
+    setDaysMode("all");
+    setDaysSel({ ...INITIAL_DAYS_SEL });
+    setMspRMode("class");
+    setSelectedTeacher("ALL");
+    setRoutineOpen(false);
+    if (lockPushRef) lockPushRef.current = null;
+    setRmPrompt("Draft an MSP routine matrix JSON for the selected track. Use period keys P1..P8 and map each class to {P#: [\"CODE\", \"SUBJECT\"]}. Only return JSON.");
+    setRmOut("");
+    setRmBusy(false);
+    setRmEngine("default");
+    setRmModel("gpt-4o-mini");
+    setManageClassesOpen(false);
+    setManageClassesStep("pick");
+    setNewClassName("");
+    setClassLoading(false);
+    setEditedClasses({});
+    setRowSaving(null);
+    setBulkSaving(false);
+    setOpenSeed(false);
+    setSeedText("");
+  }, [id]);
 
   // Adapter for the modal’s current rendering (id/name fields)
   const classList = useMemo(
@@ -1932,6 +1982,7 @@ export default function ProgramDetailPage() {
             </div>
             <div className={`${selfSchedFull ? 'h-[calc(100vh-44px)]' : 'max-h-[78vh]'} overflow-auto`}>
               <SelfScheduler
+                key={id}
                 programId={id}
                 track={track}
                 periodData={periodData}
