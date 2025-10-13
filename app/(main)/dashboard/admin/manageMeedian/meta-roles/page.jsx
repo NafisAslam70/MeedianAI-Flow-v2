@@ -22,6 +22,26 @@ const AMRI_SUBCATEGORY_OPTIONS = [
   { value: "GENERAL", label: "General" },
 ];
 
+const ATTENDANCE_TARGET_OPTIONS = [
+  { value: "members", label: "Team Members" },
+  { value: "students", label: "Students" },
+];
+
+const PROGRAM_TRACK_HINTS = {
+  MSP: ["pre_primary", "elementary"],
+  MHCP: ["pre_primary", "elementary"],
+  MOP: ["mop", "mop2"],
+};
+
+const formatTrackLabel = (value) => {
+  if (!value) return "";
+  return String(value)
+    .replace(/[_\-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (ch) => ch.toUpperCase());
+};
+
 const builtinCategoryMap = {
   nmri_moderator: "nmri",
   msp_ele_moderator: "rmri",
@@ -81,10 +101,44 @@ export default function RoleDefinitionsPage() {
   const [form, setForm] = useState({ roleKey: "", name: "", category: "rmri", subCategory: "" });
   const [message, setMessage] = useState(null);
   const [families, setFamilies] = useState([]);
+  const [programs, setPrograms] = useState([]);
   const [taskModal, setTaskModal] = useState({ open: false, role: null, tasks: [], loading: false });
-  const [taskForm, setTaskForm] = useState({ title: "", description: "", submissables: "", action: "", timeSensitive: false, timeMode: 'none', execAt: '', windowStart: '', windowEnd: '', recurrence: 'none' });
+  const [taskForm, setTaskForm] = useState({
+    title: "",
+    description: "",
+    submissables: "",
+    action: "",
+    timeSensitive: false,
+    timeMode: "none",
+    execAt: "",
+    windowStart: "",
+    windowEnd: "",
+    recurrence: "none",
+    executionMode: "standard", // standard | attendance
+    attendanceTarget: "members",
+    attendanceProgramKey: "",
+    attendanceProgramId: null,
+    attendanceTrack: "",
+  });
   const [editingTaskId, setEditingTaskId] = useState(null);
-  const [editForm, setEditForm] = useState({ title: "", description: "", submissables: "", action: "", active: true, timeSensitive: false, timeMode: 'none', execAt: '', windowStart: '', windowEnd: '', recurrence: 'none' });
+  const [editForm, setEditForm] = useState({
+    title: "",
+    description: "",
+    submissables: "",
+    action: "",
+    active: true,
+    timeSensitive: false,
+    timeMode: "none",
+    execAt: "",
+    windowStart: "",
+    windowEnd: "",
+    recurrence: "none",
+    executionMode: "standard",
+    attendanceTarget: "members",
+    attendanceProgramKey: "",
+    attendanceProgramId: null,
+    attendanceTrack: "",
+  });
   const [taskTab, setTaskTab] = useState('create'); // create | list
   const [editModal, setEditModal] = useState({ open: false, task: null });
   const [submissablesList, setSubmissablesList] = useState([]);
@@ -107,6 +161,102 @@ export default function RoleDefinitionsPage() {
     }
     return out;
   }, [families]);
+
+  const programOptions = useMemo(() => {
+    return (programs || [])
+      .filter((p) => p && p.active !== false)
+      .map((p) => ({
+        id: p.id,
+        key: String(p.programKey || "").toUpperCase(),
+        name: p.name || p.programKey || "Program",
+        scope: String(p.scope || "").toLowerCase(),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [programs]);
+
+  const programByKey = useMemo(() => {
+    const map = new Map();
+    programOptions.forEach((program) => {
+      if (program.key) map.set(program.key, program);
+    });
+    return map;
+  }, [programOptions]);
+
+  const resolveTracksForProgram = (programKey) => {
+    const normalized = String(programKey || "").toUpperCase();
+    const program = programByKey.get(normalized);
+    const set = new Set();
+    if (program?.scope) {
+      const scope = program.scope;
+      if (scope === "both" || scope === "pre_primary") set.add("pre_primary");
+      if (scope === "both" || scope === "elementary") set.add("elementary");
+      if (scope && !["both", "pre_primary", "elementary", ""].includes(scope)) set.add(scope);
+    }
+    (PROGRAM_TRACK_HINTS[normalized] || []).forEach((track) => set.add(track));
+    return Array.from(set);
+  };
+
+  const buildAttendanceAction = ({ programKey, programId, track, target }) => {
+    if (!programKey) return null;
+    const payload = {
+      type: "scanner",
+      scope: "attendance",
+      programKey: String(programKey).toUpperCase(),
+    };
+    if (programId) payload.programId = Number(programId);
+    if (track) payload.track = String(track).toLowerCase();
+    if (target) payload.target = String(target).toLowerCase();
+    return JSON.stringify(payload);
+  };
+
+  const parseActionConfig = (raw) => {
+    const base = {
+      executionMode: "standard",
+      attendanceTarget: "members",
+      attendanceProgramKey: "",
+      attendanceProgramId: null,
+      attendanceTrack: "",
+      actionValue: typeof raw === "string" ? raw : "",
+    };
+    if (!raw) return base;
+    const interpretObject = (obj) => {
+      if (!obj || typeof obj !== "object") return base;
+      const type = String(obj.type || "").toLowerCase();
+      if (type === "scanner") {
+        return {
+          executionMode: "attendance",
+          attendanceTarget: obj.target ? String(obj.target).toLowerCase() : "members",
+          attendanceProgramKey: obj.programKey ? String(obj.programKey).toUpperCase() : "",
+          attendanceProgramId: obj.programId ? Number(obj.programId) : null,
+          attendanceTrack: obj.track ? String(obj.track).toLowerCase() : "",
+          actionValue: JSON.stringify(obj),
+        };
+      }
+      return base;
+    };
+    if (typeof raw === "object") {
+      return interpretObject(raw);
+    }
+    const text = String(raw || "").trim();
+    if (!text) return base;
+    try {
+      const parsed = JSON.parse(text);
+      const extracted = interpretObject(parsed);
+      if (extracted.executionMode === "attendance") return extracted;
+    } catch {}
+    const match = text.match(/^scanner\s*:\s*([A-Za-z0-9_-]+)(?:\s*:\s*([A-Za-z0-9_-]+))?/i);
+    if (match) {
+      return {
+        executionMode: "attendance",
+        attendanceTarget: "members",
+        attendanceProgramKey: match[1].toUpperCase(),
+        attendanceProgramId: programByKey.get(match[1].toUpperCase())?.id || null,
+        attendanceTrack: match[2] ? match[2].toLowerCase() : "",
+        actionValue: text,
+      };
+    }
+    return { ...base, actionValue: text };
+  };
 
   const defsByKey = useMemo(() => {
     const map = new Map();
@@ -145,17 +295,20 @@ export default function RoleDefinitionsPage() {
   const fetchAll = async () => {
     setLoading(true);
     try {
-      const [r1, r2, r3] = await Promise.all([
+      const [r1, r2, r3, r4] = await Promise.all([
         fetch(`/api/admin/manageMeedian?section=mriRoles`),
         fetch(`/api/admin/manageMeedian?section=metaRoleDefsList`),
         fetch(`/api/admin/manageMeedian?section=metaFamilies`),
+        fetch(`/api/admin/manageMeedian?section=metaPrograms`),
       ]);
       const j1 = await r1.json();
       const j2 = await r2.json();
       const j3 = await r3.json();
+      const j4 = await r4.json();
       setBuiltin(j1?.mriRoles || j1?.roles || []);
       setDefs(j2?.roleDefs || []);
       setFamilies(j3?.families || []);
+      setPrograms(j4?.programs || []);
       // ensure current tab is valid; prefer AMRI, else first available category
       const available = new Set(["amri", "rmri", "nmri", ...(j3?.families || []).filter((f) => f.active).map((f) => String(f.key || "").toLowerCase())]);
       if (!available.has(tab)) {
@@ -387,6 +540,23 @@ export default function RoleDefinitionsPage() {
           windowEnd = taskForm.windowEnd ? new Date(taskForm.windowEnd).toISOString() : null;
         }
       }
+      let actionPayload = null;
+      if (taskForm.executionMode === 'attendance') {
+        const programKey = taskForm.attendanceProgramKey ? String(taskForm.attendanceProgramKey).toUpperCase() : "";
+        if (!programKey) throw new Error("Please choose a program for this attendance task.");
+        const hintProgram = programByKey.get(programKey);
+        const programId = taskForm.attendanceProgramId || hintProgram?.id || null;
+        const track = taskForm.attendanceTrack ? String(taskForm.attendanceTrack).toLowerCase() : "";
+        actionPayload = buildAttendanceAction({
+          programKey,
+          programId,
+          track,
+          target: taskForm.attendanceTarget || "members",
+        });
+      } else {
+        const trimmed = String(taskForm.action || "").trim();
+        actionPayload = trimmed ? trimmed : null;
+      }
       const res = await fetch(`/api/admin/manageMeedian?section=metaRoleTasks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -395,7 +565,7 @@ export default function RoleDefinitionsPage() {
           title: taskForm.title,
           description: taskForm.description,
           submissables: subs,
-          action: taskForm.action || null,
+          action: actionPayload,
           timeSensitive: !!taskForm.timeSensitive,
           execAt,
           windowStart,
@@ -405,10 +575,27 @@ export default function RoleDefinitionsPage() {
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Failed to create task");
-      setTaskForm({ title: "", description: "", submissables: "", action: "", timeSensitive: false, timeMode: 'none', execAt: '', windowStart: '', windowEnd: '', recurrence: 'none' });
+      setTaskForm({
+        title: "",
+        description: "",
+        submissables: "",
+        action: "",
+        timeSensitive: false,
+        timeMode: "none",
+        execAt: "",
+        windowStart: "",
+        windowEnd: "",
+        recurrence: "none",
+        executionMode: "standard",
+        attendanceTarget: "members",
+        attendanceProgramKey: "",
+        attendanceProgramId: null,
+        attendanceTrack: "",
+      });
       await openTaskModal(taskModal.role);
     } catch (err) {
       console.error("Failed to create task:", err);
+      setMessage({ type: "error", text: err.message || "Failed to create task" });
     } finally {
       setTaskModal((prev) => ({ ...prev, loading: false }));
     }
@@ -598,12 +785,14 @@ export default function RoleDefinitionsPage() {
     const context = `Role: ${taskModal.role.name}, Existing Tasks: ${taskModal.tasks.map((t) => t.title).join(", ")}`;
     const aiGeneratedTask = await generateTaskWithAI(context);
     if (aiGeneratedTask) {
-      setTaskForm({
+      setTaskForm((prev) => ({
+        ...prev,
         title: aiGeneratedTask.title || "",
         description: aiGeneratedTask.description || "",
         submissables: aiGeneratedTask.submissables?.join(", ") || "",
         action: aiGeneratedTask.action || "",
-      });
+        executionMode: "standard",
+      }));
     }
     setTaskModal((prev) => ({ ...prev, loading: false }));
   };
@@ -706,7 +895,109 @@ export default function RoleDefinitionsPage() {
                   </li>
                 ))}
               </ul>
-              <Input label="Action (optional)" value={taskForm.action} onChange={(e) => setTaskForm({ ...taskForm, action: e.target.value })} />
+              <div className="border border-gray-200 rounded-lg p-3 space-y-2">
+                <div className="text-sm font-semibold text-gray-700">Execution</div>
+                <div className="flex flex-wrap gap-3 text-sm">
+                  <label className="inline-flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="executionModeCreate"
+                      checked={taskForm.executionMode === 'standard'}
+                      onChange={() => setTaskForm((prev) => ({ ...prev, executionMode: 'standard' }))}
+                    />
+                    Standard Task
+                  </label>
+                  <label className="inline-flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="executionModeCreate"
+                      checked={taskForm.executionMode === 'attendance'}
+                      onChange={() => setTaskForm((prev) => ({
+                        ...prev,
+                        executionMode: 'attendance',
+                        attendanceProgramKey: prev.attendanceProgramKey || (programOptions[0]?.key || ""),
+                        attendanceProgramId: prev.attendanceProgramId || programOptions[0]?.id || null,
+                      }))}
+                    />
+                    Attendance Scanner
+                  </label>
+                </div>
+                {taskForm.executionMode === 'attendance' ? (
+                  <div className="space-y-3">
+                    <Select
+                      label="Audience"
+                      value={taskForm.attendanceTarget}
+                      onChange={(e) => setTaskForm((prev) => ({ ...prev, attendanceTarget: e.target.value }))}
+                    >
+                      {ATTENDANCE_TARGET_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </Select>
+                    <Select
+                      label="Program"
+                      value={taskForm.attendanceProgramKey}
+                      onChange={(e) => {
+                        const nextKey = e.target.value;
+                        const program = programByKey.get(nextKey);
+                        const suggestions = resolveTracksForProgram(nextKey);
+                        setTaskForm((prev) => ({
+                          ...prev,
+                          attendanceProgramKey: nextKey,
+                          attendanceProgramId: program?.id || null,
+                          attendanceTrack: suggestions.includes(prev.attendanceTrack) ? prev.attendanceTrack : "",
+                        }));
+                      }}
+                    >
+                      <option value="">Select Program</option>
+                      {programOptions.map((program) => (
+                        <option key={program.key} value={program.key}>
+                          {program.name} ({program.key})
+                        </option>
+                      ))}
+                    </Select>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-1">Track (optional)</label>
+                      <input
+                        type="text"
+                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                        placeholder="e.g., elementary, mop2"
+                        value={taskForm.attendanceTrack}
+                        onChange={(e) => setTaskForm((prev) => ({ ...prev, attendanceTrack: e.target.value }))}
+                      />
+                      {taskForm.attendanceProgramKey && resolveTracksForProgram(taskForm.attendanceProgramKey).length > 0 && (
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                          <span>Suggestions:</span>
+                          {resolveTracksForProgram(taskForm.attendanceProgramKey).map((track) => (
+                            <button
+                              type="button"
+                              key={track}
+                              className={`px-2 py-0.5 rounded-full border text-xs ${
+                                taskForm.attendanceTrack === track
+                                  ? "bg-teal-600 text-white border-teal-600"
+                                  : "border-gray-200 text-gray-600 hover:border-teal-300 hover:text-teal-600"
+                              }`}
+                              onClick={() => setTaskForm((prev) => ({ ...prev, attendanceTrack: track }))}
+                            >
+                              {formatTrackLabel(track)}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      Members will scan a session QR linked to the selected program. When the moderator finalizes the session, attendance will be stored under that program.
+                    </div>
+                  </div>
+                ) : (
+                  <Input
+                    label="Action (optional)"
+                    value={taskForm.action}
+                    onChange={(e) => setTaskForm((prev) => ({ ...prev, action: e.target.value }))}
+                  />
+                )}
+              </div>
               <div className="border border-gray-200 rounded-lg p-3">
                 <label className="text-sm font-medium text-gray-700 inline-flex items-center gap-2">
                   <input type="checkbox" checked={taskForm.timeSensitive} onChange={(e)=> setTaskForm({ ...taskForm, timeSensitive: e.target.checked })} /> Time sensitive

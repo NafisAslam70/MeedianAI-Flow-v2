@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import Button from "@/components/ui/Button";
@@ -205,6 +206,10 @@ export default function PtAssistPage() {
   const template = data?.template || null;
   const assignments = data?.assignments || [];
   const viewerId = data?.viewerId == null ? null : Number(data.viewerId);
+  const assistantAssignments = useMemo(() => {
+    if (viewerId == null) return [];
+    return assignments.filter((assignment) => Number(assignment.assistantUserId || 0) === viewerId);
+  }, [assignments, viewerId]);
 
   const templateSections = useMemo(() => {
     if (!template?.formSchema?.sections) return [];
