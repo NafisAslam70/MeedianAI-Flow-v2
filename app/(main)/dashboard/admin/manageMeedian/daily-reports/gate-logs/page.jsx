@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import Button from "@/components/ui/Button";
 import { Card, CardHeader, CardBody } from "@/components/ui/Card";
-import { Copy, RefreshCw, Trash2 } from "lucide-react";
+import { Copy, RefreshCw } from "lucide-react";
 import QrCode from "@/components/QrCode";
 
 const fetcher = (url) =>
@@ -104,24 +104,12 @@ const buildStaffRows = (logs = []) => {
   });
 };
 
-const initialGuardianForm = {
-  guardianName: "",
-  studentName: "",
-  className: "",
-  purpose: "",
-  inTime: "",
-  outTime: "",
-  signature: "",
-};
-
 export default function GateLogsAdminPage() {
   const [origin, setOrigin] = useState("");
   const [staffDate, setStaffDate] = useState(() => todayKey());
-  const [guardianDate, setGuardianDate] = useState(() => todayKey());
-  const [guardianForm, setGuardianForm] = useState(initialGuardianForm);
-  const [formBusy, setFormBusy] = useState(false);
-  const [formError, setFormError] = useState("");
-  const [formSuccess, setFormSuccess] = useState("");
+  const [selectedGuardians, setSelectedGuardians] = useState([]);
+  const [savingAssignments, setSavingAssignments] = useState(false);
+  const [assignmentMessage, setAssignmentMessage] = useState("");
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -130,29 +118,24 @@ export default function GateLogsAdminPage() {
   }, []);
 
   const staffKey = staffDate ? `/api/admin/manageMeedian?section=campusGateStaff&date=${staffDate}` : null;
-  const guardianKey = guardianDate ? `/api/admin/manageMeedian?section=guardianGateLogs&date=${guardianDate}` : null;
-
-  const {
-    data: staffData,
-    isLoading: staffLoading,
-    mutate: mutateStaff,
-    error: staffError,
-  } = useSWR(staffKey, fetcher, {
+  const { data: staffData, isLoading: staffLoading, mutate: mutateStaff } = useSWR(staffKey, fetcher, {
     dedupingInterval: 15000,
   });
-  const {
-    data: guardianData,
-    isLoading: guardianLoading,
-    mutate: mutateGuardian,
-    error: guardianError,
-  } = useSWR(
-    guardianKey,
+
+  const { data: guardianAssignmentsData, isLoading: guardianAssignmentsLoading, mutate: mutateAssignments } = useSWR(
+    "/api/admin/manageMeedian?section=guardianGateAssignments",
     fetcher,
-    { dedupingInterval: 15000 }
+    { dedupingInterval: 30000 }
   );
 
   const staffRows = useMemo(() => buildStaffRows(staffData?.logs || []), [staffData?.logs]);
-  const guardianEntries = guardianData?.entries || [];
+
+  const managers = guardianAssignmentsData?.managers || [];
+  const grantedIds = guardianAssignmentsData?.granted || [];
+
+  useEffect(() => {
+    setSelectedGuardians(grantedIds);
+  }, [grantedIds.join(",")]);
 
   const campusHubUrl = origin ? `${origin}/dashboard/member/gate` : "/dashboard/member/gate";
   const campusOutUrl = origin ? `${origin}/dashboard/member/gate/out` : "/dashboard/member/gate/out";
@@ -162,90 +145,54 @@ export default function GateLogsAdminPage() {
     if (!value) return;
     try {
       await navigator.clipboard.writeText(value);
-      setFormSuccess("Copied link to clipboard.");
-      setTimeout(() => setFormSuccess(""), 2000);
+      setAssignmentMessage("Copied link to clipboard.");
+      setTimeout(() => setAssignmentMessage(""), 2000);
     } catch {
-      setFormError("Clipboard copy failed. Copy manually if needed.");
-      setTimeout(() => setFormError(""), 2500);
-    }
-  };
-
-  const updateGuardianField = (field) => (event) => {
-    setGuardianForm((prev) => ({ ...prev, [field]: event.target.value }));
-  };
-
-  const resetGuardianForm = () => {
-    setGuardianForm(initialGuardianForm);
-  };
-
-  const submitGuardian = async (event) => {
-    event.preventDefault();
-    if (formBusy) return;
-    setFormError("");
-    setFormSuccess("");
-
-    if (!guardianForm.guardianName.trim() || !guardianForm.studentName.trim() || !guardianForm.className.trim() || !guardianForm.purpose.trim()) {
-      setFormError("Fill in guardian, student, class, and purpose.");
-      return;
-    }
-
-    setFormBusy(true);
-    try {
-      const res = await fetch(`/api/admin/manageMeedian?section=guardianGateLogs`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          visitDate: guardianDate,
-          guardianName: guardianForm.guardianName,
-          studentName: guardianForm.studentName,
-          className: guardianForm.className,
-          purpose: guardianForm.purpose,
-          inTime: guardianForm.inTime,
-          outTime: guardianForm.outTime,
-          signature: guardianForm.signature,
-        }),
-      });
-      const payload = await res.json();
-      if (!res.ok) throw new Error(payload?.error || `HTTP ${res.status}`);
-      setFormSuccess("Entry saved.");
-      resetGuardianForm();
-      await mutateGuardian();
-    } catch (error) {
-      console.error(error);
-      setFormError(error.message || "Failed to save entry.");
-    } finally {
-      setFormBusy(false);
-    }
-  };
-
-  const deleteGuardian = async (id) => {
-    if (!id) return;
-    const yes = window.confirm("Delete this entry?");
-    if (!yes) return;
-    try {
-      const res = await fetch(`/api/admin/manageMeedian?section=guardianGateLogs`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id }),
-      });
-      const payload = await res.json();
-      if (!res.ok) throw new Error(payload?.error || `HTTP ${res.status}`);
-      await mutateGuardian();
-    } catch (error) {
-      console.error(error);
-      alert(error.message || "Failed to delete entry");
+      setAssignmentMessage("Clipboard copy failed. Copy manually if needed.");
+      setTimeout(() => setAssignmentMessage(""), 2500);
     }
   };
 
   const refreshStaff = () => mutateStaff();
-  const refreshGuardian = () => mutateGuardian();
+
+  const toggleGuardian = (userId) => {
+    setSelectedGuardians((prev) => {
+      const exists = prev.includes(userId);
+      if (exists) {
+        return prev.filter((id) => id !== userId);
+      }
+      return [...prev, userId];
+    });
+  };
+
+  const handleSaveAssignments = async () => {
+    setSavingAssignments(true);
+    setAssignmentMessage("");
+    try {
+      const res = await fetch("/api/admin/manageMeedian?section=guardianGateAssignments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userIds: selectedGuardians }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.error || `HTTP ${res.status}`);
+      setAssignmentMessage("Assignments updated.");
+      await mutateAssignments();
+    } catch (error) {
+      console.error(error);
+      setAssignmentMessage(error.message || "Failed to save assignments.");
+    } finally {
+      setSavingAssignments(false);
+      setTimeout(() => setAssignmentMessage(""), 2500);
+    }
+  };
 
   return (
     <div className="space-y-6">
       <header className="space-y-1">
         <h1 className="text-xl font-bold text-gray-900">Daily Gate Logs</h1>
         <p className="text-sm text-gray-600">
-          Track campus in/out records for team members via QR scans and maintain the guardian/visitor register digitally.
+          Share QR codes for team member scans and manage who can fill the Guardian & Visitor Register from the Managerial Club.
         </p>
       </header>
 
@@ -310,69 +257,38 @@ export default function GateLogsAdminPage() {
                 className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
                 value={staffDate}
                 max={todayKey()}
-                onChange={(event) => {
-                  setStaffDate(event.target.value);
-                }}
+                onChange={(event) => setStaffDate(event.target.value)}
               />
             </div>
-            <div className="text-sm text-gray-500">
-              {staffRows.length} record{staffRows.length === 1 ? "" : "s"} for {staffDate || "—"}
-            </div>
+            {assignmentMessage && <span className="text-xs text-indigo-600">{assignmentMessage}</span>}
           </div>
 
-          <div className="overflow-x-auto border border-gray-200 rounded-xl">
+          <div className="overflow-x-auto rounded-xl border border-gray-200">
             <table className="min-w-full divide-y divide-gray-200 text-sm">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-3 py-2 text-left font-semibold text-gray-700">Team Member</th>
+                  <th className="px-3 py-2 text-left font-semibold text-gray-700">Staff</th>
                   <th className="px-3 py-2 text-left font-semibold text-gray-700">Purpose</th>
-                  <th className="px-3 py-2 text-left font-semibold text-gray-700">Out</th>
-                  <th className="px-3 py-2 text-left font-semibold text-gray-700">In</th>
-                  <th className="px-3 py-2 text-left font-semibold text-gray-700">Status</th>
+                  <th className="px-3 py-2 text-left font-semibold text-gray-700">Out at</th>
+                  <th className="px-3 py-2 text-left font-semibold text-gray-700">Back in at</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200 bg-white">
-                {staffError ? (
+              <tbody className="divide-y divide-gray-100">
+                {staffRows.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-3 py-6 text-center text-red-500">
-                      {staffError.message || "Failed to load gate activity."}
+                    <td colSpan={4} className="px-3 py-4 text-center text-sm text-gray-500">
+                      No staff movements recorded for {staffDate || "—"}.
                     </td>
                   </tr>
-                ) : staffLoading ? (
-                  <tr>
-                    <td colSpan={5} className="px-3 py-6 text-center text-gray-500">
-                      Loading gate activity…
-                    </td>
-                  </tr>
-                ) : staffRows.length ? (
-                  staffRows.map((row) => {
-                    const awaitingReturn = !!row.outAt && !row.inAt;
-                    return (
-                      <tr key={row.id}>
-                        <td className="px-3 py-2 font-medium text-gray-900">{row.userName}</td>
-                        <td className="px-3 py-2 text-gray-700">{row.purpose || "—"}</td>
-                        <td className="px-3 py-2 text-gray-700">{formatTime(row.outAt)}</td>
-                        <td className="px-3 py-2 text-gray-700">{formatTime(row.inAt)}</td>
-                        <td className="px-3 py-2">
-                          {awaitingReturn ? (
-                            <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">
-                              Awaiting return
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">
-                              Completed
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })
                 ) : (
-                  <tr>
-                    <td colSpan={5} className="px-3 py-6 text-center text-gray-500">
-                      No gate scans logged for this date.
-                    </td>
-                  </tr>
+                  staffRows.map((row) => (
+                    <tr key={row.id} className="hover:bg-gray-50">
+                      <td className="px-3 py-2 text-sm font-medium text-gray-900">{row.userName}</td>
+                      <td className="px-3 py-2 text-sm text-gray-600">{row.purpose || "—"}</td>
+                      <td className="px-3 py-2 text-sm text-amber-600">{formatTime(row.outAt)}</td>
+                      <td className="px-3 py-2 text-sm text-emerald-600">{formatTime(row.inAt)}</td>
+                    </tr>
+                  ))
                 )}
               </tbody>
             </table>
@@ -384,198 +300,53 @@ export default function GateLogsAdminPage() {
         <CardHeader>
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <div>
-              <h2 className="text-base font-semibold text-gray-900">Guardian & Visitor Register</h2>
+              <h2 className="text-base font-semibold text-gray-900">Guardian & Visitor Register – Access</h2>
               <p className="text-sm text-gray-600">
-                Digitise the physical register. Copy entries from the hard log into the system to maintain a searchable archive.
+                Choose which team managers can fill the Guardian & Visitor Register from the Managerial Club. They will use
+                the new Guardian Register tool under managersCommon.
               </p>
             </div>
-            <div className="flex items-center gap-2">
-              <Button variant="light" size="sm" onClick={refreshGuardian} disabled={guardianLoading}>
-                <RefreshCw className="mr-2 h-4 w-4" /> Refresh
-              </Button>
-            </div>
+            <Button onClick={handleSaveAssignments} disabled={savingAssignments || guardianAssignmentsLoading}>
+              {savingAssignments ? "Saving…" : "Save Access"}
+            </Button>
           </div>
         </CardHeader>
-        <CardBody className="space-y-5">
-          <form className="grid gap-3 md:grid-cols-2 lg:grid-cols-3" onSubmit={submitGuardian}>
-            <div className="md:col-span-1">
-              <label htmlFor="guardian-date" className="block text-sm font-medium text-gray-700">
-                Register date
-              </label>
-              <input
-                id="guardian-date"
-                type="date"
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
-                value={guardianDate}
-                onChange={(event) => setGuardianDate(event.target.value)}
-              />
+        <CardBody>
+          {guardianAssignmentsLoading ? (
+            <p className="text-sm text-gray-600">Loading team managers…</p>
+          ) : managers.length === 0 ? (
+            <p className="text-sm text-gray-600">No team managers found yet.</p>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+              {managers.map((manager) => {
+                const isChecked = selectedGuardians.includes(manager.id);
+                return (
+                  <label
+                    key={manager.id}
+                    className={`flex cursor-pointer items-center justify-between rounded-lg border px-3 py-2 text-sm transition ${
+                      isChecked ? "border-indigo-300 bg-indigo-50" : "border-gray-200 bg-white hover:border-indigo-200"
+                    }`}
+                  >
+                    <span>
+                      <span className="font-medium text-gray-900">{manager.name || `Manager #${manager.id}`}</span>
+                      {manager.email ? <span className="block text-xs text-gray-500">{manager.email}</span> : null}
+                    </span>
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4"
+                      checked={isChecked}
+                      onChange={() => toggleGuardian(manager.id)}
+                    />
+                  </label>
+                );
+              })}
             </div>
-            <div className="md:col-span-1">
-              <label htmlFor="guardian-name" className="block text-sm font-medium text-gray-700">
-                Guardian name
-              </label>
-              <input
-                id="guardian-name"
-                type="text"
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
-                value={guardianForm.guardianName}
-                onChange={updateGuardianField("guardianName")}
-                placeholder="Visitor / Guardian"
-              />
-            </div>
-            <div className="md:col-span-1">
-              <label htmlFor="student-name" className="block text-sm font-medium text-gray-700">
-                Student name
-              </label>
-              <input
-                id="student-name"
-                type="text"
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
-                value={guardianForm.studentName}
-                onChange={updateGuardianField("studentName")}
-                placeholder="Student"
-              />
-            </div>
-            <div className="md:col-span-1">
-              <label htmlFor="class-name" className="block text-sm font-medium text-gray-700">
-                Class / Section
-              </label>
-              <input
-                id="class-name"
-                type="text"
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
-                value={guardianForm.className}
-                onChange={updateGuardianField("className")}
-                placeholder="e.g. MSP - Grade 3"
-              />
-            </div>
-            <div className="md:col-span-2">
-              <label htmlFor="purpose" className="block text-sm font-medium text-gray-700">
-                Purpose of visit
-              </label>
-              <input
-                id="purpose"
-                type="text"
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
-                value={guardianForm.purpose}
-                onChange={updateGuardianField("purpose")}
-                placeholder="Reason noted in register"
-              />
-            </div>
-            <div>
-              <label htmlFor="in-time" className="block text-sm font-medium text-gray-700">
-                In time
-              </label>
-              <input
-                id="in-time"
-                type="time"
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
-                value={guardianForm.inTime}
-                onChange={updateGuardianField("inTime")}
-              />
-            </div>
-            <div>
-              <label htmlFor="out-time" className="block text-sm font-medium text-gray-700">
-                Out time
-              </label>
-              <input
-                id="out-time"
-                type="time"
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
-                value={guardianForm.outTime}
-                onChange={updateGuardianField("outTime")}
-              />
-            </div>
-            <div>
-              <label htmlFor="signature" className="block text-sm font-medium text-gray-700">
-                Signature / Notes
-              </label>
-              <input
-                id="signature"
-                type="text"
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
-                value={guardianForm.signature}
-                onChange={updateGuardianField("signature")}
-                placeholder="Initials or remarks"
-              />
-            </div>
-            <div className="md:col-span-2 lg:col-span-3 flex items-center gap-3 pt-1">
-              <Button type="submit" disabled={formBusy}>
-                {formBusy ? "Saving…" : "Add entry"}
-              </Button>
-              {formError && <span className="text-sm text-red-600">{formError}</span>}
-              {formSuccess && !formError && <span className="text-sm text-emerald-600">{formSuccess}</span>}
-            </div>
-          </form>
-
-          <div className="flex items-center justify-between text-sm text-gray-500">
-            <span>
-              Showing {guardianEntries.length} entr{guardianEntries.length === 1 ? "y" : "ies"} for {guardianDate || "—"}
-            </span>
-          </div>
-
-          <div className="overflow-x-auto border border-gray-200 rounded-xl">
-            <table className="min-w-full divide-y divide-gray-200 text-sm">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-3 py-2 text-left font-semibold text-gray-700">Guardian</th>
-                  <th className="px-3 py-2 text-left font-semibold text-gray-700">Student</th>
-                  <th className="px-3 py-2 text-left font-semibold text-gray-700">Class</th>
-                  <th className="px-3 py-2 text-left font-semibold text-gray-700">Purpose</th>
-                  <th className="px-3 py-2 text-left font-semibold text-gray-700">In</th>
-                  <th className="px-3 py-2 text-left font-semibold text-gray-700">Out</th>
-                  <th className="px-3 py-2 text-left font-semibold text-gray-700">Signature</th>
-                  <th className="px-3 py-2 text-left font-semibold text-gray-700">Recorded by</th>
-                  <th className="px-3 py-2 text-right font-semibold text-gray-700">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200 bg-white">
-                {guardianError ? (
-                  <tr>
-                    <td colSpan={9} className="px-3 py-6 text-center text-red-500">
-                      {guardianError.message || "Failed to load guardian register."}
-                    </td>
-                  </tr>
-                ) : guardianLoading ? (
-                  <tr>
-                    <td colSpan={9} className="px-3 py-6 text-center text-gray-500">
-                      Loading register entries…
-                    </td>
-                  </tr>
-                ) : guardianEntries.length ? (
-                  guardianEntries.map((entry) => (
-                    <tr key={entry.id}>
-                      <td className="px-3 py-2 font-medium text-gray-900">{entry.guardianName}</td>
-                      <td className="px-3 py-2 text-gray-700">{entry.studentName}</td>
-                      <td className="px-3 py-2 text-gray-700">{entry.className || "—"}</td>
-                      <td className="px-3 py-2 text-gray-700">{entry.purpose || "—"}</td>
-                      <td className="px-3 py-2 text-gray-700">{formatTime(entry.inAt)}</td>
-                      <td className="px-3 py-2 text-gray-700">{formatTime(entry.outAt)}</td>
-                      <td className="px-3 py-2 text-gray-700">{entry.signature || "—"}</td>
-                      <td className="px-3 py-2 text-gray-500">{entry.createdByName || "—"}</td>
-                      <td className="px-3 py-2 text-right">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => deleteGuardian(entry.id)}
-                          className="text-red-600 hover:text-red-700"
-                        >
-                          <Trash2 className="mr-1 h-4 w-4" /> Delete
-                        </Button>
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={9} className="px-3 py-6 text-center text-gray-500">
-                      No guardian/visitor entries for this date yet.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+          )}
+          <p className="mt-4 text-xs text-gray-500">
+            Selected managers can now access the register at <code className="rounded bg-gray-100 px-2 py-0.5 text-[0.75rem]">
+              /dashboard/managersCommon/guardian-register
+            </code> via the Managerial Club.
+          </p>
         </CardBody>
       </Card>
     </div>

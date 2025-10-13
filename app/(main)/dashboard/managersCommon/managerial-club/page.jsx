@@ -5,10 +5,10 @@ import { ClipboardList, NotebookPen, ClipboardCheck, UserPlus, Boxes } from "luc
 
 const CLUB_TOOLS = [
   {
-    key: "pt-reports",
-    label: "PT Daily Reports",
+    key: "guardian-register",
+    label: "Guardian & Visitor Register",
     icon: ClipboardList,
-    href: "/dashboard/admin/manageMeedian/mri-reports/pt",
+    href: "/dashboard/managersCommon/guardian-register",
   },
   {
     key: "pt-assist",

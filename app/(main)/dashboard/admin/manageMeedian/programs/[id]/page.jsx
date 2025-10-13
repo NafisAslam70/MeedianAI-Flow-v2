@@ -27,12 +27,16 @@ export default function ProgramDetailPage() {
     }
     navigator.clipboard.writeText(JSON.stringify(seed, null, 2));
     alert('Seed copied to clipboard!\n' + JSON.stringify(seed, null, 2));
-  if (typeof refreshCells === 'function') refreshCells();
+    if (typeof refreshCells === 'function') refreshCells();
   }
   const params = useParams();
   const id = Number(params?.id);
-  const { data: progData } = useSWR(id ? `/api/admin/manageMeedian?section=metaPrograms` : null, fetcher);
+  const { data: progData, mutate: refreshPrograms } = useSWR(id ? `/api/admin/manageMeedian?section=metaPrograms` : null, fetcher);
   const program = useMemo(() => (progData?.programs || []).find((p) => p.id === id), [progData, id]);
+  const mspProgram = useMemo(
+    () => (progData?.programs || []).find((p) => String(p.programKey || "").toUpperCase() === "MSP"),
+    [progData]
+  );
 
   const searchParams = useSearchParams();
   const [track, setTrack] = useState("pre_primary");
@@ -46,6 +50,9 @@ export default function ProgramDetailPage() {
   const [activeSection, setActiveSection] = useState(null); // null => show all / cards view
   const [view, setView] = useState("cards"); // cards | detail
   const [preview, setPreview] = useState({ open: false, track: "pre_primary" });
+  const [cloneBusy, setCloneBusy] = useState(false);
+  const [cloneMsg, setCloneMsg] = useState("");
+  const [cloneErr, setCloneErr] = useState("");
 
   // Update active section from URL hash so clicking sidebar sublinks shows only that section
   useEffect(() => {

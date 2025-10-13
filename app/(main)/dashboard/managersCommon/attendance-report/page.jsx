@@ -6,6 +6,21 @@ import { CalendarDays, Download, Filter, Search, UserCheck, UserX, Users } from 
 
 const fetcher = (u) => fetch(u).then((r) => r.json());
 
+const PROGRAM_TRACK_HINTS = {
+  MSP: ["pre_primary", "elementary"],
+  MHCP: ["pre_primary", "elementary"],
+  MOP: ["mop", "mop2"],
+};
+const BASE_TRACKS = ["pre_primary", "elementary"];
+const formatTrackLabel = (value) => {
+  if (!value) return "";
+  return String(value)
+    .replace(/[_\-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (ch) => ch.toUpperCase());
+};
+
 export default function AttendanceReportPage() {
   const today = new Date().toISOString().slice(0,10);
   const [date, setDate] = useState(today);
@@ -31,8 +46,82 @@ export default function AttendanceReportPage() {
   const [sendingReminder, setSendingReminder] = useState(false);
   const [banner, setBanner] = useState(null);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const { data: programsData } = useSWR(
+    "/api/admin/manageMeedian?section=metaPrograms",
+    fetcher,
+    { dedupingInterval: 60000 }
+  );
+  const programOptions = useMemo(() => {
+    const rows = Array.isArray(programsData?.programs) ? programsData.programs : [];
+    return rows
+      .filter((program) => program && program.active !== false)
+      .map((program) => ({
+        id: program.id,
+        key: String(program.programKey || "").toUpperCase(),
+        name: program.name || program.programKey || "Program",
+        scope: String(program.scope || "").toLowerCase(),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [programsData]);
+  useEffect(() => {
+    if (!programOptions.length) return;
+    if (!programKey) return;
+    const exists = programOptions.some((program) => program.key === programKey);
+    if (!exists) {
+      const fallback =
+        programOptions.find((program) => program.key === "MSP") ||
+        programOptions[0];
+      if (fallback) setProgramKey(fallback.key);
+    }
+  }, [programOptions, programKey]);
+  const currentProgram = useMemo(
+    () => programOptions.find((program) => program.key === programKey) || null,
+    [programOptions, programKey]
+  );
+  const derivedTrackValues = useMemo(() => {
+    const set = new Set();
+    const push = (value) => {
+      const norm = String(value || "").trim().toLowerCase();
+      if (norm) set.add(norm);
+    };
+    const collectFromProgram = (program) => {
+      if (!program) return;
+      const scope = program.scope;
+      if (scope === "both" || scope === "pre_primary") push("pre_primary");
+      if (scope === "both" || scope === "elementary") push("elementary");
+      if (scope && !["both", "pre_primary", "elementary"].includes(scope)) push(scope);
+      const hints = PROGRAM_TRACK_HINTS[program.key] || [];
+      hints.forEach(push);
+    };
+    if (currentProgram) {
+      collectFromProgram(currentProgram);
+    } else if (!programKey) {
+      programOptions.forEach(collectFromProgram);
+    }
+    BASE_TRACKS.forEach(push);
+    return Array.from(set);
+  }, [currentProgram, programKey, programOptions]);
+  useEffect(() => {
+    if (!track) return;
+    if (!derivedTrackValues.includes(track)) {
+      setTrack("");
+    }
+  }, [derivedTrackValues, track]);
+  const trackOptions = useMemo(() => {
+    const sorted = derivedTrackValues.slice().sort((a, b) => a.localeCompare(b));
+    const rows = sorted.map((value) => ({
+      value,
+      label: formatTrackLabel(value),
+    }));
+    if (track && !sorted.includes(track)) {
+      rows.push({ value: track, label: formatTrackLabel(track) });
+    }
+    return rows;
+  }, [derivedTrackValues, track]);
+
   const params = new URLSearchParams({ section: 'report', date });
-  if (programKey) params.set('programKey', programKey);
+  const normalizedProgramKey = programKey ? programKey.toUpperCase() : "";
+  if (normalizedProgramKey) params.set('programKey', normalizedProgramKey);
   if (track) params.set('track', track);
 
   const { data, isLoading, error, mutate } = useSWR(`/api/attendance?${params.toString()}`, fetcher);
@@ -289,12 +378,18 @@ export default function AttendanceReportPage() {
               <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Program</label>
               <select
                 value={programKey}
-                onChange={(e) => setProgramKey(e.target.value)}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setProgramKey(value ? value.toUpperCase() : "");
+                }}
                 className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/20"
               >
                 <option value="">All Programs</option>
-                <option value="MSP">MSP</option>
-                <option value="MHCP">MHCP</option>
+                {programOptions.map((program) => (
+                  <option key={program.key} value={program.key}>
+                    {program.name} ({program.key})
+                  </option>
+                ))}
               </select>
             </div>
             <div className="flex flex-col gap-1">
@@ -305,8 +400,11 @@ export default function AttendanceReportPage() {
                 className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/20"
               >
                 <option value="">All Tracks</option>
-                <option value="pre_primary">Pre-Primary</option>
-                <option value="elementary">Elementary</option>
+                {trackOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
               </select>
             </div>
           </div>

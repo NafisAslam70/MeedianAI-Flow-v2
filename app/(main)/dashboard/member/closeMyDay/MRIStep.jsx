@@ -42,6 +42,9 @@ const REPORT_STATUS_STYLES = {
   default: "bg-slate-100 text-slate-700 border border-slate-200",
 };
 
+const PT_DAILY_REPORT_KEY = "pt_daily_report";
+const SUBJECT_REPORT_KEY = "subject_daily_report";
+
 const PT_CDD_COLUMNS = [
   { key: "date", label: "Date", formatter: formatISTDate },
   { key: "assemblyUniformDefaulters", label: "Assembly / Uniform Defaulters" },
@@ -71,6 +74,17 @@ const PT_ATTENDANCE_COLUMNS = [
   { key: "presentCount", label: "Present Count" },
   { key: "absentCount", label: "Absent Count" },
   { key: "notes", label: "Notes" },
+];
+
+const SUBJECT_REPORT_COLUMNS = [
+  { key: "classLabel", label: "Class" },
+  { key: "period", label: "Period" },
+  { key: "subject", label: "Subject" },
+  { key: "topic", label: "Topic" },
+  { key: "classwork", label: "Classwork (What happened)" },
+  { key: "homework", label: "Homework (Assigned)" },
+  { key: "teacherSignature", label: "Teacher Sign" },
+  { key: "monitorInitials", label: "Monitor Initials" },
 ];
 
 const YES_NO_OPTIONS = ["", "Yes", "No"];
@@ -501,9 +515,35 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
     return reportsData.reports;
   }, [reportsData]);
 
+  const ptDailyReports = useMemo(
+    () => mriReports.filter((report) => report?.templateKey === PT_DAILY_REPORT_KEY),
+    [mriReports]
+  );
+
+  const subjectReports = useMemo(
+    () => mriReports.filter((report) => report?.templateKey === SUBJECT_REPORT_KEY),
+    [mriReports]
+  );
+
   const pendingReportCount = useMemo(
     () => mriReports.filter((report) => !RESOLVED_REPORT_STATUSES.has(String(report?.status || "").toLowerCase())).length,
     [mriReports]
+  );
+
+  const pendingPtReportCount = useMemo(
+    () =>
+      ptDailyReports.filter(
+        (report) => !RESOLVED_REPORT_STATUSES.has(String(report?.status || "").toLowerCase())
+      ).length,
+    [ptDailyReports]
+  );
+
+  const pendingSubjectReportCount = useMemo(
+    () =>
+      subjectReports.filter(
+        (report) => !RESOLVED_REPORT_STATUSES.has(String(report?.status || "").toLowerCase())
+      ).length,
+    [subjectReports]
   );
 
   const reportSnapshot = useMemo(
@@ -633,11 +673,33 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
 
   const activeReportExtraEntries = useMemo(() => {
     if (!activeReportPayload) return [];
-    const exclude = new Set(["cddRows", "ccdRows", "attendanceRows"]);
+    const exclude = new Set(["cddRows", "ccdRows", "attendanceRows", "lessons", "summary", "sources", "teacher"]);
     return Object.entries(activeReportPayload).filter(([key]) => !exclude.has(key));
   }, [activeReportPayload]);
 
-  const isPtReport = useMemo(() => activeReport?.templateKey === "pt_daily_report", [activeReport?.templateKey]);
+  const isPtReport = useMemo(
+    () => activeReport?.templateKey === PT_DAILY_REPORT_KEY,
+    [activeReport?.templateKey]
+  );
+
+  const isSubjectReport = useMemo(
+    () => activeReport?.templateKey === SUBJECT_REPORT_KEY,
+    [activeReport?.templateKey]
+  );
+
+  const activeSubjectLessons = useMemo(() => {
+    if (!isSubjectReport) return [];
+    if (!activeReportPayload || typeof activeReportPayload !== "object") return [];
+    const lessons = activeReportPayload.lessons;
+    return Array.isArray(lessons) ? lessons : [];
+  }, [isSubjectReport, activeReportPayload]);
+
+  const activeSubjectSummary = useMemo(() => {
+    if (!isSubjectReport) return null;
+    if (!activeReportPayload || typeof activeReportPayload !== "object") return null;
+    const summary = activeReportPayload.summary;
+    return summary && typeof summary === "object" ? summary : null;
+  }, [isSubjectReport, activeReportPayload]);
 
   const ptActiveClassId = useMemo(() => {
     if (!isPtReport) return null;
@@ -748,7 +810,7 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
 
     return (
       <div className="h-full overflow-auto">
-        <table className="min-w-[1100px] table-fixed text-xs text-slate-700">
+        <table className="min-w-[1200px] table-fixed text-xs text-slate-700">
           <thead className="bg-slate-100">
             <tr>
               <th className="px-4 py-2 text-left font-semibold text-slate-700">#</th>
@@ -876,6 +938,90 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
   };
 
   const getSectionKeyFromModal = (modal) => PT_SECTION_KEY_MAP[modal] || "cddRows";
+
+  const renderSubjectSummarySection = () => {
+    if (!isSubjectReport) return null;
+    const classEntries = Array.isArray(activeSubjectSummary?.classes) ? activeSubjectSummary.classes : [];
+    const totalLessons =
+      typeof activeSubjectSummary?.totalLessons === "number"
+        ? activeSubjectSummary.totalLessons
+        : activeSubjectLessons.length;
+    if (totalLessons === 0 && classEntries.length === 0) return null;
+
+    return (
+      <div className="space-y-2">
+        <h4 className="text-sm font-semibold text-slate-700">Summary</h4>
+        <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3 text-xs text-indigo-700">
+          <p className="font-semibold">
+            Total periods captured: {totalLessons}
+          </p>
+          {classEntries.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {classEntries.map((entry, index) => (
+                <div
+                  key={`${entry?.classId ?? entry?.classLabel ?? index}`}
+                  className="rounded-lg border border-indigo-100 bg-white px-3 py-2 text-[0.7rem] text-indigo-700 shadow-sm"
+                >
+                  <p className="font-semibold">
+                    {entry?.classLabel || "Class"}
+                  </p>
+                  <p className="text-[0.65rem] text-indigo-600">
+                    {entry?.totalPeriods || 0} period{entry?.totalPeriods === 1 ? "" : "s"}
+                    {Array.isArray(entry?.periods) && entry.periods.length > 0
+                      ? ` • ${entry.periods.join(", ")}`
+                      : ""}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderSubjectLessonsTable = () => {
+    if (!activeSubjectLessons.length) {
+      return (
+        <div className="flex h-full items-center justify-center text-xs text-slate-500">
+          No CCD entries tagged to you yet.
+        </div>
+      );
+    }
+
+    return (
+      <div className="h-full overflow-auto">
+        <table className="min-w-[1100px] table-fixed text-xs text-slate-700">
+          <thead className="bg-slate-100">
+            <tr>
+              <th className="px-4 py-2 text-left font-semibold text-slate-700">#</th>
+              {SUBJECT_REPORT_COLUMNS.map((column) => (
+                <th key={column.key} className="px-4 py-2 text-left font-semibold text-slate-700">
+                  {column.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {activeSubjectLessons.map((lesson, index) => (
+              <tr key={`subject-lesson-${index}`} className={index % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                <td className="px-4 py-3 align-top font-semibold text-slate-500">{index + 1}</td>
+                {SUBJECT_REPORT_COLUMNS.map((column) => {
+                  const rawValue = lesson?.[column.key];
+                  const displayValue = formatCellValue(rawValue);
+                  return (
+                    <td key={`${column.key}-${index}`} className="px-4 py-3 align-top">
+                      {displayValue || "—"}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
 
   const updatePtRow = (sectionKey, rowIndex, updater) => {
     setPtEditablePayload((prev) => {
@@ -1187,7 +1333,7 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
             </p>
           )}
           <div className="overflow-x-auto rounded-2xl border border-slate-200">
-          <table className="min-w-[1100px] text-xs text-slate-700">
+            <table className="min-w-[1100px] text-xs text-slate-700">
             <thead className="bg-slate-100">
               <tr>
                 {PT_CDD_EDIT_HEADERS.map((header) => (
@@ -1341,10 +1487,10 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
             </tbody>
           </table>
         </div>
-          <p className="text-[0.65rem] text-slate-500">
+        <p className="text-[0.65rem] text-slate-500">
           Tip: use comma-separated names for defaulters and absent students. Leave sign fields blank until stamped.
-          </p>
-        </div>
+        </p>
+      </div>
       );
     };
 
@@ -1515,7 +1661,7 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
         <div className="space-y-3">
           {renderHeaderActions("attendanceRows", "Add Session", attendanceInfo)}
           <div className="overflow-x-auto rounded-2xl border border-slate-200">
-          <table className="min-w-[950px] text-xs text-slate-700">
+            <table className="min-w-[950px] text-xs text-slate-700">
             <thead className="bg-slate-100">
               <tr>
                 {PT_ATTENDANCE_EDIT_HEADERS.map((header) => (
@@ -1744,10 +1890,10 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
             </tbody>
           </table>
         </div>
-          <p className="text-[0.65rem] text-slate-500">
-            Attendance tips: list absent names separated by commas. Present/Absent counts auto-update when you toggle students.
-          </p>
-        </div>
+        <p className="text-[0.65rem] text-slate-500">
+          Attendance tips: list absent names separated by commas. Present/Absent counts auto-update when you toggle students.
+        </p>
+      </div>
       );
     };
 
@@ -2007,9 +2153,9 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
               </div>
               <div className="flex items-center gap-2">
                 <Tag>PT Report</Tag>
-                {pendingReportCount > 0 && (
+                {pendingPtReportCount > 0 && (
                   <span className="inline-flex items-center justify-center rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-xs font-semibold text-rose-600">
-                    {pendingReportCount} pending
+                    {pendingPtReportCount} pending
                   </span>
                 )}
               </div>
@@ -2022,11 +2168,11 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
                 <p className="text-sm text-red-600 flex items-center gap-2">
                   <AlertCircle size={16} /> {reportsError.message || "Failed to load PT reports."}
                 </p>
-              ) : mriReports.length === 0 ? (
+              ) : ptDailyReports.length === 0 ? (
                 <p className="text-sm text-gray-600">No PT daily reports assigned to you right now.</p>
               ) : (
                 <div className="space-y-3">
-                  {mriReports.map((report) => {
+                  {ptDailyReports.map((report) => {
                     const status = String(report?.status || "pending").toLowerCase();
                     const hasSubmittedStatus = ["submitted", "verified", "waived"].includes(status);
                     const hasPayload = Boolean(report?.payload);
@@ -2070,6 +2216,108 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
                           ) : (
                             <span className="text-[0.65rem] text-slate-500">Awaiting data entry</span>
                           )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </motion.div>
+
+          {/* Subject Reports Card */}
+          <motion.div
+            className="lg:col-span-3 h-full bg-white/80 backdrop-blur-md rounded-2xl shadow-md p-5 border border-purple-100/60"
+            whileHover={{ scale: 1.005 }}
+          >
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <CheckCircle className="w-6 h-6 text-purple-600" />
+                  <h4 className="text-base font-bold text-gray-800">Subject Teaching MRI Reports</h4>
+                </div>
+                <p className="mt-1 text-sm text-gray-600">
+                  Review periods tagged to you in the Class Curriculum Diaries across all classes you taught today.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Tag>Subject Report</Tag>
+                {pendingSubjectReportCount > 0 && (
+                  <span className="inline-flex items-center justify-center rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-xs font-semibold text-rose-600">
+                    {pendingSubjectReportCount} pending
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-4">
+              {isReportsLoading ? (
+                <p className="text-sm text-gray-600">Gathering today&apos;s subject reports…</p>
+              ) : reportsError ? (
+                <p className="text-sm text-red-600 flex items-center gap-2">
+                  <AlertCircle size={16} /> {reportsError.message || "Failed to load subject reports."}
+                </p>
+              ) : subjectReports.length === 0 ? (
+                <p className="text-sm text-gray-600">No subject teaching reports assigned to you right now.</p>
+              ) : (
+                <div className="space-y-3">
+                  {subjectReports.map((report) => {
+                    const status = String(report?.status || "pending").toLowerCase();
+                    const badgeClass = REPORT_STATUS_STYLES[status] || REPORT_STATUS_STYLES.default;
+                    const payload =
+                      report?.payload && typeof report.payload === "string"
+                        ? (() => {
+                            try {
+                              return JSON.parse(report.payload);
+                            } catch {
+                              return null;
+                            }
+                          })()
+                        : (report?.payload && typeof report.payload === "object" ? report.payload : null);
+                    const lessons = Array.isArray(payload?.lessons) ? payload.lessons : [];
+                    const summaryClasses = Array.isArray(payload?.summary?.classes) ? payload.summary.classes : [];
+                    const classLabels = summaryClasses
+                      .map((entry) => entry?.classLabel)
+                      .filter((label) => typeof label === "string" && label.trim().length > 0);
+                    const summaryText =
+                      lessons.length > 0
+                        ? `${lessons.length} period${lessons.length > 1 ? "s" : ""} captured${
+                            classLabels.length ? ` • ${classLabels.join(", ")}` : ""
+                          }`
+                        : "Awaiting CCD entries tagged to you.";
+                    return (
+                      <div
+                        key={report?.instanceId || report?.assignmentId}
+                        className="rounded-xl border border-purple-100 bg-purple-50/70 p-4 shadow-sm"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-purple-800">
+                              {report?.templateName || "Subject Teaching Report"}
+                            </p>
+                            <p className="text-xs text-purple-700/80">{summaryText}</p>
+                            {report?.confirmationNote ? (
+                              <p className="mt-2 text-[0.7rem] text-purple-700/80">
+                                Teacher note: {report.confirmationNote}
+                              </p>
+                            ) : null}
+                          </div>
+                          <span className={`px-2 py-0.5 text-[0.65rem] font-semibold rounded-full ${badgeClass}`}>
+                            {toTitle(status, "Pending")}
+                          </span>
+                        </div>
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            className="rounded-md bg-purple-600 px-3 py-1 text-xs font-semibold text-white shadow hover:bg-purple-700 transition disabled:cursor-not-allowed disabled:opacity-60"
+                            onClick={() => openReportModal(report)}
+                            disabled={!report?.instanceId}
+                          >
+                            Review &amp; Confirm
+                          </button>
+                          <span className="text-[0.65rem] text-purple-700/70">
+                            {lessons.length > 0 ? "Data captured from CCD" : "No CCD data yet"}
+                          </span>
                         </div>
                       </div>
                     );
@@ -2523,6 +2771,19 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
                     {renderAdditionalDetails()}
                     {renderNoDigitalEntriesNotice()}
                     {ptActiveSection === "ccd" && renderConfirmationNoteSection("inline")}
+                  </div>
+                ) : isSubjectReport ? (
+                  <div className="flex h-full flex-col gap-4">
+                    {activeReportPayload?.teacher?.name && (
+                      <p className="text-xs text-slate-500">
+                        Tagged teacher: {activeReportPayload.teacher.name}
+                      </p>
+                    )}
+                    {renderSubjectSummarySection()}
+                    <div className="flex-1 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                      {renderSubjectLessonsTable()}
+                    </div>
+                    {renderAdditionalDetails()}
                   </div>
                 ) : (
                   <>

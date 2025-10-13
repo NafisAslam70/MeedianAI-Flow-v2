@@ -14,6 +14,19 @@ export async function GET(req) {
     const userId = Number(session.user.id);
     const { searchParams } = new URL(req.url);
     const dateParam = searchParams.get("date");
+    const targetUserParam = searchParams.get("userId");
+
+    let targetUserId = userId;
+    if (targetUserParam) {
+      if (!["admin", "team_manager"].includes(session.user?.role)) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+      const parsed = Number(targetUserParam);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        return NextResponse.json({ error: "Invalid userId" }, { status: 400 });
+      }
+      targetUserId = parsed;
+    }
 
     const date = dateParam ? new Date(dateParam) : new Date();
     const start = new Date(date);
@@ -35,7 +48,7 @@ export async function GET(req) {
       .from(meRightNowSessions)
       .where(
         and(
-          eq(meRightNowSessions.userId, userId),
+          eq(meRightNowSessions.userId, targetUserId),
           gte(meRightNowSessions.startedAt, start),
           lte(meRightNowSessions.startedAt, end)
         )
@@ -48,4 +61,3 @@ export async function GET(req) {
     return NextResponse.json({ error: e.message || "Failed" }, { status: 500 });
   }
 }
-

@@ -101,6 +101,7 @@ export async function GET(req) {
   "randomsLab",
   "campusGateStaff",
   "guardianGateLogs",
+  "guardianGateAssignments",
 ]);
   if (memberReadable.has(section)) {
     if (!session || !["admin", "team_manager", "member"].includes(session.user?.role)) {
@@ -146,6 +147,22 @@ export async function GET(req) {
         .from(users)
         .where(eq(users.role, 'team_manager'));
       return NextResponse.json({ managers: mgrs, grants, sections: Array.from(grantableSections), programs: await (async()=>{ const progs = await db.select({ id: mriPrograms.id, name: mriPrograms.name, programKey: mriPrograms.programKey }).from(mriPrograms); return progs; })() }, { status: 200 });
+    }
+    if (section === "guardianGateAssignments") {
+      if (!session || session.user?.role !== "admin") {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+      const teamManagers = await db
+        .select({ id: users.id, name: users.name, email: users.email })
+        .from(users)
+        .where(eq(users.role, "team_manager"))
+        .orderBy(users.name);
+      const grants = await db
+        .select({ userId: managerSectionGrants.userId })
+        .from(managerSectionGrants)
+        .where(eq(managerSectionGrants.section, "guardianGateLogs"));
+      const grantedIds = grants.map((row) => Number(row.userId)).filter((id) => Number.isFinite(id));
+      return NextResponse.json({ managers: teamManagers, granted: grantedIds }, { status: 200 });
     }
     if (section === "mriReportTemplates") {
       await ensurePtTemplate();
@@ -629,38 +646,78 @@ export async function GET(req) {
       if (Number.isNaN(targetDate.getTime())) {
         return NextResponse.json({ error: "Invalid date" }, { status: 400 });
       }
-      const dayStart = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate());
-      const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
 
-      const rows = await db
-        .select({
-          id: campusGateStaffLogs.id,
-          userId: campusGateStaffLogs.userId,
-          userName: users.name,
-          direction: campusGateStaffLogs.direction,
-          purpose: campusGateStaffLogs.purpose,
-          recordedAt: campusGateStaffLogs.recordedAt,
-        })
-        .from(campusGateStaffLogs)
-        .innerJoin(users, eq(users.id, campusGateStaffLogs.userId))
-        .where(
-          and(
-            gte(campusGateStaffLogs.recordedAt, dayStart),
-            lt(campusGateStaffLogs.recordedAt, dayEnd)
+      const dayStart = new Date(Date.UTC(targetDate.getUTCFullYear(), targetDate.getUTCMonth(), targetDate.getUTCDate()));
+      const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+      let warning = null;
+      let rows;
+
+      try {
+        rows = await db
+          .select({
+            id: campusGateStaffLogs.id,
+            userId: campusGateStaffLogs.userId,
+            userName: users.name,
+            direction: campusGateStaffLogs.direction,
+            purpose: campusGateStaffLogs.purpose,
+            recordedAt: campusGateStaffLogs.recordedAt,
+          })
+          .from(campusGateStaffLogs)
+          .innerJoin(users, eq(users.id, campusGateStaffLogs.userId))
+          .where(
+            and(
+              gte(campusGateStaffLogs.recordedAt, dayStart),
+              lt(campusGateStaffLogs.recordedAt, dayEnd)
+            )
           )
-        )
-        .orderBy(desc(campusGateStaffLogs.recordedAt));
+          .orderBy(desc(campusGateStaffLogs.recordedAt));
+      } catch (queryError) {
+        const message = `${queryError?.message || ""}`;
+        const missingPurposeColumn =
+          message.includes(`"campus_gate_staff_logs"."purpose"`) ||
+          message.includes(`campus_gate_staff_logs.purpose`);
+        const relationMissing =
+          message.includes(`relation "campus_gate_staff_logs"`) ||
+          message.includes(`relation 'campus_gate_staff_logs'`) ||
+          message.includes("campus_gate_staff_logs does not exist");
+
+        if (missingPurposeColumn) {
+          warning = "purposeColumnMissing";
+          rows = await db
+            .select({
+              id: campusGateStaffLogs.id,
+              userId: campusGateStaffLogs.userId,
+              userName: users.name,
+              direction: campusGateStaffLogs.direction,
+              recordedAt: campusGateStaffLogs.recordedAt,
+            })
+            .from(campusGateStaffLogs)
+            .innerJoin(users, eq(users.id, campusGateStaffLogs.userId))
+            .where(
+              and(
+                gte(campusGateStaffLogs.recordedAt, dayStart),
+                lt(campusGateStaffLogs.recordedAt, dayEnd)
+              )
+            )
+            .orderBy(desc(campusGateStaffLogs.recordedAt));
+        } else if (relationMissing) {
+          warning = "missingTable";
+          rows = [];
+        } else {
+          throw queryError;
+        }
+      }
 
       const logs = rows.map((row) => ({
         id: row.id,
         userId: row.userId,
         userName: row.userName,
         direction: row.direction,
-        purpose: row.purpose,
+        purpose: "purpose" in row ? row.purpose : null,
         recordedAt: row.recordedAt instanceof Date ? row.recordedAt.toISOString() : row.recordedAt,
       }));
 
-      return NextResponse.json({ logs }, { status: 200 });
+      return NextResponse.json({ logs, warning }, { status: 200 });
     }
 
     if (section === "guardianGateLogs") {
@@ -767,7 +824,7 @@ export async function POST(req) {
         "slots","slotsWeekly","slotRoleAssignments","seedSlotsWeekly",
         "mspCodes","mspCodeAssignments",
         "classes","classTeachers","randomsLab",
-        "metaFamilies","metaPrograms","metaProgramRoles","metaRoleDefs","metaRoleTasks",
+        "metaFamilies","metaPrograms","metaProgramsClone","metaProgramRoles","metaRoleDefs","metaRoleTasks",
         "programPeriods","programScheduleCells",
         "mriReportTemplates","mriReportAssignments",
         "openCloseTimes","userOpenCloseTimes",
@@ -812,6 +869,22 @@ export async function POST(req) {
         }
       }
       return NextResponse.json({ upserts, deletes }, { status: 200 });
+    }
+    if (section === "guardianGateAssignments") {
+      if (session.user?.role !== "admin") return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      const userIds = Array.isArray(body?.userIds)
+        ? Array.from(new Set(body.userIds.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0)))
+        : [];
+
+      await db.delete(managerSectionGrants).where(eq(managerSectionGrants.section, "guardianGateLogs"));
+
+      if (userIds.length) {
+        await db.insert(managerSectionGrants).values(
+          userIds.map((userId) => ({ userId, section: "guardianGateLogs", canWrite: true, programId: null }))
+        );
+      }
+
+      return NextResponse.json({ saved: userIds.length }, { status: 200 });
     }
     if (section === "guardianGateLogs") {
       const visitDateRaw = typeof body?.visitDate === "string" ? body.visitDate.trim() : "";
@@ -1692,6 +1765,248 @@ export async function POST(req) {
       return NextResponse.json({ family: row, message: "Family created" }, { status: 201 });
     }
 
+    if (section === "metaPrograms") {
+      const familyId = Number(body?.familyId);
+      const rawProgramKey = typeof body?.programKey === "string" ? body.programKey.trim() : "";
+      const rawName = typeof body?.name === "string" ? body.name.trim() : "";
+      const rawScope = typeof body?.scope === "string" ? body.scope.trim().toLowerCase() : "both";
+      const aimsValue = body?.aims;
+      const sopValue = body?.sop;
+      const active = body?.active === false ? false : true;
+
+      if (!Number.isInteger(familyId) || familyId <= 0) {
+        return NextResponse.json({ error: "Valid familyId is required" }, { status: 400 });
+      }
+      if (!rawProgramKey) {
+        return NextResponse.json({ error: "programKey is required" }, { status: 400 });
+      }
+      if (!rawName) {
+        return NextResponse.json({ error: "name is required" }, { status: 400 });
+      }
+
+      const allowedScopes = new Set(["pre_primary", "elementary", "both"]);
+      const scope = allowedScopes.has(rawScope) ? rawScope : "both";
+
+      const [family] = await db
+        .select({ id: mriFamilies.id })
+        .from(mriFamilies)
+        .where(eq(mriFamilies.id, familyId))
+        .limit(1);
+      if (!family) {
+        return NextResponse.json({ error: "familyId does not reference an existing family" }, { status: 404 });
+      }
+
+      let aims = null;
+      if (aimsValue !== undefined && aimsValue !== null) {
+        const aimsText = String(aimsValue).trim();
+        aims = aimsText ? aimsText : null;
+      }
+
+      let sop = null;
+      if (sopValue !== undefined) {
+        if (sopValue === null) {
+          sop = null;
+        } else if (typeof sopValue === "object") {
+          sop = sopValue;
+        } else {
+          return NextResponse.json({ error: "sop must be an object or null" }, { status: 400 });
+        }
+      }
+
+      try {
+        const [row] = await db
+          .insert(mriPrograms)
+          .values({
+            familyId,
+            programKey: rawProgramKey.toUpperCase(),
+            name: rawName,
+            scope,
+            aims,
+            sop,
+            active,
+          })
+          .returning({
+            id: mriPrograms.id,
+            familyId: mriPrograms.familyId,
+            programKey: mriPrograms.programKey,
+            name: mriPrograms.name,
+            scope: mriPrograms.scope,
+            aims: mriPrograms.aims,
+            sop: mriPrograms.sop,
+            active: mriPrograms.active,
+            createdAt: mriPrograms.createdAt,
+          });
+        return NextResponse.json({ program: row, message: "Program created" }, { status: 201 });
+      } catch (error) {
+        if (error?.code === "23505") {
+          return NextResponse.json({ error: "Program key already exists" }, { status: 409 });
+        }
+        throw error;
+      }
+    }
+
+    if (section === "metaProgramsClone") {
+      const sourceProgramId = Number(body?.sourceProgramId);
+      const targetProgramId = Number(body?.targetProgramId);
+      const copyAims = body?.copyAims !== false;
+      const copySop = body?.copySop !== false;
+      const copyPeriods = body?.copyPeriods !== false;
+      const copySchedule = body?.copySchedule !== false;
+      const copyWeekly = body?.copyWeekly !== false;
+
+      if (!sourceProgramId || !targetProgramId) {
+        return NextResponse.json({ error: "sourceProgramId and targetProgramId are required" }, { status: 400 });
+      }
+      if (sourceProgramId === targetProgramId) {
+        return NextResponse.json({ error: "source and target programs must differ" }, { status: 400 });
+      }
+
+      const [source] = await db
+        .select({
+          id: mriPrograms.id,
+          programKey: mriPrograms.programKey,
+          aims: mriPrograms.aims,
+          sop: mriPrograms.sop,
+        })
+        .from(mriPrograms)
+        .where(eq(mriPrograms.id, sourceProgramId))
+        .limit(1);
+      if (!source) {
+        return NextResponse.json({ error: "Source program not found" }, { status: 404 });
+      }
+
+      const [target] = await db
+        .select({
+          id: mriPrograms.id,
+          programKey: mriPrograms.programKey,
+        })
+        .from(mriPrograms)
+        .where(eq(mriPrograms.id, targetProgramId))
+        .limit(1);
+      if (!target) {
+        return NextResponse.json({ error: "Target program not found" }, { status: 404 });
+      }
+
+      const summary = {
+        aims: false,
+        sop: false,
+        periods: 0,
+        scheduleCells: 0,
+        scheduleDays: 0,
+      };
+
+      if (copyAims || copySop) {
+        const setObj = {};
+        if (copyAims) {
+          setObj.aims = source.aims ?? null;
+          summary.aims = true;
+        }
+        if (copySop) {
+          setObj.sop = source.sop ?? null;
+          summary.sop = true;
+        }
+        if (Object.keys(setObj).length) {
+          await db.update(mriPrograms).set(setObj).where(eq(mriPrograms.id, targetProgramId));
+        }
+      }
+
+      if (copyPeriods) {
+        const rows = await db
+          .select({
+            track: programPeriods.track,
+            periodKey: programPeriods.periodKey,
+            startTime: programPeriods.startTime,
+            endTime: programPeriods.endTime,
+          })
+          .from(programPeriods)
+          .where(eq(programPeriods.programId, sourceProgramId));
+
+        await db.delete(programPeriods).where(eq(programPeriods.programId, targetProgramId));
+
+        if (rows.length) {
+          const values = rows.map((row) => ({
+            programId: targetProgramId,
+            track: row.track,
+            periodKey: row.periodKey,
+            startTime: row.startTime,
+            endTime: row.endTime,
+          }));
+          await db.insert(programPeriods).values(values);
+          summary.periods = rows.length;
+        }
+      }
+
+      if (copySchedule) {
+        const rows = await db
+          .select({
+            track: programScheduleCells.track,
+            classId: programScheduleCells.classId,
+            periodKey: programScheduleCells.periodKey,
+            mspCodeId: programScheduleCells.mspCodeId,
+            subject: programScheduleCells.subject,
+            active: programScheduleCells.active,
+          })
+          .from(programScheduleCells)
+          .where(eq(programScheduleCells.programId, sourceProgramId));
+
+        await db.delete(programScheduleCells).where(eq(programScheduleCells.programId, targetProgramId));
+
+        if (rows.length) {
+          const values = rows.map((row) => ({
+            programId: targetProgramId,
+            track: row.track,
+            classId: row.classId,
+            periodKey: row.periodKey,
+            mspCodeId: row.mspCodeId ?? null,
+            subject: row.subject ?? null,
+            active: row.active ?? true,
+          }));
+          await db.insert(programScheduleCells).values(values);
+          summary.scheduleCells = rows.length;
+        }
+      }
+
+      if (copyWeekly) {
+        const rows = await db
+          .select({
+            track: programScheduleDays.track,
+            classId: programScheduleDays.classId,
+            dayName: programScheduleDays.dayName,
+            periodKey: programScheduleDays.periodKey,
+            mspCodeId: programScheduleDays.mspCodeId,
+            subject: programScheduleDays.subject,
+            active: programScheduleDays.active,
+          })
+          .from(programScheduleDays)
+          .where(eq(programScheduleDays.programId, sourceProgramId));
+
+        await db.delete(programScheduleDays).where(eq(programScheduleDays.programId, targetProgramId));
+
+        if (rows.length) {
+          const values = rows.map((row) => ({
+            programId: targetProgramId,
+            track: row.track,
+            classId: row.classId,
+            dayName: row.dayName,
+            periodKey: row.periodKey,
+            mspCodeId: row.mspCodeId ?? null,
+            subject: row.subject ?? null,
+            active: row.active ?? true,
+          }));
+          await db.insert(programScheduleDays).values(values);
+          summary.scheduleDays = rows.length;
+        }
+      }
+
+      return NextResponse.json(
+        {
+          message: `Copied template from ${source.programKey} to ${target.programKey}`,
+          copied: summary,
+        },
+        { status: 200 }
+      );
+    }
+
     if (section === "slots") {
       const { name, startTime, endTime, hasSubSlots = false, assignedMemberId = null, description = null } = body || {};
       if (!name || !startTime || !endTime) {
@@ -1950,6 +2265,101 @@ export async function PATCH(req) {
       return NextResponse.json({ updated }, { status: 200 });
     }
 
+    if (section === "metaPrograms") {
+      const updates = Array.isArray(body?.updates) ? body.updates : [];
+      if (!updates.length) return NextResponse.json({ error: "updates[] required" }, { status: 400 });
+
+      let updated = 0;
+      for (const u of updates) {
+        const id = Number(u?.id);
+        if (!id) continue;
+        const setObj = {};
+
+        if (u.familyId !== undefined) {
+          const nextFamilyId = Number(u.familyId);
+          if (!Number.isInteger(nextFamilyId) || nextFamilyId <= 0) {
+            return NextResponse.json({ error: `Invalid familyId for program ${id}` }, { status: 400 });
+          }
+          const [family] = await db
+            .select({ id: mriFamilies.id })
+            .from(mriFamilies)
+            .where(eq(mriFamilies.id, nextFamilyId))
+            .limit(1);
+          if (!family) {
+            return NextResponse.json({ error: `familyId ${nextFamilyId} does not exist` }, { status: 404 });
+          }
+          setObj.familyId = nextFamilyId;
+        }
+
+        if (u.programKey !== undefined) {
+          const key = String(u.programKey || "").trim();
+          if (!key) {
+            return NextResponse.json({ error: `programKey is required for program ${id}` }, { status: 400 });
+          }
+          setObj.programKey = key.toUpperCase();
+        }
+
+        if (u.name !== undefined) {
+          const name = String(u.name || "").trim();
+          if (!name) {
+            return NextResponse.json({ error: `name is required for program ${id}` }, { status: 400 });
+          }
+          setObj.name = name;
+        }
+
+        if (u.scope !== undefined) {
+          const scope = String(u.scope || "").trim().toLowerCase();
+          const allowedScopes = new Set(["pre_primary", "elementary", "both"]);
+          setObj.scope = allowedScopes.has(scope) ? scope : "both";
+        }
+
+        if (u.aims !== undefined) {
+          if (u.aims === null) {
+            setObj.aims = null;
+          } else {
+            const aims = String(u.aims).trim();
+            setObj.aims = aims || null;
+          }
+        }
+
+        if (u.sop !== undefined) {
+          if (u.sop === null) {
+            setObj.sop = null;
+          } else if (typeof u.sop === "object") {
+            setObj.sop = u.sop;
+          } else {
+            return NextResponse.json({ error: `sop must be an object or null for program ${id}` }, { status: 400 });
+          }
+        }
+
+        if (u.active !== undefined) {
+          setObj.active = !!u.active;
+        }
+
+        if (Object.keys(setObj).length === 0) continue;
+
+        try {
+          const result = await db
+            .update(mriPrograms)
+            .set(setObj)
+            .where(eq(mriPrograms.id, id))
+            .returning({ id: mriPrograms.id });
+          if (!result.length) {
+            return NextResponse.json({ error: `Program ${id} not found` }, { status: 404 });
+          }
+        } catch (error) {
+          if (error?.code === "23505") {
+            return NextResponse.json({ error: "Program key already exists" }, { status: 409 });
+          }
+          throw error;
+        }
+
+        updated += 1;
+      }
+
+      return NextResponse.json({ updated }, { status: 200 });
+    }
+
     if (section === "mriReportAssignments") {
       const updatesRaw = Array.isArray(body?.updates)
         ? body.updates
@@ -2128,7 +2538,7 @@ export async function DELETE(req) {
     // Team manager write-gating across admin sections
     if (session.user?.role === 'team_manager') {
       const allowedWrite = new Set([
-        "slots","mspCodes","mspCodeAssignments","metaFamilies","mriReportAssignments","guardianGateLogs",
+        "slots","mspCodes","mspCodeAssignments","metaFamilies","metaPrograms","mriReportAssignments","guardianGateLogs",
       ]);
       if (!allowedWrite.has(section)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
       const wr = await db
@@ -2142,6 +2552,16 @@ export async function DELETE(req) {
       const id = Number(body.id);
       if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
       await db.delete(mriFamilies).where(eq(mriFamilies.id, id));
+      return NextResponse.json({ deleted: 1 }, { status: 200 });
+    }
+
+    if (section === "metaPrograms") {
+      const id = Number(body.id);
+      if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+      const deleted = await db.delete(mriPrograms).where(eq(mriPrograms.id, id)).returning({ id: mriPrograms.id });
+      if (!deleted.length) {
+        return NextResponse.json({ error: "Program not found" }, { status: 404 });
+      }
       return NextResponse.json({ deleted: 1 }, { status: 200 });
     }
 

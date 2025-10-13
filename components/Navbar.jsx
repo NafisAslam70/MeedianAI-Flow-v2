@@ -15,6 +15,7 @@ import {
   Mountain,
   ClipboardList,
   ClipboardCheck,
+  ShieldCheck,
   AlertTriangle,
   DoorOpen,
   CalendarCheck2,
@@ -628,6 +629,20 @@ export default function Navbar() {
             </span>
             <ArrowRight size={16} className="row-go" />
           </button>
+
+          {role === 'admin' && (
+            <button
+              className="action-row"
+              onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/admin/manageMeedian/admin-club"); }}
+            >
+              <span className="row-icon"><ShieldCheck size={18} /></span>
+              <span className="row-main">
+                <span className="row-title">Admin Club</span>
+                <span className="row-sub">Leadership-only daily reports</span>
+              </span>
+              <ArrowRight size={16} className="row-go" />
+            </button>
+          )}
 
           <button
             className="action-row"
