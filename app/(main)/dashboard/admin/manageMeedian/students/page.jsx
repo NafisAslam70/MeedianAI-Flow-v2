@@ -1,15 +1,17 @@
 "use client";
-import { useState } from "react";
-import Students from "../Students";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 
-export default function StudentsPage() {
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+export default function StudentsRedirectPage() {
+  const router = useRouter();
+
+  useEffect(() => {
+    router.replace("/dashboard/admin/students");
+  }, [router]);
+
   return (
-    <div className="space-y-3">
-      {error && <p className="text-sm text-red-600">{error}</p>}
-      {success && <p className="text-sm text-emerald-600">{success}</p>}
-      <Students setError={setError} setSuccess={setSuccess} />
+    <div className="flex min-h-[60vh] items-center justify-center text-sm text-gray-500">
+      Redirecting to the full-screen Students Manager…
     </div>
   );
 }

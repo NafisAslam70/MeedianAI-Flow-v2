@@ -72,7 +72,7 @@ const groups = [
 		title: "Academics",
 		items: [
 			{
-				href: "/dashboard/admin/manageMeedian/students",
+				href: "/dashboard/admin/students",
 				label: "Students",
 				icon: GraduationCap,
 			},
@@ -189,7 +189,7 @@ export default function AdminSidebar() {
 						if (h.endsWith('/msp-codes')) return 'mspCodes';
 				if (h.endsWith('/class-teachers')) return 'classTeachers';
 				if (h.endsWith('/team')) return 'team';
-				if (h.endsWith('/students')) return 'students';
+				if (h === '/dashboard/admin/students') return 'students';
 				if (h.endsWith('/randoms')) return 'randomsLab';
 				if (h.includes('/daily-reports/gate-logs')) return ['campusGateStaff','guardianGateLogs'];
 				return null;

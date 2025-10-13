@@ -3,7 +3,7 @@ import { useSession, signOut } from "next-auth/react";
 import Link from "next/link";
 import { Instagram } from "lucide-react";
 import { useRouter, usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import {
   Menu,
@@ -52,6 +52,17 @@ export default function Navbar() {
   // role is needed by effects above the helpers section; define it early
   const role = session?.user?.role || "user";
 
+  const { data: managerControls, isLoading: managerControlsLoading } = useSWR(
+    role === "team_manager" ? "/api/admin/manageMeedian?section=controlsShareSelf" : null,
+    (u) => fetch(u, { headers: { "Content-Type": "application/json" } }).then((r) => r.json()),
+    { dedupingInterval: 60000 }
+  );
+  const hasAdminClubGrant = useMemo(() => {
+    if (role !== "team_manager") return false;
+    const grants = managerControls?.grants || [];
+    return grants.some((g) => g.section === "adminClub" && g.canWrite !== false);
+  }, [role, managerControls]);
+
   /* ======================= state ======================= */
   const [mounted, setMounted] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -97,6 +108,9 @@ export default function Navbar() {
   const [execStep, setExecStep] = useState(0);
   const [showFullWalkthrough, setShowFullWalkthrough] = useState(false);
   const [fullStep, setFullStep] = useState(0);
+
+  const showAdminClubButton = role === "admin" || role === "team_manager";
+  const adminClubDisabled = role === "team_manager" && (!hasAdminClubGrant || managerControlsLoading);
 
   /* ======================= effects ======================= */
   // mount
@@ -361,6 +375,20 @@ export default function Navbar() {
   const handleAddMember = () => router.push("/dashboard/admin/addUser");
   const handleManageMeedian = () => router.push("/dashboard/admin/manageMeedian");
   const openTogetherWorkspace = () => window.open("/dashboard/member/workTogether", "_blank");
+  const handleAdminClubClick = () => {
+    setIsManagerialOpen(false);
+    if (role === "team_manager") {
+      if (managerControlsLoading) {
+        window.alert("Checking your access… please try again in a moment.");
+        return;
+      }
+      if (!hasAdminClubGrant) {
+        window.alert("You are not allowed for this");
+        return;
+      }
+    }
+    router.push("/dashboard/admin/admin-club");
+  };
   const handleLogout = async () => {
     setIsLogoutModalOpen(false);
     await signOut({ redirect: false });
@@ -692,7 +720,7 @@ export default function Navbar() {
           {(role === 'team_manager' || role === 'admin') && (
             <>
               <div className="my-2 border-t border-slate-700/40" />
-              <div className={`club-duo${role === 'admin' ? '' : ' club-duo--single'}`}>
+              <div className={`club-duo${showAdminClubButton ? '' : ' club-duo--single'}`}>
                 <button
                   className="club-duo-btn"
                   onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/managersCommon/managerial-club"); }}
@@ -704,15 +732,18 @@ export default function Navbar() {
                   </span>
                   <ArrowRight size={16} className="club-duo-go" />
                 </button>
-                {role === 'admin' && (
+                {showAdminClubButton && (
                   <button
-                    className="club-duo-btn club-duo-btn--admin"
-                    onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/admin/manageMeedian/admin-club"); }}
+                    className={`club-duo-btn club-duo-btn--admin ${adminClubDisabled ? 'opacity-60 cursor-not-allowed' : ''}`}
+                    onClick={handleAdminClubClick}
+                    aria-disabled={adminClubDisabled}
                   >
                     <span className="club-duo-icon"><ShieldCheck size={20} /></span>
                     <span className="club-duo-main">
                       <span className="club-duo-title">Admin Club</span>
-                      <span className="club-duo-sub">Leadership daily reviews</span>
+                      <span className="club-duo-sub">
+                        {role === 'team_manager' && !hasAdminClubGrant ? 'Request leadership access' : 'Leadership daily reviews'}
+                      </span>
                     </span>
                     <ArrowRight size={16} className="club-duo-go" />
                   </button>

@@ -74,6 +74,13 @@ export default function ControlsSharePage() {
   // Mirror Admin Sidebar items as cards with doables and manager multi-selects
   const adminItems = React.useMemo(() => ([
     {
+      key: 'adminClub',
+      label: 'Admin Club',
+      sections: ['adminClub','mriReportAssignments','campusGateStaff','guardianGateLogs','metaPrograms','team'],
+      doables: ['View leadership dashboard', 'Review PT report status', 'Monitor gate activity', 'Inspect member MRI journals'],
+      description: 'Leadership-only dashboard. Also grants underlying data sets required for the Admin Club summaries.',
+    },
+    {
       key: 'dailySlots',
       label: 'Daily Slots',
       sections: ['slots','slotsWeekly','slotRoleAssignments','seedSlotsWeekly'],
