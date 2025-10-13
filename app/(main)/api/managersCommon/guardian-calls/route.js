@@ -10,7 +10,7 @@ import {
   mriPrograms,
   users,
 } from "@/lib/schema";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, or } from "drizzle-orm";
 
 const isManager = (session) =>
   Boolean(session?.user) && ["admin", "team_manager"].includes(session.user.role);
@@ -115,7 +115,9 @@ export async function GET(req) {
     const filters = [];
     const classId = parseId(searchParams.get("classId"));
     const studentId = parseId(searchParams.get("studentId"));
+    const programId = parseId(searchParams.get("programId"));
     const callDateRaw = sanitizeText(searchParams.get("callDate") || "");
+    const searchTerm = sanitizeText(searchParams.get("q") || "");
 
     if (classId) {
       filters.push(eq(guardianCallReports.classId, classId));
@@ -123,8 +125,23 @@ export async function GET(req) {
     if (studentId) {
       filters.push(eq(guardianCallReports.studentId, studentId));
     }
+    if (programId) {
+      filters.push(eq(guardianCallReports.programId, programId));
+    }
     if (callDateRaw) {
       filters.push(eq(guardianCallReports.callDate, callDateRaw));
+    }
+    if (searchTerm) {
+      const pattern = `%${searchTerm}%`;
+      filters.push(
+        or(
+          ilike(Students.name, pattern),
+          ilike(guardianCallReports.guardianName, pattern),
+          ilike(guardianCallReports.report, pattern),
+          ilike(mriPrograms.programKey, pattern),
+          ilike(mriPrograms.name, pattern)
+        )
+      );
     }
 
     let query = db

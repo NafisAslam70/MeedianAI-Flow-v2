@@ -618,31 +618,7 @@ export default function Navbar() {
             );
           })()}
 
-          <button
-            className="action-row"
-            onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/managersCommon/managerial-club"); }}
-          >
-            <span className="row-icon"><ClipboardList size={18} /></span>
-            <span className="row-main">
-              <span className="row-title">Managerial Club</span>
-              <span className="row-sub">Open PT support & routine tools</span>
-            </span>
-            <ArrowRight size={16} className="row-go" />
-          </button>
-
-          {role === 'admin' && (
-            <button
-              className="action-row"
-              onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/admin/manageMeedian/admin-club"); }}
-            >
-              <span className="row-icon"><ShieldCheck size={18} /></span>
-              <span className="row-main">
-                <span className="row-title">Admin Club</span>
-                <span className="row-sub">Leadership-only daily reports</span>
-              </span>
-              <ArrowRight size={16} className="row-go" />
-            </button>
-          )}
+          {/* Club access moved to bottom */}
 
           <button
             className="action-row"
@@ -716,8 +692,34 @@ export default function Navbar() {
           {(role === 'team_manager' || role === 'admin') && (
             <>
               <div className="my-2 border-t border-slate-700/40" />
+              <div className={`club-duo${role === 'admin' ? '' : ' club-duo--single'}`}>
+                <button
+                  className="club-duo-btn"
+                  onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/managersCommon/managerial-club"); }}
+                >
+                  <span className="club-duo-icon"><ClipboardList size={20} /></span>
+                  <span className="club-duo-main">
+                    <span className="club-duo-title">Managerial Club</span>
+                    <span className="club-duo-sub">PT & routine operations</span>
+                  </span>
+                  <ArrowRight size={16} className="club-duo-go" />
+                </button>
+                {role === 'admin' && (
+                  <button
+                    className="club-duo-btn club-duo-btn--admin"
+                    onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/admin/manageMeedian/admin-club"); }}
+                  >
+                    <span className="club-duo-icon"><ShieldCheck size={20} /></span>
+                    <span className="club-duo-main">
+                      <span className="club-duo-title">Admin Club</span>
+                      <span className="club-duo-sub">Leadership daily reviews</span>
+                    </span>
+                    <ArrowRight size={16} className="club-duo-go" />
+                  </button>
+                )}
+              </div>
               <button
-                className="action-row"
+                className="action-row mt-2"
                 onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/admin/manageMeedian"); }}
               >
                 <span className="row-icon"><Boxes size={18} /></span>
@@ -1745,6 +1747,84 @@ export default function Navbar() {
           font-weight: 600;
           line-height: 1.1;
           color: rgba(232, 253, 255, 0.92);
+        }
+        .club-duo {
+          display: flex;
+          width: 100%;
+          gap: 12px;
+          margin: 12px 0 4px;
+        }
+        .club-duo--single { justify-content: flex-start; }
+        .club-duo-btn {
+          flex: 1 1 0%;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 12px 14px;
+          border-radius: 14px;
+          border: 1px solid rgba(34, 211, 238, 0.32);
+          background:
+            radial-gradient(120% 120% at 15% 0%, rgba(34,211,238,0.18), rgba(9,20,35,0.9) 58%),
+            #091425;
+          color: #e1fbff;
+          transition: transform .12s ease, border-color .12s ease, box-shadow .12s ease;
+          text-align: left;
+        }
+        .club-duo-btn:hover {
+          transform: translateY(-1px);
+          border-color: rgba(59, 210, 255, 0.55);
+          box-shadow: 0 12px 28px -18px rgba(34,211,238,0.65);
+        }
+        .club-duo-btn--admin {
+          border-color: rgba(244, 180, 255, 0.38);
+          background:
+            radial-gradient(120% 120% at 18% -10%, rgba(244,114,182,0.2), rgba(16,18,32,0.92) 60%),
+            #0b1324;
+          color: #f9eeff;
+        }
+        .club-duo-icon {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 36px;
+          height: 36px;
+          border-radius: 9999px;
+          border: 1px solid rgba(34,211,238,0.32);
+          background: rgba(34,211,238,0.12);
+        }
+        .club-duo-btn--admin .club-duo-icon {
+          border-color: rgba(244, 180, 255, 0.38);
+          background: rgba(244,114,182,0.16);
+        }
+        .club-duo-main {
+          flex: 1;
+          min-width: 0;
+          display: flex;
+          flex-direction: column;
+        }
+        .club-duo-title {
+          font-size: 0.82rem;
+          font-weight: 700;
+          color: rgba(226, 253, 255, 0.96);
+        }
+        .club-duo-btn--admin .club-duo-title {
+          color: rgba(254, 244, 255, 0.98);
+        }
+        .club-duo-sub {
+          font-size: 0.7rem;
+          color: rgba(189, 219, 234, 0.78);
+          margin-top: 2px;
+        }
+        .club-duo-btn--admin .club-duo-sub {
+          color: rgba(250, 222, 255, 0.75);
+        }
+        .club-duo-go {
+          opacity: .75;
+          transition: transform .12s ease, opacity .12s ease;
+        }
+        .club-duo-btn:hover .club-duo-go {
+          transform: translateX(2px);
+          opacity: 1;
         }
         .action-row {
           display: grid;

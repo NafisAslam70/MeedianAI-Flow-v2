@@ -42,7 +42,9 @@ const initialForm = () => ({
 const initialFilters = {
   classId: "",
   studentId: "",
+  programId: "",
   callDate: "",
+  search: "",
 };
 
 const formatDisplayDate = (value) => {
@@ -94,7 +96,9 @@ export default function GuardianCallsPage() {
     params.set("section", "logs");
     if (filters.classId) params.set("classId", filters.classId);
     if (filters.studentId) params.set("studentId", filters.studentId);
+    if (filters.programId) params.set("programId", filters.programId);
     if (filters.callDate) params.set("callDate", filters.callDate);
+    if (filters.search && filters.search.trim()) params.set("q", filters.search.trim());
     return `/api/managersCommon/guardian-calls?${params.toString()}`;
   }, [filters]);
 
@@ -459,7 +463,7 @@ export default function GuardianCallsPage() {
           </div>
         </CardHeader>
         <CardBody>
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-6">
             <div>
               <label className="text-sm font-medium text-gray-700" htmlFor="gc-filter-class">
                 Class filter
@@ -514,6 +518,37 @@ export default function GuardianCallsPage() {
                 className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
                 value={filters.callDate}
                 onChange={handleFiltersChange("callDate")}
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700" htmlFor="gc-filter-program">
+                Program filter
+              </label>
+              <select
+                id="gc-filter-program"
+                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                value={filters.programId}
+                onChange={handleFiltersChange("programId")}
+              >
+                <option value="">All programs</option>
+                {programs.map((program) => (
+                  <option key={program.id} value={program.id}>
+                    {program.programKey} — {program.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="md:col-span-2 lg:col-span-2">
+              <label className="text-sm font-medium text-gray-700" htmlFor="gc-filter-search">
+                Search
+              </label>
+              <input
+                id="gc-filter-search"
+                type="text"
+                placeholder="Type guardian, student, program, or notes"
+                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                value={filters.search}
+                onChange={handleFiltersChange("search")}
               />
             </div>
           </div>
