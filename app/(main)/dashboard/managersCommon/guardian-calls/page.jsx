@@ -7,6 +7,7 @@ import Button from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import Badge from "@/components/ui/Badge";
 import { CalendarDays, PhoneCall, RefreshCw } from "lucide-react";
+import Link from "next/link";
 
 const fetcher = async (url) => {
   const res = await fetch(url, { headers: { "Content-Type": "application/json" } });
@@ -246,6 +247,13 @@ export default function GuardianCallsPage() {
             Failed to load class and program options. Refresh the page or contact Admin.
           </p>
         )}
+        <Link
+          href="/dashboard/managersCommon/managerial-club"
+          className="inline-flex items-center gap-2 text-sm font-medium text-teal-700 hover:text-teal-800"
+        >
+          <span aria-hidden="true">←</span>
+          Back to Managerial Club
+        </Link>
       </header>
 
       <Card>

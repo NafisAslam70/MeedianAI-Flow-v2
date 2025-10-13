@@ -159,11 +159,16 @@ export async function GET(request) {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const requiredFields = ["name", "classId"];
+    const requiredFields = ["name", "classId", "academicYear"];
     for (const field of requiredFields) {
       if (!body[field]) {
         return NextResponse.json({ error: `Missing required field: ${field}` }, { status: 400 });
       }
+    }
+
+    const academicYearCode = emptyToNull(body.academicYear);
+    if (!academicYearCode) {
+      return NextResponse.json({ error: "Missing required field: academicYear" }, { status: 400 });
     }
 
     const values = {
@@ -186,7 +191,7 @@ export async function POST(request) {
       feeStatus: emptyToNull(body.feeStatus) || "Pending",
       status: emptyToNull(body.status) || "active",
       accountOpened: booleanValue(body.accountOpened),
-      academicYear: emptyToNull(body.academicYear),
+      academicYear: academicYearCode,
       notes: Array.isArray(body.notes) ? body.notes : [],
     };
 

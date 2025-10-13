@@ -142,7 +142,11 @@ export default function Students({ setError, setSuccess }) {
     resetMessages();
     setFormMode("edit");
     setActiveStudent(student);
-    setFormData(mapStudentToForm(student));
+    const mapped = mapStudentToForm(student);
+    if (!mapped.academicYear && academicYear && academicYear !== "all") {
+      mapped.academicYear = academicYear;
+    }
+    setFormData(mapped);
     setIsFormOpen(true);
   };
 
@@ -177,6 +181,9 @@ export default function Students({ setError, setSuccess }) {
     };
     if (!payload.classId) {
       throw new Error("Please select a class");
+    }
+    if (!payload.academicYear) {
+      throw new Error("Please select an academic year");
     }
     return payload;
   };
@@ -557,9 +564,9 @@ export default function Students({ setError, setSuccess }) {
                     name="academicYear"
                     value={formData.academicYear}
                     onChange={handleFormChange}
+                    required
                     className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-100"
                   >
-                    <option value="">Unspecified</option>
                     {yearsData?.academicYears?.map((year) => (
                       <option key={year.code} value={year.code}>
                         {year.name || year.code}
