@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { CalendarDays, Download, ExternalLink, ShieldCheck, UserCheck, UserX } from "lucide-react";
+import { CalendarDays, ExternalLink, ShieldCheck, UserCheck, UserX } from "lucide-react";
 import Select from "@/components/ui/Select";
 
 const fetcher = async (url) => {
@@ -333,6 +333,19 @@ export default function AdminClubPage() {
   const journalDateLabel = formatDateLabel(journalDate);
   const selectedMemberName = selectedMember?.name || "Member";
   const totalJournalDurationLabel = formatDuration(totalJournalMinutes);
+  const journalStatusLabel = journalSessions.length
+    ? `${journalSessions.length} session${journalSessions.length === 1 ? "" : "s"}`
+    : "No sessions";
+  const ptStatusEntries =
+    ptSummary?.statuses instanceof Map ? Array.from(ptSummary.statuses.entries()) : [];
+  const submittedCount =
+    ptStatusEntries.find((entry) => String(entry[0]).toLowerCase() === "submitted")?.[1] || 0;
+  const gateTotals = gateSummary?.totals || { in: 0, out: 0, other: 0 };
+  const gateLatest = Array.isArray(gateSummary?.latest) ? gateSummary.latest : [];
+  const gateTotalCount = gateSummary?.count || 0;
+  const gateBadgeTone = gateTotals.out > gateTotals.in ? "warn" : "info";
+  const programsToShow = programs.slice(0, 4);
+  const hasMorePrograms = programs.length > programsToShow.length;
 
   if (accessLoading) {
     return (
@@ -408,3 +421,262 @@ export default function AdminClubPage() {
                   <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3">
                     <p className="text-xs uppercase tracking-wide text-emerald-600">Resolved</p>
                     <p className="mt-1 text-2xl font-semibold text-emerald-900">{ptSummary.resolved}</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="rounded-xl border border-amber-100 bg-amber-50 p-3">
+                    <p className="text-xs uppercase tracking-wide text-amber-700">Pending follow-ups</p>
+                    <p className="mt-1 text-2xl font-semibold text-amber-900">{pendingPt}</p>
+                  </div>
+                  <div className="rounded-xl border border-slate-100 bg-white p-3">
+                    <p className="text-xs uppercase tracking-wide text-slate-500">Submitted</p>
+                    <p className="mt-1 text-2xl font-semibold text-slate-900">{submittedCount}</p>
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-4 rounded-xl border border-slate-100 bg-slate-50 p-4">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="font-medium text-slate-700">Latest update</span>
+                  <span className="text-slate-500">{lastPtUpdate ? `Today ${lastPtUpdate}` : "—"}</span>
+                </div>
+                <div className="space-y-2">
+                  {ptStatusEntries.length === 0 ? (
+                    <p className="text-xs text-slate-500">No recent submissions recorded.</p>
+                  ) : (
+                    ptStatusEntries.map(([status, count]) => (
+                      <div
+                        key={String(status)}
+                        className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs"
+                      >
+                        <span className="font-medium capitalize text-slate-600">
+                          {String(status).replace(/_/g, " ")}
+                        </span>
+                        <span className="rounded-full bg-slate-900/5 px-2 py-0.5 text-slate-700">{count}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <Link
+                  href="/dashboard/managersCommon/managerial-club"
+                  className="inline-flex items-center gap-2 text-xs font-medium text-teal-600 hover:text-teal-700"
+                >
+                  Open PT support
+                  <ExternalLink size={14} />
+                </Link>
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Gate Operations</h2>
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <StatusBadge label={`${gateTotalCount} logs`} tone={gateBadgeTone} />
+            {gateWarning && <span className="text-amber-600">{gateWarning}</span>}
+          </div>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          {gateLoading ? (
+            <p className="text-sm text-slate-500">Fetching gate activity…</p>
+          ) : gateError ? (
+            <p className="text-sm text-rose-600">Failed to load gate activity: {gateError.message}</p>
+          ) : gateTotalCount === 0 ? (
+            <p className="text-sm text-slate-500">No gate entries for the selected date.</p>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-[1.2fr_1fr]">
+              <div className="grid grid-cols-3 gap-3 text-sm">
+                <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-center">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Total In</p>
+                  <p className="mt-1 text-xl font-semibold text-slate-900">{gateTotals.in}</p>
+                </div>
+                <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-center">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Total Out</p>
+                  <p className="mt-1 text-xl font-semibold text-slate-900">{gateTotals.out}</p>
+                </div>
+                <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-center">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Other</p>
+                  <p className="mt-1 text-xl font-semibold text-slate-900">{gateTotals.other}</p>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Latest movements</h3>
+                <div className="space-y-2">
+                  {gateLatest.length === 0 ? (
+                    <p className="text-xs text-slate-500">No recent movements recorded.</p>
+                  ) : (
+                    gateLatest.map((log, index) => {
+                      const direction = String(log?.direction || "").toUpperCase();
+                      const who =
+                        log?.personName || log?.memberName || log?.name || `Entry ${index + 1}`;
+                      const timeLabel = formatTime(log?.recordedAt);
+                      const note = log?.note || log?.reason || "";
+                      return (
+                        <div
+                          key={`${log?.id || index}-${log?.recordedAt || index}`}
+                          className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-medium text-slate-700">{who}</span>
+                            <span className="rounded-full border border-slate-300 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-500">
+                              {direction || "—"}
+                            </span>
+                          </div>
+                          <div className="mt-1 flex items-center justify-between text-slate-500">
+                            <span>{timeLabel}</span>
+                            {log?.recordedBy && <span>by {log.recordedBy}</span>}
+                          </div>
+                          {note && <p className="mt-1 text-slate-500">{note}</p>}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+                <Link
+                  href="/dashboard/managersCommon/managerial-club"
+                  className="inline-flex items-center gap-2 text-xs font-medium text-teal-600 hover:text-teal-700"
+                >
+                  View detailed log
+                  <ExternalLink size={14} />
+                </Link>
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-col gap-1">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Leadership Journals</h2>
+            <p className="text-xs text-slate-500">
+              {selectedMemberName} • {journalDateLabel}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <StatusBadge label={journalStatusLabel} tone={journalBadgeTone} />
+            <span>Total focus time {totalJournalDurationLabel}</span>
+            <button
+              type="button"
+              onClick={() => refreshJournal()}
+              className="rounded-lg border border-slate-200 px-3 py-1 font-medium text-slate-600 transition hover:border-teal-300 hover:text-teal-700"
+              disabled={journalLoading}
+            >
+              Refresh
+            </button>
+          </div>
+        </div>
+        <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="grid gap-3 md:grid-cols-[minmax(220px,240px)_1fr]">
+            <div className="space-y-3">
+              <Select
+                label="Team member"
+                value={selectedMemberId}
+                onChange={(event) => setSelectedMemberId(event.target.value)}
+                disabled={teamLoading && memberOptions.length === 0}
+              >
+                {memberOptions.length === 0 ? (
+                  <option value="">No members available</option>
+                ) : (
+                  memberOptions.map((member) => (
+                    <option key={member.id} value={member.id}>
+                      {member.name} ({member.role})
+                    </option>
+                  ))
+                )}
+              </Select>
+              <label className="block text-sm font-medium text-slate-600">
+                Journal date
+                <input
+                  type="date"
+                  value={journalDate}
+                  onChange={(event) => setJournalDate(event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                />
+              </label>
+              {teamError && (
+                <p className="text-xs text-rose-600">Failed to load team roster: {teamError.message}</p>
+              )}
+              {journalError && (
+                <p className="text-xs text-rose-600">Failed to load journal: {journalError.message}</p>
+              )}
+            </div>
+            <div className="space-y-3">
+              {journalLoading ? (
+                <p className="text-sm text-slate-500">Loading journal entries…</p>
+              ) : journalSessions.length === 0 ? (
+                <p className="text-sm text-slate-500">
+                  No MRN sessions logged for {selectedMemberName} on {journalDateLabel}.
+                </p>
+              ) : (
+                journalSessions.map((session, index) => {
+                  const start = formatTime(session.startedAt);
+                  const end = session.endedAt ? formatTime(session.endedAt) : "In progress";
+                  const duration = formatDuration(
+                    computeDurationMinutes(session.startedAt, session.endedAt)
+                  );
+                  return (
+                    <div
+                      key={`${session.id || index}-${session.startedAt || index}`}
+                      className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm"
+                    >
+                      <div className="flex items-center justify-between text-slate-600">
+                        <span className="font-medium">
+                          {session.title || session.topic || "Session"}
+                        </span>
+                        <span className="text-xs text-slate-500">{duration}</span>
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {start} – {end}
+                      </div>
+                      {session.notes && <p className="mt-2 text-xs text-slate-600">{session.notes}</p>}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Attendance Pulse</h2>
+          <Link
+            href="/dashboard/managersCommon/attendance-report"
+            className="inline-flex items-center gap-2 text-xs font-medium text-teal-600 hover:text-teal-700"
+          >
+            Open report
+            <ExternalLink size={14} />
+          </Link>
+        </div>
+        {programsLoading ? (
+          <div className="grid gap-3 md:grid-cols-2">
+            {[...Array(4)].map((_, index) => (
+              <div
+                key={index}
+                className="h-36 rounded-xl border border-slate-200 bg-slate-100 animate-pulse"
+              />
+            ))}
+          </div>
+        ) : programsError ? (
+          <p className="text-sm text-rose-600">Failed to load programs: {programsError.message}</p>
+        ) : programsToShow.length === 0 ? (
+          <p className="text-sm text-slate-500">No active programs configured.</p>
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2">
+            {programsToShow.map((program) => (
+              <AttendanceSummaryCard key={program.id} date={date} program={program} />
+            ))}
+          </div>
+        )}
+        {hasMorePrograms && (
+          <p className="text-xs text-slate-500">
+            Showing first {programsToShow.length} programs. Visit Manage Meedian for the full list.
+          </p>
+        )}
+      </section>
+    </div>
+  );
+}
