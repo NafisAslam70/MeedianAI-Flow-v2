@@ -67,13 +67,17 @@ const groups = [
 			},
 		],
 	},
-	// Programs rendered dynamically; Academics excludes Slots/TOD
 	{
-		title: "Academics",
+		title: "Managerial Club",
 		items: [
 			{
+				href: "/dashboard/admin/manageMeedian/managerial-admin-controls",
+				label: "Managerial Controls",
+				icon: Workflow,
+			},
+			{
 				href: "/dashboard/admin/students",
-				label: "Students",
+				label: "Student Register",
 				icon: GraduationCap,
 			},
 		],

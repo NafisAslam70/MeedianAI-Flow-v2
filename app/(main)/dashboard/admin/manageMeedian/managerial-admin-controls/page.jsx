@@ -12,7 +12,19 @@ export default function ManagerialAdminControlsPage() {
         <p className="text-sm text-gray-700 mb-2">Grant specific managers access to admin sections like Slots, Weekly TOD, MSP Codes, Schedules, etc.</p>
         <Link href="/dashboard/admin/manageMeedian/controls-share" className="inline-flex px-3 py-1.5 rounded-lg border text-sm bg-white border-gray-200 text-gray-800 hover:bg-gray-50">Open Controls Share</Link>
       </div>
+      <div className="rounded-xl border bg-white p-4">
+        <h2 className="text-sm font-semibold text-gray-900 mb-2">Student Registry</h2>
+        <p className="text-sm text-gray-700 mb-2">
+          Launch the full-screen student management workspace shared across Flow and Finance. Use this view to add, edit,
+          or deactivate student profiles aligned to an academic year.
+        </p>
+        <Link
+          href="/dashboard/admin/students"
+          className="inline-flex px-3 py-1.5 rounded-lg border text-sm bg-white border-gray-200 text-gray-800 hover:bg-gray-50"
+        >
+          Open Student Manager
+        </Link>
+      </div>
     </div>
   );
 }
-

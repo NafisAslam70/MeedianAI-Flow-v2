@@ -62,6 +62,13 @@ const mapStudentToForm = (student) => ({
   status: student.status || "active",
 });
 
+const formatContact = (value) => {
+  if (value === null || value === undefined) return "—";
+  const str = String(value).trim();
+  if (!str) return "—";
+  return str.endsWith(".0") ? str.slice(0, -2) : str;
+};
+
 export default function Students({ setError, setSuccess }) {
   const [academicYear, setAcademicYear] = useState("");
   const [classFilter, setClassFilter] = useState("all");
@@ -270,7 +277,23 @@ export default function Students({ setError, setSuccess }) {
         </button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-5">
+        <div className="flex flex-col">
+          <label className="text-xs font-medium text-gray-600">Academic Year</label>
+          <select
+            value={academicYear || ""}
+            onChange={(event) => setAcademicYear(event.target.value)}
+            className="mt-1 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-100"
+          >
+            {yearsData?.academicYears?.map((year) => (
+              <option key={year.code} value={year.code}>
+                {year.name || year.code}
+                {year.isCurrent ? " (Current)" : ""}
+              </option>
+            ))}
+            {(!yearsData || yearsData.academicYears?.length === 0) && <option value="">No academic years</option>}
+          </select>
+        </div>
         <div className="rounded-xl bg-white p-4 shadow">
           <p className="text-xs uppercase tracking-wide text-gray-500">Total</p>
           <p className="text-2xl font-semibold text-gray-800">{summary.total}</p>
@@ -290,23 +313,7 @@ export default function Students({ setError, setSuccess }) {
       </div>
 
       <div className="rounded-2xl bg-white p-4 shadow-md">
-        <div className="grid gap-4 md:grid-cols-5">
-          <div className="flex flex-col">
-            <label className="text-xs font-medium text-gray-600">Academic Year</label>
-            <select
-              value={academicYear || ""}
-              onChange={(event) => setAcademicYear(event.target.value)}
-              className="mt-1 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-100"
-            >
-              {yearsData?.academicYears?.map((year) => (
-                <option key={year.code} value={year.code}>
-                  {year.name || year.code}
-                  {year.isCurrent ? " (Current)" : ""}
-                </option>
-              ))}
-              {(!yearsData || yearsData.academicYears?.length === 0) && <option value="">No academic years</option>}
-            </select>
-          </div>
+      <div className="grid gap-4 md:grid-cols-4">
           <div className="flex flex-col">
             <label className="text-xs font-medium text-gray-600">Class</label>
             <select
@@ -389,27 +396,21 @@ export default function Students({ setError, setSuccess }) {
                   Residency
                 </th>
                 <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-600">
-                  Academic Year
-                </th>
-                <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-600">
                   Status
-                </th>
-                <th scope="col" className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-600">
-                  Actions
                 </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 bg-white">
               {studentsLoading && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-6 text-center text-sm text-gray-500">
+                  <td colSpan={6} className="px-4 py-6 text-center text-sm text-gray-500">
                     Loading students...
                   </td>
                 </tr>
               )}
               {!studentsLoading && students.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-6 text-center text-sm text-gray-500">
+                  <td colSpan={6} className="px-4 py-6 text-center text-sm text-gray-500">
                     No students match the current filters.
                   </td>
                 </tr>
@@ -425,47 +426,7 @@ export default function Students({ setError, setSuccess }) {
                     <div className="text-xs text-gray-400">
                       DOB: {student.dateOfBirth ? new Date(student.dateOfBirth).toLocaleDateString() : "—"}
                     </div>
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-4 text-sm text-gray-700">
-                    <div>{student.className || "Not assigned"}</div>
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-4 text-sm text-gray-700">
-                    <div>{student.guardianName || "—"}</div>
-                    <div className="text-xs text-gray-500">{student.motherName ? `Mother: ${student.motherName}` : ""}</div>
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-4 text-sm text-gray-700">
-                    <div>{student.guardianPhone || "—"}</div>
-                    <div className="text-xs text-gray-500">
-                      WhatsApp: {student.guardianWhatsappNumber || "—"}
-                    </div>
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-4 text-sm text-gray-700">
-                    <span
-                      className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                        student.isHosteller ? "bg-teal-100 text-teal-700" : "bg-amber-100 text-amber-700"
-                      }`}
-                    >
-                      {student.isHosteller ? "Hosteller" : "Day Scholar"}
-                    </span>
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-4 text-sm text-gray-700">
-                    {student.academicYear || "—"}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-4 text-sm text-gray-700">
-                    <span
-                      className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                        student.status === "active"
-                          ? "bg-emerald-100 text-emerald-700"
-                          : student.status === "inactive"
-                          ? "bg-gray-200 text-gray-700"
-                          : "bg-orange-100 text-orange-700"
-                      }`}
-                    >
-                      {student.status ?? "unknown"}
-                    </span>
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-4 text-right text-sm font-medium">
-                    <div className="flex items-center justify-end gap-2">
+                    <div className="mt-2 flex flex-wrap gap-2">
                       <button
                         onClick={() => handleOpenEdit(student)}
                         className="rounded-md border border-teal-600 px-3 py-1 text-xs font-semibold text-teal-600 transition hover:bg-teal-50"
@@ -479,6 +440,41 @@ export default function Students({ setError, setSuccess }) {
                         Remove
                       </button>
                     </div>
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-4 text-sm text-gray-700">
+                    <div>{student.className || "Not assigned"}</div>
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-4 text-sm text-gray-700">
+                    <div>{student.guardianName || "—"}</div>
+                    <div className="text-xs text-gray-500">{student.motherName ? `Mother: ${student.motherName}` : ""}</div>
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-4 text-sm text-gray-700">
+                    <div className="text-base font-semibold text-gray-800">{formatContact(student.guardianPhone)}</div>
+                    <div className="text-xs text-gray-500">
+                      WhatsApp: <span className="font-medium text-gray-700">{formatContact(student.guardianWhatsappNumber)}</span>
+                    </div>
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-4 text-sm text-gray-700">
+                    <span
+                      className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                        student.isHosteller ? "bg-teal-100 text-teal-700" : "bg-amber-100 text-amber-700"
+                      }`}
+                    >
+                      {student.isHosteller ? "Hosteller" : "Day Scholar"}
+                    </span>
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-4 text-sm text-gray-700">
+                    <span
+                      className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                        student.status === "active"
+                          ? "bg-emerald-100 text-emerald-700"
+                          : student.status === "inactive"
+                          ? "bg-gray-200 text-gray-700"
+                          : "bg-orange-100 text-orange-700"
+                      }`}
+                    >
+                      {student.status ?? "unknown"}
+                    </span>
                   </td>
                 </tr>
               ))}

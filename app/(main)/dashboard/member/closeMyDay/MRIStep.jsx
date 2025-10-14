@@ -87,6 +87,17 @@ const SUBJECT_REPORT_COLUMNS = [
   { key: "monitorInitials", label: "Monitor Initials" },
 ];
 
+const SUBJECT_EDIT_HEADERS = [
+  { id: "classLabel", label: "Class", type: "text", placeholder: "Class 5A" },
+  { id: "period", label: "Period", type: "text", placeholder: "1" },
+  { id: "subject", label: "Subject", type: "text", placeholder: "Math" },
+  { id: "topic", label: "Topic", type: "text", placeholder: "Fractions" },
+  { id: "classwork", label: "Classwork", type: "textarea", placeholder: "Covered exercise 3" },
+  { id: "homework", label: "Homework", type: "textarea", placeholder: "Worksheet 4" },
+  { id: "teacherSignature", label: "Teacher Sign", type: "select", options: ["Yes", "No"] },
+  { id: "monitorInitials", label: "Monitor Initials", type: "select", options: ["Yes", "No"] },
+];
+
 const YES_NO_OPTIONS = ["", "Yes", "No"];
 const ATTENDANCE_APPLICATION_REASONS = ["Sickness", "Family Event", "Out of Station", "Other"];
 const DEFAULT_APPLICATION_FOLLOWUP = "Please collect application tomorrow.";
@@ -243,6 +254,141 @@ const sanitizePtPayload = (payload) => {
   });
 
   return result;
+};
+
+const toCleanString = (value) => {
+  if (value === null || value === undefined) return "";
+  return String(value).trim();
+};
+
+const createEmptySubjectLesson = () => ({
+  classLabel: "",
+  period: "",
+  subject: "",
+  topic: "",
+  classwork: "",
+  homework: "",
+  teacherSignature: "",
+  monitorInitials: "",
+});
+
+const sortLessonPeriods = (values) => {
+  const unique = Array.from(
+    new Set(
+      (Array.isArray(values) ? values : [])
+        .map((value) => toCleanString(value))
+        .filter((value) => value.length > 0)
+    )
+  );
+  return unique.sort((a, b) => {
+    const numA = extractNumericPeriod(a);
+    const numB = extractNumericPeriod(b);
+    if (numA === null && numB === null) return a.localeCompare(b);
+    if (numA === null) return 1;
+    if (numB === null) return -1;
+    return numA - numB;
+  });
+};
+
+const computeSubjectSummaryFromLessons = (lessons) => {
+  if (!Array.isArray(lessons) || lessons.length === 0) {
+    return {
+      totalLessons: 0,
+      classes: [],
+    };
+  }
+
+  const classMap = new Map();
+  let total = 0;
+
+  lessons.forEach((lesson) => {
+    const classLabel = toCleanString(lesson?.classLabel);
+    const period = toCleanString(lesson?.period);
+    const subject = toCleanString(lesson?.subject);
+    const topic = toCleanString(lesson?.topic);
+    const classwork = toCleanString(lesson?.classwork);
+    const homework = toCleanString(lesson?.homework);
+
+    const hasContent = classLabel || period || subject || topic || classwork || homework;
+    if (!hasContent) return;
+    total += 1;
+
+    const key = classLabel || "Class";
+    if (!classMap.has(key)) {
+      classMap.set(key, {
+        classLabel: key,
+        totalPeriods: 0,
+        periods: [],
+      });
+    }
+    const entry = classMap.get(key);
+    entry.totalPeriods += 1;
+    if (period) entry.periods.push(period);
+  });
+
+  const classes = Array.from(classMap.values()).map((entry) => ({
+    ...entry,
+    periods: sortLessonPeriods(entry.periods),
+  }));
+
+  return {
+    totalLessons: total,
+    classes,
+  };
+};
+
+const sanitizeSubjectPayload = (payload, { markManual = false } = {}) => {
+  const base = payload && typeof payload === "object" ? payload : {};
+  const lessonsSource = Array.isArray(base.lessons) ? base.lessons : [];
+  const lessons = lessonsSource.map((lesson) => ({
+    classLabel: toCleanString(lesson?.classLabel),
+    period: toCleanString(lesson?.period),
+    subject: toCleanString(lesson?.subject),
+    topic: toCleanString(lesson?.topic),
+    classwork: toCleanString(lesson?.classwork),
+    homework: toCleanString(lesson?.homework),
+    teacherSignature: normalizeYesNo(lesson?.teacherSignature),
+    monitorInitials: normalizeYesNo(lesson?.monitorInitials),
+  }));
+
+  const sourcesRaw = base.sources && typeof base.sources === "object" ? base.sources : {};
+  const ptInstances = Array.isArray(sourcesRaw.ptInstances)
+    ? Array.from(new Set(sourcesRaw.ptInstances.filter((id) => id !== null && id !== undefined)))
+    : [];
+  const sources = ptInstances.length ? { ptInstances } : {};
+
+  const summary = computeSubjectSummaryFromLessons(lessons);
+  const teacher =
+    base.teacher && typeof base.teacher === "object" && (base.teacher.id || base.teacher.name) ? base.teacher : null;
+  const date = base.date ? String(base.date) : null;
+  const manual = markManual ? true : Boolean(base.subjectSourceManual);
+
+  const sanitized = {
+    lessons,
+    summary,
+    sources,
+    subjectSourceManual: manual,
+  };
+
+  if (teacher) sanitized.teacher = teacher;
+  if (date) sanitized.date = date;
+  if (!ptInstances.length && !Object.keys(sources).length) {
+    sanitized.sources = {};
+  }
+
+  return sanitized;
+};
+
+const buildInitialSubjectPayload = (payload) => {
+  let resolved = payload;
+  if (typeof resolved === "string") {
+    try {
+      resolved = JSON.parse(resolved);
+    } catch {
+      resolved = {};
+    }
+  }
+  return sanitizeSubjectPayload(resolved);
 };
 
 const buildInitialPtPayload = (payload) => {
@@ -449,6 +595,8 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
   const [showConfirmationNote, setShowConfirmationNote] = useState(false);
   const [ptEditablePayload, setPtEditablePayload] = useState(null);
   const [ptEditModal, setPtEditModal] = useState(null);
+  const [subjectEditablePayload, setSubjectEditablePayload] = useState(null);
+  const [hasSubjectEdits, setHasSubjectEdits] = useState(false);
 
   const { amriRoleBundles, rmriRoleBundles, omriRoleBundles, otherRoleBundles } = useMemo(() => {
     const amri = [];
@@ -565,11 +713,19 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
     setReportNote(report.confirmationNote || "");
     setReportError("");
     setShowConfirmationNote(Boolean(report.confirmationNote));
-    if (report?.templateKey === "pt_daily_report") {
+    if (report?.templateKey === PT_DAILY_REPORT_KEY) {
       setPtActiveSection("cdd");
       setPtEditablePayload(buildInitialPtPayload(report?.payload));
     } else {
       setPtEditablePayload(null);
+    }
+    if (report?.templateKey === SUBJECT_REPORT_KEY) {
+      const initial = buildInitialSubjectPayload(report?.payload);
+      setSubjectEditablePayload(initial);
+      setHasSubjectEdits(false);
+    } else {
+      setSubjectEditablePayload(null);
+      setHasSubjectEdits(false);
     }
     setPtEditModal(null);
   };
@@ -581,6 +737,8 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
     setShowConfirmationNote(false);
     setPtEditablePayload(null);
     setPtEditModal(null);
+    setSubjectEditablePayload(null);
+    setHasSubjectEdits(false);
   };
 
   const handleReportAction = async (action) => {
@@ -594,6 +752,13 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
         const sanitized = sanitizePtPayload(workingPayload);
         payloadForRequest = sanitized;
         setPtEditablePayload(sanitized);
+      } else if (isSubjectReport) {
+        const workingPayload = subjectEditablePayload ?? buildInitialSubjectPayload(activeReportPayload);
+        const sanitized = sanitizeSubjectPayload(workingPayload, {
+          markManual: hasSubjectEdits || Boolean(workingPayload?.subjectSourceManual),
+        });
+        payloadForRequest = sanitized;
+        setSubjectEditablePayload(sanitized);
       }
 
       const res = await fetch("/api/member/mri-reports", {
@@ -619,8 +784,13 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
           setActiveReport(refreshed);
           setReportNote(refreshed.confirmationNote || "");
           setShowConfirmationNote(Boolean(refreshed.confirmationNote));
-          if (refreshed?.templateKey === "pt_daily_report") {
+          if (refreshed?.templateKey === PT_DAILY_REPORT_KEY) {
             setPtEditablePayload(buildInitialPtPayload(refreshed.payload));
+          }
+          if (refreshed?.templateKey === SUBJECT_REPORT_KEY) {
+            const refreshedPayload = buildInitialSubjectPayload(refreshed.payload);
+            setSubjectEditablePayload(refreshedPayload);
+            setHasSubjectEdits(false);
           }
         } else if (payloadForRequest) {
           setActiveReport((prev) =>
@@ -631,10 +801,19 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
                 }
               : prev
           );
+          if (isSubjectReport) {
+            setSubjectEditablePayload(payloadForRequest);
+            setHasSubjectEdits(false);
+          }
+        }
+        if (isSubjectReport) {
+          setHasSubjectEdits(false);
         }
       }
       if (action === "submit") {
         closeReportModal();
+      } else if (isSubjectReport) {
+        setHasSubjectEdits(false);
       }
     } catch (err) {
       setReportError(err.message || "Failed to update report");
@@ -689,17 +868,44 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
 
   const activeSubjectLessons = useMemo(() => {
     if (!isSubjectReport) return [];
+    if (subjectEditablePayload && typeof subjectEditablePayload === "object") {
+      const lessons = subjectEditablePayload.lessons;
+      return Array.isArray(lessons) ? lessons : [];
+    }
     if (!activeReportPayload || typeof activeReportPayload !== "object") return [];
     const lessons = activeReportPayload.lessons;
     return Array.isArray(lessons) ? lessons : [];
-  }, [isSubjectReport, activeReportPayload]);
+  }, [isSubjectReport, subjectEditablePayload, activeReportPayload]);
 
-  const activeSubjectSummary = useMemo(() => {
+  const subjectSummary = useMemo(() => {
     if (!isSubjectReport) return null;
+    if (subjectEditablePayload?.summary && typeof subjectEditablePayload.summary === "object") {
+      return subjectEditablePayload.summary;
+    }
     if (!activeReportPayload || typeof activeReportPayload !== "object") return null;
     const summary = activeReportPayload.summary;
     return summary && typeof summary === "object" ? summary : null;
-  }, [isSubjectReport, activeReportPayload]);
+  }, [isSubjectReport, subjectEditablePayload, activeReportPayload]);
+
+  const activeReportStatus = useMemo(() => {
+    if (!activeReport) return "pending";
+    return String(activeReport.status || "pending").toLowerCase();
+  }, [activeReport]);
+
+  const activeReportBadgeClass = useMemo(
+    () => REPORT_STATUS_STYLES[activeReportStatus] || REPORT_STATUS_STYLES.default,
+    [activeReportStatus]
+  );
+
+  const canEditPtReport = useMemo(
+    () => isPtReport && !["verified", "waived"].includes(activeReportStatus),
+    [isPtReport, activeReportStatus]
+  );
+
+  const canEditSubjectReport = useMemo(
+    () => isSubjectReport && !["verified", "waived"].includes(activeReportStatus),
+    [isSubjectReport, activeReportStatus]
+  );
 
   const ptActiveClassId = useMemo(() => {
     if (!isPtReport) return null;
@@ -941,16 +1147,38 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
 
   const renderSubjectSummarySection = () => {
     if (!isSubjectReport) return null;
-    const classEntries = Array.isArray(activeSubjectSummary?.classes) ? activeSubjectSummary.classes : [];
+    const summary = subjectSummary;
+    const classEntries = Array.isArray(summary?.classes) ? summary.classes : [];
     const totalLessons =
-      typeof activeSubjectSummary?.totalLessons === "number"
-        ? activeSubjectSummary.totalLessons
-        : activeSubjectLessons.length;
-    if (totalLessons === 0 && classEntries.length === 0) return null;
+      typeof summary?.totalLessons === "number" ? summary.totalLessons : activeSubjectLessons.length;
+
+    if (totalLessons === 0 && classEntries.length === 0) {
+      return canEditSubjectReport ? (
+        <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3 text-xs text-indigo-700">
+          No lessons captured yet. Use “Add Lesson” to record what you taught today.
+        </div>
+      ) : (
+        <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3 text-xs text-indigo-700">
+          No lessons were recorded for you in today&apos;s CCD.
+        </div>
+      );
+    }
 
     return (
       <div className="space-y-2">
-        <h4 className="text-sm font-semibold text-slate-700">Summary</h4>
+        <div className="flex flex-wrap items-center gap-2">
+          <h4 className="text-sm font-semibold text-slate-700">Summary</h4>
+          {hasSubjectEdits && canEditSubjectReport && (
+            <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[0.65rem] font-semibold text-amber-700">
+              Unsaved edits
+            </span>
+          )}
+        </div>
+        {canEditSubjectReport && (
+          <p className="text-[0.7rem] text-slate-500">
+            Manual updates will stay as-is and won’t be overwritten by the automatic CCD sync.
+          </p>
+        )}
         <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3 text-xs text-indigo-700">
           <p className="font-semibold">
             Total periods captured: {totalLessons}
@@ -984,7 +1212,7 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
     if (!activeSubjectLessons.length) {
       return (
         <div className="flex h-full items-center justify-center text-xs text-slate-500">
-          No CCD entries tagged to you yet.
+          No lessons captured yet.
         </div>
       );
     }
@@ -1019,6 +1247,195 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
             ))}
           </tbody>
         </table>
+      </div>
+    );
+  };
+
+  const applySubjectLessonsUpdate = (updater) => {
+    setSubjectEditablePayload((prev) => {
+      const base = prev ?? buildInitialSubjectPayload(activeReportPayload);
+      const currentLessons = Array.isArray(base.lessons) ? [...base.lessons] : [];
+      const updatedLessonsRaw = updater(currentLessons, base);
+      const updatedLessons = Array.isArray(updatedLessonsRaw) ? updatedLessonsRaw : currentLessons;
+      const candidate = { ...base, lessons: updatedLessons };
+      return sanitizeSubjectPayload(candidate, { markManual: Boolean(base.subjectSourceManual) });
+    });
+    setHasSubjectEdits(true);
+  };
+
+  const updateSubjectLesson = (rowIndex, updater) => {
+    applySubjectLessonsUpdate((lessons) => {
+      const nextLessons = [...lessons];
+      if (!nextLessons[rowIndex]) {
+        nextLessons[rowIndex] = createEmptySubjectLesson();
+      }
+      const current = nextLessons[rowIndex];
+      const patch = typeof updater === "function" ? updater(current) : updater;
+      nextLessons[rowIndex] = { ...current, ...patch };
+      return nextLessons;
+    });
+  };
+
+  const addSubjectLesson = () => {
+    applySubjectLessonsUpdate((lessons) => {
+      const nextLessons = [...lessons];
+      const previous = nextLessons.length ? nextLessons[nextLessons.length - 1] : createEmptySubjectLesson();
+      const newLesson = {
+        ...createEmptySubjectLesson(),
+        classLabel: toCleanString(previous?.classLabel),
+        subject: toCleanString(previous?.subject),
+      };
+      nextLessons.push(newLesson);
+      return nextLessons;
+    });
+  };
+
+  const removeSubjectLesson = (rowIndex) => {
+    applySubjectLessonsUpdate((lessons) => {
+      if (rowIndex < 0 || rowIndex >= lessons.length) return lessons;
+      const nextLessons = [...lessons];
+      nextLessons.splice(rowIndex, 1);
+      return nextLessons;
+    });
+  };
+
+  const clearSubjectLessons = () => {
+    applySubjectLessonsUpdate(() => []);
+  };
+
+  const renderSubjectLessonsEditor = () => {
+    const editingPayload = subjectEditablePayload ?? buildInitialSubjectPayload(activeReportPayload);
+    const lessons = Array.isArray(editingPayload?.lessons) ? editingPayload.lessons : [];
+    const disableEditing = isSavingReport;
+
+    return (
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h4 className="text-sm font-semibold text-slate-700">Lesson Entries</h4>
+            <p className="text-[0.7rem] text-slate-500">
+              Update the subject, topic, classwork and homework for each period you taught.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={addSubjectLesson}
+              disabled={disableEditing}
+            >
+              Add Lesson
+            </button>
+            {lessons.length > 0 && (
+              <button
+                type="button"
+                className="rounded-lg border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={clearSubjectLessons}
+                disabled={disableEditing}
+              >
+                Clear All
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="overflow-x-auto rounded-2xl border border-slate-200">
+          <table className="min-w-[1200px] text-xs text-slate-700">
+            <thead className="bg-slate-100">
+              <tr>
+                {SUBJECT_EDIT_HEADERS.map((header) => (
+                  <th key={header.id} className="border border-slate-200 px-3 py-2 text-left font-semibold">
+                    {header.label}
+                  </th>
+                ))}
+                <th className="border border-slate-200 px-3 py-2 text-left font-semibold">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lessons.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={SUBJECT_EDIT_HEADERS.length + 1}
+                    className="px-3 py-4 text-center text-slate-500"
+                  >
+                    No lessons captured yet. Use “Add Lesson” to start recording the periods you taught.
+                  </td>
+                </tr>
+              ) : (
+                lessons.map((lesson, rowIndex) => (
+                  <tr key={`subject-edit-lesson-${rowIndex}`} className={rowIndex % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                    {SUBJECT_EDIT_HEADERS.map((header) => {
+                      const fieldId = header.id;
+                      const value = lesson?.[fieldId];
+                      if (header.type === "textarea") {
+                        return (
+                          <td key={fieldId} className="border border-slate-200 px-2 py-2 align-top">
+                            <textarea
+                              className="h-20 w-full rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:cursor-not-allowed disabled:bg-slate-100"
+                              placeholder={header.placeholder || ""}
+                              value={toCleanString(value)}
+                              onChange={(event) =>
+                                updateSubjectLesson(rowIndex, { [fieldId]: event.target.value })
+                              }
+                              disabled={disableEditing}
+                            />
+                          </td>
+                        );
+                      }
+                      if (header.type === "select") {
+                        const options = header.options?.length ? ["", ...header.options] : YES_NO_OPTIONS;
+                        return (
+                          <td key={fieldId} className="border border-slate-200 px-2 py-2 align-top">
+                            <select
+                              className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:cursor-not-allowed disabled:bg-slate-100"
+                              value={normalizeYesNo(value)}
+                              onChange={(event) =>
+                                updateSubjectLesson(rowIndex, {
+                                  [fieldId]: normalizeYesNo(event.target.value),
+                                })
+                              }
+                              disabled={disableEditing}
+                            >
+                              {options.map((option) => (
+                                <option key={`${fieldId}-${option || "unset"}`} value={option}>
+                                  {option || "Select…"}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                        );
+                      }
+                      return (
+                        <td key={fieldId} className="border border-slate-200 px-2 py-2 align-top">
+                          <input
+                            type="text"
+                            className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:cursor-not-allowed disabled:bg-slate-100"
+                            placeholder={header.placeholder || ""}
+                            value={toCleanString(value)}
+                            onChange={(event) =>
+                              updateSubjectLesson(rowIndex, { [fieldId]: event.target.value })
+                            }
+                            disabled={disableEditing}
+                          />
+                        </td>
+                      );
+                    })}
+                    <td className="border border-slate-200 px-2 py-2 align-top">
+                      <button
+                        type="button"
+                        className="rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-[0.65rem] font-semibold text-rose-600 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        onClick={() => removeSubjectLesson(rowIndex)}
+                        disabled={disableEditing}
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     );
   };
@@ -1950,21 +2367,6 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
     );
   };
 
-  const activeReportStatus = useMemo(() => {
-    if (!activeReport) return "pending";
-    return String(activeReport.status || "pending").toLowerCase();
-  }, [activeReport]);
-
-  const activeReportBadgeClass = useMemo(
-    () => REPORT_STATUS_STYLES[activeReportStatus] || REPORT_STATUS_STYLES.default,
-    [activeReportStatus]
-  );
-
-  const canEditPtReport = useMemo(
-    () => isPtReport && !["verified", "waived"].includes(activeReportStatus),
-    [isPtReport, activeReportStatus]
-  );
-
   const activeReportClassLabel = useMemo(() => {
     if (!activeReport) return "";
     if (activeReport?.class?.name) {
@@ -2774,14 +3176,14 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
                   </div>
                 ) : isSubjectReport ? (
                   <div className="flex h-full flex-col gap-4">
-                    {activeReportPayload?.teacher?.name && (
+                    {(subjectEditablePayload?.teacher?.name || activeReportPayload?.teacher?.name) && (
                       <p className="text-xs text-slate-500">
-                        Tagged teacher: {activeReportPayload.teacher.name}
+                        Tagged teacher: {subjectEditablePayload?.teacher?.name || activeReportPayload?.teacher?.name}
                       </p>
                     )}
                     {renderSubjectSummarySection()}
-                    <div className="flex-1 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                      {renderSubjectLessonsTable()}
+                    <div className="flex-1 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm p-4">
+                      {canEditSubjectReport ? renderSubjectLessonsEditor() : renderSubjectLessonsTable()}
                     </div>
                     {renderAdditionalDetails()}
                   </div>

@@ -23,6 +23,8 @@ export default auth((req) => {
   const isMemberRoute = pathname.startsWith("/dashboard/member");
   const isAdminOnlyRoute = pathname.startsWith("/dashboard/admin/addUser");
   const isManageMeedian = pathname.startsWith("/dashboard/admin/manageMeedian");
+  const isAdminClubRoute = pathname.startsWith("/dashboard/admin/admin-club");
+  const isAdminStudentsRoute = pathname.startsWith("/dashboard/admin/students");
   const isManagersCommonRoute = pathname.startsWith("/dashboard/managersCommon");
 
   if (isGeneralDashboard) return; // everyone logged-in can view
@@ -41,7 +43,7 @@ export default auth((req) => {
 
   if (role === "team_manager") {
     // Allow team managers into Manage Meedian; API + sidebar enforce granular access
-    if (isManageMeedian) return;
+    if (isManageMeedian || isAdminClubRoute || isAdminStudentsRoute) return;
     if (
       !isTeamManagerRoute &&
       !isManagersCommonRoute &&

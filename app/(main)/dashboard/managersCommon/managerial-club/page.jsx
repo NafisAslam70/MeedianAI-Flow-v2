@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ClipboardList, NotebookPen, ClipboardCheck, UserPlus, Boxes, PhoneCall } from "lucide-react";
+import { ClipboardList, NotebookPen, ClipboardCheck, UserPlus, Boxes, PhoneCall, GraduationCap } from "lucide-react";
 
 const CLUB_TOOLS = [
   {
@@ -40,6 +40,12 @@ const CLUB_TOOLS = [
     label: "Resources",
     icon: Boxes,
     href: "/dashboard/managersCommon/resources",
+  },
+  {
+    key: "student-register",
+    label: "Student Register",
+    icon: GraduationCap,
+    href: "/dashboard/admin/students",
   },
 ];
 
