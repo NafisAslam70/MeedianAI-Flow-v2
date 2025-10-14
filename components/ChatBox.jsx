@@ -5,6 +5,7 @@ import {
   PaperAirplaneIcon,
   ClockIcon,
   DocumentTextIcon,
+  ClipboardDocumentListIcon,
   SpeakerWaveIcon,
   SpeakerXMarkIcon,
 } from "@heroicons/react/24/solid";
@@ -845,6 +846,18 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
             aria-label="My Notes"
           >
             <DocumentTextIcon className="h-5 w-5" />
+          </motion.button>
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={() => {
+              closeAll();
+              router.push("/dashboard/managersCommon/assignTask");
+            }}
+            className="p-2.5 sm:p-3 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-full shadow-lg transition-transform min-w-[44px] min-h-[44px]"
+            title="Assign Task"
+            aria-label="Assign Task"
+          >
+            <ClipboardDocumentListIcon className="h-5 w-5" />
           </motion.button>
           <QuickCallInvite userDetails={userDetails} position={pos} closeAllModals={closeAll} />
             </>

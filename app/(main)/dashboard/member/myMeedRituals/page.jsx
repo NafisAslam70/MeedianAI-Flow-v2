@@ -1,7 +1,7 @@
 "use client";
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useSession } from "next-auth/react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Clock, Calendar, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
 import RoutineTrackerModal from "@/components/member/RoutineTrackerModal";
@@ -205,8 +205,6 @@ const getSessionStorageKey = (roleKey) => {
 export default function MyMRIs() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const takeAttendanceHandledRef = useRef(false);
   const role = session?.user?.role;
 
   if (status === "loading") return <div>Loading...</div>;
@@ -1028,37 +1026,7 @@ export default function MyMRIs() {
     return r;
   };
 
-  useEffect(() => {
-    if (!searchParams || takeAttendanceHandledRef.current) return;
-    if (isRoleExecuteOpen) return;
-    const flag = searchParams.get('takeAttendance');
-    if (!flag) return;
-    if (!allRoleBundles.length) return;
-
-    const entry = (() => {
-      for (const bundle of allRoleBundles) {
-        const tasksList = Array.isArray(bundle.tasks) ? bundle.tasks : [];
-        for (const rawTask of tasksList) {
-          const normalized = normalizeTask(rawTask);
-          if (getExecutionKind(bundle, normalized) === 'scanner') {
-            return { bundle, task: normalized };
-          }
-        }
-      }
-      return null;
-    })();
-
-    if (entry) {
-      setSelectedRoleBundle(entry.bundle);
-      setSelectedExecTask(entry.task);
-      setSelectedExecKind('scanner');
-      setIsRoleExecuteOpen(true);
-      takeAttendanceHandledRef.current = true;
-      router.replace('/dashboard/member/myMeedRituals');
-    } else {
-      takeAttendanceHandledRef.current = true;
-    }
-  }, [searchParams, allRoleBundles, isRoleExecuteOpen, router]);
+  // removed takeAttendance deep-link: quick action now points to dashboard hash handler
 
   // Live countdown for a task: returns { mode: 'starts'|'ends'|'ended'|'idle', seconds, text }
   const useTaskCountdown = (task) => {

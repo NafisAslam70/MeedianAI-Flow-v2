@@ -789,6 +789,8 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
   const [ingesting, setIngesting] = useState(false);
   const [scannerActive, setScannerActive] = useState(false);
   const [showOpenDaySuccess, setShowOpenDaySuccess] = useState(false);
+  const [showAttendanceSuccess, setShowAttendanceSuccess] = useState(false);
+  const [scanContext, setScanContext] = useState('open-day'); // open-day | attendance
   const [pendingExternalFocus, setPendingExternalFocus] = useState(null);
   const lastHandledFocusTs = useRef(0);
 
@@ -871,9 +873,12 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
   // Auto-open Open Day modal if URL hash requests it (from profile quick action)
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    if (window.location.hash === '#open-day') {
+    const hash = window.location.hash;
+    if (hash === '#open-day') {
       handleOpenDay();
-      // clean hash
+      try { window.history.replaceState(null, '', window.location.pathname + window.location.search); } catch {}
+    } else if (hash === '#take-attendance') {
+      handleTakeAttendance();
       try { window.history.replaceState(null, '', window.location.pathname + window.location.search); } catch {}
     }
   }, []);
@@ -1007,7 +1012,20 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
   const effectiveOpenedAt = openedAtOverride || openedAtMs || historyOpenedAtMs;
 
   async function handleOpenDay() {
-    // Open modal to scan manager's session QR or share personal token
+    setScanContext('open-day');
+    setShowOpenDaySuccess(false);
+    setShowAttendanceSuccess(false);
+    setShowOpenDayModal(true);
+    setScanTab('scan');
+    setScanSessionToken('');
+    setMyPersonalToken('');
+    setScannerActive(true);
+  }
+
+  async function handleTakeAttendance() {
+    setScanContext('attendance');
+    setShowOpenDaySuccess(false);
+    setShowAttendanceSuccess(false);
     setShowOpenDayModal(true);
     setScanTab('scan');
     setScanSessionToken('');
@@ -1038,10 +1056,15 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
       const j = await r.json().catch(()=>({}));
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
       setShowOpenDayModal(false);
-      setDayPack((p) => ({ ...(p || {}), openedAt: Date.now() }));
-      setOpenedAtOverride(Date.now());
-      setShowOpenDaySuccess(true);
-      playCongrats();
+      if (scanContext === 'open-day') {
+        setDayPack((p) => ({ ...(p || {}), openedAt: Date.now() }));
+        setOpenedAtOverride(Date.now());
+        setShowOpenDaySuccess(true);
+        playCongrats();
+      } else {
+        setShowAttendanceSuccess(true);
+        playBeep();
+      }
     } catch(e) {
       setError(e.message || 'Failed to mark present');
       setTimeout(()=> setError(''), 3500);
@@ -2165,6 +2188,38 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
               </motion.div>
             </motion.div>
           )}
+          {showAttendanceSuccess && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-[100]"
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="relative overflow-hidden bg-gradient-to-br from-sky-50 via-white to-emerald-50 dark:from-slate-800 dark:via-slate-900 dark:to-emerald-900 rounded-3xl shadow-2xl p-6 w-full max-w-md border border-sky-200/60 dark:border-emerald-700/40"
+              >
+                <div className="absolute -top-24 -right-24 w-64 h-64 rounded-full bg-sky-300/25 blur-3xl" />
+                <div className="absolute -bottom-28 -left-24 w-72 h-72 rounded-full bg-emerald-300/25 blur-3xl" />
+                <div className="relative">
+                  <div className="text-xl font-extrabold text-sky-800 dark:text-emerald-300 mb-1">Attendance Recorded</div>
+                  <div className="text-2xl font-black text-sky-700 dark:text-emerald-200 mb-2">You're marked present ✅</div>
+                  <div className="text-sm text-gray-700 dark:text-gray-300 mb-4">
+                    Thanks for scanning in. You're all set for this session.
+                  </div>
+                </div>
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    onClick={() => setShowAttendanceSuccess(false)}
+                    className="px-4 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700 text-sm"
+                  >OK</button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
           {showOpenDayModal && (
             <motion.div
               initial={{ opacity: 0 }}
@@ -2180,12 +2235,18 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                 className="bg-white dark:bg-slate-800 rounded-3xl shadow-xl p-4 sm:p-6 w-full max-w-lg border border-gray-200/60 dark:border-white/10"
               >
                 <div className="flex items-center justify-between mb-3">
-                  <div className="text-base sm:text-lg font-bold text-gray-900 dark:text-gray-100">Open Day</div>
+                  <div className="text-base sm:text-lg font-bold text-gray-900 dark:text-gray-100">
+                    {scanContext === 'attendance' ? 'Take Attendance' : 'Open Day'}
+                  </div>
                   <button onClick={()=> setShowOpenDayModal(false)} className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-slate-700">
                     <X className="w-5 h-5" />
                   </button>
                 </div>
-                <div className="mb-3 text-xs text-gray-600 dark:text-gray-300">Scan your moderator's Session Code or share your Personal Code.</div>
+                <div className="mb-3 text-xs text-gray-600 dark:text-gray-300">
+                  {scanContext === 'attendance'
+                    ? "Scan your moderator's attendance QR to mark yourself present."
+                    : "Scan your moderator's Session Code or share your Personal Code."}
+                </div>
                 <div className="flex items-center gap-2 mb-3">
                   <button
                     className={`px-3 py-1.5 text-xs rounded-lg border ${scanTab==='scan'?'bg-teal-600 text-white border-teal-700':'bg-white dark:bg-slate-700 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-white/10'}`}

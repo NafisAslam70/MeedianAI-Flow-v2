@@ -166,14 +166,6 @@ export default function DeluGPT() {
   return (
     <>
       <div className="fixed bottom-4 sm:bottom-20 left-4 z-[1000] flex items-center gap-3 mb-safe">
-        <Link
-          href="/dashboard/managersCommon/assignTask"
-          className="flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-white shadow-xl border border-emerald-200/60 bg-gradient-to-r from-emerald-500 to-teal-500 hover:brightness-110"
-          aria-label="Assign Task"
-        >
-          <span role="img" aria-label="clipboard">🗒️</span>
-          Assign Task
-        </Link>
         <button
           onClick={() => setOpen(true)}
           className="rounded-full p-0.5 shadow-xl border border-pink-300/40 bg-gradient-to-br from-pink-500 to-fuchsia-600 hover:brightness-110"
@@ -263,6 +255,15 @@ export default function DeluGPT() {
                 placeholder="Ask something…"
                 className="flex-1 bg-white/10 border border-cyan-900/40 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-cyan-600"
               />
+              <Link
+                href="/dashboard/managersCommon/assignTask"
+                className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs sm:text-sm font-semibold text-white shadow-lg border border-emerald-200/50 bg-gradient-to-r from-emerald-500 to-teal-500 hover:brightness-110 flex-shrink-0 whitespace-nowrap"
+                aria-label="Assign Task"
+              >
+                <span role="img" aria-label="clipboard">🗒️</span>
+                <span className="hidden sm:inline">Assign Task</span>
+                <span className="sm:hidden">Assign</span>
+              </Link>
               <button onClick={ask} disabled={busy || !input.trim()} className="px-3 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-700 disabled:opacity-60">
                 <Send className="w-4 h-4" />
               </button>

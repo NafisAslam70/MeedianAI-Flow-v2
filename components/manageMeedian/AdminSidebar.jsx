@@ -82,16 +82,6 @@ const groups = [
 			},
 		],
 	},
-	{
-		title: "Daily Reports",
-		items: [
-			{
-				href: "/dashboard/admin/manageMeedian/daily-reports/gate-logs",
-				label: "Gate Logs",
-				icon: ClipboardList,
-			},
-		],
-	},
 ];
 
 export default function AdminSidebar() {
