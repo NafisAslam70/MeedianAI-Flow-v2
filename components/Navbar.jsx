@@ -829,7 +829,7 @@ export default function Navbar() {
 
           <button
             className="action-row sm:py-3 sm:px-3 py-2 px-2"
-            onClick={() => { setIsProfileOpen(false); router.push("/dashboard/member#take-attendance"); }}
+            onClick={() => { setIsProfileOpen(false); router.push("/dashboard/member/take-attendance"); }}
           >
             <span className="row-icon"><Scan size={18} /></span>
             <span className="row-main">
