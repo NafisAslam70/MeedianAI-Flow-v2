@@ -97,8 +97,14 @@ const parseScannerAction = (rawAction) => {
   const text = String(rawAction).trim();
   if (!text) return null;
   try {
-    const parsed = JSON.parse(text);
-    return parseScannerAction(parsed);
+    let candidate = text;
+    if (candidate.startsWith("({") && candidate.endsWith("})")) {
+      candidate = candidate.slice(1, -1).trim();
+    }
+    if (candidate.startsWith("{") && candidate.endsWith("}")) {
+      const parsed = JSON.parse(candidate);
+      return parseScannerAction(parsed);
+    }
   } catch {}
   const match = text.match(/^scanner\s*:\s*([A-Za-z0-9_-]+)(?:\s*:\s*([A-Za-z0-9_-]+))?/i);
   if (match) {

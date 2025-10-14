@@ -284,6 +284,7 @@ export default function AcademicHealthMemberForm({
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [formError, setFormError] = useState("");
+  const [refreshingAttendance, setRefreshingAttendance] = useState(false);
 
   useEffect(() => {
     if (reportData?.report) {
@@ -556,6 +557,24 @@ export default function AcademicHealthMemberForm({
     }
   };
 
+  const refreshAttendance = async () => {
+    setRefreshingAttendance(true);
+    try {
+      const fresh = await mutateReport();
+      if (fresh?.report) {
+        setReport(primeReport(fresh.report));
+        setDirty(false);
+        setMessage(
+          `Attendance refreshed at ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.`
+        );
+      }
+    } catch (err) {
+      setFormError(err.message || "Failed to refresh attendance.");
+    } finally {
+      setRefreshingAttendance(false);
+    }
+  };
+
   const activeDefaulterCategories = useMemo(() => {
     if (!report || !Array.isArray(report.defaulters)) return [];
     const set = new Set();
@@ -581,9 +600,26 @@ export default function AcademicHealthMemberForm({
   return (
     <div className="space-y-6">
       <div className="rounded-xl border border-teal-100 bg-teal-50/70 px-4 py-3 text-sm text-teal-800">
-        <p className="font-semibold">Academic Health Report • {reportDate}</p>
-        <p className="text-xs">
-          Your attendance scan: <span className="font-medium">{formatDateTime(report.mop2CheckinTime)}</span>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="font-semibold">Academic Health Report • {reportDate}</p>
+          <Button
+            variant="light"
+            size="xs"
+            onClick={refreshAttendance}
+            disabled={refreshingAttendance}
+          >
+            {refreshingAttendance ? (
+              <span className="flex items-center gap-1">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Refreshing…
+              </span>
+            ) : (
+              "Refresh attendance"
+            )}
+          </Button>
+        </div>
+        <p className="text-xs mt-1">
+          Your MHCP-2 attendance: <span className="font-medium">{formatDateTime(report.mop2CheckinTime)}</span>
         </p>
       </div>
 
@@ -604,7 +640,7 @@ export default function AcademicHealthMemberForm({
         <header>
           <h4 className="text-base font-semibold text-slate-800">Section 1 — Arrival & Program Conductance</h4>
           <p className="text-sm text-slate-500">
-            Confirm MOP2 attendance, audit Slot 12, and capture MHCP-2 readiness details.
+            Confirm MHCP-2 attendance, audit Slot 12, and capture MHCP-2 readiness details.
           </p>
         </header>
 
@@ -616,7 +652,7 @@ export default function AcademicHealthMemberForm({
               checked={Boolean(report.attendanceConfirmed)}
               onChange={handleFieldChange("attendanceConfirmed")}
             />
-            I confirm my MOP2 attendance
+            I confirm my MHCP-2 attendance
           </label>
           <Select
             label="Slot 12 transition quality"

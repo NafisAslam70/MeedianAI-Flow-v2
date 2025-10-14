@@ -19,7 +19,8 @@ const ensureSession = async () => {
 
 const isManager = (role) => ["admin", "team_manager"].includes(role);
 
-export async function GET(_req, { params }) {
+export async function GET(_req, context) {
+  const params = await context.params;
   try {
     const session = await ensureSession();
     const id = Number(params?.reportId);
@@ -49,7 +50,8 @@ export async function GET(_req, { params }) {
   }
 }
 
-export async function PATCH(req, { params }) {
+export async function PATCH(req, context) {
+  const params = await context.params;
   try {
     const session = await ensureSession();
     const id = Number(params?.reportId);
