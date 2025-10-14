@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { CheckCircle, AlertCircle, X, ChevronDown, ChevronUp } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { formatISTDate, formatISTDateTime } from "@/lib/timezone";
+import AcademicHealthMemberForm from "@/components/academicHealth/MemberForm";
 
 const fetcher = (url) =>
   fetch(url, { headers: { "Content-Type": "application/json" } }).then((res) => {
@@ -44,6 +45,7 @@ const REPORT_STATUS_STYLES = {
 
 const PT_DAILY_REPORT_KEY = "pt_daily_report";
 const SUBJECT_REPORT_KEY = "subject_daily_report";
+const ACADEMIC_HEALTH_REPORT_KEY = "academic_health_report";
 
 const PT_CDD_COLUMNS = [
   { key: "date", label: "Date", formatter: formatISTDate },
@@ -673,6 +675,11 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
     [mriReports]
   );
 
+  const academicHealthReports = useMemo(
+    () => mriReports.filter((report) => report?.templateKey === ACADEMIC_HEALTH_REPORT_KEY),
+    [mriReports]
+  );
+
   const pendingReportCount = useMemo(
     () => mriReports.filter((report) => !RESOLVED_REPORT_STATUSES.has(String(report?.status || "").toLowerCase())).length,
     [mriReports]
@@ -692,6 +699,14 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
         (report) => !RESOLVED_REPORT_STATUSES.has(String(report?.status || "").toLowerCase())
       ).length,
     [subjectReports]
+  );
+
+  const pendingAcademicReportCount = useMemo(
+    () =>
+      academicHealthReports.filter(
+        (report) => !RESOLVED_REPORT_STATUSES.has(String(report?.status || "").toLowerCase())
+      ).length,
+    [academicHealthReports]
   );
 
   const reportSnapshot = useMemo(
@@ -866,6 +881,10 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
     [activeReport?.templateKey]
   );
 
+  const isAcademicReport = useMemo(
+    () => activeReport?.templateKey === ACADEMIC_HEALTH_REPORT_KEY,
+    [activeReport?.templateKey]
+  );
   const activeSubjectLessons = useMemo(() => {
     if (!isSubjectReport) return [];
     if (subjectEditablePayload && typeof subjectEditablePayload === "object") {
@@ -2729,6 +2748,94 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
             </div>
           </motion.div>
 
+          {/* Academic Health Report Card */}
+          <motion.div
+            className="lg:col-span-3 h-full bg-white/80 backdrop-blur-md rounded-2xl shadow-md p-5 border border-teal-100/60"
+            whileHover={{ scale: 1.005 }}
+          >
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <CheckCircle className="w-6 h-6 text-teal-600" />
+                  <h4 className="text-base font-bold text-gray-800">Academic Health Report</h4>
+                </div>
+                <p className="mt-1 text-sm text-gray-600">
+                  Record Slot 12 supervision, MHCP-2 conductance, escalations, and day shutdown updates before closing.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Tag>Dean Report</Tag>
+                {pendingAcademicReportCount > 0 && (
+                  <span className="inline-flex items-center justify-center rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-xs font-semibold text-rose-600">
+                    {pendingAcademicReportCount} pending
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-4">
+              {isReportsLoading ? (
+                <p className="text-sm text-gray-600">Checking Academic Health assignment…</p>
+              ) : reportsError ? (
+                <p className="text-sm text-red-600 flex items-center gap-2">
+                  <AlertCircle size={16} /> {reportsError.message || "Failed to load Academic Health report."}
+                </p>
+              ) : academicHealthReports.length === 0 ? (
+                <p className="text-sm text-gray-600">No Academic Health report assigned to you today.</p>
+              ) : (
+                <div className="space-y-3">
+                  {academicHealthReports.map((report) => {
+                    const status = String(report?.status || "pending").toLowerCase();
+                    const badgeClass = REPORT_STATUS_STYLES[status] || REPORT_STATUS_STYLES.default;
+                    const focus = report?.academicHealth?.mhcp2FocusToday;
+                    const headcount = report?.academicHealth?.mhcp2PresentCount;
+                    const label =
+                      report?.targetLabel ||
+                      (report?.meta?.siteId ? `Site ${report.meta.siteId}` : null) ||
+                      report?.templateName ||
+                      "Academic Health";
+                    return (
+                      <div
+                        key={report?.instanceId || report?.assignmentId}
+                        className="rounded-xl border border-teal-100 bg-teal-50/70 p-4 shadow-sm"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-teal-800">{label}</p>
+                            <p className="text-xs text-teal-700/80">Academic Health Report</p>
+                            {focus ? (
+                              <p className="mt-2 text-[0.7rem] text-teal-700/80">
+                                MHCP-2 focus: {focus}
+                                {Number.isFinite(headcount) ? ` • ${headcount} students` : ""}
+                              </p>
+                            ) : null}
+                          </div>
+                          <span className={`px-2 py-0.5 text-[0.65rem] font-semibold rounded-full ${badgeClass}`}>
+                            {toTitle(status, "Pending")}
+                          </span>
+                        </div>
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            className="rounded-md bg-teal-600 px-3 py-1 text-xs font-semibold text-white shadow hover:bg-teal-700 transition disabled:cursor-not-allowed disabled:opacity-60"
+                            onClick={() => openReportModal(report)}
+                            disabled={!report?.instanceId || !report?.academicHealth?.id}
+                          >
+                            Fill Report
+                          </button>
+                          <span className="text-[0.65rem] text-teal-700/70">
+                            {report.academicHealth?.updatedAt
+                              ? `Updated ${formatISTDateTime(new Date(report.academicHealth.updatedAt))}`
+                              : "Awaiting submission"}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </motion.div>
           {/* Academic MRIs Card */}
           <motion.div
             className="h-full bg-white/80 backdrop-blur-md rounded-2xl shadow-md p-5 border border-teal-100/50"
@@ -3187,6 +3294,24 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
                     </div>
                     {renderAdditionalDetails()}
                   </div>
+                ) : isAcademicReport ? (
+                  <div className="flex h-full flex-col overflow-y-auto pr-1">
+                    {activeReport?.academicHealth?.id ? (
+                      <AcademicHealthMemberForm
+                        reportId={activeReport.academicHealth.id}
+                        reportDate={
+                          activeReport?.academicHealth?.reportDate ||
+                          activeReport?.meta?.reportDate ||
+                          todayIso
+                        }
+                        instanceId={activeReport?.instanceId || null}
+                        mutateReports={mutateReports}
+                        onClose={closeReportModal}
+                      />
+                    ) : (
+                      <p className="text-sm text-slate-500">Preparing Academic Health report…</p>
+                    )}
+                  </div>
                 ) : (
                   <>
                     <div>
@@ -3245,26 +3370,30 @@ export default function MRIStep({ handleNextStep, onMriClearedChange, onMriPaylo
                 )}
               </div>
 
-              {(!isPtReport || ptActiveSection !== "ccd") && renderConfirmationNoteSection("footer")}
+              {!isAcademicReport && (
+                <>
+                  {(!isPtReport || ptActiveSection !== "ccd") && renderConfirmationNoteSection("footer")}
 
-              <div className="mt-5 flex flex-wrap justify-end gap-2">
-                <button
-                  type="button"
-                  className="rounded-md border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
-                  onClick={() => handleReportAction("draft")}
-                  disabled={isSavingReport}
-                >
-                  Save Draft
-                </button>
-                <button
-                  type="button"
-                  className="rounded-md bg-indigo-600 px-3 py-1 text-xs font-semibold text-white shadow hover:bg-indigo-700 transition disabled:cursor-not-allowed disabled:opacity-60"
-                  onClick={() => handleReportAction("submit")}
-                  disabled={isSavingReport}
-                >
-                  Confirm &amp; Submit
-                </button>
-              </div>
+                  <div className="mt-5 flex flex-wrap justify-end gap-2">
+                    <button
+                      type="button"
+                      className="rounded-md border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      onClick={() => handleReportAction("draft")}
+                      disabled={isSavingReport}
+                    >
+                      Save Draft
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-md bg-indigo-600 px-3 py-1 text-xs font-semibold text-white shadow hover:bg-indigo-700 transition disabled:cursor-not-allowed disabled:opacity-60"
+                      onClick={() => handleReportAction("submit")}
+                      disabled={isSavingReport}
+                    >
+                      Confirm &amp; Submit
+                    </button>
+                  </div>
+                </>
+              )}
             </motion.div>
           </motion.div>
         )}
