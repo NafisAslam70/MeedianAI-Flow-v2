@@ -356,7 +356,7 @@ export default function AcademicHealthMemberForm({
     isLoading: reportLoading,
     mutate: mutateReport,
   } = useSWR(reportId ? `/api/reports/academic-health/${reportId}` : null, fetcher);
-  const { data: supportingData, error: supportingError } = useSWR(supportKey, fetcher);
+  const { data: supportingData, error: supportingError, mutate: mutateSupporting } = useSWR(supportKey, fetcher);
 
   const [report, setReport] = useState(null);
   const [dirty, setDirty] = useState(false);
@@ -693,13 +693,26 @@ export default function AcademicHealthMemberForm({
   const refreshAttendance = async () => {
     setRefreshingAttendance(true);
     try {
-      const fresh = await mutateReport();
-      if (fresh?.report) {
-        setReport(primeReport(fresh.report));
+      const freshSupporting = (await mutateSupporting()) || supportingData;
+      const checkin = freshSupporting?.mop2Checkin || null;
+      if (checkin?.checkinId && checkin?.checkinTime) {
+        const res = await fetch(`/api/reports/academic-health/${reportId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mop2CheckinId: checkin.checkinId, mop2CheckinTime: checkin.checkinTime }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json?.error || "Failed to update attendance.");
+        if (json?.report) {
+          setReport(primeReport(json.report));
+          mutateReport(json, false);
+        }
         setDirty(false);
         setMessage(
           `Attendance refreshed at ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.`
         );
+      } else {
+        setFormError("No MHCP-2 attendance found for today.");
       }
     } catch (err) {
       setFormError(err.message || "Failed to refresh attendance.");
