@@ -2675,6 +2675,16 @@ export async function DELETE(req) {
       return NextResponse.json({ deleted: 1 }, { status: 200 });
     }
 
+    if (section === "metaRoleDefs") {
+      const id = Number(body.id);
+      if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+      const deleted = await db.delete(mriRoleDefs).where(eq(mriRoleDefs.id, id)).returning({ id: mriRoleDefs.id });
+      if (!deleted.length) {
+        return NextResponse.json({ error: "Role definition not found" }, { status: 404 });
+      }
+      return NextResponse.json({ deleted: 1 }, { status: 200 });
+    }
+
     if (section === "team") {
       const userId = Number(body.userId);
       if (!userId) return NextResponse.json({ error: "userId required" }, { status: 400 });
