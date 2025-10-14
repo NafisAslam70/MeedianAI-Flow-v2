@@ -60,6 +60,10 @@ export async function GET(req) {
         .where(inArray(mriRoleTasks.roleDefId, roleDefIds));
     }
 
+    const programByKey = new Map(
+      programs.map((p) => [String(p.programKey || "").toUpperCase(), p])
+    );
+
     const tasksByRoleId = new Map();
     for (const t of tasks) {
       if (!tasksByRoleId.has(t.roleDefId)) tasksByRoleId.set(t.roleDefId, []);
@@ -107,10 +111,6 @@ export async function GET(req) {
         recurrence: t.recurrence,
       });
     }
-
-    const programByKey = new Map(
-      programs.map((p) => [String(p.programKey || "").toUpperCase(), p])
-    );
 
     const deriveProgram = (roleKey, roleName, category, subCategory) => {
       if (String(category || "").toLowerCase() !== "amri") return null;
