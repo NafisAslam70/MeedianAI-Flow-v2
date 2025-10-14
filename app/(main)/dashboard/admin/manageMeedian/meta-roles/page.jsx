@@ -182,6 +182,30 @@ export default function RoleDefinitionsPage() {
     return map;
   }, [programOptions]);
 
+  const deriveAttendanceConfig = (task) => {
+    const parsed = parseActionConfig(task?.action);
+    const executionMode = String(task?.executionMode || parsed.executionMode || "standard").toLowerCase() === "attendance" ? "attendance" : "standard";
+    let programKey = String(task?.attendanceProgramKey || parsed.attendanceProgramKey || "").toUpperCase();
+    let programId = task?.attendanceProgramId ?? parsed.attendanceProgramId ?? null;
+    if (!programId && programKey) {
+      const program = programByKey.get(programKey);
+      if (program?.id) programId = program.id;
+    }
+    const attendanceTrack = String(task?.attendanceTrack || parsed.attendanceTrack || "").toLowerCase();
+    const attendanceTarget =
+      executionMode === "attendance"
+        ? String(task?.attendanceTarget || parsed.attendanceTarget || "members").toLowerCase()
+        : "members";
+    return {
+      executionMode,
+      attendanceProgramKey: programKey,
+      attendanceProgramId: programId,
+      attendanceTrack,
+      attendanceTarget,
+      actionValue: parsed.actionValue,
+    };
+  };
+
   const resolveTracksForProgram = (programKey) => {
     const normalized = String(programKey || "").toUpperCase();
     const program = programByKey.get(normalized);
@@ -541,21 +565,43 @@ export default function RoleDefinitionsPage() {
         }
       }
       let actionPayload = null;
+      let payloadExtras = {
+        executionMode: "standard",
+        attendanceTarget: null,
+        attendanceProgramKey: null,
+        attendanceProgramId: null,
+        attendanceTrack: null,
+      };
       if (taskForm.executionMode === 'attendance') {
         const programKey = taskForm.attendanceProgramKey ? String(taskForm.attendanceProgramKey).toUpperCase() : "";
         if (!programKey) throw new Error("Please choose a program for this attendance task.");
         const hintProgram = programByKey.get(programKey);
         const programId = taskForm.attendanceProgramId || hintProgram?.id || null;
         const track = taskForm.attendanceTrack ? String(taskForm.attendanceTrack).toLowerCase() : "";
+        const target = taskForm.attendanceTarget || "members";
         actionPayload = buildAttendanceAction({
           programKey,
           programId,
           track,
-          target: taskForm.attendanceTarget || "members",
+          target,
         });
+        payloadExtras = {
+          executionMode: "attendance",
+          attendanceTarget: target,
+          attendanceProgramKey: programKey,
+          attendanceProgramId: programId,
+          attendanceTrack: track || null,
+        };
       } else {
         const trimmed = String(taskForm.action || "").trim();
         actionPayload = trimmed ? trimmed : null;
+        payloadExtras = {
+          executionMode: "standard",
+          attendanceTarget: null,
+          attendanceProgramKey: null,
+          attendanceProgramId: null,
+          attendanceTrack: null,
+        };
       }
       const res = await fetch(`/api/admin/manageMeedian?section=metaRoleTasks`, {
         method: "POST",
@@ -566,6 +612,11 @@ export default function RoleDefinitionsPage() {
           description: taskForm.description,
           submissables: subs,
           action: actionPayload,
+          executionMode: payloadExtras.executionMode,
+          attendanceTarget: payloadExtras.attendanceTarget,
+          attendanceProgramKey: payloadExtras.attendanceProgramKey,
+          attendanceProgramId: payloadExtras.attendanceProgramId,
+          attendanceTrack: payloadExtras.attendanceTrack,
           timeSensitive: !!taskForm.timeSensitive,
           execAt,
           windowStart,
@@ -1062,7 +1113,108 @@ export default function RoleDefinitionsPage() {
                           <Input label="Title" value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} />
                           <Input label="Description" value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} />
                           <Input label="Submissables (comma/newline separated)" value={editForm.submissables} onChange={(e) => setEditForm({ ...editForm, submissables: e.target.value })} />
-                          <Input label="Action" value={editForm.action} onChange={(e) => setEditForm({ ...editForm, action: e.target.value })} />
+                          <div className="border border-gray-200 rounded-lg p-3 space-y-2">
+                            <div className="text-sm font-semibold text-gray-700">Execution</div>
+                            <div className="flex flex-wrap gap-3 text-sm">
+                              <label className="inline-flex items-center gap-2">
+                                <input
+                                  type="radio"
+                                  name={`executionModeEdit_${t.id}`}
+                                  checked={editForm.executionMode === 'standard'}
+                                  onChange={() => setEditForm((prev) => ({
+                                    ...prev,
+                                    executionMode: 'standard',
+                                  }))}
+                                />
+                                Standard Task
+                              </label>
+                              <label className="inline-flex items-center gap-2">
+                                <input
+                                  type="radio"
+                                  name={`executionModeEdit_${t.id}`}
+                                  checked={editForm.executionMode === 'attendance'}
+                                  onChange={() => setEditForm((prev) => ({
+                                    ...prev,
+                                    executionMode: 'attendance',
+                                    attendanceProgramKey: prev.attendanceProgramKey || (programOptions[0]?.key || ''),
+                                    attendanceProgramId: prev.attendanceProgramId || programByKey.get(prev.attendanceProgramKey || programOptions[0]?.key || '')?.id || null,
+                                  }))}
+                                />
+                                Attendance Scanner
+                              </label>
+                            </div>
+                            {editForm.executionMode === 'attendance' ? (
+                              <div className="space-y-3">
+                                <Select
+                                  label="Audience"
+                                  value={editForm.attendanceTarget}
+                                  onChange={(e) => setEditForm((prev) => ({ ...prev, attendanceTarget: e.target.value }))}
+                                >
+                                  {ATTENDANCE_TARGET_OPTIONS.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </Select>
+                                <Select
+                                  label="Program"
+                                  value={editForm.attendanceProgramKey}
+                                  onChange={(e) => {
+                                    const nextKey = e.target.value;
+                                    const program = programByKey.get(nextKey);
+                                    const suggestions = resolveTracksForProgram(nextKey);
+                                    setEditForm((prev) => ({
+                                      ...prev,
+                                      attendanceProgramKey: nextKey,
+                                      attendanceProgramId: program?.id || null,
+                                      attendanceTrack: suggestions.includes(prev.attendanceTrack) ? prev.attendanceTrack : '',
+                                    }));
+                                  }}
+                                >
+                                  <option value="">Select Program</option>
+                                  {programOptions.map((program) => (
+                                    <option key={program.key} value={program.key}>
+                                      {program.name} ({program.key})
+                                    </option>
+                                  ))}
+                                </Select>
+                                <div>
+                                  <label className="block text-xs font-semibold text-gray-600 mb-1">Track (optional)</label>
+                                  <input
+                                    type="text"
+                                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                                    placeholder="e.g., elementary, mop2"
+                                    value={editForm.attendanceTrack}
+                                    onChange={(e) => setEditForm((prev) => ({ ...prev, attendanceTrack: e.target.value }))}
+                                  />
+                                  {editForm.attendanceProgramKey && resolveTracksForProgram(editForm.attendanceProgramKey).length > 0 && (
+                                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                                      <span>Suggestions:</span>
+                                      {resolveTracksForProgram(editForm.attendanceProgramKey).map((track) => (
+                                        <button
+                                          type="button"
+                                          key={track}
+                                          className={`px-2 py-0.5 rounded-full border text-xs ${
+                                            editForm.attendanceTrack === track
+                                              ? 'bg-teal-600 text-white border-teal-600'
+                                              : 'border-gray-200 text-gray-600 hover:border-teal-300 hover:text-teal-600'
+                                          }`}
+                                          onClick={() => setEditForm((prev) => ({ ...prev, attendanceTrack: track }))}
+                                        >
+                                          {formatTrackLabel(track)}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                  Members will scan a session QR linked to the selected program. When the moderator finalizes the session, attendance will be stored under that program.
+                                </div>
+                              </div>
+                            ) : (
+                              <Input label="Action (optional)" value={editForm.action} onChange={(e) => setEditForm({ ...editForm, action: e.target.value })} />
+                            )}
+                          </div>
                           <div className="border border-gray-200 rounded-lg p-3">
                             <label className="text-sm font-medium text-gray-700 inline-flex items-center gap-2">
                               <input type="checkbox" checked={editForm.timeSensitive} onChange={(e)=> setEditForm({ ...editForm, timeSensitive: e.target.checked })} /> Time sensitive
@@ -1107,23 +1259,75 @@ export default function RoleDefinitionsPage() {
                           <div className="flex items-center gap-2 justify-end">
                             <Button
                               onClick={async () => {
-                                let subs = null;
-                                if (editForm.submissables && String(editForm.submissables).trim()) {
-                                  subs = String(editForm.submissables)
-                                    .split(/\n|,/)
-                                    .map((s) => s.trim())
-                                    .filter(Boolean);
-                                }
-                                let patch = { title: editForm.title, description: editForm.description, submissables: subs, action: editForm.action || null, active: !!editForm.active, timeSensitive: !!editForm.timeSensitive, recurrence: editForm.recurrence && editForm.recurrence !== 'none' ? editForm.recurrence : null };
-                                if (editForm.timeSensitive) {
-                                  if (editForm.timeMode === 'timestamp') patch.execAt = editForm.execAt ? new Date(editForm.execAt).toISOString() : null;
-                                  if (editForm.timeMode === 'window') {
-                                    patch.windowStart = editForm.windowStart ? new Date(editForm.windowStart).toISOString() : null;
-                                    patch.windowEnd = editForm.windowEnd ? new Date(editForm.windowEnd).toISOString() : null;
+                                try {
+                                  let subs = null;
+                                  if (editForm.submissables && String(editForm.submissables).trim()) {
+                                    subs = String(editForm.submissables)
+                                      .split(/\n|,/)
+                                      .map((s) => s.trim())
+                                      .filter(Boolean);
                                   }
-                                } else { patch.execAt = null; patch.windowStart = null; patch.windowEnd = null; }
-                                await updateTask(t.id, patch);
-                                setEditingTaskId(null);
+                                  let actionValue = null;
+                                  let extras = {
+                                    executionMode: editForm.executionMode === 'attendance' ? 'attendance' : 'standard',
+                                    attendanceTarget: null,
+                                    attendanceProgramKey: null,
+                                    attendanceProgramId: null,
+                                    attendanceTrack: null,
+                                  };
+                                  if (editForm.executionMode === 'attendance') {
+                                    const programKey = editForm.attendanceProgramKey ? String(editForm.attendanceProgramKey).toUpperCase() : '';
+                                    if (!programKey) throw new Error('Select a program for this attendance task.');
+                                    const hintProgram = programByKey.get(programKey);
+                                    const programId = editForm.attendanceProgramId || hintProgram?.id || null;
+                                    if (!programId) throw new Error('Program mapping missing — please reselect the program.');
+                                    const track = editForm.attendanceTrack ? String(editForm.attendanceTrack).toLowerCase() : '';
+                                    const target = editForm.attendanceTarget || 'members';
+                                    actionValue = buildAttendanceAction({ programKey, programId, track, target });
+                                    extras = {
+                                      executionMode: 'attendance',
+                                      attendanceTarget: target,
+                                      attendanceProgramKey: programKey,
+                                      attendanceProgramId: programId,
+                                      attendanceTrack: track || null,
+                                    };
+                                  } else {
+                                    const trimmed = String(editForm.action || '').trim();
+                                    actionValue = trimmed ? trimmed : null;
+                                    extras = {
+                                      executionMode: 'standard',
+                                      attendanceTarget: null,
+                                      attendanceProgramKey: null,
+                                      attendanceProgramId: null,
+                                      attendanceTrack: null,
+                                    };
+                                  }
+                                  let patch = {
+                                    title: editForm.title,
+                                    description: editForm.description,
+                                    submissables: subs,
+                                    action: actionValue,
+                                    executionMode: extras.executionMode,
+                                    attendanceTarget: extras.attendanceTarget,
+                                    attendanceProgramKey: extras.attendanceProgramKey,
+                                    attendanceProgramId: extras.attendanceProgramId,
+                                    attendanceTrack: extras.attendanceTrack,
+                                    active: !!editForm.active,
+                                    timeSensitive: !!editForm.timeSensitive,
+                                    recurrence: editForm.recurrence && editForm.recurrence !== 'none' ? editForm.recurrence : null,
+                                  };
+                                  if (editForm.timeSensitive) {
+                                    if (editForm.timeMode === 'timestamp') patch.execAt = editForm.execAt ? new Date(editForm.execAt).toISOString() : null;
+                                    if (editForm.timeMode === 'window') {
+                                      patch.windowStart = editForm.windowStart ? new Date(editForm.windowStart).toISOString() : null;
+                                      patch.windowEnd = editForm.windowEnd ? new Date(editForm.windowEnd).toISOString() : null;
+                                    }
+                                  } else { patch.execAt = null; patch.windowStart = null; patch.windowEnd = null; }
+                                  await updateTask(t.id, patch);
+                                  setEditingTaskId(null);
+                                } catch (error) {
+                                  setMessage({ type: 'error', text: error.message || 'Failed to update task' });
+                                }
                               }}
                               variant="primary"
                             >
@@ -1163,9 +1367,27 @@ export default function RoleDefinitionsPage() {
                                 })()}
                               </div>
                             ) : null}
-                            {t.action ? (
-                              <div className="text-gray-600 text-xs"><span className="font-medium">Action:</span> {t.action}</div>
-                            ) : null}
+                            {(() => {
+                              const cfg = deriveAttendanceConfig(t);
+                              if (cfg.executionMode === 'attendance') {
+                                const programLabel = cfg.attendanceProgramKey
+                                  ? `${cfg.attendanceProgramKey}${cfg.attendanceTrack ? ' · ' + formatTrackLabel(cfg.attendanceTrack) : ''}`
+                                  : 'Attendance Scanner';
+                                const audienceLabel = ATTENDANCE_TARGET_OPTIONS.find((opt) => opt.value === cfg.attendanceTarget)?.label || toTitle(cfg.attendanceTarget, 'Members');
+                                return (
+                                  <div className="text-gray-600 text-xs">
+                                    <span className="font-medium">Scanner:</span> {programLabel}
+                                    {audienceLabel ? ` — ${audienceLabel}` : ''}
+                                  </div>
+                                );
+                              }
+                              if (t.action) {
+                                return (
+                                  <div className="text-gray-600 text-xs"><span className="font-medium">Action:</span> {t.action}</div>
+                                );
+                              }
+                              return null;
+                            })()}
                             {t.timeSensitive ? (
                               <div className="text-gray-600 text-xs mt-1">
                                 <span className="font-medium">Time Sensitive:</span> Yes
@@ -1185,18 +1407,30 @@ export default function RoleDefinitionsPage() {
                             </Button>
                             <Button
                               onClick={() => {
+                                const attendance = deriveAttendanceConfig(t);
+                                const fallbackProgramKey = attendance.executionMode === 'attendance'
+                                  ? (attendance.attendanceProgramKey || programOptions[0]?.key || "")
+                                  : "";
+                                const fallbackProgramId = attendance.executionMode === 'attendance'
+                                  ? (attendance.attendanceProgramId || programByKey.get(fallbackProgramKey)?.id || null)
+                                  : null;
                                 setEditingTaskId(t.id);
                                 setEditForm({
                                   title: t.title || "",
                                   description: t.description || "",
                                   submissables: (() => { try { const arr = JSON.parse(t.submissables || "null"); return Array.isArray(arr) ? arr.join(", ") : String(t.submissables || ""); } catch { return String(t.submissables || ""); } })(),
-                                  action: t.action || "",
+                                  action: attendance.executionMode === 'attendance' ? (attendance.actionValue || t.action || "") : (t.action || ""),
                                   active: !!t.active,
                                   timeSensitive: !!t.timeSensitive,
                                   timeMode: t.execAt ? 'timestamp' : ((t.windowStart || t.windowEnd) ? 'window' : 'none'),
                                   execAt: t.execAt ? new Date(t.execAt).toISOString().slice(0,16) : '',
                                   windowStart: t.windowStart ? new Date(t.windowStart).toISOString().slice(0,16) : '',
                                   windowEnd: t.windowEnd ? new Date(t.windowEnd).toISOString().slice(0,16) : '',
+                                  executionMode: attendance.executionMode,
+                                  attendanceTarget: attendance.attendanceTarget || "members",
+                                  attendanceProgramKey: fallbackProgramKey,
+                                  attendanceProgramId: fallbackProgramId,
+                                  attendanceTrack: attendance.attendanceTrack || "",
                                 });
                               }}
                               variant="secondary"

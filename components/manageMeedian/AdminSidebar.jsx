@@ -82,6 +82,16 @@ const groups = [
 			},
 		],
 	},
+	{
+		title: "Daily Reports",
+		items: [
+			{
+				href: "/dashboard/admin/manageMeedian/daily-reports/gate-logs",
+				label: "Gate Logs",
+				icon: ClipboardList,
+			},
+		],
+	},
 ];
 
 export default function AdminSidebar() {
@@ -186,18 +196,18 @@ export default function AdminSidebar() {
 					const role = session?.user?.role;
 					const allowed = allowedSections;
 					const mapHrefToSection = (h) => {
-						if (h.endsWith('/calendar')) return 'schoolCalendar';
-						if (h.endsWith('/mri-roles')) return 'mriRoles';
-						if (h.endsWith('/mri-programs')) return 'metaPrograms';
-						if (h.endsWith('/mri-reports')) return ['mriReportTemplates','mriReportAssignments'];
-						if (h.endsWith('/msp-codes')) return 'mspCodes';
-				if (h.endsWith('/class-teachers')) return 'classTeachers';
-				if (h.endsWith('/team')) return 'team';
-				if (h === '/dashboard/admin/students') return 'students';
-				if (h.endsWith('/randoms')) return 'randomsLab';
-				if (h.includes('/daily-reports/gate-logs')) return ['campusGateStaff','guardianGateLogs'];
-				return null;
-			};
+						if (h.endsWith("/calendar")) return "schoolCalendar";
+						if (h.endsWith("/mri-roles")) return "mriRoles";
+						if (h.endsWith("/mri-programs")) return "metaPrograms";
+						if (h.endsWith("/mri-reports")) return ["mriReportTemplates", "mriReportAssignments"];
+						if (h.endsWith("/msp-codes")) return "mspCodes";
+						if (h.endsWith("/class-teachers")) return "classTeachers";
+						if (h.endsWith("/team")) return "team";
+						if (h === "/dashboard/admin/students") return "students";
+						if (h.endsWith("/randoms")) return "randomsLab";
+						if (h.includes("/daily-reports/gate-logs")) return ["campusGateStaff", "guardianGateLogs"];
+						return null;
+					};
 					const sec = mapHrefToSection(href);
 					let disabled = false;
 					if (role === 'team_manager' && sec) {

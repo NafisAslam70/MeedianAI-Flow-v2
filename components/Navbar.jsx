@@ -29,7 +29,8 @@ import {
   MessageSquare,
   Send,
   HelpCircle,
-  Brain
+  Brain,
+  Scan
 } from "lucide-react";
 import AboutMeedModal from "@/components/AboutMeedModal";
 import { createPortal } from "react-dom";
@@ -822,6 +823,18 @@ export default function Navbar() {
             <span className="row-main">
               <span className="row-title text-sm sm:text-base">Open Your Day</span>
               <span className="row-sub text-[11px] sm:text-xs">Scan moderator’s session or share your code</span>
+            </span>
+            <ArrowRight size={16} className="row-go" />
+          </button>
+
+          <button
+            className="action-row sm:py-3 sm:px-3 py-2 px-2"
+            onClick={() => { setIsProfileOpen(false); router.push("/dashboard/member/myMeedRituals?takeAttendance=1"); }}
+          >
+            <span className="row-icon"><Scan size={18} /></span>
+            <span className="row-main">
+              <span className="row-title text-sm sm:text-base">Take Attendance</span>
+              <span className="row-sub text-[11px] sm:text-xs">Launch the scanner for your assigned program</span>
             </span>
             <ArrowRight size={16} className="row-go" />
           </button>

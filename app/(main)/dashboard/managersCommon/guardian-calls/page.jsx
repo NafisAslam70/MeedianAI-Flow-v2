@@ -55,6 +55,19 @@ const formatDisplayDate = (value) => {
   return date.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
 };
 
+const normalizePhone = (raw) => {
+  if (raw === null || raw === undefined) return "";
+  const str = String(raw).trim();
+  if (!str) return "";
+  const dotIdx = str.indexOf(".");
+  if (dotIdx === -1) return str;
+  const fractional = str.slice(dotIdx + 1);
+  if (/^0+$/.test(fractional)) {
+    return str.slice(0, dotIdx);
+  }
+  return str;
+};
+
 export default function GuardianCallsPage() {
   const { data: session } = useSession();
   const [form, setForm] = useState(() => initialForm());
@@ -147,7 +160,7 @@ export default function GuardianCallsPage() {
       ...prev,
       studentId: value,
       guardianName: selected?.guardianName || "",
-      guardianPhone: selected?.guardianPhone || "",
+      guardianPhone: normalizePhone(selected?.guardianPhone),
     }));
   };
 
@@ -217,7 +230,7 @@ export default function GuardianCallsPage() {
           followUpNeeded: form.followUpNeeded,
           followUpDate: form.followUpDate || null,
           guardianName: form.guardianName?.trim() || null,
-          guardianPhone: form.guardianPhone?.trim() || null,
+          guardianPhone: normalizePhone(form.guardianPhone) || null,
         }),
       });
       const payload = await res.json().catch(() => ({}));
@@ -607,8 +620,8 @@ export default function GuardianCallsPage() {
                     <td className="px-4 py-3 text-gray-700">{call.guardian?.name || "—"}</td>
                     <td className="px-4 py-3 text-gray-700">
                       {call.guardian?.phone ? (
-                        <a href={`tel:${call.guardian.phone}`} className="text-teal-600 hover:underline">
-                          {call.guardian.phone}
+                        <a href={`tel:${normalizePhone(call.guardian.phone)}`} className="text-teal-600 hover:underline">
+                          {normalizePhone(call.guardian.phone)}
                         </a>
                       ) : (
                         "—"

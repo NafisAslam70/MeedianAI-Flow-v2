@@ -45,6 +45,11 @@ export async function GET(req) {
           submissables: mriRoleTasks.submissables,
           action: mriRoleTasks.action,
           active: mriRoleTasks.active,
+          executionMode: mriRoleTasks.executionMode,
+          attendanceTarget: mriRoleTasks.attendanceTarget,
+          attendanceProgramKey: mriRoleTasks.attendanceProgramKey,
+          attendanceProgramId: mriRoleTasks.attendanceProgramId,
+          attendanceTrack: mriRoleTasks.attendanceTrack,
           timeSensitive: mriRoleTasks.timeSensitive,
           execAt: mriRoleTasks.execAt,
           windowStart: mriRoleTasks.windowStart,
@@ -65,13 +70,36 @@ export async function GET(req) {
         if (Array.isArray(arr)) subs = arr;
       } catch {}
       const overrideAction = TASK_ACTION_OVERRIDES.get(Number(t.id));
+      const actionValue = overrideAction ? { ...overrideAction } : t.action;
+      const executionMode = overrideAction ? "attendance" : (t.executionMode || "standard");
+      const attendanceProgramKey =
+        overrideAction && overrideAction.programKey
+          ? String(overrideAction.programKey).toUpperCase()
+          : t.attendanceProgramKey;
+      const attendanceProgramId =
+        overrideAction && overrideAction.programKey
+          ? programByKey.get(String(overrideAction.programKey).toUpperCase())?.id || t.attendanceProgramId
+          : t.attendanceProgramId;
+      const attendanceTrack =
+        overrideAction && overrideAction.track
+          ? String(overrideAction.track).toLowerCase()
+          : t.attendanceTrack;
+      const attendanceTarget =
+        overrideAction && overrideAction.target
+          ? String(overrideAction.target).toLowerCase()
+          : t.attendanceTarget;
       tasksByRoleId.get(t.roleDefId).push({
         id: t.id,
         title: t.title,
         description: t.description,
         submissables: subs,
-        action: overrideAction ? { ...overrideAction } : t.action,
+        action: actionValue,
         active: t.active,
+        executionMode,
+        attendanceTarget,
+        attendanceProgramKey,
+        attendanceProgramId,
+        attendanceTrack,
         timeSensitive: t.timeSensitive,
         execAt: t.execAt,
         windowStart: t.windowStart,

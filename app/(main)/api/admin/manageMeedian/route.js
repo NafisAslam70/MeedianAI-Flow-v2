@@ -53,7 +53,12 @@ import bcrypt from "bcrypt";
 import formidable from 'formidable';
 import fetch from 'node-fetch';
 import { v2 as cloudinary } from 'cloudinary';
-import { ensurePtAssignmentsForUser, ensurePtAssignmentsForAllClassTeachers, ensurePtTemplate } from "@/lib/mriReports";
+import {
+  ensurePtAssignmentsForUser,
+  ensurePtAssignmentsForAllClassTeachers,
+  ensurePtTemplate,
+  ensureAcademicHealthTemplate,
+} from "@/lib/mriReports";
 
 /* ============================== GET ============================== */
 export async function GET(req) {
@@ -167,6 +172,7 @@ export async function GET(req) {
     }
     if (section === "mriReportTemplates") {
       await ensurePtTemplate();
+      await ensureAcademicHealthTemplate();
       const templateKey = searchParams.get("templateKey");
       const query = db
         .select({
@@ -199,6 +205,9 @@ export async function GET(req) {
       const templateIdParam = searchParams.get("templateId");
       const activeOnly = (searchParams.get("activeOnly") || "").toLowerCase() === "true";
       const templateId = templateIdParam ? Number(templateIdParam) : null;
+
+      await ensurePtTemplate();
+      await ensureAcademicHealthTemplate();
 
       const rows = await db
         .select({
@@ -526,6 +535,11 @@ export async function GET(req) {
           active: mriRoleTasks.active,
           submissables: mriRoleTasks.submissables, // Include submissables
           action: mriRoleTasks.action, // Include action
+          executionMode: mriRoleTasks.executionMode,
+          attendanceTarget: mriRoleTasks.attendanceTarget,
+          attendanceProgramKey: mriRoleTasks.attendanceProgramKey,
+          attendanceProgramId: mriRoleTasks.attendanceProgramId,
+          attendanceTrack: mriRoleTasks.attendanceTrack,
           timeSensitive: mriRoleTasks.timeSensitive,
           execAt: mriRoleTasks.execAt,
           windowStart: mriRoleTasks.windowStart,
@@ -983,6 +997,7 @@ export async function POST(req) {
     }
     if (section === "mriReportAssignments") {
       await ensurePtTemplate();
+      await ensureAcademicHealthTemplate();
       const action = typeof body?.action === "string" ? body.action.trim() : "";
       if (action === "syncClassTeachers") {
         const targetDate = body?.targetDate;
@@ -1638,6 +1653,32 @@ export async function POST(req) {
           if (u.description !== undefined) setObj.description = u.description ? String(u.description).trim() : null;
           if (u.action !== undefined) setObj.action = u.action ? String(u.action).trim() : null;
           if (u.active !== undefined) setObj.active = !!u.active;
+          if (u.executionMode !== undefined) {
+            const mode = String(u.executionMode || "").toLowerCase() === "attendance" ? "attendance" : "standard";
+            setObj.executionMode = mode;
+            if (mode !== "attendance") {
+              setObj.attendanceTarget = null;
+              setObj.attendanceProgramKey = null;
+              setObj.attendanceProgramId = null;
+              setObj.attendanceTrack = null;
+            }
+          }
+          if (u.attendanceTarget !== undefined) {
+            const rawTarget = String(u.attendanceTarget || "").trim().toLowerCase();
+            setObj.attendanceTarget = rawTarget || null;
+          }
+          if (u.attendanceProgramKey !== undefined) {
+            const rawKey = String(u.attendanceProgramKey || "").trim().toUpperCase();
+            setObj.attendanceProgramKey = rawKey || null;
+          }
+          if (u.attendanceProgramId !== undefined) {
+            const pid = Number(u.attendanceProgramId);
+            setObj.attendanceProgramId = Number.isFinite(pid) ? pid : null;
+          }
+          if (u.attendanceTrack !== undefined) {
+            const rawTrack = String(u.attendanceTrack || "").trim().toLowerCase();
+            setObj.attendanceTrack = rawTrack || null;
+          }
           if (u.timeSensitive !== undefined) setObj.timeSensitive = !!u.timeSensitive;
           if (u.execAt !== undefined) setObj.execAt = u.execAt ? new Date(u.execAt) : null;
           if (u.windowStart !== undefined) setObj.windowStart = u.windowStart ? new Date(u.windowStart) : null;
@@ -1661,7 +1702,24 @@ export async function POST(req) {
         return NextResponse.json({ updated }, { status: 200 });
       }
 
-      const { roleDefId, title, description, active, submissables, action, timeSensitive = false, execAt = null, windowStart = null, windowEnd = null, recurrence = null } = body || {};
+      const {
+        roleDefId,
+        title,
+        description,
+        active,
+        submissables,
+        action,
+        executionMode = "standard",
+        attendanceTarget = null,
+        attendanceProgramKey = null,
+        attendanceProgramId = null,
+        attendanceTrack = null,
+        timeSensitive = false,
+        execAt = null,
+        windowStart = null,
+        windowEnd = null,
+        recurrence = null,
+      } = body || {};
       if (!roleDefId || !title) {
         return NextResponse.json({ error: "roleDefId and title are required" }, { status: 400 });
       }
@@ -1685,6 +1743,21 @@ export async function POST(req) {
       };
       const subsArr = normalizeSubs(submissables);
 
+      const normalizedMode = String(executionMode || "").toLowerCase() === "attendance" ? "attendance" : "standard";
+      const normalizedTarget = attendanceTarget ? String(attendanceTarget).trim().toLowerCase() : null;
+      const normalizedProgramKey = attendanceProgramKey ? String(attendanceProgramKey).trim().toUpperCase() : null;
+      const normalizedProgramId = Number.isFinite(Number(attendanceProgramId)) ? Number(attendanceProgramId) : null;
+      const normalizedTrack = attendanceTrack ? String(attendanceTrack).trim().toLowerCase() : null;
+
+      const finalAttendanceTarget = normalizedMode === "attendance" ? normalizedTarget || "members" : null;
+      const finalAttendanceProgramKey = normalizedMode === "attendance" ? normalizedProgramKey : null;
+      const finalAttendanceProgramId = normalizedMode === "attendance" ? normalizedProgramId : null;
+      const finalAttendanceTrack = normalizedMode === "attendance" ? normalizedTrack : null;
+
+      if (normalizedMode === "attendance" && !finalAttendanceProgramKey && !finalAttendanceProgramId) {
+        return NextResponse.json({ error: "Attendance tasks require a program selection" }, { status: 400 });
+      }
+
       // Insert or update the task
       const [row] = await db
         .insert(mriRoleTasks)
@@ -1695,6 +1768,11 @@ export async function POST(req) {
           active: !!active,
           submissables: subsArr && subsArr.length ? JSON.stringify(subsArr) : null,
           action: action ? String(action).trim() : null,
+          executionMode: normalizedMode,
+          attendanceTarget: finalAttendanceTarget,
+          attendanceProgramKey: finalAttendanceProgramKey,
+          attendanceProgramId: finalAttendanceProgramId,
+          attendanceTrack: finalAttendanceTrack,
           timeSensitive: !!timeSensitive,
           execAt: execAt ? new Date(execAt) : null,
           windowStart: windowStart ? new Date(windowStart) : null,
@@ -1708,6 +1786,11 @@ export async function POST(req) {
             active: !!active,
             submissables: subsArr && subsArr.length ? JSON.stringify(subsArr) : null,
             action: action ? String(action).trim() : null,
+            executionMode: normalizedMode,
+            attendanceTarget: finalAttendanceTarget,
+            attendanceProgramKey: finalAttendanceProgramKey,
+            attendanceProgramId: finalAttendanceProgramId,
+            attendanceTrack: finalAttendanceTrack,
             timeSensitive: !!timeSensitive,
             execAt: execAt ? new Date(execAt) : null,
             windowStart: windowStart ? new Date(windowStart) : null,
@@ -1724,6 +1807,11 @@ export async function POST(req) {
           active: mriRoleTasks.active,
           submissables: mriRoleTasks.submissables,
           action: mriRoleTasks.action,
+          executionMode: mriRoleTasks.executionMode,
+          attendanceTarget: mriRoleTasks.attendanceTarget,
+          attendanceProgramKey: mriRoleTasks.attendanceProgramKey,
+          attendanceProgramId: mriRoleTasks.attendanceProgramId,
+          attendanceTrack: mriRoleTasks.attendanceTrack,
           timeSensitive: mriRoleTasks.timeSensitive,
           execAt: mriRoleTasks.execAt,
           windowStart: mriRoleTasks.windowStart,
@@ -2362,6 +2450,8 @@ export async function PATCH(req) {
     }
 
     if (section === "mriReportAssignments") {
+      await ensurePtTemplate();
+      await ensureAcademicHealthTemplate();
       const updatesRaw = Array.isArray(body?.updates)
         ? body.updates
         : Array.isArray(body)
@@ -2384,6 +2474,18 @@ export async function PATCH(req) {
         const id = Number(u?.id);
         if (!id) continue;
         const setObj = {};
+        let currentMetaCache = null;
+        const loadCurrentMeta = async () => {
+          if (currentMetaCache) return currentMetaCache;
+          const [existing] = await db
+            .select({ scopeMeta: mriReportAssignments.scopeMeta })
+            .from(mriReportAssignments)
+            .where(eq(mriReportAssignments.id, id))
+            .limit(1);
+          currentMetaCache =
+            existing?.scopeMeta && typeof existing.scopeMeta === "object" ? { ...existing.scopeMeta } : {};
+          return currentMetaCache;
+        };
         if (u.targetLabel !== undefined) {
           const label = String(u.targetLabel || "").trim();
           setObj.targetLabel = label || null;
@@ -2414,18 +2516,25 @@ export async function PATCH(req) {
               return NextResponse.json({ error: `Assistant user ${assistantId} not found` }, { status: 404 });
             }
           }
-          const [existing] = await db
-            .select({ scopeMeta: mriReportAssignments.scopeMeta })
-            .from(mriReportAssignments)
-            .where(eq(mriReportAssignments.id, id))
-            .limit(1);
-          const currentMeta = existing?.scopeMeta && typeof existing.scopeMeta === "object"
-            ? { ...existing.scopeMeta }
-            : {};
+          const currentMeta = await loadCurrentMeta();
           if (assistantId && Number.isFinite(assistantId)) {
             currentMeta.assistantUserId = assistantId;
           } else {
             delete currentMeta.assistantUserId;
+          }
+          setObj.scopeMeta = currentMeta;
+        }
+        if (u.scopeMeta !== undefined) {
+          const currentMeta = await loadCurrentMeta();
+          if (u.scopeMeta && typeof u.scopeMeta === "object") {
+            Object.entries(u.scopeMeta).forEach(([key, value]) => {
+              if (value === undefined) return;
+              currentMeta[key] = value;
+            });
+          } else if (u.scopeMeta === null) {
+            for (const key of Object.keys(currentMeta)) {
+              if (key !== "assistantUserId") delete currentMeta[key];
+            }
           }
           setObj.scopeMeta = currentMeta;
         }

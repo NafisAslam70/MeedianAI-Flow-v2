@@ -1,7 +1,7 @@
 "use client";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Clock, Calendar, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
 import RoutineTrackerModal from "@/components/member/RoutineTrackerModal";
@@ -60,11 +60,13 @@ const SCANNER_ROLE_CONFIG = {
     titlePattern: DEFAULT_SCANNER_TITLE_PATTERN,
     programKey: "MSP",
     track: "elementary",
+    target: "members",
   },
   mop2_moderator: {
     titlePattern: DEFAULT_SCANNER_TITLE_PATTERN,
     programKey: "MOP",
     track: "mop2",
+    target: "members",
   },
 };
 const sanitizeTrackKey = (value) => {
@@ -80,6 +82,8 @@ const parseScannerAction = (rawAction) => {
       return {
         programKey: String(rawAction.programKey).toUpperCase(),
         track: sanitizeTrackKey(rawAction.track ?? rawAction.programTrack ?? rawAction.trackKey ?? null),
+        programId: rawAction.programId ? Number(rawAction.programId) : null,
+        target: rawAction.target ? String(rawAction.target).toLowerCase() : "members",
         explicit: true,
       };
     }
@@ -96,6 +100,8 @@ const parseScannerAction = (rawAction) => {
     return {
       programKey: match[1].toUpperCase(),
       track: sanitizeTrackKey(match[2] || null),
+      programId: null,
+      target: "members",
       explicit: true,
     };
   }
@@ -103,7 +109,7 @@ const parseScannerAction = (rawAction) => {
 };
 const deriveScannerConfigFromRole = (roleKey, bundle = null) => {
   const preset = SCANNER_ROLE_CONFIG[normalizeRoleKey(roleKey)];
-  if (preset) return { ...preset, explicit: preset.explicit ?? false };
+  if (preset) return { ...preset, explicit: preset.explicit ?? false, target: preset.target || 'members', programId: preset.programId || null };
   const guessProgramKey = () => {
     if (!bundle) return null;
     const bucket = new Set();
@@ -139,6 +145,8 @@ const deriveScannerConfigFromRole = (roleKey, bundle = null) => {
     titlePattern: DEFAULT_SCANNER_TITLE_PATTERN,
     programKey,
     track: sanitizeTrackKey(trackSource),
+    target: 'members',
+    programId: null,
     explicit: false,
   };
 };
@@ -148,14 +156,41 @@ const resolveScannerConfig = (roleInfo, task = null) => {
   if (!roleKey) return null;
   if (task) {
     const actionConfig = parseScannerAction(task.action);
+    const fallback = deriveScannerConfigFromRole(roleKey, bundle);
+    const programKeyCandidate =
+      task.attendanceProgramKey || actionConfig?.programKey || fallback?.programKey;
+    const resolvedProgramKey = programKeyCandidate ? String(programKeyCandidate).toUpperCase() : null;
+    const trackFromTask = task.attendanceTrack ? sanitizeTrackKey(task.attendanceTrack) : null;
+    const resolvedTrack = (() => {
+      if (trackFromTask) return trackFromTask;
+      if (actionConfig?.track === 'general' && fallback?.track) return fallback.track;
+      if (actionConfig?.track) return actionConfig.track;
+      return fallback?.track;
+    })();
+    const resolvedProgramId =
+      task.attendanceProgramId ||
+      actionConfig?.programId ||
+      bundle?.program?.id ||
+      fallback?.programId ||
+      null;
+    const resolvedTarget = (task.attendanceTarget || actionConfig?.target || fallback?.target || 'members');
+    if (resolvedProgramKey) {
+      return {
+        titlePattern: DEFAULT_SCANNER_TITLE_PATTERN,
+        programKey: resolvedProgramKey,
+        programId: resolvedProgramId,
+        track: resolvedTrack,
+        target: resolvedTarget,
+        explicit: true,
+      };
+    }
     if (actionConfig) {
-      const fallback = deriveScannerConfigFromRole(roleKey, bundle);
-      const track =
-        actionConfig.track === "general" && fallback?.track ? fallback.track : actionConfig.track;
       return {
         titlePattern: DEFAULT_SCANNER_TITLE_PATTERN,
         programKey: actionConfig.programKey,
-        track,
+        programId: actionConfig.programId || bundle?.program?.id || null,
+        track: actionConfig.track,
+        target: actionConfig.target || 'members',
         explicit: true,
       };
     }
@@ -170,6 +205,8 @@ const getSessionStorageKey = (roleKey) => {
 export default function MyMRIs() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const takeAttendanceHandledRef = useRef(false);
   const role = session?.user?.role;
 
   if (status === "loading") return <div>Loading...</div>;
@@ -860,7 +897,22 @@ export default function MyMRIs() {
     }
   };
 
-  const formatTaskAction = (action) => {
+  const formatTaskAction = (task) => {
+    if (!task) return null;
+    const executionMode = String(task.executionMode || '').toLowerCase();
+    if (executionMode === 'attendance') {
+      const parsed = parseScannerAction(task.action) || {};
+      const programKey = task.attendanceProgramKey || parsed.programKey || '';
+      const track = task.attendanceTrack || parsed.track || '';
+      const target = task.attendanceTarget || parsed.target || 'members';
+      const segments = [];
+      if (programKey) segments.push(programKey);
+      if (track && track !== 'general') segments.push(toTitle(track));
+      const audience = target === 'members' ? 'Members' : toTitle(target);
+      const descriptor = segments.length ? segments.join(' · ') : 'Attendance Scanner';
+      return `${descriptor} — ${audience}`;
+    }
+    const action = task.action;
     if (!action) return null;
     if (typeof action === 'string') return action;
     if (typeof action === 'object') {
@@ -883,35 +935,36 @@ export default function MyMRIs() {
 
   // Local component to render a task card with hooks safely
   const TaskCard = ({ task: t, roleBundle }) => {
-    const cd = useTaskCountdown(t);
-    const badge = availabilityBadge(t);
+    const normalizedTask = normalizeTask(t);
+    const cd = useTaskCountdown(normalizedTask);
+    const badge = availabilityBadge(normalizedTask);
     const bcls = badge.tone==='green' ? 'bg-emerald-100 text-emerald-800' : badge.tone==='amber' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-800';
-    const actionLabel = formatTaskAction(t.action);
+    const actionLabel = formatTaskAction(normalizedTask);
     return (
       <div className="bg-rose-50/70 border border-rose-100 rounded-xl p-3 snap-start">
         <div className="font-semibold text-rose-900 flex items-center gap-2">
-          <span className="truncate">{t.title}</span>
+          <span className="truncate">{normalizedTask.title}</span>
           <span className={`text-[10px] px-2 py-0.5 rounded-full ${bcls}`}>{badge.label}</span>
         </div>
-        {t.description && <div className="text-xs text-gray-700 mt-1">{t.description}</div>}
-        {t.timeSensitive && (
+        {normalizedTask.description && <div className="text-xs text-gray-700 mt-1">{normalizedTask.description}</div>}
+        {normalizedTask.timeSensitive && (
           <div className="text-[11px] text-rose-900/90 mt-1">
-            {t.execAt ? (
-              <div><span className="font-semibold">Exec At:</span> {new Date(t.execAt).toLocaleString()}</div>
+            {normalizedTask.execAt ? (
+              <div><span className="font-semibold">Exec At:</span> {new Date(normalizedTask.execAt).toLocaleString()}</div>
             ) : (
-              (t.windowStart || t.windowEnd) ? (
-                <div><span className="font-semibold">Window:</span> {t.windowStart ? new Date(t.windowStart).toLocaleString() : '—'} – {t.windowEnd ? new Date(t.windowEnd).toLocaleString() : '—'}</div>
+              (normalizedTask.windowStart || normalizedTask.windowEnd) ? (
+                <div><span className="font-semibold">Window:</span> {normalizedTask.windowStart ? new Date(normalizedTask.windowStart).toLocaleString() : '—'} – {normalizedTask.windowEnd ? new Date(normalizedTask.windowEnd).toLocaleString() : '—'}</div>
               ) : null
             )}
-            {t.recurrence && <div><span className="font-semibold">Recurs:</span> {String(t.recurrence).toUpperCase()}</div>}
+            {normalizedTask.recurrence && <div><span className="font-semibold">Recurs:</span> {String(normalizedTask.recurrence).toUpperCase()}</div>}
             {cd.text && <div className="mt-0.5">{cd.text}</div>}
           </div>
         )}
-        {Array.isArray(t.submissables) && t.submissables.length > 0 && (
+        {Array.isArray(normalizedTask.submissables) && normalizedTask.submissables.length > 0 && (
           <div className="mt-2">
             <div className="text-[11px] font-semibold text-gray-700">Submissables</div>
             <ol className="list-decimal pl-5 text-xs text-gray-800 mt-1 space-y-1">
-              {t.submissables.map((s, i) => (<li key={i}>{String(s)}</li>))}
+              {normalizedTask.submissables.map((s, i) => (<li key={i}>{String(s)}</li>))}
             </ol>
           </div>
         )}
@@ -923,12 +976,12 @@ export default function MyMRIs() {
         <div className="mt-2">
           <button
             className="px-3 py-1.5 rounded text-white text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{ backgroundColor: isWithinTaskWindow(t) ? '#e11d48' : '#9ca3af' }}
-            disabled={!isWithinTaskWindow(t)}
-            title={isWithinTaskWindow(t) ? 'Execute this task' : 'Outside allowed time window'}
+            style={{ backgroundColor: isWithinTaskWindow(normalizedTask) ? '#e11d48' : '#9ca3af' }}
+            disabled={!isWithinTaskWindow(normalizedTask)}
+            title={isWithinTaskWindow(normalizedTask) ? 'Execute this task' : 'Outside allowed time window'}
             onClick={() => {
-              setSelectedExecTask(t);
-              setSelectedExecKind(getExecutionKind(roleBundle, t));
+              setSelectedExecTask(normalizedTask);
+              setSelectedExecKind(getExecutionKind(roleBundle, normalizedTask));
               setRRoleModalOpen(false);
               setIsRoleExecuteOpen(true);
             }}
@@ -964,8 +1017,48 @@ export default function MyMRIs() {
         if (Array.isArray(arr)) r.submissables = arr;
       } catch {}
     }
+    if (r.executionMode) r.executionMode = String(r.executionMode).toLowerCase();
+    if (r.attendanceTarget) r.attendanceTarget = String(r.attendanceTarget).toLowerCase();
+    if (r.attendanceProgramKey) r.attendanceProgramKey = String(r.attendanceProgramKey).toUpperCase();
+    if (r.attendanceTrack) r.attendanceTrack = sanitizeTrackKey(r.attendanceTrack);
+    if (r.attendanceProgramId !== undefined) {
+      const pid = Number(r.attendanceProgramId);
+      r.attendanceProgramId = Number.isFinite(pid) ? pid : null;
+    }
     return r;
   };
+
+  useEffect(() => {
+    if (!searchParams || takeAttendanceHandledRef.current) return;
+    if (isRoleExecuteOpen) return;
+    const flag = searchParams.get('takeAttendance');
+    if (!flag) return;
+    if (!allRoleBundles.length) return;
+
+    const entry = (() => {
+      for (const bundle of allRoleBundles) {
+        const tasksList = Array.isArray(bundle.tasks) ? bundle.tasks : [];
+        for (const rawTask of tasksList) {
+          const normalized = normalizeTask(rawTask);
+          if (getExecutionKind(bundle, normalized) === 'scanner') {
+            return { bundle, task: normalized };
+          }
+        }
+      }
+      return null;
+    })();
+
+    if (entry) {
+      setSelectedRoleBundle(entry.bundle);
+      setSelectedExecTask(entry.task);
+      setSelectedExecKind('scanner');
+      setIsRoleExecuteOpen(true);
+      takeAttendanceHandledRef.current = true;
+      router.replace('/dashboard/member/myMeedRituals');
+    } else {
+      takeAttendanceHandledRef.current = true;
+    }
+  }, [searchParams, allRoleBundles, isRoleExecuteOpen, router]);
 
   // Live countdown for a task: returns { mode: 'starts'|'ends'|'ended'|'idle', seconds, text }
   const useTaskCountdown = (task) => {
@@ -1234,7 +1327,9 @@ export default function MyMRIs() {
                               const payload = {
                                 roleKey: requestRoleKey,
                                 programKey: activeScannerConfig.programKey,
+                                programId: activeScannerConfig.programId || null,
                                 track: activeScannerConfig.track,
+                                target: activeScannerConfig.target || 'members',
                               };
                               const r = await fetch('/api/attendance?section=sessionStart', {
                                 method:'POST',

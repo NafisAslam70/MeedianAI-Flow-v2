@@ -83,13 +83,22 @@ export default function AdminStudentsStandalone() {
               Full-screen view of the shared student registry. Finance-only actions remain in MeedianAI-Finance.
             </p>
           </div>
-          <button
-            onClick={() => router.push("/dashboard/admin/manageMeedian")}
-            className="inline-flex items-center gap-2 rounded-lg border border-teal-600 px-4 py-2 text-sm font-semibold text-teal-700 transition hover:bg-teal-50 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-1"
-          >
-            <span aria-hidden="true">←</span>
-            <span>Back to Admin Panel</span>
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => router.push("/dashboard/managersCommon/managerial-club")}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-200 focus:ring-offset-1"
+            >
+              <span aria-hidden="true">←</span>
+              <span>Back to Managerial Club</span>
+            </button>
+            <button
+              onClick={() => router.push("/dashboard/admin/manageMeedian")}
+              className="inline-flex items-center gap-2 rounded-lg border border-teal-600 px-4 py-2 text-sm font-semibold text-teal-700 transition hover:bg-teal-50 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-1"
+            >
+              <span aria-hidden="true">←</span>
+              <span>Back to Admin Panel</span>
+            </button>
+          </div>
         </div>
 
         {(error || success) && (

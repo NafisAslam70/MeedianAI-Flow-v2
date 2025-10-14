@@ -61,15 +61,15 @@ export default function ManageMriReportsPage() {
       )}
 
       <Card>
-        <CardHeader>
-          <h2 className="text-base font-semibold text-gray-900">PT Daily Report</h2>
-          <p className="text-sm text-gray-600">
-            Parent Teacher (Class Teacher) daily MRI register capturing CDD and CCD updates.
+      	<CardHeader>
+      	  <h2 className="text-base font-semibold text-gray-900">PT Daily Report</h2>
+      	  <p className="text-sm text-gray-600">
+      	    Parent Teacher (Class Teacher) daily MRI register capturing CDD and CCD updates.
           </p>
-        </CardHeader>
-        <CardBody>
-          <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-3">
-            <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+      	</CardHeader>
+      	<CardBody>
+      	  <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-3">
+      	    <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                 Template Status
               </p>
@@ -93,6 +93,39 @@ export default function ManageMriReportsPage() {
           <div className="mt-4">
             <Button onClick={() => router.push("/dashboard/admin/manageMeedian/mri-reports/pt")}>
               Manage PT Daily Report
+            </Button>
+          </div>
+      	</CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <h2 className="text-base font-semibold text-gray-900">Academic Health Report</h2>
+          <p className="text-sm text-gray-600">
+            Evening dean report covering Slot 12 supervision, MHCP-2 conductance, deanship work, and shutdown actions.
+          </p>
+        </CardHeader>
+        <CardBody>
+          <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-3">
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Autosave</p>
+              <p className="mt-1 text-sm font-semibold text-gray-900">Enabled</p>
+              <p className="text-xs text-gray-500">Drafts persist every few seconds while the dean fills the form.</p>
+            </div>
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Data Pulls</p>
+              <p className="mt-1 text-sm font-semibold text-gray-900">Attendance, escalations</p>
+              <p className="text-xs text-gray-500">Fetches tonight’s MOP2 scan, open escalations, and member rosters.</p>
+            </div>
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Status Workflow</p>
+              <p className="mt-1 text-sm font-semibold text-gray-900">Draft → Submit → Approve/Reopen</p>
+              <p className="text-xs text-gray-500">Managers can approve or reopen submissions for follow-up.</p>
+            </div>
+          </div>
+          <div className="mt-4">
+            <Button variant="secondary" onClick={() => router.push("/dashboard/admin/manageMeedian/mri-reports/academic-health")}>
+              Open Academic Health Report
             </Button>
           </div>
         </CardBody>

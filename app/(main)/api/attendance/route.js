@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { users, userMriRoles, scannerSessions, attendanceEvents, finalDailyAttendance, finalDailyAbsentees, userOpenCloseTimes, dayOpenCloseHistory, directWhatsappMessages } from "@/lib/schema";
+import { users, userMriRoles, scannerSessions, attendanceEvents, finalDailyAttendance, finalDailyAbsentees, userOpenCloseTimes, dayOpenCloseHistory, directWhatsappMessages, mriPrograms } from "@/lib/schema";
 import { and, eq, inArray } from "drizzle-orm";
 import crypto from "crypto";
 import { sendWhatsappMessage } from "@/lib/whatsapp";
@@ -50,6 +50,11 @@ export async function GET(req) {
       const dateStr = String(searchParams.get('date') || '').trim();
       if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return NextResponse.json({ error: 'date (YYYY-MM-DD) required' }, { status: 400 });
       const programKey = (searchParams.get('programKey') || '').toUpperCase() || null;
+      const programIdParam = searchParams.get('programId');
+      const programId = programIdParam ? Number(programIdParam) : null;
+      if (programIdParam && !Number.isFinite(programId)) {
+        return NextResponse.json({ error: 'programId must be numeric' }, { status: 400 });
+      }
       const track = (searchParams.get('track') || '').toLowerCase() || null;
       const dateOnly = new Date(`${dateStr}T00:00:00.000Z`);
 
@@ -59,6 +64,10 @@ export async function GET(req) {
       if (programKey) {
         filters.push(eq(finalDailyAttendance.programKey, programKey));
         filtersAbs.push(eq(finalDailyAbsentees.programKey, programKey));
+      }
+      if (programId) {
+        filters.push(eq(finalDailyAttendance.programId, programId));
+        filtersAbs.push(eq(finalDailyAbsentees.programId, programId));
       }
       if (track) {
         filters.push(eq(finalDailyAttendance.track, track));
@@ -91,6 +100,7 @@ export async function GET(req) {
       return NextResponse.json({
         date: dateStr,
         programKey: programKey || null,
+        programId: programId || null,
         track: track || null,
         totals: {
           present: presents.length,
@@ -125,14 +135,38 @@ export async function POST(req) {
       if (!roleKey || !roleKeys.has(roleKey)) return NextResponse.json({ error: "Not permitted for this role" }, { status: 403 });
       const programKey = String(body.programKey || "MSP").toUpperCase();
       const track = String(body.track || "elementary").toLowerCase();
+      const programIdRaw = body.programId;
+      let programId = Number.isFinite(Number(programIdRaw)) ? Number(programIdRaw) : null;
+      if (!programId && programKey) {
+        const [programRow] = await db
+          .select({ id: mriPrograms.id })
+          .from(mriPrograms)
+          .where(eq(mriPrograms.programKey, programKey))
+          .limit(1);
+        if (programRow?.id) programId = Number(programRow.id);
+      }
+      const target = String(body.target || "").trim().toLowerCase() || "members";
       const ttlMin = Number(body.ttlMin || 25);
       const nonce = crypto.randomBytes(12).toString("hex");
       const expiresAt = new Date(Date.now() + ttlMin * 60 * 1000);
-      const [row] = await db.insert(scannerSessions).values({ programKey, track, roleKey, startedBy: Number(session.user.id), nonce, active: true, expiresAt }).returning();
+      const [row] = await db
+        .insert(scannerSessions)
+        .values({
+          programKey,
+          track,
+          programId,
+          target,
+          roleKey,
+          startedBy: Number(session.user.id),
+          nonce,
+          active: true,
+          expiresAt,
+        })
+        .returning();
       const payload = { sid: row.id, nonce, exp: nowTs() + ttlMin * 60 };
       const p = b64uJson(payload);
       const sig = sign(p, SECRET);
-      return NextResponse.json({ session: { id: row.id, programKey, track, expiresAt }, token: `${p}.${sig}` }, { status: 201 });
+      return NextResponse.json({ session: { id: row.id, programKey, programId, track, target, expiresAt }, token: `${p}.${sig}` }, { status: 201 });
     }
 
     if (section === "ingest") {
@@ -209,6 +243,8 @@ export async function POST(req) {
       }
 
       const programKey = String(body.programKey || "").toUpperCase() || null;
+      const programIdRaw = body.programId;
+      const programId = Number.isFinite(Number(programIdRaw)) ? Number(programIdRaw) : null;
       const track = String(body.track || "").toLowerCase() || null;
       const subject = String(body.subject || "Attendance Reminder").trim();
       const messageBody = String(body.message || `We noticed your attendance is still pending for ${dateStr}. Please scan in or contact your moderator immediately.`).trim();
@@ -238,6 +274,7 @@ export async function POST(req) {
       const dateOnly = new Date(`${dateStr}T00:00:00.000Z`);
       const filters = [eq(finalDailyAbsentees.date, dateOnly)];
       if (programKey) filters.push(eq(finalDailyAbsentees.programKey, programKey));
+      if (programId) filters.push(eq(finalDailyAbsentees.programId, programId));
       if (track) filters.push(eq(finalDailyAbsentees.track, track));
       const combine = (conds) => conds.reduce((acc, cond) => (acc ? and(acc, cond) : cond), undefined);
       const whereClause = combine(filters);
@@ -368,6 +405,10 @@ export async function POST(req) {
         attendanceFilters.push(eq(finalDailyAttendance.programKey, sess.programKey));
         absenteeFilters.push(eq(finalDailyAbsentees.programKey, sess.programKey));
       }
+      if (sess.programId) {
+        attendanceFilters.push(eq(finalDailyAttendance.programId, sess.programId));
+        absenteeFilters.push(eq(finalDailyAbsentees.programId, sess.programId));
+      }
       if (sess.track) {
         attendanceFilters.push(eq(finalDailyAttendance.track, sess.track));
         absenteeFilters.push(eq(finalDailyAbsentees.track, sess.track));
@@ -375,7 +416,18 @@ export async function POST(req) {
       // Insert presents
       for (const e of evs) {
         try {
-          await db.insert(finalDailyAttendance).values({ sessionId, userId: e.userId, name: e.name || null, at: e.at, date: dateOnly, programKey: sess.programKey, track: sess.track, roleKey: sess.roleKey });
+          await db.insert(finalDailyAttendance).values({
+            sessionId,
+            userId: e.userId,
+            name: e.name || null,
+            at: e.at,
+            date: dateOnly,
+            programKey: sess.programKey,
+            programId: sess.programId || null,
+            track: sess.track,
+            target: sess.target || null,
+            roleKey: sess.roleKey,
+          });
         } catch {}
       }
       if (presentIds.length) {
@@ -410,7 +462,19 @@ export async function POST(req) {
         const names = await db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, absentees));
         const nameMap = new Map(names.map(n => [Number(n.id), n.name]));
         for (const uid of absentees) {
-          try { await db.insert(finalDailyAbsentees).values({ sessionId, userId: uid, name: nameMap.get(Number(uid)) || null, date: dateOnly, programKey: sess.programKey, track: sess.track, roleKey: sess.roleKey }); } catch {}
+          try {
+            await db.insert(finalDailyAbsentees).values({
+              sessionId,
+              userId: uid,
+              name: nameMap.get(Number(uid)) || null,
+              date: dateOnly,
+              programKey: sess.programKey,
+              programId: sess.programId || null,
+              track: sess.track,
+              target: sess.target || null,
+              roleKey: sess.roleKey,
+            });
+          } catch {}
         }
       }
       return NextResponse.json({ finalized: { presents: presentIds.length, absentees: absentees.length } }, { status: 200 });
