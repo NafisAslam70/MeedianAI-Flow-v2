@@ -389,6 +389,14 @@ export async function POST(req) {
       // Load session and events
       const [sess] = await db.select().from(scannerSessions).where(eq(scannerSessions.id, sessionId));
       if (!sess) return NextResponse.json({ error: "session not found" }, { status: 404 });
+      const overrideProgramKey = body.programKey ? String(body.programKey).trim().toUpperCase() : null;
+      const overrideProgramId = body.programId !== undefined && body.programId !== null && Number.isFinite(Number(body.programId)) ? Number(body.programId) : null;
+      const overrideTrack = body.track ? String(body.track).trim().toLowerCase() : null;
+      const overrideTarget = body.target ? String(body.target).trim().toLowerCase() : null;
+      const effectiveProgramKey = overrideProgramKey || (sess.programKey ? String(sess.programKey).trim().toUpperCase() : null);
+      const effectiveProgramId = overrideProgramId !== null ? overrideProgramId : (Number.isFinite(Number(sess.programId)) ? Number(sess.programId) : null);
+      const effectiveTrack = overrideTrack || (sess.track ? String(sess.track).trim().toLowerCase() : null);
+      const effectiveTarget = overrideTarget || (sess.target ? String(sess.target).trim().toLowerCase() : null);
       const evs = await db
         .select({ userId: attendanceEvents.userId, at: attendanceEvents.at, name: users.name })
         .from(attendanceEvents)
@@ -401,17 +409,17 @@ export async function POST(req) {
       const combine = (conds) => conds.reduce((acc, cond) => (acc ? and(acc, cond) : cond), undefined);
       const attendanceFilters = [eq(finalDailyAttendance.date, dateOnly)];
       const absenteeFilters = [eq(finalDailyAbsentees.date, dateOnly)];
-      if (sess.programKey) {
-        attendanceFilters.push(eq(finalDailyAttendance.programKey, sess.programKey));
-        absenteeFilters.push(eq(finalDailyAbsentees.programKey, sess.programKey));
+      if (effectiveProgramKey) {
+        attendanceFilters.push(eq(finalDailyAttendance.programKey, effectiveProgramKey));
+        absenteeFilters.push(eq(finalDailyAbsentees.programKey, effectiveProgramKey));
       }
-      if (sess.programId) {
-        attendanceFilters.push(eq(finalDailyAttendance.programId, sess.programId));
-        absenteeFilters.push(eq(finalDailyAbsentees.programId, sess.programId));
+      if (effectiveProgramId !== null) {
+        attendanceFilters.push(eq(finalDailyAttendance.programId, effectiveProgramId));
+        absenteeFilters.push(eq(finalDailyAbsentees.programId, effectiveProgramId));
       }
-      if (sess.track) {
-        attendanceFilters.push(eq(finalDailyAttendance.track, sess.track));
-        absenteeFilters.push(eq(finalDailyAbsentees.track, sess.track));
+      if (effectiveTrack) {
+        attendanceFilters.push(eq(finalDailyAttendance.track, effectiveTrack));
+        absenteeFilters.push(eq(finalDailyAbsentees.track, effectiveTrack));
       }
       // Insert presents
       for (const e of evs) {
@@ -422,10 +430,10 @@ export async function POST(req) {
             name: e.name || null,
             at: e.at,
             date: dateOnly,
-            programKey: sess.programKey,
-            programId: sess.programId || null,
-            track: sess.track,
-            target: sess.target || null,
+            programKey: effectiveProgramKey,
+            programId: effectiveProgramId,
+            track: effectiveTrack,
+            target: effectiveTarget,
             roleKey: sess.roleKey,
           });
         } catch {}
@@ -468,10 +476,10 @@ export async function POST(req) {
               userId: uid,
               name: nameMap.get(Number(uid)) || null,
               date: dateOnly,
-              programKey: sess.programKey,
-              programId: sess.programId || null,
-              track: sess.track,
-              target: sess.target || null,
+              programKey: effectiveProgramKey,
+              programId: effectiveProgramId,
+              track: effectiveTrack,
+              target: effectiveTarget,
               roleKey: sess.roleKey,
             });
           } catch {}

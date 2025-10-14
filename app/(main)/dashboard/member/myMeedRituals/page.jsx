@@ -54,7 +54,12 @@ const KNOWN_PROGRAM_KEYS = new Set([
 ]);
 
 const DEFAULT_SCANNER_TITLE_PATTERN = /day\s*open|open\s*day|opening/i;
-const normalizeRoleKey = (value) => String(value || "").toLowerCase();
+const normalizeRoleKey = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
 const SCANNER_ROLE_CONFIG = {
   msp_ele_moderator: {
     titlePattern: DEFAULT_SCANNER_TITLE_PATTERN,
@@ -1265,7 +1270,27 @@ export default function MyMRIs() {
                           onClick={async ()=>{
                             try {
                               setScanPanel((p)=>({ ...p, finalizing: true }));
-                              const r = await fetch('/api/attendance?section=finalize', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ sessionId: scanPanel.session.id })});
+                              const finalizePayload = {
+                                sessionId: scanPanel.session.id,
+                              };
+                              const configForFinalize = activeScannerConfig || {};
+                              if ((configForFinalize.programKey || scanPanel.session.programKey)) {
+                                finalizePayload.programKey = (configForFinalize.programKey || scanPanel.session.programKey);
+                              }
+                              if ((configForFinalize.programId || scanPanel.session.programId)) {
+                                finalizePayload.programId = configForFinalize.programId || scanPanel.session.programId;
+                              }
+                              if ((configForFinalize.track || scanPanel.session.track)) {
+                                finalizePayload.track = configForFinalize.track || scanPanel.session.track;
+                              }
+                              if ((configForFinalize.target || scanPanel.session.target)) {
+                                finalizePayload.target = configForFinalize.target || scanPanel.session.target;
+                              }
+                              const r = await fetch('/api/attendance?section=finalize', {
+                                method:'POST',
+                                headers:{'Content-Type':'application/json'},
+                                body: JSON.stringify(finalizePayload),
+                              });
                               const j = await r.json().catch(()=>({}));
                               if(!r.ok) throw new Error(j.error||`HTTP ${r.status}`);
                               alert(`Finalized: ${j?.finalized?.presents||0} present, ${j?.finalized?.absentees||0} absent`);
