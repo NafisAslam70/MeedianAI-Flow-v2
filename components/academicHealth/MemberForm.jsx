@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import useSWR from "swr";
 import Button from "@/components/ui/Button";
@@ -248,6 +248,86 @@ const primeReport = (raw) => {
   };
 };
 
+const FIELD_MARKER_MAP = {
+  attendanceConfirmed: ["attendance"],
+  mop2CheckinId: ["attendance"],
+  mop2CheckinTime: ["attendance"],
+  maghribSalahLedById: ["slot12"],
+  slot12TransitionQuality: ["slot12"],
+  slot12NmriModerated: ["slot12"],
+  slot12Ads: ["slot12"],
+  mhcp2PresentCount: ["mhcp2"],
+  mhcp2AllTeachersPresent: ["mhcp2"],
+  mhcp2AbsentTeacherIds: ["mhcp2"],
+  mhcp2FocusToday: ["mhcp2"],
+  mhcp2Discrepancies: ["mhcp2"],
+  checkMode: ["checkMode"],
+  copyChecks: ["copyChecks"],
+  classChecks: ["classChecks"],
+  morningCoaching: ["morningCoaching"],
+  defaulters: ["defaulters", "actions"],
+  actionsByCategory: ["defaulters", "actions"],
+  escalationsHandledIds: ["escalations"],
+  escalationDetails: ["escalations"],
+  selfDayClose: ["selfDayClose"],
+  signatureName: ["signature"],
+  signatureBlobPath: ["signature"],
+};
+
+const markersForField = (field) => FIELD_MARKER_MAP[field] || [];
+
+const deriveValidationMarkers = (errors = []) => {
+  const markers = new Set();
+  errors.forEach((message) => {
+    const value = String(message || "").toLowerCase();
+    if (!value) return;
+    if (value.includes("mop2") || value.includes("scan attendance")) {
+      markers.add("attendance");
+    }
+    if (value.includes("attendance") && !value.includes("defaulter")) {
+      markers.add("attendance");
+    }
+    if (value.includes("maghrib") || value.includes("slot 12") || value.includes("nmri")) {
+      markers.add("slot12");
+    }
+    if (value.includes("mhcp2")) {
+      markers.add("mhcp2");
+    }
+    if (value.includes("check mode")) {
+      markers.add("checkMode");
+    }
+    if (value.includes("copy check")) {
+      markers.add("copyChecks");
+    }
+    if (value.includes("class diary")) {
+      markers.add("classChecks");
+    }
+    if (value.includes("morning coaching")) {
+      markers.add("morningCoaching");
+    }
+    if (value.includes("defaulter")) {
+      markers.add("defaulters");
+      markers.add("actions");
+    }
+    if (value.includes("action taken") && !value.includes("defaulter")) {
+      markers.add("actions");
+    }
+    if (value.includes("day close")) {
+      markers.add("selfDayClose");
+    }
+    if (value.includes("signature")) {
+      markers.add("signature");
+    }
+    if (value.includes("escalation")) {
+      markers.add("escalations");
+    }
+    if (value.includes("absent teacher")) {
+      markers.add("mhcp2");
+    }
+  });
+  return Array.from(markers);
+};
+
 function formatDateTime(value) {
   if (!value) return "—";
   const dt = new Date(value);
@@ -285,11 +365,43 @@ export default function AcademicHealthMemberForm({
   const [message, setMessage] = useState("");
   const [formError, setFormError] = useState("");
   const [refreshingAttendance, setRefreshingAttendance] = useState(false);
+  const [validationErrors, setValidationErrors] = useState([]);
+  const [validationMarkers, setValidationMarkers] = useState([]);
+
+  const clearMarkers = useCallback(
+    (keys) => {
+      if (!Array.isArray(keys) || keys.length === 0) return;
+      setValidationMarkers((prev) => {
+        const next = prev.filter((marker) => !keys.includes(marker));
+        if (next.length === 0) {
+          setValidationErrors([]);
+        }
+        return next;
+      });
+    },
+    [setValidationErrors]
+  );
+
+  const clearMarkersForField = useCallback(
+    (field) => {
+      const keys = markersForField(field);
+      if (!keys.length) return;
+      clearMarkers(keys);
+    },
+    [clearMarkers]
+  );
+
+  const hasMarker = useCallback(
+    (...keys) => keys.some((key) => validationMarkers.includes(key)),
+    [validationMarkers]
+  );
 
   useEffect(() => {
     if (reportData?.report) {
       setReport(primeReport(reportData.report));
       setDirty(false);
+      setValidationErrors([]);
+      setValidationMarkers([]);
     }
   }, [reportData?.report]);
 
@@ -330,6 +442,7 @@ export default function AcademicHealthMemberForm({
         : event?.target?.value !== undefined
         ? event.target.value
         : event;
+    clearMarkersForField(field);
     setReport((prev) => {
       if (!prev) return prev;
       return { ...prev, [field]: value };
@@ -340,6 +453,7 @@ export default function AcademicHealthMemberForm({
   };
 
   const handleNestedUpdate = (key, index, updater) => {
+    clearMarkersForField(key);
     setReport((prev) => {
       if (!prev) return prev;
       const existing = Array.isArray(prev[key]) ? prev[key] : [];
@@ -375,6 +489,7 @@ export default function AcademicHealthMemberForm({
   };
 
   const addCopyCheckRow = () => {
+    clearMarkersForField("copyChecks");
     setReport((prev) => {
       if (!prev) return prev;
       return {
@@ -386,6 +501,7 @@ export default function AcademicHealthMemberForm({
   };
 
   const removeCopyCheckRow = (index) => {
+    clearMarkersForField("copyChecks");
     setReport((prev) => {
       if (!prev) return prev;
       const next = Array.isArray(prev.copyChecks) ? prev.copyChecks.slice() : [];
@@ -396,6 +512,7 @@ export default function AcademicHealthMemberForm({
   };
 
   const addClassCheckRow = () => {
+    clearMarkersForField("classChecks");
     setReport((prev) => {
       if (!prev) return prev;
       return {
@@ -407,6 +524,7 @@ export default function AcademicHealthMemberForm({
   };
 
   const removeClassCheckRow = (index) => {
+    clearMarkersForField("classChecks");
     setReport((prev) => {
       if (!prev) return prev;
       const next = Array.isArray(prev.classChecks) ? prev.classChecks.slice() : [];
@@ -417,6 +535,7 @@ export default function AcademicHealthMemberForm({
   };
 
   const addDefaulterRow = () => {
+    clearMarkersForField("defaulters");
     setReport((prev) => {
       if (!prev) return prev;
       return {
@@ -428,6 +547,7 @@ export default function AcademicHealthMemberForm({
   };
 
   const removeDefaulterRow = (index) => {
+    clearMarkersForField("defaulters");
     setReport((prev) => {
       if (!prev) return prev;
       const next = Array.isArray(prev.defaulters) ? prev.defaulters.slice() : [];
@@ -438,6 +558,7 @@ export default function AcademicHealthMemberForm({
   };
 
   const updateActionsForCategory = (category, actions) => {
+    clearMarkersForField("actionsByCategory");
     setReport((prev) => {
       if (!prev) return prev;
       const existing = Array.isArray(prev.actionsByCategory) ? prev.actionsByCategory.slice() : [];
@@ -453,6 +574,7 @@ export default function AcademicHealthMemberForm({
   };
 
   const toggleEscalation = (escalationId, checked) => {
+    clearMarkersForField("escalationsHandledIds");
     setReport((prev) => {
       if (!prev) return prev;
       const existingIds = Array.isArray(prev.escalationsHandledIds) ? prev.escalationsHandledIds.slice() : [];
@@ -533,8 +655,18 @@ export default function AcademicHealthMemberForm({
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
+        const details = Array.isArray(json?.details) ? json.details : [];
+        if (details.length) {
+          setValidationErrors(details);
+          setValidationMarkers(deriveValidationMarkers(details));
+        } else {
+          setValidationErrors([]);
+          setValidationMarkers([]);
+        }
         throw new Error(json?.error || "Submission failed.");
       }
+      setValidationErrors([]);
+      setValidationMarkers([]);
       if (json?.report) {
         setReport(primeReport(json.report));
         mutateReport(json, false);
@@ -549,6 +681,7 @@ export default function AcademicHealthMemberForm({
       await mutateReports?.();
       setDirty(false);
       setMessage("Report submitted successfully.");
+      setFormError("");
       onClose?.();
     } catch (err) {
       setFormError(err.message || "Submission failed.");
@@ -584,6 +717,46 @@ export default function AcademicHealthMemberForm({
     return Array.from(set);
   }, [report?.defaulters]);
 
+  const attendanceNeedsAttention = hasMarker("attendance");
+  const slot12NeedsAttention = hasMarker("slot12");
+  const mhcpNeedsAttention = hasMarker("mhcp2");
+  const checkModeNeedsAttention = hasMarker("checkMode");
+  const copyChecksNeedsAttention = hasMarker("copyChecks");
+  const classChecksNeedsAttention = hasMarker("classChecks");
+  const morningCoachingNeedsAttention = hasMarker("morningCoaching");
+  const escalationsNeedAttention = hasMarker("escalations");
+  const defaultersNeedAttention = hasMarker("defaulters");
+  const actionsNeedAttention = hasMarker("actions");
+  const selfDayCloseNeedsAttention = hasMarker("selfDayClose");
+  const signatureNeedsAttention = hasMarker("signature");
+
+  const section1NeedsAttention = attendanceNeedsAttention || slot12NeedsAttention || mhcpNeedsAttention;
+  const section2NeedsAttention =
+    checkModeNeedsAttention || copyChecksNeedsAttention || classChecksNeedsAttention || morningCoachingNeedsAttention || escalationsNeedAttention;
+  const section3NeedsAttention =
+    defaultersNeedAttention || actionsNeedAttention || selfDayCloseNeedsAttention || signatureNeedsAttention;
+
+  const attendanceNotConfirmed = !report?.attendanceConfirmed;
+  const slot12TransitionMissing = !report?.slot12TransitionQuality;
+  const maghribMissing = !report?.maghribSalahLedById;
+  const slot12AdsMissing = !report?.slot12Ads || !report.slot12Ads.trim();
+  const mhcpHeadcountMissing =
+    report?.mhcp2PresentCount === "" || report?.mhcp2PresentCount === null || Number.isNaN(Number(report?.mhcp2PresentCount));
+  const mhcpFocusMissing = !report?.mhcp2FocusToday || report.mhcp2FocusToday.length < 3;
+  const absentTeachersMissing =
+    report?.mhcp2AllTeachersPresent === false &&
+    (!Array.isArray(report?.mhcp2AbsentTeacherIds) || report.mhcp2AbsentTeacherIds.length === 0);
+  const signatureNameMissing = !report?.signatureName;
+  const signaturePathMissing = !report?.signatureBlobPath;
+  const morningCoachingTextMissing =
+    report?.checkMode === "MORNING_COACHING" &&
+    (!report?.morningCoaching?.state || report.morningCoaching.state.length < 10);
+  const copyChecksCountInvalid =
+    report?.checkMode === "MSP" && (!Array.isArray(report?.copyChecks) || report.copyChecks.length !== 5);
+  const classChecksCountInvalid =
+    report?.checkMode === "MSP" && (!Array.isArray(report?.classChecks) || report.classChecks.length !== 2);
+  const selfDayCloseUnchecked = !report?.selfDayClose;
+
   if (reportLoading || !report) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-10">
@@ -599,7 +772,11 @@ export default function AcademicHealthMemberForm({
 
   return (
     <div className="space-y-6">
-      <div className="rounded-xl border border-teal-100 bg-teal-50/70 px-4 py-3 text-sm text-teal-800">
+      <div
+        className={`rounded-xl border px-4 py-3 text-sm ${
+          attendanceNeedsAttention ? "border-red-300 bg-red-50 text-red-700" : "border-teal-100 bg-teal-50/70 text-teal-800"
+        }`}
+      >
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="font-semibold">Academic Health Report • {reportDate}</p>
           <Button
@@ -621,12 +798,22 @@ export default function AcademicHealthMemberForm({
         <p className="text-xs mt-1">
           Your MHCP-2 attendance: <span className="font-medium">{formatDateTime(report.mop2CheckinTime)}</span>
         </p>
+        {attendanceNeedsAttention && (
+          <p className="mt-1 text-xs font-semibold text-red-600">Scan attendance and confirm before submitting.</p>
+        )}
       </div>
 
-      {(supportingError || formError) && (
+      {(supportingError || formError || validationErrors.length > 0) && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-600">
-          {supportingError ? supportingError.message : null}
-          {formError ? (supportingError ? ` • ${formError}` : formError) : null}
+          {supportingError && <p>{supportingError.message}</p>}
+          {formError && <p className="mt-1">{formError}</p>}
+          {validationErrors.length > 0 && (
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-xs">
+              {validationErrors.map((item, index) => (
+                <li key={`${item}-${index}`}>{item}</li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
       {message && (
@@ -636,16 +823,33 @@ export default function AcademicHealthMemberForm({
       )}
 
       {/* Section 1 */}
-      <section className="space-y-4 rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm">
+      <section
+        className={`space-y-4 rounded-2xl border px-4 py-4 shadow-sm bg-white ${
+          section1NeedsAttention ? "border-red-300 ring-1 ring-red-200" : "border-slate-200"
+        }`}
+      >
         <header>
-          <h4 className="text-base font-semibold text-slate-800">Section 1 — Arrival & Program Conductance</h4>
+          <h4 className="text-base font-semibold text-slate-800">
+            Section 1 — Arrival & Program Conductance
+            {section1NeedsAttention && (
+              <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-600">
+                Needs attention
+              </span>
+            )}
+          </h4>
           <p className="text-sm text-slate-500">
             Confirm MHCP-2 attendance, audit Slot 12, and capture MHCP-2 readiness details.
           </p>
         </header>
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <label className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+          <label
+            className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-sm ${
+              attendanceNeedsAttention && attendanceNotConfirmed
+                ? "border-red-300 bg-red-50 text-red-700"
+                : "border-slate-200 bg-slate-50 text-slate-700"
+            }`}
+          >
             <input
               type="checkbox"
               className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
@@ -658,6 +862,7 @@ export default function AcademicHealthMemberForm({
             label="Slot 12 transition quality"
             value={report.slot12TransitionQuality || ""}
             onChange={handleFieldChange("slot12TransitionQuality")}
+            error={slot12NeedsAttention && slot12TransitionMissing ? "Required" : undefined}
           >
             <option value="">Select rating</option>
             {transitionOptions.map((option) => (
@@ -670,6 +875,7 @@ export default function AcademicHealthMemberForm({
             label="Maghrib Salah led by"
             value={report.maghribSalahLedById || ""}
             onChange={handleFieldChange("maghribSalahLedById")}
+            error={slot12NeedsAttention && maghribMissing ? "Required" : undefined}
           >
             <option value="">Select teacher</option>
             {sortedTeachers.map((teacher) => (
@@ -678,7 +884,13 @@ export default function AcademicHealthMemberForm({
               </option>
             ))}
           </Select>
-          <label className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+          <label
+            className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-sm ${
+              slot12NeedsAttention && report.slot12NmriModerated === false
+                ? "border-red-300 bg-red-50 text-red-700"
+                : "border-slate-200 bg-slate-50 text-slate-700"
+            }`}
+          >
             <input
               type="checkbox"
               className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
@@ -690,7 +902,9 @@ export default function AcademicHealthMemberForm({
         </div>
 
         <textarea
-          className="min-h-[70px] w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500"
+          className={`min-h-[70px] w-full rounded-lg border px-3 py-2 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500 ${
+            slot12NeedsAttention && slot12AdsMissing ? "border-red-300" : "border-slate-300"
+          }`}
           placeholder="Slot 12 actionable discrepancies / ADs"
           value={report.slot12Ads || ""}
           onChange={handleFieldChange("slot12Ads")}
@@ -703,8 +917,15 @@ export default function AcademicHealthMemberForm({
             min={0}
             value={report.mhcp2PresentCount === "" ? "" : Number(report.mhcp2PresentCount)}
             onChange={handleFieldChange("mhcp2PresentCount")}
+            error={mhcpNeedsAttention && mhcpHeadcountMissing ? "Required" : undefined}
           />
-          <label className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+          <label
+            className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-sm ${
+              mhcpNeedsAttention && report.mhcp2AllTeachersPresent === false
+                ? "border-red-300 bg-red-50 text-red-700"
+                : "border-slate-200 bg-slate-50 text-slate-700"
+            }`}
+          >
             <input
               type="checkbox"
               className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
@@ -718,6 +939,7 @@ export default function AcademicHealthMemberForm({
             placeholder="e.g., Grammar drills"
             value={report.mhcp2FocusToday || ""}
             onChange={handleFieldChange("mhcp2FocusToday")}
+            error={mhcpNeedsAttention && mhcpFocusMissing ? "Required" : undefined}
           />
         </div>
 
@@ -733,6 +955,7 @@ export default function AcademicHealthMemberForm({
                   target: { value: selected },
                 });
               }}
+              error={mhcpNeedsAttention && absentTeachersMissing ? "Required" : undefined}
             >
               {sortedTeachers.map((teacher) => (
                 <option key={teacher.id} value={teacher.id}>
@@ -748,7 +971,11 @@ export default function AcademicHealthMemberForm({
                   Add substitution
                 </Button>
               </div>
-              <div className="mt-2 space-y-2 rounded-lg border border-dashed border-slate-200 p-3">
+              <div
+                className={`mt-2 space-y-2 rounded-lg border border-dashed p-3 ${
+                  mhcpNeedsAttention && absentTeachersMissing ? "border-red-300 bg-red-50" : "border-slate-200"
+                }`}
+              >
                 {!report.mhcp2Substitutions?.length && (
                   <p className="text-xs text-slate-500">Add substitute teacher details if any replacements were made.</p>
                 )}
@@ -829,9 +1056,20 @@ export default function AcademicHealthMemberForm({
       </section>
 
       {/* Section 2 */}
-      <section className="space-y-4 rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm">
+      <section
+        className={`space-y-4 rounded-2xl border px-4 py-4 shadow-sm bg-white ${
+          section2NeedsAttention ? "border-red-300 ring-1 ring-red-200" : "border-slate-200"
+        }`}
+      >
         <header>
-          <h4 className="text-base font-semibold text-slate-800">Section 2 — Deanship Work</h4>
+          <h4 className="text-base font-semibold text-slate-800">
+            Section 2 — Deanship Work
+            {section2NeedsAttention && (
+              <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-600">
+                Needs attention
+              </span>
+            )}
+          </h4>
           <p className="text-sm text-slate-500">
             Capture escalations handled and either MSP academic health checks or morning coaching progress.
           </p>
@@ -839,7 +1077,11 @@ export default function AcademicHealthMemberForm({
 
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Escalations handled</p>
-          <div className="mt-2 space-y-2 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+          <div
+            className={`mt-2 space-y-2 rounded-lg border p-3 ${
+              escalationsNeedAttention ? "border-red-300 bg-red-50/70" : "border-slate-200 bg-slate-50/70"
+            }`}
+          >
             {escalationOptions.length === 0 ? (
               <p className="text-xs text-slate-500">No open escalations assigned to you.</p>
             ) : (
@@ -866,11 +1108,17 @@ export default function AcademicHealthMemberForm({
             )}
           </div>
           {report.escalationsHandledIds?.length > 0 && (
-            <div className="mt-3 space-y-3 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+            <div
+              className={`mt-3 space-y-3 rounded-lg border p-3 ${
+                escalationsNeedAttention ? "border-red-300 bg-red-50/70" : "border-slate-200 bg-slate-50/70"
+              }`}
+            >
               {report.escalationDetails.map((detail, index) => (
                 <div key={detail.id || index} className="grid grid-cols-1 gap-3 md:grid-cols-3">
                   <textarea
-                    className="min-h-[60px] w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    className={`min-h-[60px] w-full rounded-lg border px-3 py-2 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500 ${
+                      escalationsNeedAttention && !detail.actionTaken ? "border-red-300" : "border-slate-300"
+                    }`}
                     placeholder="Action taken"
                     value={detail.actionTaken || ""}
                     onChange={(event) =>
@@ -881,7 +1129,9 @@ export default function AcademicHealthMemberForm({
                     }
                   />
                   <textarea
-                    className="min-h-[60px] w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    className={`min-h-[60px] w-full rounded-lg border px-3 py-2 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500 ${
+                      escalationsNeedAttention && !detail.outcome ? "border-red-300" : "border-slate-300"
+                    }`}
                     placeholder="Outcome / follow-up"
                     value={detail.outcome || ""}
                     onChange={(event) =>
@@ -913,7 +1163,13 @@ export default function AcademicHealthMemberForm({
         </div>
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <label className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+          <label
+            className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-sm ${
+              checkModeNeedsAttention && report.checkMode !== "MSP"
+                ? "border-red-300 bg-red-50 text-red-700"
+                : "border-slate-200 bg-slate-50 text-slate-700"
+            }`}
+          >
             <input
               type="radio"
               name="ahr-check-mode"
@@ -924,7 +1180,13 @@ export default function AcademicHealthMemberForm({
             />
             Academic Health (MSP)
           </label>
-          <label className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+          <label
+            className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-sm ${
+              checkModeNeedsAttention && report.checkMode !== "MORNING_COACHING"
+                ? "border-red-300 bg-red-50 text-red-700"
+                : "border-slate-200 bg-slate-50 text-slate-700"
+            }`}
+          >
             <input
               type="radio"
               name="ahr-check-mode"
@@ -936,18 +1198,38 @@ export default function AcademicHealthMemberForm({
             Morning Coaching
           </label>
         </div>
+        {checkModeNeedsAttention && (
+          <p className="text-xs font-semibold text-red-600">Select the mode you worked on today.</p>
+        )}
 
         {report.checkMode === "MSP" ? (
           <div className="space-y-4">
             <div>
               <div className="flex items-center justify-between">
-                <h5 className="text-sm font-semibold text-slate-800">Copy checks (5 students)</h5>
+                <h5
+                  className={`text-sm font-semibold ${
+                    copyChecksNeedsAttention ? "text-red-600" : "text-slate-800"
+                  }`}
+                >
+                  Copy checks (5 students)
+                </h5>
                 <Button variant="light" size="xs" onClick={addCopyCheckRow}>
                   <Plus className="mr-1 h-3 w-3" />
                   Add row
                 </Button>
               </div>
-              <div className="mt-2 space-y-3 rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+              {copyChecksNeedsAttention && (
+                <p className="mt-1 text-xs font-semibold text-red-600">
+                  {copyChecksCountInvalid
+                    ? "Ensure five unique students are recorded with copy details."
+                    : "Review copy check notes before submitting."}
+                </p>
+              )}
+              <div
+                className={`mt-2 space-y-3 rounded-lg border p-3 ${
+                  copyChecksNeedsAttention ? "border-red-300 bg-red-50/60" : "border-slate-200 bg-slate-50/60"
+                }`}
+              >
                 {report.copyChecks.map((row, index) => (
                   <div key={row.id || index} className="grid grid-cols-1 gap-2 md:grid-cols-4">
                     <Select
@@ -1021,13 +1303,30 @@ export default function AcademicHealthMemberForm({
 
             <div>
               <div className="flex items-center justify-between">
-                <h5 className="text-sm font-semibold text-slate-800">Class diary checks (2 classes)</h5>
+                <h5
+                  className={`text-sm font-semibold ${
+                    classChecksNeedsAttention ? "text-red-600" : "text-slate-800"
+                  }`}
+                >
+                  Class diary checks (2 classes)
+                </h5>
                 <Button variant="light" size="xs" onClick={addClassCheckRow}>
                   <Plus className="mr-1 h-3 w-3" />
                   Add row
                 </Button>
               </div>
-              <div className="mt-2 space-y-3 rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+              {classChecksNeedsAttention && (
+                <p className="mt-1 text-xs font-semibold text-red-600">
+                  {classChecksCountInvalid
+                    ? "Capture checks for exactly two distinct classes."
+                    : "Review class diary entries for completeness."}
+                </p>
+              )}
+              <div
+                className={`mt-2 space-y-3 rounded-lg border p-3 ${
+                  classChecksNeedsAttention ? "border-red-300 bg-red-50/60" : "border-slate-200 bg-slate-50/60"
+                }`}
+              >
                 {report.classChecks.map((row, index) => (
                   <div key={row.id || index} className="grid grid-cols-1 gap-2 md:grid-cols-4">
                     <Select
@@ -1100,13 +1399,23 @@ export default function AcademicHealthMemberForm({
             </div>
           </div>
         ) : (
-          <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+          <div
+            className={`space-y-3 rounded-lg border p-3 ${
+              morningCoachingNeedsAttention ? "border-red-300 bg-red-50/70" : "border-slate-200 bg-slate-50/70"
+            }`}
+          >
+            {morningCoachingNeedsAttention && morningCoachingTextMissing && (
+              <p className="text-xs font-semibold text-red-600">
+                Share a brief summary of the morning coaching session (at least 10 characters).
+              </p>
+            )}
             <Select
               label="Morning coaching absentees"
               value={report.morningCoaching?.absentees || []}
               multiple
               onChange={(event) => {
                 const selected = Array.from(event.target.selectedOptions).map((option) => Number(option.value));
+                clearMarkersForField("morningCoaching");
                 setReport((prev) => ({
                   ...prev,
                   morningCoaching: { ...(prev?.morningCoaching || {}), absentees: selected },
@@ -1121,24 +1430,39 @@ export default function AcademicHealthMemberForm({
               ))}
             </Select>
             <textarea
-              className="min-h-[80px] w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500"
+              className={`min-h-[80px] w-full rounded-lg border px-3 py-2 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500 ${
+                morningCoachingNeedsAttention && morningCoachingTextMissing ? "border-red-300" : "border-slate-300"
+              }`}
               placeholder="Morning coaching updates — topics, ADs, absentees, teacher presence"
               value={report.morningCoaching?.state || ""}
-              onChange={(event) =>
+              onChange={(event) => {
+                clearMarkersForField("morningCoaching");
                 setReport((prev) => ({
                   ...prev,
                   morningCoaching: { ...(prev?.morningCoaching || {}), state: event.target.value },
-                }))
-              }
+                }));
+                setDirty(true);
+              }}
             />
           </div>
         )}
       </section>
 
       {/* Section 3 */}
-      <section className="space-y-4 rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm">
+      <section
+        className={`space-y-4 rounded-2xl border px-4 py-4 shadow-sm bg-white ${
+          section3NeedsAttention ? "border-red-300 ring-1 ring-red-200" : "border-slate-200"
+        }`}
+      >
         <header>
-          <h4 className="text-base font-semibold text-slate-800">Section 3 — Day Shutdown</h4>
+          <h4 className="text-base font-semibold text-slate-800">
+            Section 3 — Day Shutdown
+            {section3NeedsAttention && (
+              <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-600">
+                Needs attention
+              </span>
+            )}
+          </h4>
           <p className="text-sm text-slate-500">
             Log defaulters, corrective actions, and confirm your own day close.
           </p>
@@ -1146,13 +1470,28 @@ export default function AcademicHealthMemberForm({
 
         <div>
           <div className="flex items-center justify-between">
-            <h5 className="text-sm font-semibold text-slate-800">Defaulters</h5>
+            <h5
+              className={`text-sm font-semibold ${
+                defaultersNeedAttention ? "text-red-600" : "text-slate-800"
+              }`}
+            >
+              Defaulters
+            </h5>
             <Button variant="light" size="xs" onClick={addDefaulterRow}>
               <Plus className="mr-1 h-3 w-3" />
               Add defaulter
             </Button>
           </div>
-          <div className="mt-2 space-y-3 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+          {defaultersNeedAttention && (
+            <p className="mt-1 text-xs font-semibold text-red-600">
+              Add student, category, and reason for each defaulter.
+            </p>
+          )}
+          <div
+            className={`mt-2 space-y-3 rounded-lg border p-3 ${
+              defaultersNeedAttention ? "border-red-300 bg-red-50/70" : "border-slate-200 bg-slate-50/70"
+            }`}
+          >
             {report.defaulters.length === 0 && (
               <p className="text-xs text-slate-500">No defaulters logged yet.</p>
             )}
@@ -1217,15 +1556,35 @@ export default function AcademicHealthMemberForm({
         </div>
 
         {activeDefaulterCategories.length > 0 && (
-          <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
-            <h5 className="text-sm font-semibold text-slate-800">Actions taken per category</h5>
+          <div
+            className={`rounded-lg border p-3 ${
+              actionsNeedAttention ? "border-red-300 bg-red-50/70" : "border-slate-200 bg-slate-50/70"
+            }`}
+          >
+            <h5
+              className={`text-sm font-semibold ${
+                actionsNeedAttention ? "text-red-600" : "text-slate-800"
+              }`}
+            >
+              Actions taken per category
+            </h5>
+            {actionsNeedAttention && (
+              <p className="mt-1 text-xs font-semibold text-red-600">
+                Record at least one action for each defaulter category.
+              </p>
+            )}
             <div className="mt-2 space-y-3">
               {activeDefaulterCategories.map((category) => {
                 const actions = new Set(
                   report.actionsByCategory?.find((row) => row.category === category)?.actions || []
                 );
                 return (
-                  <div key={category} className="rounded-lg border border-slate-200 bg-white px-3 py-3">
+                  <div
+                    key={category}
+                    className={`rounded-lg border bg-white px-3 py-3 ${
+                      actionsNeedAttention && actions.size === 0 ? "border-red-200" : "border-slate-200"
+                    }`}
+                  >
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                       {category}
                     </p>
@@ -1258,7 +1617,13 @@ export default function AcademicHealthMemberForm({
         )}
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <label className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+          <label
+            className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-sm ${
+              selfDayCloseNeedsAttention && selfDayCloseUnchecked
+                ? "border-red-300 bg-red-50 text-red-700"
+                : "border-slate-200 bg-slate-50 text-slate-700"
+            }`}
+          >
             <input
               type="checkbox"
               className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
@@ -1272,14 +1637,19 @@ export default function AcademicHealthMemberForm({
             placeholder="Dean name"
             value={report.signatureName || ""}
             onChange={handleFieldChange("signatureName")}
+            error={signatureNeedsAttention && signatureNameMissing ? "Required" : undefined}
           />
           <Input
             label="Signature upload path / URL"
             placeholder="Upload reference"
             value={report.signatureBlobPath || ""}
             onChange={handleFieldChange("signatureBlobPath")}
+            error={signatureNeedsAttention && signaturePathMissing ? "Required" : undefined}
           />
         </div>
+        {selfDayCloseNeedsAttention && selfDayCloseUnchecked && (
+          <p className="text-xs font-semibold text-red-600">Confirm your day close before submitting.</p>
+        )}
         <textarea
           className="min-h-[64px] w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500"
           placeholder="Final remarks / summary"
