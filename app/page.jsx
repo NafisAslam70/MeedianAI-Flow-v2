@@ -1,348 +1,434 @@
 "use client";
+
 import Link from "next/link";
-import { motion, AnimatePresence } from "framer-motion";
-import { useState, Suspense } from "react";
-import { Canvas, useFrame } from "@react-three/fiber";
-import { OrbitControls } from "@react-three/drei";
-import * as THREE from "three";
-import React from "react";
+import Footer from "@/components/Footer";
 
-function AnimatedMeshes() {
-  const width = 60; // Increased for full-width landscape spread
-  const height = 8; // Kept as-is for perfect height and viewport fit
-  const colors = Object.keys(THREE.Color.NAMES);
+const heroHighlights = [
+  "Unified operations cockpit",
+  "Role-aware workflows",
+  "Proof-backed close of day",
+];
 
-  return (
-    <>
-      {Array.from({ length: 60 }, (_, i) => (
-        <Mesh key={i} index={i} z={(i / 60) * 6} height={height} width={width} colors={colors} />
-      ))}
-    </>
-  );
-}
+const outcomes = [
+  "One shared source of truth for routines, schedules, duties, and attendance",
+  "Faster coordination with built-in chat, huddles, and nudges",
+  "Evidence-backed close-of-day and lightweight approvals",
+  "Clear dashboards for early warning and coaching",
+];
 
-function Mesh({ index, z, height, width, colors }) {
-  const ref = React.useRef();
-  const [data] = React.useState({
-    x: THREE.MathUtils.randFloatSpread(width), // Full-width spread
-    y: THREE.MathUtils.randFloatSpread(height),
-    z: -z,
-    rotationX: Math.random() * Math.PI,
-    rotationZ: Math.random() * Math.PI,
-    spin: THREE.MathUtils.randFloat(6, 10),
-  });
+const roleCards = [
+  {
+    title: "Frontline Members",
+    description:
+      "See what’s next, check in/out, collaborate live, and submit evidence at day-close.",
+  },
+  {
+    title: "Managers",
+    description:
+      "Assign work, track progress, approve requests, escalate issues, and run reports instantly.",
+  },
+  {
+    title: "Admins",
+    description:
+      "Define programs, slots, roles, compliance rules, and branding for every deployment.",
+  },
+];
 
-  useFrame((state, dt) => {
-    if (dt < 0.1) {
-      ref.current.position.set(
-        data.x,
-        data.y + Math.sin(state.clock.elapsedTime + index) * 0.3,
-        -z
-      );
-      ref.current.rotation.set(
-        data.rotationX + dt / data.spin,
-        Math.sin(index * 1000 + state.clock.elapsedTime / 10) * Math.PI * 0.5,
-        data.rotationZ + dt / data.spin
-      );
-    }
-  });
+const dailyRhythm = [
+  {
+    title: "Open Day",
+    description: "Launch rituals, generate QR entry codes, and confirm required moderators are live.",
+  },
+  {
+    title: "Work the Plan",
+    description: "Follow Deep Calendar blocks while acting on Assigned Tasks and the Routine Tracker.",
+  },
+  {
+    title: "Collaborate",
+    description: "Use Work Together for quick huddles, shared notes, shared music, and status updates.",
+  },
+  {
+    title: "Record Presence",
+    description: "Scan at Gate for in/out movements and mark sessions via Take Attendance.",
+  },
+  {
+    title: "Close Day",
+    description: "Review outcomes and notes in Close My Day, then submit for approval.",
+  },
+];
 
-  return (
-    <mesh ref={ref} scale={0.4}>
-      <icosahedronGeometry args={[1, 0]} />
-      <meshStandardMaterial color={colors[Math.floor(Math.random() * colors.length)]} />
-    </mesh>
-  );
-}
+const workspaces = [
+  {
+    title: "Member Dashboard",
+    description: "Live view of Deep Calendar, tasks, and routine trackers so everyone stays on plan.",
+  },
+  {
+    title: "My Meed Rituals",
+    description: "Guided day-open workflow with QR codes and attendance confirmations.",
+  },
+  {
+    title: "Shared Dashboard / Deep Calendar",
+    description: "Timeline of blocks with “active now” callouts.",
+  },
+  {
+    title: "Routine Tracker",
+    description: "Ritual checklists, completion states, and close-day reminders in one place.",
+  },
+  {
+    title: "Work Together",
+    description: "Virtual war room for video huddles, shared notes, music, and quick status updates.",
+  },
+  {
+    title: "Gate",
+    description: "In/out logging via QR today, biometric-ready tomorrow.",
+  },
+  {
+    title: "Take Attendance",
+    description: "Personal tokens for scans that tie attendance to moderator sessions.",
+  },
+  {
+    title: "Close My Day",
+    description: "Evidence-backed review inside configurable submission windows.",
+  },
+  {
+    title: "Managers Common",
+    description: "Assign work, remind, approve, ticket, escalate, and report from one console.",
+  },
+  {
+    title: "Manage Meedian",
+    description: "Programs, Daily Slot Management, Meta Roles, code library, and day-close rules.",
+  },
+  {
+    title: "My Performance",
+    description: "Streaks, leave, day-close history, and trends for targeted coaching.",
+  },
+];
+
+const featurePillars = [
+  "Task follow-up – assign, track, remind, and drill into work from both member and manager consoles.",
+  "Schedule orchestration – Deep Calendar aligns blocks, responsibilities, and timers across the day.",
+  "Attendance capture – QR scans, Gate in/out logs, and manager attendance reports (CSV/PDF).",
+  "Live collaboration & comms – floating chat dock, notifications drawer, and video huddles.",
+  "Approvals & escalations – close-day approvals, leave flows, tickets, and escalation hooks.",
+  "Reporting – member performance snapshots plus manager compliance and attendance exports.",
+];
+
+const aiHighlights = [
+  {
+    title: "DELU-GPT Assistant",
+    detail:
+      "Role-aware help for quick intents, drafting notes, and guided steps that stay in context.",
+  },
+  {
+    title: "Smart Reminders",
+    detail:
+      "One-click WhatsApp nudges for tasks or attendance, with delivery logged for accountability.",
+  },
+  {
+    title: "Configurable by Design",
+    detail:
+      "Keep AI features on for analytics and nudging or off for a minimal rollout—no rework required.",
+  },
+];
+
+const customization = [
+  "Programs & slots – define your own day structure per division or site.",
+  "Forms & evidence – choose what’s required at open/close (photos, notes, checklists).",
+  "Roles & permissions – assign admin, manager, and member access by team or location.",
+  "Feature flags – toggle close-day windows, bypass buttons, chat policies, and mobile rules.",
+  "Branding – swap logos, colors, welcome copy, and imagery to match your identity.",
+];
+
+const dataPrivacy = [
+  "Your data, your controls – simple exports and admin tooling keep ownership with you.",
+  "Accountability – approvals, logs, and day-close evidence maintain clean audit trails.",
+  "Privacy – enable or limit AI and messaging features per policy, and redact sensitive fields.",
+];
 
 export default function Home() {
-  const [selectedRole, setSelectedRole] = useState("");
-  const [tempRole, setTempRole] = useState("");
-  const [error, setError] = useState("");
-
-  const roles = ["admin", "team_manager", "member"];
-
-  const cardVariants = {
-    hidden: { opacity: 0, y: 30 },
-    visible: { opacity: 1, y: 0, transition: { duration: 0.6, ease: "easeOut" } },
-  };
-
-  const textVariants = {
-    hidden: { opacity: 0, x: -20 },
-    visible: { opacity: 1, x: 0, transition: { duration: 0.5, delay: 0.2 } },
-  };
-
-  const buttonVariants = {
-    hidden: { opacity: 0, scale: 0.8 },
-    visible: { opacity: 1, scale: 1, transition: { duration: 0.4, delay: 0.3 } },
-    hover: { scale: 1.1, boxShadow: "0 6px 12px rgba(0, 128, 128, 0.4)", transition: { duration: 0.2 } },
-    tap: { scale: 0.9 },
-  };
-
-  const handleRoleSelect = () => {
-    if (tempRole) {
-      setSelectedRole(tempRole);
-      setTempRole("");
-    } else {
-      setError("Please select a role.");
-      setTimeout(() => setError(""), 2000);
-    }
-  };
-
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.6 }}
-      className="relative h-screen w-screen overflow-hidden flex items-center justify-center bg-gradient-to-br from-teal-100/90 via-blue-100/90 to-gray-50/90"
-    >
-      {/* 3D Background Canvas */}
-      <div className="absolute inset-0 z-0">
-        <Suspense fallback={null}>
-          <Canvas camera={{ fov: 60, position: [0, 0, 25] }}>
-            <ambientLight intensity={0.6} />
-            <pointLight position={[15, 10, 10]} intensity={1.2} />
-            <AnimatedMeshes />
-            <OrbitControls enableZoom={false} enablePan={false} autoRotate autoRotateSpeed={0.5} />
-          </Canvas>
-        </Suspense>
-      </div>
-
-      {/* Content Overlay */}
-      <div className="relative z-10 w-full max-w-5xl mx-auto bg-white/90 backdrop-blur-lg rounded-3xl shadow-xl p-6 flex flex-col gap-6 h-[90vh] justify-between">
-        {/* Error Message */}
-        <AnimatePresence>
-          {error && (
-            <motion.p
-              key="error"
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="absolute top-2 left-2 right-2 text-base font-medium p-3 rounded-lg shadow bg-red-100 text-red-700 z-20"
-              onClick={() => setError("")}
-            >
-              {error} (Click to dismiss)
-            </motion.p>
-          )}
-        </AnimatePresence>
-
-        {/* Hero Section */}
-        <motion.div
-          variants={cardVariants}
-          initial="hidden"
-          animate="visible"
-          className="flex flex-col items-center gap-4 text-center"
-        >
-          <div className="flex items-center gap-3">
-            <svg className="w-10 h-10 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-                d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v2h5m-2-2a3 3 0 005.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
-              />
-            </svg>
-            <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">Welcome to Meedian</h1>
-          </div>
-          <motion.p
-            className="text-base sm:text-lg text-gray-600 italic max-w-xl"
-            variants={textVariants}
-          >
-            Transform your workflow with our immersive 3D platform. Choose your role to begin.
-          </motion.p>
-        </motion.div>
-
-        {/* Role Selection */}
-        {!selectedRole && (
-          <motion.div
-            variants={cardVariants}
-            initial="hidden"
-            animate="visible"
-            className="flex flex-col gap-4"
-          >
-            <h2 className="text-xl font-semibold text-gray-800 text-center">Select Your Role</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {roles.map((role, index) => (
-                <motion.div
-                  key={`role-${role}-${index}`}
-                  className={`relative p-4 rounded-xl shadow-md cursor-pointer transition-all duration-300 ${
-                    tempRole === role
-                      ? "bg-teal-100 border-2 border-teal-500"
-                      : "bg-white hover:bg-teal-50 hover:shadow-lg"
-                  } flex flex-col items-center justify-center h-24`}
-                  whileHover={{ scale: 1.1, boxShadow: "0 6px 12px rgba(0, 128, 128, 0.4)" }}
-                  whileTap={{ scale: 0.9 }}
-                  onClick={() => setTempRole(role)}
-                  role="button"
-                  aria-label={`Select ${role} role`}
-                >
-                  <div className="absolute top-2 right-2 w-3 h-3 rounded-full bg-teal-500"></div>
-                  <h3 className="text-base font-semibold text-gray-800 text-center">
-                    {role === "admin" ? "Admin" : role === "team_manager" ? "Team Manager" : "Team Member"}
-                  </h3>
-                </motion.div>
-              ))}
-            </div>
-            <motion.button
-              onClick={handleRoleSelect}
-              disabled={!tempRole}
-              className={`w-full max-w-xs mx-auto px-6 py-3 rounded-xl text-base font-semibold ${
-                !tempRole
-                  ? "bg-gray-300 cursor-not-allowed"
-                  : "bg-gradient-to-r from-teal-600 to-blue-600 text-white hover:from-teal-700 hover:to-blue-700"
-              }`}
-              variants={buttonVariants}
-              initial="hidden"
-              animate="visible"
-              whileHover="hover"
-              whileTap="tap"
-            >
-              Select Role
-            </motion.button>
-          </motion.div>
-        )}
-
-        {/* Feature Section */}
-        {!selectedRole && (
-          <motion.div
-            variants={cardVariants}
-            initial="hidden"
-            animate="visible"
-            className="flex flex-col gap-4"
-          >
-            <motion.h2
-              className="text-xl sm:text-2xl font-bold text-gray-800 text-center"
-              variants={textVariants}
-            >
-              Why Choose Meedian?
-            </motion.h2>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {[
-                {
-                  title: "Seamless Collaboration",
-                  desc: "Work together in real-time, anywhere.",
-                  icon: "M12 4v16m8-8H4",
-                },
-                {
-                  title: "Skill Development",
-                  desc: "Grow from novice to expert.",
-                  icon: "M13 10V3L4 14h7v7l9-11h-7z",
-                },
-                {
-                  title: "Trusted by Teams",
-                  desc: "Join 10,000+ teams worldwide.",
-                  icon: "M5 13l4 4L19 7",
-                },
-              ].map((feature, index) => (
-                <motion.div
-                  key={`feature-${index}`}
-                  className="bg-white p-4 rounded-xl shadow-md flex flex-col items-center text-center"
-                  whileHover={{ scale: 1.1, boxShadow: "0 6px 12px rgba(0, 128, 128, 0.4)" }}
-                >
-                  <svg
-                    className="w-8 h-8 text-teal-600 mb-2"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={feature.icon} />
-                  </svg>
-                  <h3 className="text-base font-semibold text-gray-800">{feature.title}</h3>
-                  <p className="text-sm text-gray-600 mt-1">{feature.desc}</p>
-                </motion.div>
-              ))}
-            </div>
-          </motion.div>
-        )}
-
-        {/* Social Proof Section */}
-        {!selectedRole && (
-          <motion.div
-            variants={cardVariants}
-            initial="hidden"
-            animate="visible"
-            className="flex flex-col gap-4"
-          >
-            <motion.h2
-              className="text-xl sm:text-2xl font-bold text-gray-800 text-center"
-              variants={textVariants}
-            >
-              Trusted by Teams Worldwide
-            </motion.h2>
-            <div className="flex flex-wrap justify-center gap-4">
-              {["TechCorp", "InnovateX", "GrowEasy"].map((company, index) => (
-                <motion.div
-                  key={`logo-${index}`}
-                  className="h-10 w-24 bg-gray-200 rounded flex items-center justify-center text-gray-600 text-sm"
-                  whileHover={{ scale: 1.1 }}
-                >
-                  {company}
-                </motion.div>
-              ))}
-            </div>
-            <motion.p
-              className="text-base text-gray-600 italic text-center"
-              variants={textVariants}
-            >
-              “Meedian transformed how we collaborate!” – Sarah, Team Manager
-            </motion.p>
-          </motion.div>
-        )}
-
-        {/* Role Confirmation */}
-        {selectedRole && (
-          <motion.div
-            variants={cardVariants}
-            initial="hidden"
-            animate="visible"
-            className="flex flex-col gap-4 text-center"
-          >
-            <div className="flex items-center gap-3 justify-center">
-              <svg className="w-10 h-10 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-              </svg>
-              <h1 className="text-xl sm:text-2xl font-bold text-gray-800">
-                Ready to Start as {selectedRole === "admin" ? "Admin" : selectedRole === "team_manager" ? "Team Manager" : "Team Member"}
-              </h1>
-            </div>
-            <motion.p
-              className="text-base text-gray-600 italic"
-              variants={textVariants}
-            >
-              {selectedRole === "admin"
-                ? "Manage teams with precision."
-                : selectedRole === "team_manager"
-                ? "Lead with powerful tools."
-                : "Collaborate and excel."}
-            </motion.p>
-            <div className="bg-white rounded-xl shadow-md p-4 space-y-3">
-              <Link href={`/login?role=${selectedRole}`}>
-                <motion.button
-                  className="w-full px-6 py-2 bg-gradient-to-r from-teal-600 to-blue-600 text-white rounded-xl text-base font-semibold hover:from-teal-700 hover:to-blue-700 shadow-md flex items-center justify-center"
-                  variants={buttonVariants}
-                  initial="hidden"
-                  animate="visible"
-                  whileHover="hover"
-                  whileTap="tap"
-                >
-                  <span className="mr-2">👤</span> Proceed to Login
-                </motion.button>
-              </Link>
-              <motion.button
-                onClick={() => setSelectedRole("")}
-                className="w-full px-6 py-2 bg-gray-200 text-gray-800 rounded-xl text-base font-semibold hover:bg-gray-300"
-                variants={buttonVariants}
-                initial="hidden"
-                animate="visible"
-                whileHover="hover"
-                whileTap="tap"
+    <div className="min-h-screen bg-slate-950 text-slate-50">
+      <div className="relative overflow-hidden">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(16,185,129,0.25),_transparent_55%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_bottom,_rgba(59,130,246,0.18),_transparent_60%)]" />
+        <header className="relative z-10">
+          <nav className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6 lg:px-8">
+            <Link href="/" className="flex items-center gap-2 text-lg font-semibold tracking-tight">
+              <span className="rounded-full bg-emerald-500/20 px-3 py-1 text-emerald-300">MeedianAI</span>
+              <span className="hidden text-slate-100 sm:inline">Flow</span>
+            </Link>
+            <div className="flex items-center gap-3">
+              <Link
+                href="#contact"
+                className="hidden rounded-full border border-slate-700 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-emerald-400/70 hover:text-emerald-200 sm:inline-flex"
               >
-                Back to Role Selection
-              </motion.button>
+                Talk to Us
+              </Link>
+              <Link
+                href="/login"
+                className="rounded-full bg-gradient-to-r from-emerald-500 to-sky-500 px-5 py-2 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-500/20 transition hover:from-emerald-400 hover:to-sky-400"
+              >
+                Log In
+              </Link>
             </div>
-          </motion.div>
-        )}
+          </nav>
+        </header>
+
+        <main className="relative z-10">
+          <section className="border-b border-white/5 bg-slate-950/70">
+            <div className="mx-auto max-w-6xl px-6 py-20 lg:py-24">
+              <div className="grid items-start gap-12 md:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]">
+                <div className="space-y-7 text-left">
+                  <span className="inline-flex items-center gap-2 rounded-full border border-emerald-400/40 bg-emerald-400/10 px-4 py-1 text-xs font-semibold uppercase tracking-[0.35em] text-emerald-200">
+                    Operations OS
+                  </span>
+                  <h1 className="text-3xl font-bold leading-tight text-slate-50 sm:text-5xl">
+                    MeedianAI Flow — Product Guide
+                  </h1>
+                  <p className="text-lg text-slate-300 sm:text-xl">
+                    A role-aware operations workspace that keeps every team on the same schedule, the same priorities,
+                    and the same close-of-day standards. It unifies planning, tasks, attendance, and collaboration into
+                    one simple browser experience—adaptable to schools, clinics, NGOs, agencies, sites, and more.
+                  </p>
+                  <div className="flex flex-wrap gap-3">
+                    {heroHighlights.map((highlight) => (
+                      <span
+                        key={highlight}
+                        className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-medium text-slate-200"
+                      >
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
+                        {highlight}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-4">
+                    <Link
+                      href="/login"
+                      className="rounded-full bg-emerald-500 px-6 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400"
+                    >
+                      Log In to Flow
+                    </Link>
+                    <a
+                      href="mailto:admin@mymeedai.org"
+                      className="rounded-full border border-slate-700 px-6 py-3 text-sm font-semibold text-slate-200 transition hover:border-emerald-400 hover:text-emerald-200"
+                    >
+                      Talk with Us
+                    </a>
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    Need a guided tour? Email{" "}
+                    <a href="mailto:admin@mymeedai.org" className="font-semibold text-emerald-200 underline">
+                      admin@mymeedai.org
+                    </a>{" "}
+                    and we’ll shape Flow around your teams.
+                  </p>
+                </div>
+                <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-white/10 to-white/5 p-6 shadow-xl shadow-black/20 backdrop-blur">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500/20 text-sm font-semibold text-emerald-200">
+                      ROI
+                    </div>
+                    <div>
+                      <h2 className="text-base font-semibold text-slate-50">Outcomes at a glance</h2>
+                      <p className="text-xs text-slate-300">Where Flow delivers clarity, speed, and proof.</p>
+                    </div>
+                  </div>
+                  <ul className="mt-6 space-y-4 text-sm text-slate-200">
+                    {outcomes.map((item) => (
+                      <li key={item} className="flex items-start gap-3 rounded-2xl border border-white/5 bg-white/5 p-4">
+                        <span className="mt-1 inline-flex h-2.5 w-2.5 rounded-full bg-emerald-300" />
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section id="who" className="bg-slate-900/50">
+            <div className="mx-auto max-w-6xl px-6 py-16 lg:py-20">
+              <div className="max-w-2xl space-y-3">
+                <h2 className="text-2xl font-semibold text-slate-50 sm:text-3xl">Who Flow is built for</h2>
+                <p className="text-sm text-slate-300">
+                  Each role gets the tools and permissions they need—without losing the shared, single source of truth.
+                </p>
+              </div>
+              <div className="mt-10 grid gap-6 md:grid-cols-3">
+                {roleCards.map((card) => (
+                  <div
+                    key={card.title}
+                    className="flex h-full flex-col rounded-3xl border border-white/10 bg-white/5 p-6 shadow-lg shadow-black/20 transition hover:border-emerald-400/40 hover:shadow-emerald-500/10"
+                  >
+                    <div className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500/15 text-sm font-semibold text-emerald-200">
+                      {card.title.split(" ")[0][0]}
+                    </div>
+                    <h3 className="mt-4 text-lg font-semibold text-slate-50">{card.title}</h3>
+                    <p className="mt-3 text-sm leading-relaxed text-slate-300">{card.description}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          <section id="rhythm" className="border-t border-white/5 bg-slate-950/40">
+            <div className="mx-auto max-w-6xl px-6 py-16 lg:py-20">
+              <div className="max-w-2xl space-y-3">
+                <h2 className="text-2xl font-semibold text-slate-50 sm:text-3xl">A guided day rhythm</h2>
+                <p className="text-sm text-slate-300">
+                  Flow leads every team from a focused start to an evidence-backed close without losing momentum.
+                </p>
+              </div>
+              <ol className="mt-10 grid gap-6 md:grid-cols-5">
+                {dailyRhythm.map((item, index) => (
+                  <li key={item.title} className="rounded-3xl border border-white/10 bg-white/5 p-5 shadow-lg shadow-black/15">
+                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500/20 text-sm font-semibold text-emerald-200">
+                      {index + 1}
+                    </span>
+                    <h3 className="mt-4 text-base font-semibold text-slate-50">{item.title}</h3>
+                    <p className="mt-3 text-xs text-slate-300">{item.description}</p>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </section>
+
+          <section id="workspaces" className="bg-slate-900/45">
+            <div className="mx-auto max-w-6xl px-6 py-16 lg:py-20">
+              <div className="max-w-2xl space-y-3">
+                <h2 className="text-2xl font-semibold text-slate-50 sm:text-3xl">Core workspaces</h2>
+                <p className="text-sm text-slate-300">
+                  Flow assembles every operational surface—tasks, rituals, attendance, approvals—into a calm, guided UI.
+                </p>
+              </div>
+              <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                {workspaces.map((space) => (
+                  <article
+                    key={space.title}
+                    className="flex h-full flex-col rounded-3xl border border-white/10 bg-white/5 p-6 shadow-lg shadow-black/15 transition hover:border-emerald-400/40 hover:shadow-emerald-500/10"
+                  >
+                    <h3 className="text-lg font-semibold text-emerald-200">{space.title}</h3>
+                    <p className="mt-3 text-sm text-slate-300">{space.description}</p>
+                  </article>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          <section id="features" className="border-t border-white/5 bg-slate-950/40">
+            <div className="mx-auto max-w-6xl px-6 py-16 lg:py-20">
+              <div className="max-w-2xl space-y-3">
+                <h2 className="text-2xl font-semibold text-slate-50 sm:text-3xl">Feature pillars</h2>
+                <p className="text-sm text-slate-300">
+                  Purpose-built for daily execution, Flow focuses on the moments that matter most.
+                </p>
+              </div>
+              <ul className="mt-10 grid gap-4 rounded-3xl border border-white/10 bg-white/5 p-6 text-sm text-slate-200 shadow-lg shadow-black/15 backdrop-blur md:grid-cols-2">
+                {featurePillars.map((pillar) => (
+                  <li key={pillar} className="flex items-start gap-3">
+                    <span className="mt-1 inline-flex h-2 w-2 rounded-full bg-sky-400" />
+                    <span>{pillar}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </section>
+
+          <section id="ai" className="bg-slate-900/55">
+            <div className="mx-auto max-w-6xl px-6 py-16 lg:py-20">
+              <div className="max-w-2xl space-y-3">
+                <h2 className="text-2xl font-semibold text-slate-50 sm:text-3xl">AI & automations when you need them</h2>
+                <p className="text-sm text-slate-300">
+                  Flow’s assistants and reminders stay configurable so you can dial in how proactive the system should be.
+                </p>
+              </div>
+              <div className="mt-10 grid gap-6 md:grid-cols-3">
+                {aiHighlights.map((highlight) => (
+                  <div
+                    key={highlight.title}
+                    className="h-full rounded-3xl border border-white/10 bg-white/5 p-6 shadow-lg shadow-black/20 transition hover:border-sky-400/40 hover:shadow-sky-500/10"
+                  >
+                    <h3 className="text-lg font-semibold text-sky-200">{highlight.title}</h3>
+                    <p className="mt-3 text-sm leading-relaxed text-slate-200">{highlight.detail}</p>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-6 text-xs text-slate-400">
+                Flip automations on for analytics and nudging—or keep them off for a minimal rollout. You stay in control.
+              </p>
+            </div>
+          </section>
+
+          <section id="customization" className="border-t border-white/5 bg-slate-950/35">
+            <div className="mx-auto max-w-6xl px-6 py-16 lg:py-20">
+              <div className="grid gap-10 lg:grid-cols-2">
+                <div className="space-y-4 rounded-3xl border border-white/10 bg-white/5 p-6 shadow-lg shadow-black/15">
+                  <h2 className="text-xl font-semibold text-slate-50 sm:text-2xl">Customize & brand it</h2>
+                  <p className="text-sm text-slate-300">
+                    Configure how Flow speaks to each client or division—down to the rituals, evidence, and UI accents.
+                  </p>
+                  <ul className="space-y-3 text-sm text-slate-200">
+                    {customization.map((item) => (
+                      <li key={item} className="flex items-start gap-3">
+                        <span className="mt-1 inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="space-y-4 rounded-3xl border border-white/10 bg-white/5 p-6 shadow-lg shadow-black/15">
+                  <h2 className="text-xl font-semibold text-slate-50 sm:text-2xl">Data, privacy & control</h2>
+                  <p className="text-sm text-slate-300">
+                    Flow keeps compliance simple with role-based access, clean audit trails, and configurable privacy controls.
+                  </p>
+                  <ul className="space-y-3 text-sm text-slate-200">
+                    {dataPrivacy.map((item) => (
+                      <li key={item} className="flex items-start gap-3">
+                        <span className="mt-1 inline-flex h-2 w-2 rounded-full bg-purple-300" />
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section id="contact" className="bg-gradient-to-br from-emerald-500/10 via-slate-950 to-sky-500/10">
+            <div className="mx-auto max-w-4xl px-6 py-20">
+              <div className="rounded-3xl border border-white/10 bg-slate-950/80 p-10 text-center shadow-xl shadow-black/30 backdrop-blur">
+                <h2 className="text-2xl font-semibold text-slate-50 sm:text-3xl">
+                  Ready to bring MeedianAI Flow to your teams?
+                </h2>
+                <p className="mt-4 text-sm text-slate-300">
+                  We’ll help you tailor programs, slots, and dashboards to your mission. Email{" "}
+                  <a href="mailto:admin@mymeedai.org" className="font-semibold text-emerald-200 underline">
+                    admin@mymeedai.org
+                  </a>{" "}
+                  to start the conversation.
+                </p>
+                <div className="mt-8 flex flex-wrap justify-center gap-4">
+                  <a
+                    href="mailto:admin@mymeedai.org"
+                    className="rounded-full bg-emerald-500 px-6 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400"
+                  >
+                    Contact Us
+                  </a>
+                  <Link
+                    href="/login"
+                    className="rounded-full border border-slate-700 px-6 py-3 text-sm font-semibold text-slate-200 transition hover:border-emerald-400 hover:text-emerald-200"
+                  >
+                    Log In as Your Role
+                  </Link>
+                </div>
+              </div>
+            </div>
+          </section>
+        </main>
+
+        <Footer className="border-t border-white/5" showFounders={false} />
       </div>
-    </motion.div>
+    </div>
   );
 }
