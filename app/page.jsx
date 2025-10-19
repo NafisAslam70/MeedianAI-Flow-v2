@@ -153,21 +153,21 @@ const dataPrivacy = [
   "Privacy – enable or limit AI and messaging features per policy, and redact sensitive fields.",
 ];
 
-const stats = [
+const featureCards = [
   {
-    label: "Teams guided daily",
-    value: "3K+",
-    sub: "Frontline members aligned on the same rituals and schedules.",
+    title: "Task follow-up cockpit",
+    description:
+      "Assign, track, and nudge from member and manager consoles without losing the audit trail.",
   },
   {
-    label: "WhatsApp nudges each month",
-    value: "11K",
-    sub: "Automated reminders, escalations, and approvals delivered instantly.",
+    title: "Deep Calendar rhythm",
+    description:
+      "Coordinate schedules, blocks, and responsibilities so every role works from the same plan.",
   },
   {
-    label: "Day-close compliance",
-    value: "98%",
-    sub: "Submitted with evidence across sites, programs, and roles.",
+    title: "Proof-backed close day",
+    description:
+      "Collect evidence, approvals, and escalations in one flow—ready for reports or compliance checks.",
   },
 ];
 
@@ -485,15 +485,27 @@ export default function Home() {
             <div className="pointer-events-none absolute -top-24 left-12 h-64 w-64 rounded-full bg-emerald-500/20 blur-3xl sm:left-32 sm:w-80" />
             <div className="pointer-events-none absolute -bottom-28 right-10 h-72 w-72 rounded-full bg-sky-500/20 blur-3xl sm:right-24 sm:w-96" />
             <div className="relative mx-auto max-w-6xl px-6 py-12 lg:py-16">
+              <div className="mb-8 max-w-2xl">
+                <p className="text-xs font-semibold uppercase tracking-[0.35em] text-emerald-200/80">
+                  Signature capabilities
+                </p>
+                <h2 className="mt-3 text-2xl font-semibold text-slate-50 sm:text-3xl">
+                  The pillars that make Flow stick on day one
+                </h2>
+                <p className="mt-3 text-sm text-slate-300">
+                  Every card translates into live workflows—so your teams feel the difference the moment they log in.
+                </p>
+              </div>
               <div className="grid gap-5 sm:grid-cols-3">
-                {stats.map((stat) => (
+                {featureCards.map((feature) => (
                   <div
-                    key={stat.label}
-                    className="rounded-2xl border border-white/10 bg-white/5 p-6 shadow-xl shadow-black/25 backdrop-blur transition hover:border-emerald-400/40 hover:shadow-emerald-500/10"
+                    key={feature.title}
+                    className="flex h-full flex-col justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 p-6 shadow-xl shadow-black/25 backdrop-blur transition hover:border-emerald-400/40 hover:shadow-emerald-500/10"
                   >
-                    <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-200/80">{stat.label}</p>
-                    <p className="mt-3 text-3xl font-semibold text-slate-50">{stat.value}</p>
-                    <p className="mt-2 text-sm text-slate-300">{stat.sub}</p>
+                    <h3 className="text-sm font-semibold uppercase tracking-[0.25em] text-emerald-200/80">
+                      {feature.title}
+                    </h3>
+                    <p className="text-sm text-slate-200">{feature.description}</p>
                   </div>
                 ))}
               </div>
