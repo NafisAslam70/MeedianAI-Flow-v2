@@ -304,7 +304,59 @@ export default function Home() {
   `;
 
   const [activeTab, setActiveTab] = useState(tabSections[0].id);
+  const [contactOpen, setContactOpen] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [contactError, setContactError] = useState("");
   const activeSection = tabSections.find((tab) => tab.id === activeTab) ?? tabSections[0];
+
+  const openContactModal = () => {
+    setContactOpen(true);
+    setSent(false);
+    setContactError("");
+  };
+  const closeContactModal = () => {
+    setContactOpen(false);
+    setIsSending(false);
+    setSent(false);
+    setContactError("");
+  };
+
+  const handleContactSubmit = async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    setIsSending(true);
+    setSent(false);
+    setContactError("");
+
+    const formData = new FormData(form);
+    const name = formData.get("name") || "";
+    const email = formData.get("email") || "";
+    const organization = formData.get("organization") || "";
+    const message = formData.get("message") || "";
+
+    try {
+      const response = await fetch("/api/contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, email, organization, message }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to send your message.");
+      }
+
+      form.reset();
+      setIsSending(false);
+      setSent(true);
+    } catch (error) {
+      console.error(error);
+      setContactError(error.message || "Unable to send your message. Please try again later.");
+      setIsSending(false);
+      setSent(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50">
@@ -339,12 +391,13 @@ export default function Home() {
               <span className="brand-star star3" aria-hidden />
             </div>
             <div className="flex items-center gap-3">
-              <a
-                href="mailto:admin@mymeedai.org"
+              <button
+                type="button"
+                onClick={openContactModal}
                 className="hidden rounded-full border border-slate-700 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-emerald-400/70 hover:text-emerald-200 sm:inline-flex"
               >
-                Email Us
-              </a>
+                Talk to Us
+              </button>
               <Link
                 href="/login"
                 className="rounded-full bg-gradient-to-r from-emerald-500 to-sky-500 px-5 py-2 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-500/20 transition hover:from-emerald-400 hover:to-sky-400"
@@ -389,12 +442,13 @@ export default function Home() {
                     >
                       Log In to Flow
                     </Link>
-                    <a
-                      href="mailto:admin@mymeedai.org"
+                    <button
+                      type="button"
+                      onClick={openContactModal}
                       className="rounded-full border border-slate-700 px-6 py-3 text-sm font-semibold text-slate-200 transition hover:border-emerald-400 hover:text-emerald-200"
                     >
                       Talk with Us
-                    </a>
+                    </button>
                   </div>
                   <p className="text-xs text-slate-400">
                     Need a guided tour? Email{" "}
@@ -696,6 +750,105 @@ export default function Home() {
             </div>
           </section>
         </main>
+
+        {contactOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm px-4">
+            <div className="relative w-full max-w-xl rounded-3xl border border-white/10 bg-gradient-to-br from-slate-950/95 to-slate-900/80 p-8 shadow-2xl shadow-black/40">
+              <button
+                type="button"
+                onClick={closeContactModal}
+                className="absolute right-4 top-4 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold uppercase tracking-[0.3em] text-slate-200 transition hover:border-emerald-400 hover:text-emerald-200"
+                aria-label="Close contact form"
+              >
+                Close
+              </button>
+              <div className="space-y-3 pr-10">
+                <p className="text-xs font-semibold uppercase tracking-[0.35em] text-emerald-200/80">
+                  Contact us
+                </p>
+                <h2 className="text-2xl font-semibold text-slate-50">
+                  Tell us about your teams and we’ll share a tailored walkthrough.
+                </h2>
+                <p className="text-sm text-slate-300">
+                  We typically reply within one business day. Prefer email? Reach us at{" "}
+                  <a href="mailto:admin@mymeedai.org" className="font-semibold text-emerald-200 underline">
+                    admin@mymeedai.org
+                  </a>
+                  .
+                </p>
+              </div>
+              <form onSubmit={handleContactSubmit} className="mt-6 space-y-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="flex flex-col text-xs font-medium uppercase tracking-[0.25em] text-slate-300">
+                    Name
+                    <input
+                      required
+                      name="name"
+                      type="text"
+                      placeholder="Your name"
+                      className="mt-2 w-full rounded-xl border border-white/10 bg-slate-900/70 px-4 py-3 text-sm text-slate-100 shadow-inner shadow-black/30 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                    />
+                  </label>
+                  <label className="flex flex-col text-xs font-medium uppercase tracking-[0.25em] text-slate-300">
+                    Email
+                    <input
+                      required
+                      name="email"
+                      type="email"
+                      placeholder="you@company.com"
+                      className="mt-2 w-full rounded-xl border border-white/10 bg-slate-900/70 px-4 py-3 text-sm text-slate-100 shadow-inner shadow-black/30 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                    />
+                  </label>
+                </div>
+                <label className="flex flex-col text-xs font-medium uppercase tracking-[0.25em] text-slate-300">
+                  Organization / Site
+                  <input
+                    name="organization"
+                    type="text"
+                    placeholder="School, clinic, agency, etc."
+                    className="mt-2 w-full rounded-xl border border-white/10 bg-slate-900/70 px-4 py-3 text-sm text-slate-100 shadow-inner shadow-black/30 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                  />
+                </label>
+                <label className="flex flex-col text-xs font-medium uppercase tracking-[0.25em] text-slate-300">
+                  What would you like to explore?
+                  <textarea
+                    name="message"
+                    rows={4}
+                    placeholder="Tell us about your teams and priorities."
+                    className="mt-2 w-full rounded-xl border border-white/10 bg-slate-900/70 px-4 py-3 text-sm text-slate-100 shadow-inner shadow-black/30 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+                  />
+                </label>
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                  <span className="text-xs text-slate-400">
+                    We’ll reply from <span className="text-emerald-200">admin@mymeedai.org</span>
+                  </span>
+                  <button
+                    type="submit"
+                    disabled={isSending}
+                    className={`rounded-full bg-gradient-to-r from-emerald-500 to-sky-500 px-6 py-2 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-500/30 transition hover:from-emerald-400 hover:to-sky-400 ${
+                      isSending ? "opacity-70 cursor-not-allowed" : ""
+                    }`}
+                  >
+                    {isSending ? "Sending…" : sent ? "Sent!" : "Send message"}
+                  </button>
+                </div>
+                {contactError && (
+                  <div className="rounded-2xl border border-rose-400/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100 shadow-inner shadow-rose-500/20">
+                    {contactError}
+                  </div>
+                )}
+                {sent && (
+                  <div className="rounded-2xl border border-emerald-400/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100 shadow-inner shadow-emerald-500/20">
+                    Message sent to <span className="font-semibold">admin@mymeedai.org</span>. We’ll get back to you shortly!
+                  </div>
+                )}
+              </form>
+              <p className="mt-8 text-center text-xs text-slate-400">
+                Crafted with care by <span className="text-emerald-200">Nafees Aslam</span> — happy to collaborate on ideas.
+              </p>
+            </div>
+          </div>
+        )}
 
         <Footer className="border-t border-white/5" showFounders={false} />
       </div>
