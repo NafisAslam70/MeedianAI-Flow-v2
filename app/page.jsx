@@ -1,6 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
+import { Brain } from "lucide-react";
 import Footer from "@/components/Footer";
 
 const heroHighlights = [
@@ -31,6 +33,12 @@ const roleCards = [
     title: "Admins",
     description:
       "Define programs, slots, roles, compliance rules, and branding for every deployment.",
+  },
+  {
+    title: "About the Developer",
+    description:
+      "Flow is crafted by Nafees Aslam, blending frontline operations and product craft so teams ship proof-backed outcomes with heart.",
+    image: "/me1.jpg",
   },
 ];
 
@@ -145,25 +153,198 @@ const dataPrivacy = [
   "Privacy – enable or limit AI and messaging features per policy, and redact sensitive fields.",
 ];
 
+const stats = [
+  {
+    label: "Teams guided daily",
+    value: "3K+",
+    sub: "Frontline members aligned on the same rituals and schedules.",
+  },
+  {
+    label: "WhatsApp nudges each month",
+    value: "11K",
+    sub: "Automated reminders, escalations, and approvals delivered instantly.",
+  },
+  {
+    label: "Day-close compliance",
+    value: "98%",
+    sub: "Submitted with evidence across sites, programs, and roles.",
+  },
+];
+
+const tabSections = [
+  {
+    id: "why",
+    label: "Why Flow",
+    kicker: "Why Flow",
+    heading: "Operations aligned from open to close",
+    description:
+      "Flow replaces scattered trackers with a guided operations hub. Every team member, manager, and admin works from the same live plan.",
+    listTitle: "Feature pillars that keep teams moving",
+    list: featurePillars,
+    secondary: {
+      title: "Automations & smart nudges",
+      items: aiHighlights,
+    },
+  },
+  {
+    id: "roles",
+    label: "Roles",
+    kicker: "Role-aware by default",
+    heading: "Every role gets the right cockpit",
+    description:
+      "Members see the next ritual, managers drive execution, and admins configure the playbook—without stepping on each other’s toes.",
+    cards: roleCards,
+  },
+  {
+    id: "rhythm",
+    label: "Daily Rhythm",
+    kicker: "Day rhythm",
+    heading: "A guided rhythm your teams can trust",
+    description:
+      "Flow steers teams from opening rituals to final approvals with clear checkpoints and evidence capture built in.",
+    timeline: dailyRhythm,
+  },
+  {
+    id: "workspaces",
+    label: "Workspace Tour",
+    kicker: "Workspaces",
+    heading: "The complete MeedianAI Flow suite",
+    description:
+      "Everything from rituals, attendance, and tickets to performance dashboards lives inside Flow—ready to launch in a single click.",
+    grid: workspaces,
+  },
+];
+
 export default function Home() {
+  const brandStyles = `
+    .beta-badge {
+      font-size: 10px;
+      padding: 2px 6px;
+      margin-left: 6px;
+      border-radius: 9999px;
+      background: linear-gradient(180deg, rgba(16,185,129,0.35), rgba(56,189,248,0.25));
+      border: 1px solid rgba(34,211,238,0.6);
+      color: #ecfeff;
+      text-shadow: 0 0 8px rgba(34,211,238,0.6);
+      box-shadow: 0 0 12px rgba(34,211,238,0.25);
+    }
+    @media (max-width: 640px) {
+      .beta-badge { font-size: 9px; padding: 1px 5px; }
+    }
+    .slogan {
+      font-size: 11px;
+      color: #c7f9ff;
+      opacity: .95;
+      letter-spacing: .2px;
+      text-shadow: 0 0 6px rgba(34,211,238,.35);
+      display: inline-flex;
+      align-items: baseline;
+      gap: 4px;
+      align-self: flex-start;
+      margin-top: 2px;
+      padding: 2px 8px;
+      border-radius: 9999px;
+      border: 1px solid rgba(34,211,238,.25);
+      background: linear-gradient(180deg, rgba(34,211,238,.20), rgba(59,130,246,.14));
+      box-shadow: 0 6px 14px rgba(34,211,238,.18);
+      backdrop-filter: blur(2px);
+    }
+    @media (max-width: 768px) {
+      .slogan { font-size: 10px; padding: 1px 6px; gap: 3px; }
+      .slogan-brain svg { width: 12px; height: 12px; }
+    }
+    .slogan-brain {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: #facc15;
+      margin-left: 2px;
+      position: relative;
+      top: .5px;
+      filter: drop-shadow(0 0 6px rgba(250,204,21,.5));
+      animation: brainPulse 2.4s ease-in-out infinite;
+    }
+    .slogan-brain svg { display: block; width: 14px; height: 14px; }
+    @keyframes brainPulse {
+      0%, 100% { transform: translateY(0) scale(1); opacity: .85; }
+      50% { transform: translateY(-1px) scale(1.12); opacity: 1; }
+    }
+    .brand-wrap { position: relative; }
+    .brand-wrap .brand-sweep {
+      position: absolute;
+      inset: -20% auto -20% -30%;
+      width: 60px;
+      background: linear-gradient(75deg, rgba(255,255,255,0), rgba(255,255,255,0.45), rgba(255,255,255,0));
+      filter: blur(6px);
+      transform: skewX(-10deg);
+      pointer-events: none;
+      animation: brandSweep 3.2s linear infinite;
+    }
+    @keyframes brandSweep {
+      0% { left: -30%; }
+      100% { left: 120%; }
+    }
+    .brand-wrap .brand-star {
+      position: absolute;
+      width: 6px;
+      height: 6px;
+      border-radius: 9999px;
+      pointer-events: none;
+      background: radial-gradient(circle at 50% 50%, #fff 0 35%, rgba(255,255,255,0) 70%);
+      filter: drop-shadow(0 0 6px rgba(255,255,255,0.8));
+      animation: twinkleBrand 1.8s ease-in-out infinite;
+    }
+    .brand-wrap .brand-star.star1 { top: -4px; left: 32%; animation-delay: .15s; }
+    .brand-wrap .brand-star.star2 { top: 60%; left: 88%; animation-delay: .6s; }
+    .brand-wrap .brand-star.star3 { top: 90%; left: 8%; animation-delay: 1.05s; }
+    @keyframes twinkleBrand {
+      0%, 100% { opacity: 0.2; transform: scale(0.8); }
+      50% { opacity: 1; transform: scale(1.2); }
+    }
+  `;
+
+  const [activeTab, setActiveTab] = useState(tabSections[0].id);
+  const activeSection = tabSections.find((tab) => tab.id === activeTab) ?? tabSections[0];
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50">
+      <style jsx global>{brandStyles}</style>
       <div className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(16,185,129,0.25),_transparent_55%)]" />
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_bottom,_rgba(59,130,246,0.18),_transparent_60%)]" />
         <header className="relative z-10">
-          <nav className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6 lg:px-8">
-            <Link href="/" className="flex items-center gap-2 text-lg font-semibold tracking-tight">
-              <span className="rounded-full bg-emerald-500/20 px-3 py-1 text-emerald-300">MeedianAI</span>
-              <span className="hidden text-slate-100 sm:inline">Flow</span>
-            </Link>
+          <nav className="flex w-full items-center justify-between px-6 py-6 lg:px-12">
+            <div className="brand-wrap flex items-center gap-1.5 sm:gap-2 min-w-0 text-slate-100">
+              <img
+                src="/flow1.png"
+                alt="MeedianAI Flow logo"
+                className="logo-animation w-8 h-8 sm:w-10 sm:h-10 rounded-full border border-cyan-400 p-1 shadow-md"
+              />
+              <div className="flex flex-col items-start leading-tight min-w-0">
+                <Link
+                  href="/"
+                  className="text-base sm:text-xl font-extrabold tracking-tight brand-text truncate max-w-[40vw] sm:max-w-none"
+                >
+                  MeedianAI‑Flow <span className="beta-badge">beta</span>
+                </Link>
+                <span className="slogan hidden sm:flex items-center gap-1 text-xs text-slate-300">
+                  A team towards Mastery{" "}
+                  <span className="slogan-brain" aria-hidden="true">
+                    <Brain size={14} strokeWidth={2.25} />
+                  </span>
+                </span>
+              </div>
+              <span className="brand-sweep" aria-hidden />
+              <span className="brand-star star1" aria-hidden />
+              <span className="brand-star star2" aria-hidden />
+              <span className="brand-star star3" aria-hidden />
+            </div>
             <div className="flex items-center gap-3">
-              <Link
-                href="#contact"
+              <a
+                href="mailto:admin@mymeedai.org"
                 className="hidden rounded-full border border-slate-700 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-emerald-400/70 hover:text-emerald-200 sm:inline-flex"
               >
-                Talk to Us
-              </Link>
+                Email Us
+              </a>
               <Link
                 href="/login"
                 className="rounded-full bg-gradient-to-r from-emerald-500 to-sky-500 px-5 py-2 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-500/20 transition hover:from-emerald-400 hover:to-sky-400"
@@ -223,19 +404,19 @@ export default function Home() {
                     and we’ll shape Flow around your teams.
                   </p>
                 </div>
-                <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-white/10 to-white/5 p-6 shadow-xl shadow-black/20 backdrop-blur">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500/20 text-sm font-semibold text-emerald-200">
-                      ROI
-                    </div>
-                    <div>
-                      <h2 className="text-base font-semibold text-slate-50">Outcomes at a glance</h2>
-                      <p className="text-xs text-slate-300">Where Flow delivers clarity, speed, and proof.</p>
-                    </div>
-                  </div>
-                  <ul className="mt-6 space-y-4 text-sm text-slate-200">
+                <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-white/10 to-white/5 p-8 shadow-xl shadow-black/20 backdrop-blur relative overflow-hidden">
+                  <div className="pointer-events-none absolute -left-12 top-10 h-24 w-32 rotate-12 bg-gradient-to-r from-emerald-400/25 via-cyan-400/25 to-transparent blur-3xl" />
+                  <div className="pointer-events-none absolute -right-10 bottom-4 h-28 w-36 -rotate-6 bg-gradient-to-r from-transparent via-sky-400/25 to-purple-400/20 blur-3xl" />
+                  <h2 className="text-lg font-semibold text-slate-50">Outcomes at a glance</h2>
+                  <p className="mt-2 text-xs uppercase tracking-[0.3em] text-emerald-200/80">
+                    Where Flow delivers clarity, speed, and proof
+                  </p>
+                  <ul className="relative mt-6 space-y-3 text-sm text-slate-200">
                     {outcomes.map((item) => (
-                      <li key={item} className="flex items-start gap-3 rounded-2xl border border-white/5 bg-white/5 p-4">
+                      <li
+                        key={item}
+                        className="flex items-start gap-3 rounded-2xl border border-white/5 bg-white/5 p-4 shadow-md shadow-emerald-500/10"
+                      >
                         <span className="mt-1 inline-flex h-2.5 w-2.5 rounded-full bg-emerald-300" />
                         <span>{item}</span>
                       </li>
@@ -246,181 +427,270 @@ export default function Home() {
             </div>
           </section>
 
-          <section id="who" className="bg-slate-900/50">
-            <div className="mx-auto max-w-6xl px-6 py-16 lg:py-20">
-              <div className="max-w-2xl space-y-3">
-                <h2 className="text-2xl font-semibold text-slate-50 sm:text-3xl">Who Flow is built for</h2>
-                <p className="text-sm text-slate-300">
-                  Each role gets the tools and permissions they need—without losing the shared, single source of truth.
-                </p>
-              </div>
-              <div className="mt-10 grid gap-6 md:grid-cols-3">
-                {roleCards.map((card) => (
+          <section className="relative z-10 overflow-hidden border-t border-white/5 bg-slate-950/80">
+            <div className="pointer-events-none absolute -top-24 left-12 h-64 w-64 rounded-full bg-emerald-500/20 blur-3xl sm:left-32 sm:w-80" />
+            <div className="pointer-events-none absolute -bottom-28 right-10 h-72 w-72 rounded-full bg-sky-500/20 blur-3xl sm:right-24 sm:w-96" />
+            <div className="relative mx-auto max-w-6xl px-6 py-12 lg:py-16">
+              <div className="grid gap-5 sm:grid-cols-3">
+                {stats.map((stat) => (
                   <div
-                    key={card.title}
-                    className="flex h-full flex-col rounded-3xl border border-white/10 bg-white/5 p-6 shadow-lg shadow-black/20 transition hover:border-emerald-400/40 hover:shadow-emerald-500/10"
+                    key={stat.label}
+                    className="rounded-2xl border border-white/10 bg-white/5 p-6 shadow-xl shadow-black/25 backdrop-blur transition hover:border-emerald-400/40 hover:shadow-emerald-500/10"
                   >
-                    <div className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500/15 text-sm font-semibold text-emerald-200">
-                      {card.title.split(" ")[0][0]}
+                    <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-200/80">{stat.label}</p>
+                    <p className="mt-3 text-3xl font-semibold text-slate-50">{stat.value}</p>
+                    <p className="mt-2 text-sm text-slate-300">{stat.sub}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          <section id="explore" className="relative z-10 overflow-hidden border-y border-white/5 bg-gradient-to-b from-slate-950/80 via-slate-950/40 to-slate-950/60">
+            <div className="pointer-events-none absolute left-1/2 top-0 h-96 w-[32rem] -translate-x-1/2 -translate-y-1/3 rounded-full bg-gradient-to-r from-emerald-500/15 via-sky-500/10 to-purple-500/20 blur-3xl" />
+            <div className="pointer-events-none absolute bottom-0 right-1/3 h-72 w-72 -translate-y-1/2 rounded-full bg-purple-500/20 blur-[120px]" />
+            <div className="relative mx-auto max-w-6xl px-6 py-16 lg:py-20">
+              <div className="flex flex-wrap gap-3 rounded-2xl border border-white/10 bg-white/5 p-2 shadow-lg shadow-black/25 backdrop-blur">
+                {tabSections.map((tab) => {
+                  const isActive = tab.id === activeTab;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setActiveTab(tab.id)}
+                      className={`group flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition ${
+                        isActive
+                          ? "border border-emerald-400/60 bg-emerald-500/20 text-emerald-100 shadow-inner shadow-emerald-500/40"
+                          : "border border-transparent bg-transparent text-slate-300 hover:text-emerald-200"
+                      }`}
+                    >
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-300 transition group-hover:scale-110" />
+                      {tab.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="mt-10 rounded-3xl border border-white/10 bg-white/5 p-8 shadow-xl shadow-black/30 backdrop-blur">
+                <div className="max-w-3xl space-y-2">
+                  {activeSection.kicker && (
+                    <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-200/80">
+                      {activeSection.kicker}
+                    </p>
+                  )}
+                  <h3 className="text-2xl font-semibold text-slate-50 sm:text-3xl">{activeSection.heading}</h3>
+                  <p className="text-sm text-slate-300">{activeSection.description}</p>
+                </div>
+
+                {activeSection.list && (
+                  <div className="mt-8 space-y-4">
+                    {activeSection.listTitle && (
+                      <h4 className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-100">
+                        {activeSection.listTitle}
+                      </h4>
+                    )}
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {activeSection.list.map((item) => (
+                        <div
+                          key={item}
+                          className="flex items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 shadow-sm shadow-black/20"
+                        >
+                          <span className="mt-1 inline-flex h-2.5 w-2.5 rounded-full bg-emerald-300" />
+                          <span className="text-sm text-slate-200">{item}</span>
+                        </div>
+                      ))}
                     </div>
-                    <h3 className="mt-4 text-lg font-semibold text-slate-50">{card.title}</h3>
-                    <p className="mt-3 text-sm leading-relaxed text-slate-300">{card.description}</p>
                   </div>
-                ))}
-              </div>
-            </div>
-          </section>
+                )}
 
-          <section id="rhythm" className="border-t border-white/5 bg-slate-950/40">
-            <div className="mx-auto max-w-6xl px-6 py-16 lg:py-20">
-              <div className="max-w-2xl space-y-3">
-                <h2 className="text-2xl font-semibold text-slate-50 sm:text-3xl">A guided day rhythm</h2>
-                <p className="text-sm text-slate-300">
-                  Flow leads every team from a focused start to an evidence-backed close without losing momentum.
-                </p>
-              </div>
-              <ol className="mt-10 grid gap-6 md:grid-cols-5">
-                {dailyRhythm.map((item, index) => (
-                  <li key={item.title} className="rounded-3xl border border-white/10 bg-white/5 p-5 shadow-lg shadow-black/15">
-                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500/20 text-sm font-semibold text-emerald-200">
-                      {index + 1}
-                    </span>
-                    <h3 className="mt-4 text-base font-semibold text-slate-50">{item.title}</h3>
-                    <p className="mt-3 text-xs text-slate-300">{item.description}</p>
-                  </li>
-                ))}
-              </ol>
-            </div>
-          </section>
-
-          <section id="workspaces" className="bg-slate-900/45">
-            <div className="mx-auto max-w-6xl px-6 py-16 lg:py-20">
-              <div className="max-w-2xl space-y-3">
-                <h2 className="text-2xl font-semibold text-slate-50 sm:text-3xl">Core workspaces</h2>
-                <p className="text-sm text-slate-300">
-                  Flow assembles every operational surface—tasks, rituals, attendance, approvals—into a calm, guided UI.
-                </p>
-              </div>
-              <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                {workspaces.map((space) => (
-                  <article
-                    key={space.title}
-                    className="flex h-full flex-col rounded-3xl border border-white/10 bg-white/5 p-6 shadow-lg shadow-black/15 transition hover:border-emerald-400/40 hover:shadow-emerald-500/10"
-                  >
-                    <h3 className="text-lg font-semibold text-emerald-200">{space.title}</h3>
-                    <p className="mt-3 text-sm text-slate-300">{space.description}</p>
-                  </article>
-                ))}
-              </div>
-            </div>
-          </section>
-
-          <section id="features" className="border-t border-white/5 bg-slate-950/40">
-            <div className="mx-auto max-w-6xl px-6 py-16 lg:py-20">
-              <div className="max-w-2xl space-y-3">
-                <h2 className="text-2xl font-semibold text-slate-50 sm:text-3xl">Feature pillars</h2>
-                <p className="text-sm text-slate-300">
-                  Purpose-built for daily execution, Flow focuses on the moments that matter most.
-                </p>
-              </div>
-              <ul className="mt-10 grid gap-4 rounded-3xl border border-white/10 bg-white/5 p-6 text-sm text-slate-200 shadow-lg shadow-black/15 backdrop-blur md:grid-cols-2">
-                {featurePillars.map((pillar) => (
-                  <li key={pillar} className="flex items-start gap-3">
-                    <span className="mt-1 inline-flex h-2 w-2 rounded-full bg-sky-400" />
-                    <span>{pillar}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </section>
-
-          <section id="ai" className="bg-slate-900/55">
-            <div className="mx-auto max-w-6xl px-6 py-16 lg:py-20">
-              <div className="max-w-2xl space-y-3">
-                <h2 className="text-2xl font-semibold text-slate-50 sm:text-3xl">AI & automations when you need them</h2>
-                <p className="text-sm text-slate-300">
-                  Flow’s assistants and reminders stay configurable so you can dial in how proactive the system should be.
-                </p>
-              </div>
-              <div className="mt-10 grid gap-6 md:grid-cols-3">
-                {aiHighlights.map((highlight) => (
-                  <div
-                    key={highlight.title}
-                    className="h-full rounded-3xl border border-white/10 bg-white/5 p-6 shadow-lg shadow-black/20 transition hover:border-sky-400/40 hover:shadow-sky-500/10"
-                  >
-                    <h3 className="text-lg font-semibold text-sky-200">{highlight.title}</h3>
-                    <p className="mt-3 text-sm leading-relaxed text-slate-200">{highlight.detail}</p>
+                {activeSection.cards && (
+                  <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                    {activeSection.cards.map((card) => (
+                      <div
+                        key={card.title}
+                        className="flex h-full flex-col rounded-2xl border border-white/10 bg-slate-950/40 p-5 shadow-md shadow-black/20 transition hover:border-emerald-400/40 hover:shadow-emerald-500/10"
+                      >
+                        <div className="inline-flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-emerald-500/15 text-sm font-semibold text-emerald-200 overflow-hidden">
+                          {card.image ? (
+                            <img src={card.image} alt={card.title} className="h-full w-full object-cover" />
+                          ) : (
+                            card.title.split(" ")[0][0]
+                          )}
+                        </div>
+                        <h4 className="mt-4 text-base font-semibold text-slate-50">{card.title}</h4>
+                        <p className="mt-3 text-sm text-slate-300">{card.description}</p>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-              <p className="mt-6 text-xs text-slate-400">
-                Flip automations on for analytics and nudging—or keep them off for a minimal rollout. You stay in control.
-              </p>
-            </div>
-          </section>
+                )}
 
-          <section id="customization" className="border-t border-white/5 bg-slate-950/35">
-            <div className="mx-auto max-w-6xl px-6 py-16 lg:py-20">
-              <div className="grid gap-10 lg:grid-cols-2">
-                <div className="space-y-4 rounded-3xl border border-white/10 bg-white/5 p-6 shadow-lg shadow-black/15">
-                  <h2 className="text-xl font-semibold text-slate-50 sm:text-2xl">Customize & brand it</h2>
-                  <p className="text-sm text-slate-300">
-                    Configure how Flow speaks to each client or division—down to the rituals, evidence, and UI accents.
-                  </p>
-                  <ul className="space-y-3 text-sm text-slate-200">
-                    {customization.map((item) => (
-                      <li key={item} className="flex items-start gap-3">
-                        <span className="mt-1 inline-flex h-2 w-2 rounded-full bg-emerald-400" />
-                        <span>{item}</span>
+                {activeSection.timeline && (
+                  <ol className="mt-8 grid gap-6 md:grid-cols-5">
+                    {activeSection.timeline.map((item, index) => (
+                      <li
+                        key={item.title}
+                        className="rounded-2xl border border-white/10 bg-slate-950/40 p-4 shadow-md shadow-black/20"
+                      >
+                        <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500/20 text-sm font-semibold text-emerald-200">
+                          {String(index + 1).padStart(2, "0")}
+                        </span>
+                        <h4 className="mt-3 text-sm font-semibold text-slate-50">{item.title}</h4>
+                        <p className="mt-2 text-xs text-slate-300">{item.description}</p>
                       </li>
                     ))}
-                  </ul>
-                </div>
+                  </ol>
+                )}
 
-                <div className="space-y-4 rounded-3xl border border-white/10 bg-white/5 p-6 shadow-lg shadow-black/15">
-                  <h2 className="text-xl font-semibold text-slate-50 sm:text-2xl">Data, privacy & control</h2>
-                  <p className="text-sm text-slate-300">
-                    Flow keeps compliance simple with role-based access, clean audit trails, and configurable privacy controls.
-                  </p>
-                  <ul className="space-y-3 text-sm text-slate-200">
-                    {dataPrivacy.map((item) => (
-                      <li key={item} className="flex items-start gap-3">
-                        <span className="mt-1 inline-flex h-2 w-2 rounded-full bg-purple-300" />
-                        <span>{item}</span>
-                      </li>
+                {activeSection.grid && (
+                  <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                    {(activeSection.grid.slice ? activeSection.grid.slice(0, 6) : activeSection.grid).map((space) => (
+                      <article
+                        key={space.title}
+                        className="flex h-full flex-col rounded-2xl border border-white/10 bg-slate-950/40 p-5 shadow-md shadow-black/20 transition hover:border-emerald-400/40 hover:shadow-emerald-500/10"
+                      >
+                        <h4 className="text-sm font-semibold text-emerald-200">{space.title}</h4>
+                        <p className="mt-2 text-xs text-slate-300">{space.description}</p>
+                      </article>
                     ))}
-                  </ul>
-                </div>
+                  </div>
+                )}
+
+                {activeSection.secondary && (
+                  <div className="mt-8 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-6 shadow-inner shadow-emerald-500/20">
+                    <h4 className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-100">
+                      {activeSection.secondary.title}
+                    </h4>
+                    <div className="mt-4 grid gap-4 md:grid-cols-3">
+                      {activeSection.secondary.items.map((item) => (
+                        <div
+                          key={item.title}
+                          className="rounded-xl border border-white/10 bg-slate-950/40 p-4 shadow-sm shadow-black/15"
+                        >
+                          <h5 className="text-sm font-semibold text-slate-50">{item.title}</h5>
+                          <p className="mt-2 text-xs text-slate-300">{item.detail}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </section>
 
-          <section id="contact" className="bg-gradient-to-br from-emerald-500/10 via-slate-950 to-sky-500/10">
-            <div className="mx-auto max-w-4xl px-6 py-20">
-              <div className="rounded-3xl border border-white/10 bg-slate-950/80 p-10 text-center shadow-xl shadow-black/30 backdrop-blur">
-                <h2 className="text-2xl font-semibold text-slate-50 sm:text-3xl">
-                  Ready to bring MeedianAI Flow to your teams?
-                </h2>
-                <p className="mt-4 text-sm text-slate-300">
-                  We’ll help you tailor programs, slots, and dashboards to your mission. Email{" "}
-                  <a href="mailto:admin@mymeedai.org" className="font-semibold text-emerald-200 underline">
-                    admin@mymeedai.org
-                  </a>{" "}
-                  to start the conversation.
-                </p>
-                <div className="mt-8 flex flex-wrap justify-center gap-4">
-                  <a
-                    href="mailto:admin@mymeedai.org"
-                    className="rounded-full bg-emerald-500 px-6 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400"
-                  >
-                    Contact Us
-                  </a>
-                  <Link
-                    href="/login"
-                    className="rounded-full border border-slate-700 px-6 py-3 text-sm font-semibold text-slate-200 transition hover:border-emerald-400 hover:text-emerald-200"
-                  >
-                    Log In as Your Role
-                  </Link>
+        
+          <section id="contact" className="relative bg-gradient-to-br from-emerald-500/10 via-slate-950 to-sky-500/10">
+            <div className="pointer-events-none absolute inset-x-10 -top-24 h-64 rounded-full bg-emerald-500/20 blur-3xl" />
+            <div className="pointer-events-none absolute inset-x-24 bottom-0 h-56 translate-y-1/2 rounded-full bg-sky-500/20 blur-3xl" />
+            <div className="relative mx-auto max-w-6xl px-6 py-20">
+              <div className="grid gap-8 rounded-[2.5rem] border border-white/10 bg-slate-950/85 p-10 shadow-[0_30px_120px_-40px_rgba(16,185,129,0.7)] backdrop-blur lg:grid-cols-2">
+                <div className="relative overflow-hidden rounded-3xl border border-emerald-400/25 bg-gradient-to-br from-emerald-500/15 via-slate-950/85 to-sky-500/15 p-8 shadow-xl shadow-emerald-500/20">
+                  <div className="pointer-events-none absolute -right-24 top-8 h-64 w-64 rounded-full bg-emerald-400/18 blur-3xl" />
+                  <div className="pointer-events-none absolute -bottom-24 left-0 h-72 w-72 rounded-full bg-sky-400/18 blur-3xl" />
+                  <div className="relative flex flex-col items-center gap-6 text-center">
+                    <div className="relative h-44 w-44 overflow-hidden rounded-[2.25rem] border border-emerald-100/40 bg-slate-900/70 shadow-inner shadow-emerald-500/30 sm:h-52 sm:w-52">
+                      <img src="/me1.jpg" alt="Nafees Aslam" className="h-full w-full object-cover" />
+                      <span className="pointer-events-none absolute inset-0 border border-white/10" />
+                    </div>
+                    <div className="w-full max-w-lg space-y-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.35em] text-emerald-200/80">
+                        About the developer
+                      </p>
+                      <a
+                        href="https://www.nafisaslam.com"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 text-sm font-semibold tracking-[0.2em] text-emerald-100 transition hover:text-emerald-50"
+                      >
+                        www.nafisaslam.com
+                      </a>
+                      <h3 className="text-xl font-semibold text-slate-50 sm:text-2xl">
+                        Nafees Aslam builds Flow to keep teams grounded and accountable.
+                      </h3>
+                      <p className="text-sm text-emerald-50/80">
+                        Operator-turned-coder shipping calm dashboards, proof-backed rituals, and live nudges your crews actually use.
+                      </p>
+                      <a
+                        href="https://www.nafisaslam.com"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 rounded-full border border-emerald-400/50 bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-100 shadow-lg shadow-emerald-500/20 transition hover:border-emerald-300 hover:text-emerald-50"
+                      >
+                        <span className="inline-flex h-2 w-2 rounded-full bg-emerald-300" />
+                        nafisaslam.com
+                      </a>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-center gap-3 text-xs text-emerald-100/75">
+                      <a
+                        href="mailto:nafisaslam70@gmail.com"
+                        className="rounded-full border border-white/10 bg-white/5 px-3 py-1 transition hover:border-emerald-300 hover:text-emerald-100"
+                      >
+                        nafisaslam70@gmail.com
+                      </a>
+                      <a
+                        href="https://www.linkedin.com/in/nafis-aslam"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-full border border-white/10 bg-white/5 px-3 py-1 transition hover:border-emerald-300 hover:text-emerald-100"
+                      >
+                        LinkedIn
+                      </a>
+                      <a
+                        href="https://github.com/nafees-aslam"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-full border border-white/10 bg-white/5 px-3 py-1 transition hover-border-emerald-300 hover:text-emerald-100"
+                      >
+                        GitHub
+                      </a>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid gap-6">
+                  <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-6 shadow-lg shadow-black/25 backdrop-blur">
+                    <h3 className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-100">
+                      Shape it to your org
+                    </h3>
+                    <ul className="mt-4 space-y-2 text-sm text-slate-200">
+                      {customization.slice(0, 4).map((item) => (
+                        <li key={item} className="flex items-start gap-2">
+                          <span className="mt-1 inline-flex h-2 w-2 rounded-full bg-emerald-300" />
+                          <span>{item}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-6 shadow-lg shadow-black/25 backdrop-blur">
+                    <h3 className="text-xs font-semibold uppercase tracking-[0.3em] text-sky-100">Trust & control</h3>
+                    <ul className="mt-4 space-y-2 text-sm text-slate-200">
+                      {dataPrivacy.map((item) => (
+                        <li key={item} className="flex items-start gap-2">
+                          <span className="mt-1 inline-flex h-2 w-2 rounded-full bg-sky-300" />
+                          <span>{item}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="rounded-2xl border border-emerald-400/30 bg-gradient-to-r from-emerald-500/10 via-sky-500/10 to-transparent p-6 shadow-lg shadow-emerald-500/20">
+                    <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-100">Keep momentum</p>
+                    <p className="mt-2 text-sm text-slate-100/80">
+                      Prefer a walkthrough or need rollout collateral? Email the Flow team or jump straight into your dashboard.
+                    </p>
+                    <div className="mt-4 flex flex-wrap gap-3">
+                      <a
+                        href="mailto:admin@mymeedai.org"
+                        className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-500/40 transition hover:bg-emerald-400"
+                      >
+                        Email Flow Team
+                      </a>
+                      <Link
+                        href="/login"
+                        className="inline-flex items-center gap-2 rounded-full border border-slate-700 px-5 py-2 text-sm font-semibold text-slate-200 transition hover:border-emerald-400 hover:text-emerald-200"
+                      >
+                        Log In as Your Role
+                      </Link>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
