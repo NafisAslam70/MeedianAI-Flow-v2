@@ -76,14 +76,10 @@ export async function GET(req) {
 
   const role = session.user.role;
   const userId = Number(session.user.id);
-  const isManager = role === "admin" || role === "team_manager";
-
-  if (role === "team_manager") {
-    const hasGrant = await managerHasWriteGrant(userId);
-    if (!hasGrant) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-  }
+  const isAdmin = role === "admin";
+  const isTeamManager = role === "team_manager";
+  const hasAssignmentGrant = isTeamManager ? await managerHasWriteGrant(userId) : false;
+  const canViewAllAssignments = isAdmin || hasAssignmentGrant;
 
   const { searchParams } = new URL(req.url);
   const isoDate = sanitizeDate(searchParams.get("date"));
@@ -123,7 +119,7 @@ export async function GET(req) {
         )
       );
 
-    const assignments = isManager
+    const assignments = canViewAllAssignments
       ? rawAssignments
       : rawAssignments.filter((row) => Number((row.scopeMeta || {}).assistantUserId || 0) === userId);
 
@@ -249,14 +245,10 @@ export async function POST(req) {
 
   const role = session.user.role;
   const userId = Number(session.user.id);
-  const isManager = role === "admin" || role === "team_manager";
-
-  if (role === "team_manager") {
-    const hasGrant = await managerHasWriteGrant(userId);
-    if (!hasGrant) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-  }
+  const isAdmin = role === "admin";
+  const isTeamManager = role === "team_manager";
+  const hasAssignmentGrant = isTeamManager ? await managerHasWriteGrant(userId) : false;
+  const canManageAllAssignments = isAdmin || hasAssignmentGrant;
 
   const body = await req.json().catch(() => null);
   if (!body || typeof body !== "object") {
@@ -291,11 +283,9 @@ export async function POST(req) {
       return NextResponse.json({ error: "Assignment not found" }, { status: 404 });
     }
 
-    if (!isManager) {
-      const assistantId = Number((assignment.scopeMeta || {}).assistantUserId || 0);
-      if (assistantId !== userId) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-      }
+    const assistantId = Number((assignment.scopeMeta || {}).assistantUserId || 0);
+    if (!canManageAllAssignments && assistantId !== userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     await ensureInstancesForAssignments(

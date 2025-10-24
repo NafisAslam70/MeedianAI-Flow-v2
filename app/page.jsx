@@ -670,10 +670,10 @@ export default function Home() {
                         www.nafisaslam.com
                       </a>
                       <h3 className="text-xl font-semibold text-slate-50 sm:text-2xl">
-                        Nafees Aslam builds Flow to keep teams grounded and accountable.
+                        Nafis Aslam builds Flow to keep teams grounded and accountable.
                       </h3>
                       <p className="text-sm text-emerald-50/80">
-                        Operator-turned-coder shipping calm dashboards, proof-backed rituals, and live nudges your crews actually use.
+                        Data scientist cum AI developer.
                       </p>
                       <a
                         href="https://www.nafisaslam.com"

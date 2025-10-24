@@ -1520,9 +1520,6 @@ const toggleAttendanceStudent = (rowIndex, label) => {
             The class teacher will review and confirm these entries during day close.
           </p>
         </div>
-        <Button variant="ghost" onClick={() => router.push("/dashboard/admin/manageMeedian/mri-reports/pt")}>
-          Manage PT Assignments
-        </Button>
       </div>
 
       {template && (
