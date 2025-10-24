@@ -14,6 +14,7 @@ const fetcher = (url) =>
   });
 
 const PT_TEMPLATE_KEY = "pt_daily_report";
+const PHONE_CALL_TEMPLATE_KEY = "phone_call_drive";
 
 export default function ManageMriReportsPage() {
   const router = useRouter();
@@ -28,12 +29,22 @@ export default function ManageMriReportsPage() {
     fetcher,
     { dedupingInterval: 15000 }
   );
+  const { data: phoneAssignmentData, error: phoneAssignmentError } = useSWR(
+    `/api/admin/manageMeedian?section=mriReportAssignments&templateKey=${PHONE_CALL_TEMPLATE_KEY}`,
+    fetcher,
+    { dedupingInterval: 15000 }
+  );
 
   const templates = templateData?.templates || [];
   const assignments = assignmentData?.assignments || [];
+  const phoneAssignments = phoneAssignmentData?.assignments || [];
 
   const ptTemplate = useMemo(
     () => templates.find((tpl) => tpl.key === PT_TEMPLATE_KEY),
+    [templates]
+  );
+  const phoneTemplate = useMemo(
+    () => templates.find((tpl) => tpl.key === PHONE_CALL_TEMPLATE_KEY),
     [templates]
   );
 
@@ -42,6 +53,13 @@ export default function ManageMriReportsPage() {
   const templateStatus = ptTemplate ? (ptTemplate.active ? "Active" : "Inactive") : "Missing";
   const lastUpdated = ptTemplate?.updatedAt
     ? format(new Date(ptTemplate.updatedAt), "yyyy-MM-dd")
+    : "—";
+
+  const phoneAssignmentCount = phoneAssignments.length;
+  const phoneActiveAssignments = phoneAssignments.filter((assignment) => assignment.active).length;
+  const phoneTemplateStatus = phoneTemplate ? (phoneTemplate.active ? "Active" : "Inactive") : "Missing";
+  const phoneLastUpdated = phoneTemplate?.updatedAt
+    ? format(new Date(phoneTemplate.updatedAt), "yyyy-MM-dd")
     : "—";
 
   return (
@@ -54,7 +72,7 @@ export default function ManageMriReportsPage() {
         </p>
       </div>
 
-      {(templateError || assignmentError) && (
+      {(templateError || assignmentError || phoneAssignmentError) && (
         <p className="text-sm text-red-600">
           Failed to load report data. Refresh the page or check API logs.
         </p>
@@ -96,6 +114,44 @@ export default function ManageMriReportsPage() {
             </Button>
           </div>
       	</CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <h2 className="text-base font-semibold text-gray-900">Guardian Phone Call Drive</h2>
+          <p className="text-sm text-gray-600">
+            Coordinate outbound phone call campaigns by assigning call briefs, targets, and deadlines to office teams.
+          </p>
+        </CardHeader>
+        <CardBody>
+          <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-3">
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Template Status
+              </p>
+              <p className="mt-1 text-sm font-semibold text-gray-900">{phoneTemplateStatus}</p>
+            </div>
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Active Campaigns
+              </p>
+              <p className="mt-1 text-sm font-semibold text-gray-900">
+                {phoneActiveAssignments} of {phoneAssignmentCount}
+              </p>
+            </div>
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Last Updated
+              </p>
+              <p className="mt-1 text-sm font-semibold text-gray-900">{phoneLastUpdated}</p>
+            </div>
+          </div>
+          <div className="mt-4">
+            <Button onClick={() => router.push("/dashboard/admin/manageMeedian/mri-reports/phone-calls")}>
+              Manage Phone Call Drives
+            </Button>
+          </div>
+        </CardBody>
       </Card>
 
       <Card>

@@ -118,6 +118,7 @@ export async function GET(req) {
     const programId = parseId(searchParams.get("programId"));
     const callDateRaw = sanitizeText(searchParams.get("callDate") || "");
     const searchTerm = sanitizeText(searchParams.get("q") || "");
+    const followUpFilter = sanitizeText(searchParams.get("followUp") || "");
 
     if (classId) {
       filters.push(eq(guardianCallReports.classId, classId));
@@ -130,6 +131,11 @@ export async function GET(req) {
     }
     if (callDateRaw) {
       filters.push(eq(guardianCallReports.callDate, callDateRaw));
+    }
+    if (followUpFilter === "needs") {
+      filters.push(eq(guardianCallReports.followUpNeeded, true));
+    } else if (followUpFilter === "closed") {
+      filters.push(eq(guardianCallReports.followUpNeeded, false));
     }
     if (searchTerm) {
       const pattern = `%${searchTerm}%`;
@@ -319,5 +325,91 @@ export async function POST(req) {
   } catch (error) {
     console.error("guardian-calls POST error", error);
     return NextResponse.json({ error: "Failed to save guardian call" }, { status: 500 });
+  }
+}
+
+export async function PATCH(req) {
+  const session = await auth();
+  if (!isManager(session)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  let payload;
+  try {
+    payload = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const reportId = parseId(payload?.id);
+  const appendNote = sanitizeText(payload?.appendReport);
+  const followUpNeeded = payload?.followUpNeeded === undefined ? null : Boolean(payload.followUpNeeded);
+  const followUpDateRaw = sanitizeText(payload?.followUpDate);
+
+  if (!reportId) {
+    return NextResponse.json({ error: "id is required" }, { status: 400 });
+  }
+  if (appendNote && appendNote.length < 3) {
+    return NextResponse.json({ error: "Follow-up note is too short" }, { status: 400 });
+  }
+  if (followUpNeeded === true && !followUpDateRaw) {
+    return NextResponse.json({ error: "followUpDate is required when follow-up is needed" }, { status: 400 });
+  }
+
+  let followUpDate = null;
+  if (followUpDateRaw) {
+    const parsed = new Date(followUpDateRaw);
+    if (Number.isNaN(parsed.getTime())) {
+      return NextResponse.json({ error: "Invalid followUpDate" }, { status: 400 });
+    }
+    followUpDate = parsed;
+  }
+
+  try {
+    const [existing] = await db
+      .select({
+        id: guardianCallReports.id,
+        report: guardianCallReports.report,
+      })
+      .from(guardianCallReports)
+      .where(eq(guardianCallReports.id, reportId))
+      .limit(1);
+
+    if (!existing) {
+      return NextResponse.json({ error: "Call report not found" }, { status: 404 });
+    }
+
+    const updates = {
+      updatedAt: new Date(),
+    };
+
+    if (appendNote) {
+      const caller = sanitizeText(session.user?.name || "");
+      const stamp = new Date().toLocaleString("en-IN", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      });
+      const header = caller ? `Follow-up on ${stamp} by ${caller}` : `Follow-up on ${stamp}`;
+      updates.report = `${existing.report.trim()}\n\n[${header}]\n${appendNote}`;
+    }
+
+    const followStateProvided = followUpNeeded !== null;
+    const followDateProvided = Boolean(followUpDateRaw);
+    if (followStateProvided) {
+      updates.followUpNeeded = followUpNeeded;
+    }
+    if (followStateProvided || followDateProvided) {
+      updates.followUpDate = followUpNeeded === false ? null : followUpDate ?? null;
+    }
+
+    await db
+      .update(guardianCallReports)
+      .set(updates)
+      .where(eq(guardianCallReports.id, reportId));
+
+    return NextResponse.json({ ok: true }, { status: 200 });
+  } catch (error) {
+    console.error("guardian-calls PATCH error", error);
+    return NextResponse.json({ error: "Failed to update guardian call" }, { status: 500 });
   }
 }

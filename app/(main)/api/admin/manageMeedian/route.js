@@ -58,6 +58,7 @@ import {
   ensurePtAssignmentsForAllClassTeachers,
   ensurePtTemplate,
   ensureAcademicHealthTemplate,
+  ensurePhoneCallTemplate,
 } from "@/lib/mriReports";
 
 /* ============================== GET ============================== */
@@ -173,6 +174,8 @@ export async function GET(req) {
     if (section === "mriReportTemplates") {
       await ensurePtTemplate();
       await ensureAcademicHealthTemplate();
+      await ensurePhoneCallTemplate();
+      await ensurePhoneCallTemplate();
       const templateKey = searchParams.get("templateKey");
       const query = db
         .select({
@@ -208,6 +211,7 @@ export async function GET(req) {
 
       await ensurePtTemplate();
       await ensureAcademicHealthTemplate();
+      await ensurePhoneCallTemplate();
 
       const rows = await db
         .select({
@@ -998,6 +1002,7 @@ export async function POST(req) {
     if (section === "mriReportAssignments") {
       await ensurePtTemplate();
       await ensureAcademicHealthTemplate();
+      await ensurePhoneCallTemplate();
       const action = typeof body?.action === "string" ? body.action.trim() : "";
       if (action === "syncClassTeachers") {
         const targetDate = body?.targetDate;
@@ -1018,11 +1023,12 @@ export async function POST(req) {
       };
 
       let templateId = body?.templateId ? Number(body.templateId) : null;
-      const templateKey = typeof body?.templateKey === "string" ? body.templateKey.trim() : "";
+      const templateKeyInput = typeof body?.templateKey === "string" ? body.templateKey.trim() : "";
+      let resolvedTemplateKey = templateKeyInput || "";
       if (!templateId) {
-        const lookupKey = templateKey || "pt_daily_report";
+        const lookupKey = resolvedTemplateKey || "pt_daily_report";
         const [templateRow] = await db
-          .select({ id: mriReportTemplates.id })
+          .select({ id: mriReportTemplates.id, key: mriReportTemplates.key })
           .from(mriReportTemplates)
           .where(eq(mriReportTemplates.key, lookupKey))
           .limit(1);
@@ -1030,6 +1036,14 @@ export async function POST(req) {
           return NextResponse.json({ error: "Template not found" }, { status: 404 });
         }
         templateId = templateRow.id;
+        resolvedTemplateKey = templateRow.key || resolvedTemplateKey;
+      } else if (!resolvedTemplateKey) {
+        const [templateRow] = await db
+          .select({ key: mriReportTemplates.key })
+          .from(mriReportTemplates)
+          .where(eq(mriReportTemplates.id, templateId))
+          .limit(1);
+        resolvedTemplateKey = templateRow?.key || "";
       }
 
       const userId = body?.userId ? Number(body.userId) : null;
@@ -1162,7 +1176,9 @@ export async function POST(req) {
         .where(eq(mriReportAssignments.id, assignment.id))
         .limit(1);
 
-      await ensurePtAssignmentsForUser(userId, startDate);
+      if (row?.templateKey === "pt_daily_report") {
+        await ensurePtAssignmentsForUser(userId, startDate);
+      }
 
       return NextResponse.json({ assignment: row }, { status: 200 });
     }
@@ -2452,6 +2468,7 @@ export async function PATCH(req) {
     if (section === "mriReportAssignments") {
       await ensurePtTemplate();
       await ensureAcademicHealthTemplate();
+      await ensurePhoneCallTemplate();
       const updatesRaw = Array.isArray(body?.updates)
         ? body.updates
         : Array.isArray(body)
@@ -2489,6 +2506,37 @@ export async function PATCH(req) {
         if (u.targetLabel !== undefined) {
           const label = String(u.targetLabel || "").trim();
           setObj.targetLabel = label || null;
+        }
+        if (u.userId !== undefined) {
+          const rawUserId = u.userId === null || u.userId === "" ? null : Number(u.userId);
+          if (!rawUserId || !Number.isFinite(rawUserId)) {
+            return NextResponse.json({ error: `Invalid userId for assignment ${id}` }, { status: 400 });
+          }
+          const [userRow] = await db
+            .select({ id: users.id })
+            .from(users)
+            .where(eq(users.id, rawUserId))
+            .limit(1);
+          if (!userRow) {
+            return NextResponse.json({ error: `User ${rawUserId} not found` }, { status: 404 });
+          }
+          setObj.userId = rawUserId;
+        }
+        if (u.classId !== undefined) {
+          const rawClassId = u.classId === null || u.classId === "" ? null : Number(u.classId);
+          if (rawClassId && Number.isFinite(rawClassId)) {
+            const [classRow] = await db
+              .select({ id: Classes.id })
+              .from(Classes)
+              .where(eq(Classes.id, rawClassId))
+              .limit(1);
+            if (!classRow) {
+              return NextResponse.json({ error: `Class ${rawClassId} not found` }, { status: 404 });
+            }
+            setObj.classId = rawClassId;
+          } else {
+            setObj.classId = null;
+          }
         }
         if (u.startDate !== undefined) {
           const normalized = normalizeDate(u.startDate);

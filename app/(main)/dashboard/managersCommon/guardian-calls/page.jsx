@@ -46,6 +46,7 @@ const initialFilters = {
   programId: "",
   callDate: "",
   search: "",
+  followUp: "all",
 };
 
 const formatDisplayDate = (value) => {
@@ -74,6 +75,10 @@ export default function GuardianCallsPage() {
   const [filters, setFilters] = useState(initialFilters);
   const [saving, setSaving] = useState(false);
   const [statusMessage, setStatusMessage] = useState(null);
+  const [followUpModal, setFollowUpModal] = useState(null);
+  const [followUpSaving, setFollowUpSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState("log");
+  const [previousFollowFilter, setPreviousFollowFilter] = useState("all");
 
   const {
     data: optionsData,
@@ -113,8 +118,10 @@ export default function GuardianCallsPage() {
     if (filters.programId) params.set("programId", filters.programId);
     if (filters.callDate) params.set("callDate", filters.callDate);
     if (filters.search && filters.search.trim()) params.set("q", filters.search.trim());
+    const effectiveFollowUp = activeTab === "followups" ? "needs" : filters.followUp;
+    if (effectiveFollowUp && effectiveFollowUp !== "all") params.set("followUp", effectiveFollowUp);
     return `/api/managersCommon/guardian-calls?${params.toString()}`;
-  }, [filters]);
+  }, [filters, activeTab]);
 
   const {
     data: callsData,
@@ -189,6 +196,25 @@ export default function GuardianCallsPage() {
     }));
   };
 
+  const switchTab = (tab) => {
+    setActiveTab(tab);
+    if (tab === "followups") {
+      setPreviousFollowFilter(filters.followUp || "all");
+      setFilters((prev) => ({
+        ...prev,
+        followUp: "needs",
+      }));
+    } else if (tab === "log") {
+      setFilters((prev) => ({
+        ...prev,
+        followUp: previousFollowFilter || "all",
+      }));
+    }
+  };
+
+  const followUpSelectValue = activeTab === "followups" ? "needs" : filters.followUp;
+  const isFollowUpTab = activeTab === "followups";
+
   const resetForm = () => {
     setForm((prev) => ({
       ...initialForm(),
@@ -200,6 +226,73 @@ export default function GuardianCallsPage() {
     setStatusMessage({ type, text });
     if (text) {
       setTimeout(() => setStatusMessage(null), 3500);
+    }
+  };
+
+  const openFollowUpModal = (call) => {
+    if (!call) return;
+    const classParts = [];
+    if (call.class?.name) classParts.push(call.class.name);
+    if (call.class?.section) classParts.push(call.class.section);
+    setFollowUpModal({
+      id: call.id,
+      studentName: call.student?.name || "",
+      guardianName: call.guardian?.name || "",
+      classLabel: classParts.join(" ").trim(),
+      callDate: call.callDate,
+      followUpNeeded: Boolean(call.followUpNeeded),
+      followUpDate: call.followUpNeeded
+        ? call.followUpDate || call.callDate || todayKey()
+        : "",
+      note: "",
+    });
+  };
+
+  const updateFollowUpModal = (patch) => {
+    setFollowUpModal((prev) => (prev ? { ...prev, ...patch } : prev));
+  };
+
+  const closeFollowUpModal = () => {
+    setFollowUpModal(null);
+    setFollowUpSaving(false);
+  };
+
+  const handleFollowUpSubmit = async (event) => {
+    event.preventDefault();
+    if (!followUpModal || followUpSaving) return;
+    const note = (followUpModal.note || "").trim();
+    if (note.length < 3) {
+      setMessage("error", "Add a short follow-up note before saving.");
+      return;
+    }
+    if (followUpModal.followUpNeeded && !followUpModal.followUpDate) {
+      setMessage("error", "Pick a follow-up date.");
+      return;
+    }
+
+    setFollowUpSaving(true);
+    try {
+      const res = await fetch("/api/managersCommon/guardian-calls", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: followUpModal.id,
+          appendReport: note,
+          followUpNeeded: followUpModal.followUpNeeded,
+          followUpDate: followUpModal.followUpNeeded ? followUpModal.followUpDate : null,
+        }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(payload?.error || `HTTP ${res.status}`);
+      }
+      await mutateCalls();
+      setMessage("success", "Follow-up updated.");
+      closeFollowUpModal();
+    } catch (error) {
+      console.error("Failed to update guardian call follow-up", error);
+      setMessage("error", error.message || "Failed to update follow-up.");
+      setFollowUpSaving(false);
     }
   };
 
@@ -269,43 +362,67 @@ export default function GuardianCallsPage() {
         </Link>
       </header>
 
-      <Card>
-        <CardHeader>
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h2 className="text-base font-semibold text-gray-900">Log guardian call</h2>
-              <p className="text-sm text-gray-600">
-                Choose the class and student. Guardian contact details will auto-fill from the student record.
-              </p>
+      <div className="flex items-center gap-2 rounded-full border border-gray-200 bg-white p-1 shadow-sm">
+        {[
+          { id: "log", label: "Log calls" },
+          { id: "followups", label: "Follow-ups" },
+        ].map((tab) => {
+          const active = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => switchTab(tab.id)}
+              className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                active
+                  ? "bg-teal-500 text-white shadow"
+                  : "text-gray-600 hover:text-gray-800"
+              }`}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {!isFollowUpTab && (
+        <Card>
+          <CardHeader>
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="text-base font-semibold text-gray-900">Log guardian call</h2>
+                <p className="text-sm text-gray-600">
+                  Choose the class and student. Guardian contact details will auto-fill from the student record.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 text-sm text-gray-600">
+                <CalendarDays className="h-4 w-4" />
+                <span>Today: {formatDisplayDate(todayKey())}</span>
+              </div>
             </div>
-            <div className="flex items-center gap-2 text-sm text-gray-600">
-              <CalendarDays className="h-4 w-4" />
-              <span>Today: {formatDisplayDate(todayKey())}</span>
-            </div>
-          </div>
-        </CardHeader>
-        <CardBody>
-          <form className="grid gap-4 lg:grid-cols-12" onSubmit={handleSubmit}>
-            <div className="lg:col-span-3">
-              <label className="text-sm font-medium text-gray-700" htmlFor="gc-classId">
-                Class
-              </label>
-              <select
-                id="gc-classId"
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                value={form.classId}
-                onChange={handleClassChange}
-                disabled={optionsLoading}
-              >
-                <option value="">Select class</option>
-                {classes.map((cls) => (
-                  <option key={cls.id} value={cls.id}>
-                    {cls.name}
-                    {cls.section ? ` - ${cls.section}` : ""}
-                  </option>
-                ))}
-              </select>
-            </div>
+          </CardHeader>
+          <CardBody>
+            <form className="grid gap-4 lg:grid-cols-12" onSubmit={handleSubmit}>
+              <div className="lg:col-span-3">
+                <label className="text-sm font-medium text-gray-700" htmlFor="gc-classId">
+                  Class
+                </label>
+                <select
+                  id="gc-classId"
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  value={form.classId}
+                  onChange={handleClassChange}
+                  disabled={optionsLoading}
+                >
+                  <option value="">Select class</option>
+                  {classes.map((cls) => (
+                    <option key={cls.id} value={cls.id}>
+                      {cls.name}
+                      {cls.section ? ` - ${cls.section}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
             <div className="lg:col-span-3">
               <label className="text-sm font-medium text-gray-700" htmlFor="gc-studentId">
@@ -429,44 +546,49 @@ export default function GuardianCallsPage() {
               )}
             </div>
 
-            <div className="lg:col-span-3">
-              <label className="text-sm font-medium text-gray-700">Called by</label>
-              <div className="mt-2 flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
-                <PhoneCall className="h-4 w-4 text-teal-600" />
-                <span>{session?.user?.name || "You"}</span>
+              <div className="lg:col-span-3">
+                <label className="text-sm font-medium text-gray-700">Called by</label>
+                <div className="mt-2 flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+                  <PhoneCall className="h-4 w-4 text-teal-600" />
+                  <span>{session?.user?.name || "You"}</span>
+                </div>
               </div>
-            </div>
 
-            <div className="lg:col-span-12 flex flex-col gap-3 border-t border-gray-200 pt-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-h-[1.5rem] text-sm">
-                {statusMessage && (
-                  <span
-                    className={statusMessage.type === "success" ? "text-teal-600" : "text-red-600"}
-                  >
-                    {statusMessage.text}
-                  </span>
-                )}
+              <div className="lg:col-span-12 flex flex-col gap-3 border-t border-gray-200 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-h-[1.5rem] text-sm">
+                  {statusMessage && (
+                    <span
+                      className={statusMessage.type === "success" ? "text-teal-600" : "text-red-600"}
+                    >
+                      {statusMessage.text}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button type="button" variant="ghost" onClick={resetForm} disabled={saving}>
+                    Clear
+                  </Button>
+                  <Button type="submit" disabled={saving}>
+                    {saving ? "Saving…" : "Save call report"}
+                  </Button>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Button type="button" variant="ghost" onClick={resetForm} disabled={saving}>
-                  Clear
-                </Button>
-                <Button type="submit" disabled={saving}>
-                  {saving ? "Saving…" : "Save call report"}
-                </Button>
-              </div>
-            </div>
-          </form>
-        </CardBody>
-      </Card>
+            </form>
+          </CardBody>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <h2 className="text-base font-semibold text-gray-900">Recent guardian calls</h2>
+              <h2 className="text-base font-semibold text-gray-900">
+                {isFollowUpTab ? "Follow-up queue" : "Recent guardian calls"}
+              </h2>
               <p className="text-sm text-gray-600">
-                Use filters to review past conversations and follow-ups for any student.
+                {isFollowUpTab
+                  ? "Keep track of pending follow-ups and close them once conversations are wrapped up."
+                  : "Use filters to review past conversations and follow-ups for any student."}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -484,7 +606,7 @@ export default function GuardianCallsPage() {
           </div>
         </CardHeader>
         <CardBody>
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-6">
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-7">
             <div>
               <label className="text-sm font-medium text-gray-700" htmlFor="gc-filter-class">
                 Class filter
@@ -559,6 +681,22 @@ export default function GuardianCallsPage() {
                 ))}
               </select>
             </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700" htmlFor="gc-filter-followup">
+                Follow-up status
+              </label>
+              <select
+                id="gc-filter-followup"
+                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                value={followUpSelectValue}
+                onChange={handleFiltersChange("followUp")}
+                disabled={isFollowUpTab}
+              >
+                <option value="all">All calls</option>
+                <option value="needs">Needs follow-up</option>
+                <option value="closed">Closed</option>
+              </select>
+            </div>
             <div className="md:col-span-2 lg:col-span-2">
               <label className="text-sm font-medium text-gray-700" htmlFor="gc-filter-search">
                 Search
@@ -592,19 +730,20 @@ export default function GuardianCallsPage() {
                   <th className="px-4 py-3">Follow-up</th>
                   <th className="px-4 py-3">Called by</th>
                   <th className="px-4 py-3">Logged at</th>
+                  <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {calls.length === 0 && !callsLoading && (
                   <tr>
-                    <td className="px-4 py-6 text-center text-sm text-gray-500" colSpan={10}>
+                    <td className="px-4 py-6 text-center text-sm text-gray-500" colSpan={11}>
                       No guardian calls logged yet. Once you add reports they will appear here.
                     </td>
                   </tr>
                 )}
                 {callsLoading && (
                   <tr>
-                    <td className="px-4 py-6 text-center text-sm text-gray-500" colSpan={10}>
+                    <td className="px-4 py-6 text-center text-sm text-gray-500" colSpan={11}>
                       Loading call reports…
                     </td>
                   </tr>
@@ -649,6 +788,16 @@ export default function GuardianCallsPage() {
                     <td className="px-4 py-3 text-gray-500">
                       {call.createdAt ? new Date(call.createdAt).toLocaleString() : "—"}
                     </td>
+                    <td className="px-4 py-3 text-right">
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        className="shadow-sm shadow-teal-500/40"
+                        onClick={() => openFollowUpModal(call)}
+                      >
+                        {call.followUpNeeded ? "Log follow-up" : "Add note"}
+                      </Button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -656,6 +805,83 @@ export default function GuardianCallsPage() {
           </div>
         </CardBody>
       </Card>
+
+      {followUpModal && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/50 px-4 py-6">
+          <div className="w-full max-w-xl rounded-2xl bg-white shadow-xl">
+            <div className="border-b border-gray-200 px-6 py-4">
+              <h3 className="text-lg font-semibold text-gray-900">Follow-up with {followUpModal.studentName || "student"}</h3>
+              <p className="mt-1 text-sm text-gray-600">
+                Guardian: {followUpModal.guardianName || "—"} • Call date: {formatDisplayDate(followUpModal.callDate)}
+                {followUpModal.classLabel ? ` • Class ${followUpModal.classLabel}` : ""}
+              </p>
+            </div>
+            <form onSubmit={handleFollowUpSubmit}>
+              <div className="space-y-4 px-6 py-5">
+                <div>
+                  <label className="text-sm font-medium text-gray-700" htmlFor="gc-followup-note">
+                    Follow-up note
+                  </label>
+                  <textarea
+                    id="gc-followup-note"
+                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                    rows={4}
+                    placeholder="Summarise the follow-up conversation or update."
+                    value={followUpModal.note}
+                    onChange={(event) => updateFollowUpModal({ note: event.target.value })}
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700" htmlFor="gc-followup-status">
+                    Next action
+                  </label>
+                  <select
+                    id="gc-followup-status"
+                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                    value={followUpModal.followUpNeeded ? "needs" : "closed"}
+                    onChange={(event) => {
+                      const needs = event.target.value === "needs";
+                      updateFollowUpModal({
+                        followUpNeeded: needs,
+                        followUpDate: needs
+                          ? followUpModal.followUpDate || todayKey()
+                          : "",
+                      });
+                    }}
+                  >
+                    <option value="needs">Needs another follow-up</option>
+                    <option value="closed">Close follow-up</option>
+                  </select>
+                </div>
+                {followUpModal.followUpNeeded && (
+                  <div>
+                    <label className="text-sm font-medium text-gray-700" htmlFor="gc-followup-date">
+                      Schedule next follow-up
+                    </label>
+                    <input
+                      id="gc-followup-date"
+                      type="date"
+                      className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                      min={followUpModal.callDate || todayKey()}
+                      value={followUpModal.followUpDate}
+                      onChange={(event) => updateFollowUpModal({ followUpDate: event.target.value })}
+                    />
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-6 py-4">
+                <Button type="button" variant="ghost" onClick={closeFollowUpModal} disabled={followUpSaving}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={followUpSaving}>
+                  {followUpSaving ? "Saving…" : "Save follow-up"}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
