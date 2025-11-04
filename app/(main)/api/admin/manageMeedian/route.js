@@ -1046,14 +1046,30 @@ export async function POST(req) {
         resolvedTemplateKey = templateRow?.key || "";
       }
 
-      const userId = body?.userId ? Number(body.userId) : null;
-      if (!userId) {
-        return NextResponse.json({ error: "userId is required" }, { status: 400 });
+      const rawUserIds = Array.isArray(body?.userIds)
+        ? body.userIds
+        : body?.userId !== undefined
+        ? [body.userId]
+        : [];
+      const userIds = rawUserIds
+        .map((value) => {
+          const num = Number(value);
+          return Number.isFinite(num) && num > 0 ? num : null;
+        })
+        .filter((value) => value !== null);
+
+      if (!userIds.length) {
+        return NextResponse.json({ error: "At least one userId is required" }, { status: 400 });
       }
 
-      const [userRow] = await db.select({ id: users.id }).from(users).where(eq(users.id, userId)).limit(1);
-      if (!userRow) {
-        return NextResponse.json({ error: "User not found" }, { status: 404 });
+      const uniqueUserIds = Array.from(new Set(userIds));
+
+      const existingUsers = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(inArray(users.id, uniqueUserIds));
+      if (existingUsers.length !== uniqueUserIds.length) {
+        return NextResponse.json({ error: "One or more users not found" }, { status: 404 });
       }
 
       const classId = body?.classId ? Number(body.classId) : null;
@@ -1111,76 +1127,85 @@ export async function POST(req) {
           : null;
 
       const now = new Date();
-      const insertValues = {
-        templateId,
-        targetType: valueTargetType || "user",
-        userId,
-        classId: classRow ? classRow.id : null,
-        targetLabel: targetLabel || null,
-        startDate,
-        endDate,
-        scopeMeta,
-        active,
-        createdBy: Number(session.user.id),
-        updatedAt: now,
-      };
+      const results = [];
 
-      const [assignment] = await db
-        .insert(mriReportAssignments)
-        .values(insertValues)
-        .onConflictDoUpdate({
-          target: [mriReportAssignments.templateId, mriReportAssignments.userId, mriReportAssignments.classId],
-          set: {
-            targetType: insertValues.targetType,
-            targetLabel: insertValues.targetLabel,
-            startDate: insertValues.startDate,
-            endDate: insertValues.endDate,
-            scopeMeta: insertValues.scopeMeta,
-            active: insertValues.active,
-            updatedAt: now,
-          },
-        })
-        .returning({
-          id: mriReportAssignments.id,
-        });
+      for (const userId of uniqueUserIds) {
+        const insertValues = {
+          templateId,
+          targetType: valueTargetType || "user",
+          userId,
+          classId: classRow ? classRow.id : null,
+          targetLabel: targetLabel || null,
+          startDate,
+          endDate,
+          scopeMeta,
+          active,
+          createdBy: Number(session.user.id),
+          updatedAt: now,
+        };
 
-      if (!assignment) {
-        return NextResponse.json({ error: "Failed to upsert assignment" }, { status: 500 });
+        const [assignment] = await db
+          .insert(mriReportAssignments)
+          .values(insertValues)
+          .onConflictDoUpdate({
+            target: [mriReportAssignments.templateId, mriReportAssignments.userId, mriReportAssignments.classId],
+            set: {
+              targetType: insertValues.targetType,
+              targetLabel: insertValues.targetLabel,
+              startDate: insertValues.startDate,
+              endDate: insertValues.endDate,
+              scopeMeta: insertValues.scopeMeta,
+              active: insertValues.active,
+              updatedAt: now,
+            },
+          })
+          .returning({
+            id: mriReportAssignments.id,
+          });
+
+        if (!assignment) {
+          return NextResponse.json({ error: "Failed to upsert assignment" }, { status: 500 });
+        }
+
+        const [row] = await db
+          .select({
+            id: mriReportAssignments.id,
+            templateId: mriReportAssignments.templateId,
+            templateKey: mriReportTemplates.key,
+            templateName: mriReportTemplates.name,
+            targetType: mriReportAssignments.targetType,
+            userId: mriReportAssignments.userId,
+            userName: users.name,
+            userEmail: users.email,
+            classId: mriReportAssignments.classId,
+            className: Classes.name,
+            classSection: Classes.section,
+            targetLabel: mriReportAssignments.targetLabel,
+            startDate: mriReportAssignments.startDate,
+            endDate: mriReportAssignments.endDate,
+            active: mriReportAssignments.active,
+            scopeMeta: mriReportAssignments.scopeMeta,
+            createdAt: mriReportAssignments.createdAt,
+            updatedAt: mriReportAssignments.updatedAt,
+          })
+          .from(mriReportAssignments)
+          .innerJoin(mriReportTemplates, eq(mriReportTemplates.id, mriReportAssignments.templateId))
+          .leftJoin(users, eq(users.id, mriReportAssignments.userId))
+          .leftJoin(Classes, eq(Classes.id, mriReportAssignments.classId))
+          .where(eq(mriReportAssignments.id, assignment.id))
+          .limit(1);
+
+        if (row?.templateKey === "pt_daily_report") {
+          await ensurePtAssignmentsForUser(userId, startDate);
+        }
+
+        results.push(row);
       }
 
-      const [row] = await db
-        .select({
-          id: mriReportAssignments.id,
-          templateId: mriReportAssignments.templateId,
-          templateKey: mriReportTemplates.key,
-          templateName: mriReportTemplates.name,
-          targetType: mriReportAssignments.targetType,
-          userId: mriReportAssignments.userId,
-          userName: users.name,
-          userEmail: users.email,
-          classId: mriReportAssignments.classId,
-          className: Classes.name,
-          classSection: Classes.section,
-          targetLabel: mriReportAssignments.targetLabel,
-          startDate: mriReportAssignments.startDate,
-          endDate: mriReportAssignments.endDate,
-          active: mriReportAssignments.active,
-          scopeMeta: mriReportAssignments.scopeMeta,
-          createdAt: mriReportAssignments.createdAt,
-          updatedAt: mriReportAssignments.updatedAt,
-        })
-        .from(mriReportAssignments)
-        .innerJoin(mriReportTemplates, eq(mriReportTemplates.id, mriReportAssignments.templateId))
-        .leftJoin(users, eq(users.id, mriReportAssignments.userId))
-        .leftJoin(Classes, eq(Classes.id, mriReportAssignments.classId))
-        .where(eq(mriReportAssignments.id, assignment.id))
-        .limit(1);
-
-      if (row?.templateKey === "pt_daily_report") {
-        await ensurePtAssignmentsForUser(userId, startDate);
-      }
-
-      return NextResponse.json({ assignment: row }, { status: 200 });
+      return NextResponse.json(
+        results.length === 1 ? { assignment: results[0] } : { assignments: results },
+        { status: 200 }
+      );
     }
     if (section === "classTeachers") {
       const normalizeId = (value) => {

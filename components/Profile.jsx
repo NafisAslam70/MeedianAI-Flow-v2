@@ -573,23 +573,6 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
     const startMonth = startDay.getMonth();
     const startYear = startDay.getFullYear();
 
-    const healthLeavesThisMonth = (leaveHistory || []).filter((req) => {
-      if (!req?.startDate || req.status === "rejected") return false;
-      const date = req.startDate instanceof Date ? req.startDate : new Date(req.startDate);
-      return (
-        req.category === "health" &&
-        date.getMonth() === startMonth &&
-        date.getFullYear() === startYear
-      );
-    }).length;
-
-    if (leaveRequest.category === "health" && healthLeavesThisMonth >= 2) {
-      setError("You have already used the 2 health leaves allowed for this month.");
-      setTimeout(() => setError(""), 3000);
-      setIsLoading(false);
-      return;
-    }
-
     const clLeavesThisMonth = (leaveHistory || []).filter((req) => {
       if (!req?.startDate || req.status === "rejected") return false;
       const date = req.startDate instanceof Date ? req.startDate : new Date(req.startDate);

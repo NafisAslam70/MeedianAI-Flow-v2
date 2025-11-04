@@ -207,24 +207,6 @@ export async function POST(req) {
 
     const relevantLeaves = Array.isArray(existingLeaves) ? existingLeaves : [];
 
-    const healthLeavesThisMonth = relevantLeaves.filter((leave) => {
-      if (!leave.startDate) return false;
-      const leaveDate = new Date(leave.startDate);
-      return (
-        leave.category === "health" &&
-        leaveDate.getMonth() === startMonth &&
-        leaveDate.getFullYear() === startYear &&
-        leave.status !== "rejected"
-      );
-    }).length;
-
-    if (resolvedCategory === "health" && healthLeavesThisMonth >= 2) {
-      return NextResponse.json(
-        { error: "You have already used the 2 health leaves allowed for this month." },
-        { status: 400 }
-      );
-    }
-
     const clLeavesThisMonth = relevantLeaves.filter((leave) => {
       if (!leave.startDate) return false;
       const leaveDate = new Date(leave.startDate);

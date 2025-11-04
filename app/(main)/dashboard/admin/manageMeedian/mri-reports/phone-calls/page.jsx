@@ -39,7 +39,7 @@ const formatDate = (value) => {
 };
 
 const createInitialFormState = () => ({
-  userId: "",
+  userIds: [],
   targetLabel: "",
   callType: CALL_TYPE_OPTIONS[0],
   focusArea: "",
@@ -141,6 +141,15 @@ export default function ManagePhoneCallDrivesPage() {
     }));
   };
 
+  const handleCallerChange = (event) => {
+    const options = Array.from(event.target.selectedOptions || []);
+    const values = options.map((option) => option.value);
+    setForm((prev) => ({
+      ...prev,
+      userIds: values,
+    }));
+  };
+
   const handleScopeModeChange = (event) => {
     const value = event.target.value;
     setForm((prev) => ({
@@ -158,7 +167,7 @@ export default function ManagePhoneCallDrivesPage() {
     const callScope = scopeMeta.callScope || {};
     const timeline = scopeMeta.timeline || {};
     setForm({
-      userId: assignment.userId ? String(assignment.userId) : "",
+      userIds: assignment.userId ? [String(assignment.userId)] : [],
       targetLabel: assignment.targetLabel || "",
       callType: campaign.callType || CALL_TYPE_OPTIONS[0],
       focusArea: campaign.focusArea || "",
@@ -214,8 +223,8 @@ export default function ManagePhoneCallDrivesPage() {
     if (busy) return;
     resetAlerts();
 
-    if (!form.userId) {
-      setError("Choose a caller to assign this drive to.");
+    if (!form.userIds.length) {
+      setError("Select at least one member to assign this drive to.");
       return;
     }
     if (!form.targetLabel.trim()) {
@@ -247,7 +256,7 @@ export default function ManagePhoneCallDrivesPage() {
             updates: [
               {
                 id: editingAssignment.id,
-                userId: Number(payload.userId),
+                userId: Number(payload.userIds[0]),
                 targetLabel: payload.targetLabel,
                 startDate: payload.startDate || null,
                 endDate: payload.dueDate || null,
@@ -267,7 +276,7 @@ export default function ManagePhoneCallDrivesPage() {
       } else {
         const body = {
           templateKey: TEMPLATE_KEY,
-          userId: Number(payload.userId),
+          userIds: payload.userIds.map((value) => Number(value)),
           targetLabel: payload.targetLabel,
           startDate: payload.startDate,
           endDate: payload.dueDate || null,
@@ -559,22 +568,25 @@ export default function ManagePhoneCallDrivesPage() {
             </div>
 
             <div className="lg:col-span-4">
-              <label className="text-sm font-medium text-gray-700" htmlFor="pc-caller">
-                Caller / owner
+              <label className="text-sm font-medium text-gray-700" htmlFor="pc-callers">
+                Caller(s) / owner(s)
               </label>
               <select
-                id="pc-caller"
+                id="pc-callers"
+                multiple
                 className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                value={form.userId}
-                onChange={updateForm("userId")}
+                value={form.userIds}
+                onChange={handleCallerChange}
               >
-                <option value="">Select member</option>
                 {callers.map((caller) => (
                   <option key={caller.id} value={caller.id}>
                     {caller.name} {caller.role === "team_manager" ? "(Manager)" : ""}
                   </option>
                 ))}
               </select>
+              <p className="mt-1 text-xs text-gray-500">
+                Hold Cmd ⌘ (Mac) or Ctrl (Windows) to select multiple members.
+              </p>
             </div>
             <div className="lg:col-span-4">
               <label className="text-sm font-medium text-gray-700" htmlFor="pc-scope-mode">
