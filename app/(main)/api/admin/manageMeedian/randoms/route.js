@@ -13,6 +13,7 @@ const FLAG_KEYS = {
   chatMuteAdmin: "chat_mute_allow_admins",
   chatMuteManager: "chat_mute_allow_managers",
   chatMuteMember: "chat_mute_allow_members",
+  leaveProof: "leave_proof_required",
 };
 
 const FLAG_DEFAULTS = {
@@ -24,6 +25,7 @@ const FLAG_DEFAULTS = {
   chatMuteAllowAdmins: true,
   chatMuteAllowManagers: true,
   chatMuteAllowMembers: true,
+  leaveProofRequired: false,
 };
 
 async function requireAccess({ write = false } = {}) {
@@ -92,6 +94,9 @@ export async function GET() {
       chatMuteAllowMembers: map.has(FLAG_KEYS.chatMuteMember)
         ? !!map.get(FLAG_KEYS.chatMuteMember)
         : FLAG_DEFAULTS.chatMuteAllowMembers,
+      leaveProofRequired: map.has(FLAG_KEYS.leaveProof)
+        ? !!map.get(FLAG_KEYS.leaveProof)
+        : FLAG_DEFAULTS.leaveProofRequired,
     },
     { status: 200 }
   );
@@ -138,6 +143,9 @@ export async function POST(req) {
   if (body.hasOwnProperty("chatMuteAllowMembers")) {
     updates.push({ key: FLAG_KEYS.chatMuteMember, value: !!body.chatMuteAllowMembers });
   }
+  if (body.hasOwnProperty("leaveProofRequired")) {
+    updates.push({ key: FLAG_KEYS.leaveProof, value: !!body.leaveProofRequired });
+  }
 
   if (!updates.length) {
     return NextResponse.json({ error: "No updates provided" }, { status: 400 });
@@ -166,6 +174,7 @@ export async function POST(req) {
       chatMuteAllowAdmins: updates.find((item) => item.key === FLAG_KEYS.chatMuteAdmin)?.value ?? undefined,
       chatMuteAllowManagers: updates.find((item) => item.key === FLAG_KEYS.chatMuteManager)?.value ?? undefined,
       chatMuteAllowMembers: updates.find((item) => item.key === FLAG_KEYS.chatMuteMember)?.value ?? undefined,
+      leaveProofRequired: updates.find((item) => item.key === FLAG_KEYS.leaveProof)?.value ?? undefined,
     },
     { status: 200 }
   );

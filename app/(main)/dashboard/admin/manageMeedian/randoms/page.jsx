@@ -3,7 +3,7 @@
 import { useState } from "react";
 import useSWR from "swr";
 import { motion } from "framer-motion";
-import { Loader2, Sparkles, Check, X, Eye, EyeOff, Lock, Smartphone } from "lucide-react";
+import { Loader2, Sparkles, Check, X, Eye, EyeOff, Lock, Smartphone, FileText } from "lucide-react";
 import { useSession } from "next-auth/react";
 
 const fetcher = (url) =>
@@ -25,6 +25,7 @@ export default function RandomsPage() {
   const [isSavingChatMuteAdmins, setIsSavingChatMuteAdmins] = useState(false);
   const [isSavingChatMuteManagers, setIsSavingChatMuteManagers] = useState(false);
   const [isSavingChatMuteMembers, setIsSavingChatMuteMembers] = useState(false);
+  const [isSavingLeaveProof, setIsSavingLeaveProof] = useState(false);
 
   const showDayCloseBypass = data?.showDayCloseBypass ?? false;
   const showIprJourney = data?.showIprJourney ?? true;
@@ -34,6 +35,7 @@ export default function RandomsPage() {
   const chatMuteAllowAdmins = data?.chatMuteAllowAdmins ?? true;
   const chatMuteAllowManagers = data?.chatMuteAllowManagers ?? true;
   const chatMuteAllowMembers = data?.chatMuteAllowMembers ?? true;
+  const leaveProofRequired = data?.leaveProofRequired ?? false;
 
   const updateFlag = async ({ payload, setSaving, successMessage }) => {
     if (setSaving) setSaving(true);
@@ -165,6 +167,18 @@ export default function RandomsPage() {
     });
   };
 
+  const handleToggleLeaveProof = () => {
+    if (isSavingLeaveProof) return;
+    const nextValue = !leaveProofRequired;
+    updateFlag({
+      payload: { leaveProofRequired: nextValue },
+      setSaving: setIsSavingLeaveProof,
+      successMessage: nextValue
+        ? "Supporting documents are now mandatory for new leave requests."
+        : "Supporting documents are optional again for leave requests.",
+    });
+  };
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center gap-3">
@@ -265,6 +279,50 @@ export default function RandomsPage() {
             Failed to load current value. Try refreshing.
           </div>
         )}
+      </div>
+
+      <div className="max-w-xl rounded-2xl border border-amber-100 bg-white/90 shadow-sm p-6 space-y-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-800">Require Leave Evidence</h2>
+            <p className="text-sm text-gray-600">
+              Force members to attach supporting documents whenever they request leave. Disable to return to optional uploads.
+            </p>
+          </div>
+          <motion.button
+            type="button"
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.97 }}
+            onClick={handleToggleLeaveProof}
+            disabled={isLoading || isSavingLeaveProof}
+            className={`relative inline-flex h-9 w-16 items-center rounded-full border transition-colors duration-200 ${
+              leaveProofRequired ? "bg-amber-500 border-amber-500" : "bg-gray-200 border-gray-300"
+            } ${isSavingLeaveProof ? "opacity-70 cursor-not-allowed" : "cursor-pointer"}`}
+            aria-pressed={leaveProofRequired}
+          >
+            <span
+              className={`ml-1 inline-flex h-7 w-7 transform items-center justify-center rounded-full bg-white shadow transition-transform duration-200 ${
+                leaveProofRequired ? "translate-x-7" : "translate-x-0"
+              }`}
+            >
+              {isSavingLeaveProof ? (
+                <Loader2 className="h-4 w-4 animate-spin text-amber-600" />
+              ) : leaveProofRequired ? (
+                <FileText className="h-4 w-4 text-amber-600" />
+              ) : (
+                <X className="h-4 w-4 text-gray-500" />
+              )}
+            </span>
+          </motion.button>
+        </div>
+        <div className="text-sm text-gray-500">
+          Status:{" "}
+          {isLoading
+            ? "Loading…"
+            : leaveProofRequired
+            ? "Evidence upload is mandatory for new leave submissions."
+            : "Members can submit leave without uploading evidence."}
+        </div>
       </div>
 
       <div className="max-w-xl rounded-2xl border border-rose-100 bg-white/90 shadow-sm p-6 space-y-4">

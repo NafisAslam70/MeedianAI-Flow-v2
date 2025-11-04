@@ -1,10 +1,26 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { users, leaveRequests, messages } from "@/lib/schema";
+import { users, leaveRequests, messages, systemFlags } from "@/lib/schema";
 import { eq, desc } from "drizzle-orm";
 import { writeFile } from "fs/promises";
 import path from "path";
+
+const LEAVE_PROOF_FLAG_KEY = "leave_proof_required";
+
+async function isProofRequired() {
+  try {
+    const [row] = await db
+      .select({ value: systemFlags.value })
+      .from(systemFlags)
+      .where(eq(systemFlags.key, LEAVE_PROOF_FLAG_KEY))
+      .limit(1);
+    return row ? !!row.value : false;
+  } catch (err) {
+    console.error("Failed to read leave proof flag:", err);
+    return false;
+  }
+}
 
 export async function GET(req) {
   const session = await auth();
@@ -32,6 +48,12 @@ export async function GET(req) {
         createdAt: leaveRequests.createdAt,
         approvedAt: leaveRequests.approvedAt,
         supervisorName: users.name,
+        approvedStartDate: leaveRequests.approvedStartDate,
+        approvedEndDate: leaveRequests.approvedEndDate,
+        decisionNote: leaveRequests.decisionNote,
+        memberMessage: leaveRequests.memberMessage,
+        rejectionReason: leaveRequests.rejectionReason,
+        escalationMatterId: leaveRequests.escalationMatterId,
       })
       .from(leaveRequests)
       .leftJoin(users, eq(leaveRequests.submittedTo, users.id))
@@ -40,7 +62,12 @@ export async function GET(req) {
 
     console.log("Fetched leave requests for user:", { userId: session.user.id, count: requests.length });
     return NextResponse.json(
-      { requests },
+      {
+        requests,
+        config: {
+          proofRequired: await isProofRequired(),
+        },
+      },
       { status: 200, headers: { "Content-Type": "application/json" } }
     );
   } catch (error) {
@@ -70,6 +97,8 @@ export async function POST(req) {
     if (!startDate || !endDate || !reason) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
+
+    const proofRequired = await isProofRequired();
 
     // Validate dates
     const start = new Date(startDate);
@@ -126,6 +155,8 @@ export async function POST(req) {
       const buffer = Buffer.from(await proof.arrayBuffer());
       await writeFile(filePath, buffer);
       proofUrl = `/uploads/leave-proofs/${fileName}`;
+    } else if (proofRequired) {
+      return NextResponse.json({ error: "Supporting document is required for leave requests." }, { status: 400 });
     }
 
     // Insert leave request

@@ -105,6 +105,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
   const [showSentMessageHistoryModal, setShowSentMessageHistoryModal] = useState(false);
   const [compiledMessage, setCompiledMessage] = useState("");
   const [leaveHistory, setLeaveHistory] = useState([]);
+  const [isLeaveProofRequired, setIsLeaveProofRequired] = useState(false);
   const [sentMessages, setSentMessages] = useState([]);
   const [users, setUsers] = useState([]);
   const [immediateSupervisor, setImmediateSupervisor] = useState(null);
@@ -115,6 +116,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
   const aiPromptRef = useRef(null);
   // Voice-to-text for AI Assist
   const recogRef = useRef(null);
+  const proofInputRef = useRef(null);
   const [sttSupported, setSttSupported] = useState(false);
   const [recognizing, setRecognizing] = useState(false);
   // Recipient filtering (modern UX)
@@ -209,7 +211,19 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
           throw new Error(`Failed to fetch leave history: ${response.statusText || "Unknown error"}`);
         }
         const data = await response.json();
-        setLeaveHistory(data.requests || []);
+        const normalized = Array.isArray(data.requests)
+          ? data.requests.map((req) => ({
+              ...req,
+              startDate: req.startDate ? new Date(req.startDate) : null,
+              endDate: req.endDate ? new Date(req.endDate) : null,
+              approvedStartDate: req.approvedStartDate ? new Date(req.approvedStartDate) : null,
+              approvedEndDate: req.approvedEndDate ? new Date(req.approvedEndDate) : null,
+              createdAt: req.createdAt ? new Date(req.createdAt) : null,
+              approvedAt: req.approvedAt ? new Date(req.approvedAt) : null,
+            }))
+          : [];
+        setLeaveHistory(normalized);
+        setIsLeaveProofRequired(Boolean(data?.config?.proofRequired));
       } catch (err) {
         console.error("Fetch leave history error:", err);
         setError(`Failed to fetch leave history: ${err.message}`);
@@ -507,6 +521,12 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
       setIsLoading(false);
       return;
     }
+    if (isLeaveProofRequired && !leaveRequest.proof) {
+      setError("Supporting document is required for leave requests.");
+      setTimeout(() => setError(""), 3000);
+      setIsLoading(false);
+      return;
+    }
     try {
       const leaveData = new FormData();
       leaveData.append("startDate", leaveRequest.startDate);
@@ -534,6 +554,9 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
         transferTo: "",
         proof: null,
       });
+      if (proofInputRef.current) {
+        proofInputRef.current.value = "";
+      }
       setShowLeaveModal(false);
       const historyResponse = await fetch("/api/member/leave-request", { credentials: "include" });
       if (!historyResponse.ok) {
@@ -541,7 +564,19 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
         throw new Error(`Failed to refresh leave history: ${historyResponse.statusText || "Unknown error"}`);
       }
       const historyData = await historyResponse.json();
-      setLeaveHistory(historyData.requests || []);
+      const normalized = Array.isArray(historyData.requests)
+        ? historyData.requests.map((req) => ({
+            ...req,
+            startDate: req.startDate ? new Date(req.startDate) : null,
+            endDate: req.endDate ? new Date(req.endDate) : null,
+            approvedStartDate: req.approvedStartDate ? new Date(req.approvedStartDate) : null,
+            approvedEndDate: req.approvedEndDate ? new Date(req.approvedEndDate) : null,
+            createdAt: req.createdAt ? new Date(req.createdAt) : null,
+            approvedAt: req.approvedAt ? new Date(req.approvedAt) : null,
+          }))
+        : [];
+      setLeaveHistory(normalized);
+      setIsLeaveProofRequired(Boolean(historyData?.config?.proofRequired));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
       setError(err.message);
@@ -1174,110 +1209,136 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
               className="fixed inset-0 bg-black/60 dark:bg-black/70 flex items-center justify-center p-3 z-50"
             >
               <motion.div
-                initial={{ scale: 0.8, opacity: 0 }}
+                initial={{ scale: 0.92, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.8, opacity: 0 }}
-                transition={{ duration: 0.3 }}
-                className="bg-white/95 dark:bg-slate-900/95 rounded-xl shadow-md p-5 w-full max-w-sm border border-teal-200/70 dark:border-slate-700"
+                exit={{ scale: 0.92, opacity: 0 }}
+                transition={{ duration: 0.25 }}
+                className="bg-white/95 dark:bg-slate-900/95 rounded-2xl shadow-xl p-6 w-full max-w-4xl border border-teal-200/70 dark:border-slate-700"
               >
-                <h2 className="text-base font-bold text-gray-800 dark:text-white mb-3 flex items-center gap-2">
-                  <Calendar className="w-4 h-4 text-teal-600" />
+                <h2 className="text-lg font-bold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
+                  <Calendar className="w-5 h-5 text-teal-600" />
                   Submit Leave Request
                 </h2>
-                <form onSubmit={handleLeaveSubmit} className="space-y-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-200">Start Date</label>
-                    <input
-                      type="date"
-                      name="startDate"
-                      value={leaveRequest.startDate}
-                      onChange={handleLeaveChange}
-                      className="w-full px-3 py-1.5 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 focus:ring-2 focus:ring-teal-500 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
-                      required
-                      disabled={isLoading}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-200">End Date</label>
-                    <input
-                      type="date"
-                      name="endDate"
-                      value={leaveRequest.endDate}
-                      onChange={handleLeaveChange}
-                      className="w-full px-3 py-1.5 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 focus:ring-2 focus:ring-teal-500 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
-                      required
-                      disabled={isLoading}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-200">Reason</label>
-                    <textarea
-                      name="reason"
-                      value={leaveRequest.reason}
-                      onChange={handleLeaveChange}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey) {
-                          e.preventDefault();
-                          setLeaveRequest((prev) => ({
-                            ...prev,
-                            reason: prev.reason + "\n",
-                          }));
-                        }
-                      }}
-                      className="w-full px-3 py-1.5 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 focus:ring-2 focus:ring-teal-500 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
-                      rows={3}
-                      required
-                      disabled={isLoading}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-200">Supporting Document (Optional)</label>
-                    <input
-                      type="file"
-                      name="proof"
-                      accept=".pdf,.doc,.docx,.jpg,.png"
-                      onChange={handleLeaveChange}
-                      className="w-full px-3 py-1.5 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
-                      disabled={isLoading}
-                    />
-                  </div>
-                  {session?.user?.role === "team_manager" && (
+                <form onSubmit={handleLeaveSubmit} className="grid gap-5">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-xs font-medium text-gray-700 dark:text-gray-200">Transfer Role To</label>
-                      <select
-                        name="transferTo"
-                        value={leaveRequest.transferTo}
+                      <label className="block text-xs font-medium text-gray-700 dark:text-gray-200 uppercase tracking-wide mb-1">
+                        Start Date
+                      </label>
+                      <input
+                        type="date"
+                        name="startDate"
+                        value={leaveRequest.startDate}
                         onChange={handleLeaveChange}
-                        className="w-full px-3 py-1.5 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 focus:ring-2 focus:ring-teal-500 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
+                        className="w-full px-3 py-2 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 focus:ring-2 focus:ring-teal-500 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
+                        required
                         disabled={isLoading}
-                      >
-                        <option value="">Select User</option>
-                        {users
-                          .filter((u) => u.id !== parseInt(session?.user?.id) && (u.role === "admin" || u.role === "team_manager"))
-                          .map((user) => (
-                            <option key={user.id} value={user.id}>
-                              {user.name} ({user.role})
-                            </option>
-                          ))}
-                      </select>
+                      />
                     </div>
-                  )}
-                  <div className="flex justify-end gap-2">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 dark:text-gray-200 uppercase tracking-wide mb-1">
+                        End Date
+                      </label>
+                      <input
+                        type="date"
+                        name="endDate"
+                        value={leaveRequest.endDate}
+                        onChange={handleLeaveChange}
+                        className="w-full px-3 py-2 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 focus:ring-2 focus:ring-teal-500 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
+                        required
+                        disabled={isLoading}
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="block text-xs font-medium text-gray-700 dark:text-gray-200 uppercase tracking-wide mb-1">
+                        Reason
+                      </label>
+                      <textarea
+                        name="reason"
+                        value={leaveRequest.reason}
+                        onChange={handleLeaveChange}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            setLeaveRequest((prev) => ({
+                              ...prev,
+                              reason: prev.reason + "\n",
+                            }));
+                          }
+                        }}
+                        className="w-full px-3 py-3 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 focus:ring-2 focus:ring-teal-500 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700 min-h-[120px]"
+                        required
+                        disabled={isLoading}
+                      />
+                    </div>
+                    <div className="md:col-span-2 grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-4 items-start">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 dark:text-gray-200 uppercase tracking-wide mb-1">
+                          Supporting Document {isLeaveProofRequired ? "(Required)" : "(Optional)"}
+                        </label>
+                        <input
+                          type="file"
+                          name="proof"
+                          accept=".pdf,.doc,.docx,.jpg,.png"
+                          onChange={handleLeaveChange}
+                          ref={proofInputRef}
+                          required={isLeaveProofRequired}
+                          className="w-full px-3 py-2 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
+                          disabled={isLoading}
+                        />
+                        <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                          {isLeaveProofRequired
+                            ? "Supporting evidence is required for new leave submissions."
+                            : "Attach medical certificates or other proof if available."}
+                        </p>
+                      </div>
+                      {session?.user?.role === "team_manager" && (
+                        <div>
+                          <label className="block text-xs font-medium text-gray-700 dark:text-gray-200 uppercase tracking-wide mb-1">
+                            Transfer Role To
+                          </label>
+                          <select
+                            name="transferTo"
+                            value={leaveRequest.transferTo}
+                            onChange={handleLeaveChange}
+                            className="w-full px-3 py-2 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 focus:ring-2 focus:ring-teal-500 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
+                            disabled={isLoading}
+                          >
+                            <option value="">Select User</option>
+                            {users
+                              .filter(
+                                (u) =>
+                                  u.id !== parseInt(session?.user?.id) && (u.role === "admin" || u.role === "team_manager")
+                              )
+                              .map((user) => (
+                                <option key={user.id} value={user.id}>
+                                  {user.name} ({user.role})
+                                </option>
+                              ))}
+                          </select>
+                          <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                            Hand off responsibilities while you are away.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-end gap-2">
                     <motion.button
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
+                      whileHover={{ scale: 1.03 }}
+                      whileTap={{ scale: 0.97 }}
                       type="button"
                       onClick={() => setShowLeaveModal(false)}
-                      className="px-4 py-2 bg-gray-400 text-white rounded-lg text-xs font-medium hover:bg-gray-500 shadow-md transition"
+                      className="px-4 py-2 bg-gray-400 text-white rounded-lg text-xs font-semibold hover:bg-gray-500 shadow-md transition"
                       disabled={isLoading}
                     >
                       Cancel
                     </motion.button>
                     <motion.button
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
+                      whileHover={{ scale: 1.03 }}
+                      whileTap={{ scale: 0.97 }}
                       type="submit"
-                      className="px-4 py-2 bg-teal-600 text-white rounded-lg text-xs font-medium hover:bg-teal-700 shadow-md transition"
+                      className="px-5 py-2 bg-teal-600 text-white rounded-lg text-xs font-semibold hover:bg-teal-700 shadow-md transition disabled:opacity-60"
                       disabled={isLoading}
                     >
                       {isLoading ? "Submitting..." : "Submit for Approval"}
@@ -1746,40 +1807,64 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                     <table className="w-full text-xs text-left text-gray-700 dark:text-gray-200">
                       <thead className="text-xs text-gray-700 dark:text-gray-200 uppercase bg-gray-50/90 dark:bg-slate-800/90">
                         <tr>
-                          <th className="px-3 py-2">Start Date</th>
-                          <th className="px-3 py-2">End Date</th>
+                          <th className="px-3 py-2">Requested</th>
+                          <th className="px-3 py-2">Approved</th>
                           <th className="px-3 py-2">Reason</th>
                           <th className="px-3 py-2">Status</th>
-                          <th className="px-3 py-2">Submitted To</th>
+                          <th className="px-3 py-2">Supervisor</th>
+                          <th className="px-3 py-2">Decision Note</th>
+                          <th className="px-3 py-2">Rejection Reason</th>
                           <th className="px-3 py-2">Proof</th>
-                          <th className="px-3 py-2">Created At</th>
+                          <th className="px-3 py-2">Escalation</th>
+                          <th className="px-3 py-2">Created</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {leaveHistory.map((request) => (
-                          <tr key={request.id} className="border-b border-gray-200/50 dark:border-gray-700/50 hover:bg-gray-50/90 dark:hover:bg-slate-800/90">
-                            <td className="px-3 py-2">{new Date(request.startDate).toLocaleDateString()}</td>
-                            <td className="px-3 py-2">{new Date(request.endDate).toLocaleDateString()}</td>
-                            <td className="px-3 py-2">{request.reason}</td>
-                            <td className="px-3 py-2 capitalize">{request.status}</td>
-                            <td className="px-3 py-2">{request.supervisorName || "N/A"}</td>
-                            <td className="px-3 py-2">
-                              {request.proof ? (
-                                <a
-                                  href={request.proof}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-teal-600 hover:text-teal-700"
-                                >
-                                  View
-                                </a>
-                              ) : (
-                                "None"
-                              )}
-                            </td>
-                            <td className="px-3 py-2">{new Date(request.createdAt).toLocaleDateString()}</td>
-                          </tr>
-                        ))}
+                        {leaveHistory.map((request) => {
+                          const requestedRange =
+                            request.startDate && request.endDate
+                              ? `${request.startDate.toLocaleDateString()} → ${request.endDate.toLocaleDateString()}`
+                              : "—";
+                          const approvedRange =
+                            request.approvedStartDate && request.approvedEndDate
+                              ? `${request.approvedStartDate.toLocaleDateString()} → ${request.approvedEndDate.toLocaleDateString()}`
+                              : "—";
+                          const createdAt = request.createdAt
+                            ? request.createdAt.toLocaleDateString()
+                            : "—";
+                          return (
+                            <tr
+                              key={request.id}
+                              className="border-b border-gray-200/50 dark:border-gray-700/50 hover:bg-gray-50/90 dark:hover:bg-slate-800/90"
+                            >
+                              <td className="px-3 py-2">{requestedRange}</td>
+                              <td className="px-3 py-2">{approvedRange}</td>
+                              <td className="px-3 py-2">{request.reason || "—"}</td>
+                              <td className="px-3 py-2 capitalize">{request.status}</td>
+                              <td className="px-3 py-2">{request.supervisorName || "N/A"}</td>
+                              <td className="px-3 py-2 whitespace-pre-wrap">{request.decisionNote || "—"}</td>
+                              <td className="px-3 py-2 whitespace-pre-wrap">{request.rejectionReason || "—"}</td>
+                              <td className="px-3 py-2">
+                                {request.proof ? (
+                                  <a
+                                    href={request.proof}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-teal-600 hover:text-teal-700"
+                                  >
+                                    View
+                                  </a>
+                                ) : (
+                                  "None"
+                                )}
+                              </td>
+                              <td className="px-3 py-2">
+                                {request.escalationMatterId ? `Matter #${request.escalationMatterId}` : "—"}
+                              </td>
+                              <td className="px-3 py-2">{createdAt}</td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
