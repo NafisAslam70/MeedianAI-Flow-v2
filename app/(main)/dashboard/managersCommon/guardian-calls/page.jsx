@@ -38,6 +38,7 @@ const initialForm = () => ({
   followUpDate: "",
   guardianName: "",
   guardianPhone: "",
+  campaignAssignmentId: "",
 });
 
 const initialFilters = {
@@ -47,6 +48,7 @@ const initialFilters = {
   callDate: "",
   search: "",
   followUp: "all",
+  campaignId: "",
 };
 
 const formatDisplayDate = (value) => {
@@ -89,6 +91,29 @@ export default function GuardianCallsPage() {
   const classes = useMemo(() => optionsData?.classes || [], [optionsData?.classes]);
   const programs = useMemo(() => optionsData?.programs || [], [optionsData?.programs]);
 
+  const campaignDateKey = form.callDate || todayKey();
+  const {
+    data: campaignsData,
+    error: campaignsError,
+  } = useSWR(
+    `/api/managersCommon/guardian-calls?section=campaigns&date=${campaignDateKey}`,
+    fetcher,
+    { dedupingInterval: 15000 }
+  );
+  const campaigns = campaignsData?.campaigns || [];
+  const campaignsById = useMemo(() => {
+    const map = new Map();
+    for (const campaign of campaigns) {
+      map.set(Number(campaign.id), campaign);
+    }
+    return map;
+  }, [campaigns]);
+  const viewerCampaigns = useMemo(
+    () => campaigns.filter((campaign) => campaign.assignedToViewer),
+    [campaigns]
+  );
+
+
   const studentsKey = form.classId
     ? `/api/managersCommon/guardian-calls?section=students&classId=${form.classId}`
     : null;
@@ -120,6 +145,7 @@ export default function GuardianCallsPage() {
     if (filters.search && filters.search.trim()) params.set("q", filters.search.trim());
     const effectiveFollowUp = activeTab === "followups" ? "needs" : filters.followUp;
     if (effectiveFollowUp && effectiveFollowUp !== "all") params.set("followUp", effectiveFollowUp);
+    if (filters.campaignId) params.set("campaignId", filters.campaignId);
     return `/api/managersCommon/guardian-calls?${params.toString()}`;
   }, [filters, activeTab]);
 
@@ -131,6 +157,19 @@ export default function GuardianCallsPage() {
   } = useSWR(callsKey, fetcher, { keepPreviousData: true, dedupingInterval: 15000 });
 
   const calls = useMemo(() => callsData?.calls || [], [callsData?.calls]);
+
+  const campaignFilterOptions = useMemo(() => {
+    const map = new Map();
+    for (const campaign of campaigns) {
+      map.set(Number(campaign.id), campaign.label);
+    }
+    for (const call of calls) {
+      if (call?.campaign?.id) {
+        map.set(Number(call.campaign.id), call.campaign.label);
+      }
+    }
+    return Array.from(map.entries()).map(([id, label]) => ({ id, label }));
+  }, [campaigns, calls]);
 
   useEffect(() => {
     if (form.classId && !filters.classId) {
@@ -178,6 +217,53 @@ export default function GuardianCallsPage() {
     }));
   };
 
+  const selectedCampaign = useMemo(() => {
+    if (!form.campaignAssignmentId) return null;
+    const numeric = Number(form.campaignAssignmentId);
+    if (!Number.isFinite(numeric)) return null;
+    return campaignsById.get(numeric) || null;
+  }, [form.campaignAssignmentId, campaignsById]);
+
+  const handleCampaignSelect = (event) => {
+    const value = event.target.value;
+    const numeric = value ? Number(value) : null;
+    const campaign = numeric ? campaignsById.get(numeric) : null;
+    setForm((prev) => ({
+      ...prev,
+      campaignAssignmentId: value,
+      classId:
+        campaign && campaign.scope?.mode === "single_class" && campaign.scope.classId
+          ? String(campaign.scope.classId)
+          : prev.classId,
+    }));
+    if (campaign && campaign.scope?.mode === "single_class" && campaign.scope.classId) {
+      setFilters((prev) => ({
+        ...prev,
+        classId: String(campaign.scope.classId),
+      }));
+    }
+  };
+
+  const applyCampaignToForm = (campaign) => {
+    if (!campaign) return;
+    setActiveTab("log");
+    setForm((prev) => ({
+      ...prev,
+      campaignAssignmentId: String(campaign.id),
+      classId:
+        campaign.scope?.mode === "single_class" && campaign.scope.classId
+          ? String(campaign.scope.classId)
+          : prev.classId,
+      callDate: todayKey(),
+    }));
+    if (campaign.scope?.mode === "single_class" && campaign.scope.classId) {
+      setFilters((prev) => ({
+        ...prev,
+        classId: String(campaign.scope.classId),
+      }));
+    }
+  };
+
   const handleFollowUpToggle = (event) => {
     const checked = event.target.checked;
     setForm((prev) => ({
@@ -219,6 +305,8 @@ export default function GuardianCallsPage() {
     setForm((prev) => ({
       ...initialForm(),
       classId: prev.classId,
+      callDate: prev.callDate || todayKey(),
+      campaignAssignmentId: prev.campaignAssignmentId || "",
     }));
   };
 
@@ -245,6 +333,7 @@ export default function GuardianCallsPage() {
         ? call.followUpDate || call.callDate || todayKey()
         : "",
       note: "",
+      campaignLabel: call.campaign?.label || "",
     });
   };
 
@@ -324,6 +413,7 @@ export default function GuardianCallsPage() {
           followUpDate: form.followUpDate || null,
           guardianName: form.guardianName?.trim() || null,
           guardianPhone: normalizePhone(form.guardianPhone) || null,
+          campaignAssignmentId: form.campaignAssignmentId ? Number(form.campaignAssignmentId) : null,
         }),
       });
       const payload = await res.json().catch(() => ({}));
@@ -351,6 +441,11 @@ export default function GuardianCallsPage() {
         {optionsError && (
           <p className="text-sm text-red-600">
             Failed to load class and program options. Refresh the page or contact Admin.
+          </p>
+        )}
+        {campaignsError && (
+          <p className="text-sm text-red-600">
+            Failed to load current phone call campaigns. Refresh the page or contact Admin.
           </p>
         )}
         <Link
@@ -384,6 +479,91 @@ export default function GuardianCallsPage() {
           );
         })}
       </div>
+
+      {campaigns.length > 0 && (
+        <Card>
+          <CardHeader>
+            <div className="flex flex-col gap-1">
+              <h2 className="text-base font-semibold text-gray-900">Current phone call campaigns</h2>
+              <p className="text-sm text-gray-600">
+                {viewerCampaigns.length > 0
+                  ? `You are assigned to ${viewerCampaigns.length} active campaign${viewerCampaigns.length > 1 ? "s" : ""}.`
+                  : "Monitor these active campaigns and log updates as calls are completed."}
+              </p>
+            </div>
+          </CardHeader>
+          <CardBody>
+            <div className="grid gap-3 md:grid-cols-2">
+              {campaigns.map((campaign) => {
+                const dueLabel = campaign.dueDate ? formatDisplayDate(campaign.dueDate) : "No deadline";
+                const statusColor =
+                  campaign.status === "overdue" ? "amber" : campaign.active ? "teal" : "gray";
+                return (
+                  <div
+                    key={campaign.id}
+                    className={`flex flex-col gap-3 rounded-xl border p-4 shadow-sm transition ${
+                      campaign.assignedToViewer ? "border-teal-300 bg-teal-50/70" : "border-gray-200 bg-white"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <p className="text-sm font-semibold text-gray-900">{campaign.label}</p>
+                        {campaign.scope?.label ? (
+                          <p className="text-xs text-gray-500">{campaign.scope.label}</p>
+                        ) : null}
+                      </div>
+                      <Badge color={statusColor}>
+                        {campaign.status === "overdue"
+                          ? "Overdue"
+                          : campaign.active
+                          ? campaign.assignedToViewer
+                            ? "Assigned to you"
+                            : "Active"
+                          : "Snoozed"}
+                      </Badge>
+                    </div>
+                    <div className="grid gap-1 text-xs text-gray-600">
+                      {campaign.callType && <p><span className="font-semibold text-gray-700">Type:</span> {campaign.callType}</p>}
+                      {campaign.focusArea && <p><span className="font-semibold text-gray-700">Focus:</span> {campaign.focusArea}</p>}
+                      <p>
+                        <span className="font-semibold text-gray-700">Due:</span> {dueLabel}
+                      </p>
+                      {campaign.assignedTo?.name && (
+                        <p>
+                          <span className="font-semibold text-gray-700">Owner:</span>{" "}
+                          {campaign.assignedTo.name}
+                        </p>
+                      )}
+                      {campaign.instructions && (
+                        <p className="rounded-md border border-dashed border-teal-200 bg-teal-50/60 p-2 text-teal-800">
+                          {campaign.instructions}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button size="sm" variant="light" onClick={() => applyCampaignToForm(campaign)}>
+                        Log call
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() =>
+                          setFilters((prev) => ({
+                            ...prev,
+                            campaignId: String(campaign.id),
+                          }))
+                        }
+                      >
+                        View calls
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </CardBody>
+        </Card>
+      )}
 
       {!isFollowUpTab && (
         <Card>
@@ -546,15 +726,81 @@ export default function GuardianCallsPage() {
               )}
             </div>
 
-              <div className="lg:col-span-3">
-                <label className="text-sm font-medium text-gray-700">Called by</label>
-                <div className="mt-2 flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
-                  <PhoneCall className="h-4 w-4 text-teal-600" />
-                  <span>{session?.user?.name || "You"}</span>
-                </div>
+            <div className="lg:col-span-3">
+              <label className="text-sm font-medium text-gray-700">Called by</label>
+              <div className="mt-2 flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+                <PhoneCall className="h-4 w-4 text-teal-600" />
+                <span>{session?.user?.name || "You"}</span>
               </div>
+            </div>
 
-              <div className="lg:col-span-12 flex flex-col gap-3 border-t border-gray-200 pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="lg:col-span-3">
+              <label className="text-sm font-medium text-gray-700" htmlFor="gc-campaign">
+                Campaign
+              </label>
+              <select
+                id="gc-campaign"
+                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                value={form.campaignAssignmentId}
+                onChange={handleCampaignSelect}
+              >
+                <option value="">Standalone call</option>
+                {campaigns.map((campaign) => (
+                  <option key={campaign.id} value={campaign.id}>
+                    {campaign.label}
+                    {campaign.scope?.label ? ` • ${campaign.scope.label}` : ""}
+                  </option>
+                ))}
+              </select>
+              {selectedCampaign && (
+                <p className="mt-1 text-xs text-gray-500">
+                  Due {formatDisplayDate(selectedCampaign.dueDate)} • Owner: {selectedCampaign.assignedTo?.name || "—"}
+                </p>
+              )}
+            </div>
+
+            {selectedCampaign && (
+              <div className="lg:col-span-12 rounded-lg border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-900">
+                <p className="font-semibold">Campaign brief</p>
+                <div className="mt-1 grid gap-1 text-teal-900/80 md:grid-cols-2">
+                  {selectedCampaign.callType && (
+                    <div>
+                      <span className="font-semibold">Type:</span> {selectedCampaign.callType}
+                    </div>
+                  )}
+                  {selectedCampaign.focusArea && (
+                    <div>
+                      <span className="font-semibold">Focus:</span> {selectedCampaign.focusArea}
+                    </div>
+                  )}
+                  {selectedCampaign.audience && (
+                    <div>
+                      <span className="font-semibold">Audience:</span> {selectedCampaign.audience}
+                    </div>
+                  )}
+                  {selectedCampaign.scope?.label && (
+                    <div>
+                      <span className="font-semibold">Scope:</span> {selectedCampaign.scope.label}
+                    </div>
+                  )}
+                  <div>
+                    <span className="font-semibold">Due:</span> {formatDisplayDate(selectedCampaign.dueDate)}
+                  </div>
+                  {selectedCampaign.assignedTo?.name && (
+                    <div>
+                      <span className="font-semibold">Owner:</span> {selectedCampaign.assignedTo.name}
+                    </div>
+                  )}
+                </div>
+                {selectedCampaign.instructions && (
+                  <p className="mt-2 rounded-md border border-dashed border-teal-300 bg-white/60 p-2 text-sm text-teal-800">
+                    {selectedCampaign.instructions}
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="lg:col-span-12 flex flex-col gap-3 border-t border-gray-200 pt-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-h-[1.5rem] text-sm">
                   {statusMessage && (
                     <span
@@ -606,7 +852,7 @@ export default function GuardianCallsPage() {
           </div>
         </CardHeader>
         <CardBody>
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-7">
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-8">
             <div>
               <label className="text-sm font-medium text-gray-700" htmlFor="gc-filter-class">
                 Class filter
@@ -682,6 +928,24 @@ export default function GuardianCallsPage() {
               </select>
             </div>
             <div>
+              <label className="text-sm font-medium text-gray-700" htmlFor="gc-filter-campaign">
+                Campaign filter
+              </label>
+              <select
+                id="gc-filter-campaign"
+                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                value={filters.campaignId}
+                onChange={handleFiltersChange("campaignId")}
+              >
+                <option value="">All campaigns</option>
+                {campaignFilterOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
               <label className="text-sm font-medium text-gray-700" htmlFor="gc-filter-followup">
                 Follow-up status
               </label>
@@ -727,6 +991,7 @@ export default function GuardianCallsPage() {
                   <th className="px-4 py-3">Contact</th>
                   <th className="px-4 py-3">Program</th>
                   <th className="px-4 py-3">Report</th>
+                  <th className="px-4 py-3">Campaign</th>
                   <th className="px-4 py-3">Follow-up</th>
                   <th className="px-4 py-3">Called by</th>
                   <th className="px-4 py-3">Logged at</th>
@@ -736,14 +1001,14 @@ export default function GuardianCallsPage() {
               <tbody className="divide-y divide-gray-200">
                 {calls.length === 0 && !callsLoading && (
                   <tr>
-                    <td className="px-4 py-6 text-center text-sm text-gray-500" colSpan={11}>
+                    <td className="px-4 py-6 text-center text-sm text-gray-500" colSpan={12}>
                       No guardian calls logged yet. Once you add reports they will appear here.
                     </td>
                   </tr>
                 )}
                 {callsLoading && (
                   <tr>
-                    <td className="px-4 py-6 text-center text-sm text-gray-500" colSpan={11}>
+                    <td className="px-4 py-6 text-center text-sm text-gray-500" colSpan={12}>
                       Loading call reports…
                     </td>
                   </tr>
@@ -771,6 +1036,23 @@ export default function GuardianCallsPage() {
                     </td>
                     <td className="px-4 py-3 text-gray-700 whitespace-pre-line">
                       {call.report}
+                    </td>
+                    <td className="px-4 py-3 text-gray-700">
+                      {call.campaign ? (
+                        <div className="flex flex-col gap-0.5">
+                          <span className="font-medium text-gray-900">{call.campaign.label}</span>
+                          {call.campaign.scope?.label ? (
+                            <span className="text-xs text-gray-500">{call.campaign.scope.label}</span>
+                          ) : null}
+                          {call.campaign.dueDate ? (
+                            <span className="text-xs text-gray-500">
+                              Due {formatDisplayDate(call.campaign.dueDate)}
+                            </span>
+                          ) : null}
+                        </div>
+                      ) : (
+                        "—"
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       {call.followUpNeeded ? (
@@ -814,6 +1096,7 @@ export default function GuardianCallsPage() {
               <p className="mt-1 text-sm text-gray-600">
                 Guardian: {followUpModal.guardianName || "—"} • Call date: {formatDisplayDate(followUpModal.callDate)}
                 {followUpModal.classLabel ? ` • Class ${followUpModal.classLabel}` : ""}
+                {followUpModal.campaignLabel ? ` • Campaign: ${followUpModal.campaignLabel}` : ""}
               </p>
             </div>
             <form onSubmit={handleFollowUpSubmit}>
