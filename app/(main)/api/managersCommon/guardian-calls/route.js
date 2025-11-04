@@ -428,7 +428,7 @@ export async function POST(req) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const classId = parseId(payload?.classId);
+  let classId = parseId(payload?.classId);
   const studentId = parseId(payload?.studentId);
   const programId = parseId(payload?.programId);
   const callDateRaw = sanitizeText(payload?.callDate);
@@ -439,9 +439,6 @@ export async function POST(req) {
   const guardianPhoneInput = sanitizeText(payload?.guardianPhone);
   const campaignAssignmentId = parseId(payload?.campaignAssignmentId ?? payload?.campaignId);
 
-  if (!classId || !studentId) {
-    return NextResponse.json({ error: "classId and studentId are required" }, { status: 400 });
-  }
   if (!callDateRaw) {
     return NextResponse.json({ error: "callDate is required" }, { status: 400 });
   }
@@ -463,6 +460,49 @@ export async function POST(req) {
       return NextResponse.json({ error: "Invalid followUpDate" }, { status: 400 });
     }
     followUpDate = parsed;
+  }
+
+  if (campaignAssignmentId) {
+    await ensurePhoneCallTemplate();
+    const [campaignAssignment] = await db
+      .select({
+        id: mriReportAssignments.id,
+        userId: mriReportAssignments.userId,
+        active: mriReportAssignments.active,
+        scopeMeta: mriReportAssignments.scopeMeta,
+      })
+      .from(mriReportAssignments)
+      .innerJoin(mriReportTemplates, eq(mriReportTemplates.id, mriReportAssignments.templateId))
+      .where(
+        and(
+          eq(mriReportAssignments.id, campaignAssignmentId),
+          eq(mriReportTemplates.key, PHONE_CALL_TEMPLATE_KEY)
+        )
+      )
+      .limit(1);
+
+    if (!campaignAssignment) {
+      return NextResponse.json({ error: "Campaign assignment not found" }, { status: 400 });
+    }
+    if (campaignAssignment.active === false) {
+      return NextResponse.json({ error: "Campaign assignment is inactive" }, { status: 400 });
+    }
+    const viewerId = Number(session.user.id);
+    if (campaignAssignment.userId !== viewerId) {
+      return NextResponse.json({ error: "You are not assigned to this campaign" }, { status: 403 });
+    }
+
+    if (!classId) {
+      const scopeMeta = safeJson(campaignAssignment.scopeMeta, {});
+      const callScope = scopeMeta.callScope || {};
+      if (callScope.mode === "single_class" && callScope.classId) {
+        classId = Number(callScope.classId);
+      }
+    }
+  }
+
+  if (!classId || !studentId) {
+    return NextResponse.json({ error: "classId and studentId are required" }, { status: 400 });
   }
 
   try {
@@ -492,29 +532,6 @@ export async function POST(req) {
 
     if (!guardianName) {
       return NextResponse.json({ error: "Guardian name missing for this student. Please update student record first." }, { status: 400 });
-    }
-
-    if (campaignAssignmentId) {
-      await ensurePhoneCallTemplate();
-      const [campaignAssignment] = await db
-        .select({
-          id: mriReportAssignments.id,
-          userId: mriReportAssignments.userId,
-          active: mriReportAssignments.active,
-        })
-        .from(mriReportAssignments)
-        .innerJoin(mriReportTemplates, eq(mriReportTemplates.id, mriReportAssignments.templateId))
-        .where(
-          and(
-            eq(mriReportAssignments.id, campaignAssignmentId),
-            eq(mriReportTemplates.key, PHONE_CALL_TEMPLATE_KEY)
-          )
-        )
-        .limit(1);
-
-      if (!campaignAssignment) {
-        return NextResponse.json({ error: "Campaign assignment not found" }, { status: 400 });
-      }
     }
 
     await db.insert(guardianCallReports).values({

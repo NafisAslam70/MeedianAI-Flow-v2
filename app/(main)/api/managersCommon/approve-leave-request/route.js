@@ -52,6 +52,8 @@ export async function GET(req) {
         memberMessage: leaveRequests.memberMessage,
         rejectionReason: leaveRequests.rejectionReason,
         escalationMatterId: leaveRequests.escalationMatterId,
+        category: leaveRequests.category,
+        convertToCl: leaveRequests.convertToCl,
       })
       .from(leaveRequests)
       .leftJoin(requester, eq(leaveRequests.userId, requester.id))
@@ -120,6 +122,8 @@ export async function POST(req) {
         decisionNote: leaveRequests.decisionNote,
         memberMessage: leaveRequests.memberMessage,
         escalationMatterId: leaveRequests.escalationMatterId,
+        category: leaveRequests.category,
+        convertToCl: leaveRequests.convertToCl,
       })
       .from(leaveRequests)
       .leftJoin(requester, eq(leaveRequests.userId, requester.id))

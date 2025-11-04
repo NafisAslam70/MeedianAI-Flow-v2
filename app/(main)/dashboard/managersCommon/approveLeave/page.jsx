@@ -413,6 +413,9 @@ export default function ApproveLeave() {
                             )}`
                           : "—";
                       const isSelected = selectedRequest?.id === request.id;
+                      const categoryKey = request.category || "personal";
+                      const categoryLabel = categoryKey.charAt(0).toUpperCase() + categoryKey.slice(1);
+                      const clTag = request.convertToCl ? " • CL" : "";
                       return (
                         <li
                           key={request.id}
@@ -437,6 +440,9 @@ export default function ApproveLeave() {
                                 )}
                               </p>
                               <p className="mt-1 text-xs text-gray-500 line-clamp-2">{request.reason}</p>
+                              <p className="mt-1 text-[11px] text-indigo-600">
+                                {categoryLabel}{clTag}
+                              </p>
                             </div>
                             <span
                               className={`px-2 py-1 rounded-full text-[11px] font-semibold capitalize ${
@@ -700,15 +706,19 @@ export default function ApproveLeave() {
                     <div className="p-5 border border-indigo-100 rounded-2xl bg-indigo-50/40">
                       <h3 className="text-sm font-semibold text-indigo-900 mb-2">Request summary</h3>
                       <dl className="text-sm text-gray-700 space-y-2">
-                        <div>
-                          <dt className="font-medium text-gray-900">Reason</dt>
-                          <dd>{selectedRequest.reason || "—"}</dd>
-                        </div>
-                        <div>
-                          <dt className="font-medium text-gray-900">Supervisor</dt>
-                          <dd>{selectedRequest.supervisorName || "—"}</dd>
-                        </div>
-                        <div>
+                      <div>
+                        <dt className="font-medium text-gray-900">Reason</dt>
+                        <dd>{selectedRequest.reason || "—"}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-medium text-gray-900">Category</dt>
+                        <dd className="capitalize">{selectedRequest.category || "personal"}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-medium text-gray-900">Supervisor</dt>
+                        <dd>{selectedRequest.supervisorName || "—"}</dd>
+                      </div>
+                      <div>
                           <dt className="font-medium text-gray-900">Current status</dt>
                           <dd className="capitalize">{selectedRequest.status}</dd>
                         </div>
@@ -724,10 +734,14 @@ export default function ApproveLeave() {
                           <dt className="font-medium text-gray-900">Approved at</dt>
                           <dd>{formatDateTimeDisplay(selectedRequest.approvedAt)}</dd>
                         </div>
-                        <div>
-                          <dt className="font-medium text-gray-900">Member message</dt>
-                          <dd>{selectedRequest.memberMessage || "—"}</dd>
-                        </div>
+                      <div>
+                        <dt className="font-medium text-gray-900">Member message</dt>
+                        <dd>{selectedRequest.memberMessage || "—"}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-medium text-gray-900">Converted to CL</dt>
+                        <dd>{selectedRequest.convertToCl ? "Yes" : "No"}</dd>
+                      </div>
                         <div>
                           <dt className="font-medium text-gray-900">Proof</dt>
                           <dd>

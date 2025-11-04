@@ -54,6 +54,8 @@ export async function GET(req) {
         memberMessage: leaveRequests.memberMessage,
         rejectionReason: leaveRequests.rejectionReason,
         escalationMatterId: leaveRequests.escalationMatterId,
+        category: leaveRequests.category,
+        convertToCl: leaveRequests.convertToCl,
       })
       .from(leaveRequests)
       .leftJoin(users, eq(leaveRequests.submittedTo, users.id))
@@ -92,11 +94,16 @@ export async function POST(req) {
     const reason = formData.get("reason");
     const proof = formData.get("proof");
     const transferTo = formData.get("transferTo");
+    const category = String(formData.get("category") || "").toLowerCase();
+    const convertToCl = formData.get("convertToCl") === "true";
 
     // Validate required fields
     if (!startDate || !endDate || !reason) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
+
+    const allowedCategories = ["health", "event", "break", "personal"];
+    const resolvedCategory = allowedCategories.includes(category) ? category : "personal";
 
     const proofRequired = await isProofRequired();
 
@@ -159,6 +166,83 @@ export async function POST(req) {
       return NextResponse.json({ error: "Supporting document is required for leave requests." }, { status: 400 });
     }
 
+    // Additional business rules
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const startDay = new Date(start);
+    startDay.setHours(0, 0, 0, 0);
+    const diffMs = startDay.getTime() - today.getTime();
+    const diffDays = Math.floor(diffMs / (24 * 60 * 60 * 1000));
+
+    if (resolvedCategory === "health") {
+      if (diffDays < 0 || diffDays > 1) {
+        return NextResponse.json(
+          { error: "Health leave can only be applied for today or tomorrow." },
+          { status: 400 }
+        );
+      }
+    } else {
+      if (diffDays < 2) {
+        return NextResponse.json(
+          { error: "This leave type must be applied at least 2 days in advance." },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Monthly limits
+    const startMonth = startDay.getMonth();
+    const startYear = startDay.getFullYear();
+
+    const existingLeaves = await db
+      .select({
+        id: leaveRequests.id,
+        category: leaveRequests.category,
+        convertToCl: leaveRequests.convertToCl,
+        status: leaveRequests.status,
+        startDate: leaveRequests.startDate,
+      })
+      .from(leaveRequests)
+      .where(eq(leaveRequests.userId, parseInt(session.user.id)));
+
+    const relevantLeaves = Array.isArray(existingLeaves) ? existingLeaves : [];
+
+    const healthLeavesThisMonth = relevantLeaves.filter((leave) => {
+      if (!leave.startDate) return false;
+      const leaveDate = new Date(leave.startDate);
+      return (
+        leave.category === "health" &&
+        leaveDate.getMonth() === startMonth &&
+        leaveDate.getFullYear() === startYear &&
+        leave.status !== "rejected"
+      );
+    }).length;
+
+    if (resolvedCategory === "health" && healthLeavesThisMonth >= 2) {
+      return NextResponse.json(
+        { error: "You have already used the 2 health leaves allowed for this month." },
+        { status: 400 }
+      );
+    }
+
+    const clLeavesThisMonth = relevantLeaves.filter((leave) => {
+      if (!leave.startDate) return false;
+      const leaveDate = new Date(leave.startDate);
+      return (
+        leave.convertToCl &&
+        leaveDate.getMonth() === startMonth &&
+        leaveDate.getFullYear() === startYear &&
+        leave.status !== "rejected"
+      );
+    }).length;
+
+    if (convertToCl && clLeavesThisMonth >= 1) {
+      return NextResponse.json(
+        { error: "You have already converted a leave to CL this month." },
+        { status: 400 }
+      );
+    }
+
     // Insert leave request
     const [newRequest] = await db
       .insert(leaveRequests)
@@ -171,6 +255,8 @@ export async function POST(req) {
         transferTo: transferToId,
         submittedTo: user.immediate_supervisor,
         status: "pending",
+        category: resolvedCategory,
+        convertToCl,
       })
       .returning();
 

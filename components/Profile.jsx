@@ -26,6 +26,8 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
     reason: "",
     transferTo: "",
     proof: null,
+    category: "personal",
+    convertToCl: false,
   });
   const [messageData, setMessageData] = useState({
     recipientType: "existing",
@@ -220,6 +222,8 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
               approvedEndDate: req.approvedEndDate ? new Date(req.approvedEndDate) : null,
               createdAt: req.createdAt ? new Date(req.createdAt) : null,
               approvedAt: req.approvedAt ? new Date(req.approvedAt) : null,
+              category: req.category || "personal",
+              convertToCl: Boolean(req.convertToCl),
             }))
           : [];
         setLeaveHistory(normalized);
@@ -273,10 +277,17 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
   };
 
   const handleLeaveChange = (e) => {
-    const { name, value, files } = e.target;
+    const { name, value, files, type, checked } = e.target;
     setLeaveRequest((prev) => ({
       ...prev,
-      [name]: files ? files[0] : value,
+      [name]:
+        name === "convertToCl"
+          ? type === "checkbox"
+            ? checked
+            : value === "true"
+          : files
+          ? files[0]
+          : value,
     }));
   };
 
@@ -527,11 +538,82 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
       setIsLoading(false);
       return;
     }
+    const startDateObj = new Date(leaveRequest.startDate);
+    const endDateObj = new Date(leaveRequest.endDate);
+    if (Number.isNaN(startDateObj.getTime()) || Number.isNaN(endDateObj.getTime())) {
+      setError("Please select valid start and end dates.");
+      setTimeout(() => setError(""), 3000);
+      setIsLoading(false);
+      return;
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const startDay = new Date(startDateObj);
+    startDay.setHours(0, 0, 0, 0);
+    const msPerDay = 24 * 60 * 60 * 1000;
+    const diffDays = Math.floor((startDay.getTime() - today.getTime()) / msPerDay);
+
+    if (leaveRequest.category === "health") {
+      if (diffDays < 0 || diffDays > 1) {
+        setError("Health leave can only be applied for today or tomorrow.");
+        setTimeout(() => setError(""), 3000);
+        setIsLoading(false);
+        return;
+      }
+    } else {
+      if (diffDays < 2) {
+        setError("This leave type must be applied at least 2 days in advance.");
+        setTimeout(() => setError(""), 3000);
+        setIsLoading(false);
+        return;
+      }
+    }
+
+    const startMonth = startDay.getMonth();
+    const startYear = startDay.getFullYear();
+
+    const healthLeavesThisMonth = (leaveHistory || []).filter((req) => {
+      if (!req?.startDate || req.status === "rejected") return false;
+      const date = req.startDate instanceof Date ? req.startDate : new Date(req.startDate);
+      return (
+        req.category === "health" &&
+        date.getMonth() === startMonth &&
+        date.getFullYear() === startYear
+      );
+    }).length;
+
+    if (leaveRequest.category === "health" && healthLeavesThisMonth >= 2) {
+      setError("You have already used the 2 health leaves allowed for this month.");
+      setTimeout(() => setError(""), 3000);
+      setIsLoading(false);
+      return;
+    }
+
+    const clLeavesThisMonth = (leaveHistory || []).filter((req) => {
+      if (!req?.startDate || req.status === "rejected") return false;
+      const date = req.startDate instanceof Date ? req.startDate : new Date(req.startDate);
+      return (
+        req.convertToCl &&
+        date.getMonth() === startMonth &&
+        date.getFullYear() === startYear
+      );
+    }).length;
+
+    if (leaveRequest.convertToCl && clLeavesThisMonth >= 1) {
+      setError("You have already converted a leave to CL this month.");
+      setTimeout(() => setError(""), 3000);
+      setIsLoading(false);
+      return;
+    }
+
     try {
       const leaveData = new FormData();
       leaveData.append("startDate", leaveRequest.startDate);
       leaveData.append("endDate", leaveRequest.endDate);
       leaveData.append("reason", leaveRequest.reason);
+      leaveData.append("category", leaveRequest.category || "personal");
+      leaveData.append("convertToCl", leaveRequest.convertToCl ? "true" : "false");
       if (leaveRequest.proof) {
         leaveData.append("proof", leaveRequest.proof);
       }
@@ -553,6 +635,8 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
         reason: "",
         transferTo: "",
         proof: null,
+        category: "personal",
+        convertToCl: false,
       });
       if (proofInputRef.current) {
         proofInputRef.current.value = "";
@@ -573,6 +657,8 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
             approvedEndDate: req.approvedEndDate ? new Date(req.approvedEndDate) : null,
             createdAt: req.createdAt ? new Date(req.createdAt) : null,
             approvedAt: req.approvedAt ? new Date(req.approvedAt) : null,
+            category: req.category || "personal",
+            convertToCl: Boolean(req.convertToCl),
           }))
         : [];
       setLeaveHistory(normalized);
@@ -1220,7 +1306,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                   Submit Leave Request
                 </h2>
                 <form onSubmit={handleLeaveSubmit} className="grid gap-5">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
                       <label className="block text-xs font-medium text-gray-700 dark:text-gray-200 uppercase tracking-wide mb-1">
                         Start Date
@@ -1249,7 +1335,29 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                         disabled={isLoading}
                       />
                     </div>
-                    <div className="md:col-span-2">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 dark:text-gray-200 uppercase tracking-wide mb-1">
+                        Reason Category
+                      </label>
+                      <select
+                        name="category"
+                        value={leaveRequest.category}
+                        onChange={handleLeaveChange}
+                        className="w-full px-3 py-2 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 focus:ring-2 focus:ring-teal-500 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
+                        disabled={isLoading}
+                      >
+                        <option value="health">Health</option>
+                        <option value="event">Event</option>
+                        <option value="break">Break</option>
+                        <option value="personal">Personal</option>
+                      </select>
+                      <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                        Health leave: same-day or next-day only. Others require at least 2 days' notice.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
                       <label className="block text-xs font-medium text-gray-700 dark:text-gray-200 uppercase tracking-wide mb-1">
                         Reason
                       </label>
@@ -1271,57 +1379,75 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                         disabled={isLoading}
                       />
                     </div>
-                    <div className="md:col-span-2 grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-4 items-start">
-                      <div>
-                        <label className="block text-xs font-medium text-gray-700 dark:text-gray-200 uppercase tracking-wide mb-1">
-                          Supporting Document {isLeaveProofRequired ? "(Required)" : "(Optional)"}
-                        </label>
+                    <div className="flex flex-col gap-1">
+                      <label className="block text-xs font-medium text-gray-700 dark:text-gray-200 uppercase tracking-wide mb-1">
+                        CL Conversion
+                      </label>
+                      <label className="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
                         <input
-                          type="file"
-                          name="proof"
-                          accept=".pdf,.doc,.docx,.jpg,.png"
+                          type="checkbox"
+                          name="convertToCl"
+                          checked={leaveRequest.convertToCl}
                           onChange={handleLeaveChange}
-                          ref={proofInputRef}
-                          required={isLeaveProofRequired}
-                          className="w-full px-3 py-2 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
                           disabled={isLoading}
                         />
+                        Convert this leave to my monthly CL
+                      </label>
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                        Limit: 1 CL conversion and 2 health leaves per month (including pending requests).
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-4 items-start">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 dark:text-gray-200 uppercase tracking-wide mb-1">
+                        Supporting Document {isLeaveProofRequired ? "(Required)" : "(Optional)"}
+                      </label>
+                      <input
+                        type="file"
+                        name="proof"
+                        accept=".pdf,.doc,.docx,.jpg,.png"
+                        onChange={handleLeaveChange}
+                        ref={proofInputRef}
+                        required={isLeaveProofRequired}
+                        className="w-full px-3 py-2 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
+                        disabled={isLoading}
+                      />
+                      <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                        {isLeaveProofRequired
+                          ? "Supporting evidence is required for new leave submissions."
+                          : "Attach medical certificates or other proof if available."}
+                      </p>
+                    </div>
+                    {session?.user?.role === "team_manager" && (
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 dark:text-gray-200 uppercase tracking-wide mb-1">
+                          Transfer Role To
+                        </label>
+                        <select
+                          name="transferTo"
+                          value={leaveRequest.transferTo}
+                          onChange={handleLeaveChange}
+                          className="w-full px-3 py-2 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 focus:ring-2 focus:ring-teal-500 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
+                          disabled={isLoading}
+                        >
+                          <option value="">Select User</option>
+                          {users
+                            .filter(
+                              (u) =>
+                                u.id !== parseInt(session?.user?.id) && (u.role === "admin" || u.role === "team_manager")
+                            )
+                            .map((user) => (
+                              <option key={user.id} value={user.id}>
+                                {user.name} ({user.role})
+                              </option>
+                            ))}
+                        </select>
                         <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
-                          {isLeaveProofRequired
-                            ? "Supporting evidence is required for new leave submissions."
-                            : "Attach medical certificates or other proof if available."}
+                          Hand off responsibilities while you are away.
                         </p>
                       </div>
-                      {session?.user?.role === "team_manager" && (
-                        <div>
-                          <label className="block text-xs font-medium text-gray-700 dark:text-gray-200 uppercase tracking-wide mb-1">
-                            Transfer Role To
-                          </label>
-                          <select
-                            name="transferTo"
-                            value={leaveRequest.transferTo}
-                            onChange={handleLeaveChange}
-                            className="w-full px-3 py-2 border rounded-lg bg-gray-50/90 dark:bg-slate-800/90 focus:ring-2 focus:ring-teal-500 text-sm text-gray-700 dark:text-gray-200 border-gray-200 dark:border-slate-700"
-                            disabled={isLoading}
-                          >
-                            <option value="">Select User</option>
-                            {users
-                              .filter(
-                                (u) =>
-                                  u.id !== parseInt(session?.user?.id) && (u.role === "admin" || u.role === "team_manager")
-                              )
-                              .map((user) => (
-                                <option key={user.id} value={user.id}>
-                                  {user.name} ({user.role})
-                                </option>
-                              ))}
-                          </select>
-                          <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
-                            Hand off responsibilities while you are away.
-                          </p>
-                        </div>
-                      )}
-                    </div>
+                    )}
                   </div>
                   <div className="flex flex-col md:flex-row md:items-center md:justify-end gap-2">
                     <motion.button
@@ -1809,6 +1935,8 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                         <tr>
                           <th className="px-3 py-2">Requested</th>
                           <th className="px-3 py-2">Approved</th>
+                          <th className="px-3 py-2">Category</th>
+                          <th className="px-3 py-2">Converted to CL</th>
                           <th className="px-3 py-2">Reason</th>
                           <th className="px-3 py-2">Status</th>
                           <th className="px-3 py-2">Supervisor</th>
@@ -1839,6 +1967,8 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                             >
                               <td className="px-3 py-2">{requestedRange}</td>
                               <td className="px-3 py-2">{approvedRange}</td>
+                              <td className="px-3 py-2 capitalize">{request.category || "personal"}</td>
+                              <td className="px-3 py-2">{request.convertToCl ? "Yes" : "No"}</td>
                               <td className="px-3 py-2">{request.reason || "—"}</td>
                               <td className="px-3 py-2 capitalize">{request.status}</td>
                               <td className="px-3 py-2">{request.supervisorName || "N/A"}</td>
