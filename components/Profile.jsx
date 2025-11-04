@@ -1394,7 +1394,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                         Convert this leave to my monthly CL
                       </label>
                       <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                        Limit: 1 CL conversion and 2 health leaves per month (including pending requests).
+                        Limit: 1 CL conversion allowed per month.
                       </p>
                     </div>
                   </div>

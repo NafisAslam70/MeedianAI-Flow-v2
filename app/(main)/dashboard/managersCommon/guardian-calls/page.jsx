@@ -543,7 +543,7 @@ export default function GuardianCallsPage() {
         </div>
       )}
 
-      {campaigns.length > 0 && (
+      {callMode === "campaign" && campaigns.length > 0 && (
         <Card>
           <CardHeader>
             <div className="flex flex-col gap-1">
