@@ -54,6 +54,8 @@ const normalizeRequest = (request) => {
     approvedEndDate: parseDate(request.approvedEndDate),
     createdAt: parseDate(request.createdAt),
     approvedAt: parseDate(request.approvedAt),
+    category: request.category || "personal",
+    convertToCl: Boolean(request.convertToCl),
   };
 };
 
@@ -587,6 +589,10 @@ export default function ApproveLeave() {
                               <div className="font-semibold text-gray-900">{request.userName}</div>
                               <div className="text-xs text-gray-500">
                                 Created {formatDateTimeDisplay(request.createdAt)}
+                              </div>
+                              <div className="text-[11px] text-indigo-600 mt-0.5">
+                                {(request.category || "personal").charAt(0).toUpperCase() + (request.category || "personal").slice(1)}
+                                {request.convertToCl ? " • CL" : ""}
                               </div>
                             </td>
                             <td className="px-4 py-3">{requestedRange}</td>
