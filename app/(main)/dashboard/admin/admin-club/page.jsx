@@ -40,6 +40,15 @@ export default function AdminClubHome() {
       icon: BarChart2,
       requiresGrant: true,
     },
+    {
+      key: "analyse-class",
+      title: "Analyse Class",
+      description:
+        "Pick a class, review CCD/CDD capture trends, and drill into students. Start with PT daily report signals.",
+      href: "/dashboard/admin/admin-club/analyse-class",
+      icon: ShieldCheck,
+      requiresGrant: true,
+    },
   ];
 
   const resolveAllowed = (card) => {
