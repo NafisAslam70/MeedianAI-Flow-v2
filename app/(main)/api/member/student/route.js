@@ -171,14 +171,28 @@ export async function POST(request) {
       return NextResponse.json({ error: "Missing required field: academicYear" }, { status: 400 });
     }
 
+    const toDateOrNull = (value, label) => {
+      if (!value) return null;
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) {
+        throw new Error(`Invalid date for ${label}`);
+      }
+      return d;
+    };
+
+    const classIdNum = Number(body.classId);
+    if (!Number.isFinite(classIdNum)) {
+      return NextResponse.json({ error: "Invalid classId" }, { status: 400 });
+    }
+
     const values = {
       name: body.name.trim(),
       admissionNumber: emptyToNull(body.admissionNumber),
-      admissionDate: body.admissionDate ? new Date(body.admissionDate) : null,
+      admissionDate: toDateOrNull(body.admissionDate, "admissionDate"),
       aadharNumber: emptyToNull(body.aadharNumber),
-      dateOfBirth: body.dateOfBirth ? new Date(body.dateOfBirth) : null,
+      dateOfBirth: toDateOrNull(body.dateOfBirth, "dateOfBirth"),
       gender: emptyToNull(body.gender),
-      classId: Number(body.classId),
+      classId: classIdNum,
       sectionType: emptyToNull(body.sectionType),
       isHosteller: booleanValue(body.isHosteller),
       transportChosen: booleanValue(body.transportChosen),
@@ -210,6 +224,9 @@ export async function POST(request) {
     return NextResponse.json({ student: created }, { status: 201 });
   } catch (error) {
     console.error("Error adding student:", error);
+    if (error.message && error.message.toLowerCase().startsWith("invalid date")) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     return NextResponse.json({ error: `Failed to add student: ${error.message}` }, { status: 500 });
   }
 }
