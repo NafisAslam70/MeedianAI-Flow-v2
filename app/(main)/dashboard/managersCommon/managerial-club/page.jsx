@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ClipboardList, NotebookPen, ClipboardCheck, UserPlus, Boxes, PhoneCall, GraduationCap } from "lucide-react";
+import { ClipboardList, NotebookPen, ClipboardCheck, UserPlus, Boxes, PhoneCall, GraduationCap, FileText } from "lucide-react";
 
 const CLUB_TOOLS = [
   {
@@ -27,6 +27,12 @@ const CLUB_TOOLS = [
     label: "Routine Tasks",
     icon: ClipboardCheck,
     href: "/dashboard/managersCommon/routineTasks",
+  },
+  {
+    key: "hostel-due-report",
+    label: "Hostel Due Report",
+    icon: FileText,
+    href: "/dashboard/managersCommon/reports",
   },
   {
     key: "recruit",

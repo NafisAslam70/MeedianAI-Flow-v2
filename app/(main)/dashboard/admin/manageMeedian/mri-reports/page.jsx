@@ -15,6 +15,7 @@ const fetcher = (url) =>
 
 const PT_TEMPLATE_KEY = "pt_daily_report";
 const PHONE_CALL_TEMPLATE_KEY = "phone_call_drive";
+const HOSTEL_DAILY_DUE_TEMPLATE_KEY = "hostel_daily_due_report";
 
 export default function ManageMriReportsPage() {
   const router = useRouter();
@@ -34,10 +35,16 @@ export default function ManageMriReportsPage() {
     fetcher,
     { dedupingInterval: 15000 }
   );
+  const { data: hostelAssignmentData, error: hostelAssignmentError } = useSWR(
+    `/api/admin/manageMeedian?section=mriReportAssignments&templateKey=${HOSTEL_DAILY_DUE_TEMPLATE_KEY}`,
+    fetcher,
+    { dedupingInterval: 15000 }
+  );
 
   const templates = templateData?.templates || [];
   const assignments = assignmentData?.assignments || [];
   const phoneAssignments = phoneAssignmentData?.assignments || [];
+  const hostelAssignments = hostelAssignmentData?.assignments || [];
 
   const ptTemplate = useMemo(
     () => templates.find((tpl) => tpl.key === PT_TEMPLATE_KEY),
@@ -45,6 +52,10 @@ export default function ManageMriReportsPage() {
   );
   const phoneTemplate = useMemo(
     () => templates.find((tpl) => tpl.key === PHONE_CALL_TEMPLATE_KEY),
+    [templates]
+  );
+  const hostelTemplate = useMemo(
+    () => templates.find((tpl) => tpl.key === HOSTEL_DAILY_DUE_TEMPLATE_KEY),
     [templates]
   );
 
@@ -62,6 +73,13 @@ export default function ManageMriReportsPage() {
     ? format(new Date(phoneTemplate.updatedAt), "yyyy-MM-dd")
     : "—";
 
+  const hostelAssignmentCount = hostelAssignments.length;
+  const hostelActiveAssignments = hostelAssignments.filter((assignment) => assignment.active).length;
+  const hostelTemplateStatus = hostelTemplate ? (hostelTemplate.active ? "Active" : "Inactive") : "Missing";
+  const hostelLastUpdated = hostelTemplate?.updatedAt
+    ? format(new Date(hostelTemplate.updatedAt), "yyyy-MM-dd")
+    : "—";
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-1">
@@ -72,7 +90,7 @@ export default function ManageMriReportsPage() {
         </p>
       </div>
 
-      {(templateError || assignmentError || phoneAssignmentError) && (
+      {(templateError || assignmentError || phoneAssignmentError || hostelAssignmentError) && (
         <p className="text-sm text-red-600">
           Failed to load report data. Refresh the page or check API logs.
         </p>
@@ -149,6 +167,44 @@ export default function ManageMriReportsPage() {
           <div className="mt-4">
             <Button onClick={() => router.push("/dashboard/admin/manageMeedian/mri-reports/phone-calls")}>
               Manage Phone Call Drives
+            </Button>
+          </div>
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <h2 className="text-base font-semibold text-gray-900">Hostel Daily Due Report</h2>
+          <p className="text-sm text-gray-600">
+            Daily report by hostel incharge tracking dues, student involvement, actions taken, and authorization signatures.
+          </p>
+        </CardHeader>
+        <CardBody>
+          <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-3">
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Template Status
+              </p>
+              <p className="mt-1 text-sm font-semibold text-gray-900">{hostelTemplateStatus}</p>
+            </div>
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Active Assignments
+              </p>
+              <p className="mt-1 text-sm font-semibold text-gray-900">
+                {hostelActiveAssignments} of {hostelAssignmentCount}
+              </p>
+            </div>
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Last Updated
+              </p>
+              <p className="mt-1 text-sm font-semibold text-gray-900">{hostelLastUpdated}</p>
+            </div>
+          </div>
+          <div className="mt-4">
+            <Button onClick={() => router.push("/dashboard/admin/manageMeedian/mri-reports/hostel-daily-due")}>
+              Manage Hostel Daily Due Report
             </Button>
           </div>
         </CardBody>

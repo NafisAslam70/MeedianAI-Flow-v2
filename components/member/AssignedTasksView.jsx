@@ -16,7 +16,6 @@ import {
   ListChecks,
   SunMedium,
   Undo2,
-  UserCircle,
 } from "lucide-react";
 
 const STATUS_META = {

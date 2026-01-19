@@ -59,6 +59,7 @@ import {
   ensurePtTemplate,
   ensureAcademicHealthTemplate,
   ensurePhoneCallTemplate,
+  ensureHostelDailyDueTemplate,
 } from "@/lib/mriReports";
 
 /* ============================== GET ============================== */
@@ -175,7 +176,7 @@ export async function GET(req) {
       await ensurePtTemplate();
       await ensureAcademicHealthTemplate();
       await ensurePhoneCallTemplate();
-      await ensurePhoneCallTemplate();
+      await ensureHostelDailyDueTemplate();
       const templateKey = searchParams.get("templateKey");
       const query = db
         .select({
@@ -212,6 +213,7 @@ export async function GET(req) {
       await ensurePtTemplate();
       await ensureAcademicHealthTemplate();
       await ensurePhoneCallTemplate();
+      await ensureHostelDailyDueTemplate();
 
       const rows = await db
         .select({
@@ -1003,6 +1005,7 @@ export async function POST(req) {
       await ensurePtTemplate();
       await ensureAcademicHealthTemplate();
       await ensurePhoneCallTemplate();
+      await ensureHostelDailyDueTemplate();
       const action = typeof body?.action === "string" ? body.action.trim() : "";
       if (action === "syncClassTeachers") {
         const targetDate = body?.targetDate;
@@ -2494,6 +2497,7 @@ export async function PATCH(req) {
       await ensurePtTemplate();
       await ensureAcademicHealthTemplate();
       await ensurePhoneCallTemplate();
+      await ensureHostelDailyDueTemplate();
       const updatesRaw = Array.isArray(body?.updates)
         ? body.updates
         : Array.isArray(body)
