@@ -83,7 +83,7 @@ export default function ReportsPage() {
 
   const fetchStudents = async () => {
     try {
-      const res = await fetch("/api/admin/manageMeedian?section=students");
+      const res = await fetch("/api/admin/students");
       if (res.ok) {
         const data = await res.json();
         setStudents(data.students || []);
@@ -148,20 +148,9 @@ export default function ReportsPage() {
   const updateHostelEntry = (index, field, value) => {
     setHostelReport(prev => ({
       ...prev,
-      entries: prev.entries.map((entry, i) => {
-        if (i === index) {
-          const updatedEntry = { ...entry, [field]: value };
-          // Auto-select first HA when actionType is assign_to_higher_authority
-          if (field === 'actionType' && value === 'assign_to_higher_authority') {
-            const higherAuthorities = getHigherAuthorities();
-            if (higherAuthorities.length > 0) {
-              updatedEntry.assignedHigherAuthority = higherAuthorities[0].id;
-            }
-          }
-          return updatedEntry;
-        }
-        return entry;
-      })
+      entries: prev.entries.map((entry, i) =>
+        i === index ? { ...entry, [field]: value } : entry
+      )
     }));
   };
 
@@ -380,10 +369,7 @@ export default function ReportsPage() {
                   <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Student Involved</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Action Type</th>
                   {isHostelIncharge && (
-                    <>
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Higher Authority</th>
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Action Details</th>
-                    </>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Assign To / Details</th>
                   )}
                   {!isHostelIncharge && (
                     <>
@@ -438,31 +424,34 @@ export default function ReportsPage() {
                         <option value="Higher Authority">Higher Authority</option>
                       </select>
                     </td>
-                    {isHostelIncharge && entry.actionType === "Higher Authority" && (
+                    {isHostelIncharge && (
                       <td className="px-4 py-3">
-                        <select
-                          value={entry.assignedHigherAuthority}
-                          onChange={(e) => updateHostelEntry(index, 'assignedHigherAuthority', e.target.value)}
-                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
-                        >
-                          <option value="">Select Higher Authority...</option>
-                          {getHigherAuthorities().map((user) => (
-                            <option key={user.id} value={user.id}>
-                              {user.name} ({user.role === 'admin' ? 'Admin' : user.team_manager_type?.replace('_', ' ')})
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                    )}
-                    {isHostelIncharge && entry.actionType === "HI Self" && (
-                      <td className="px-4 py-3">
-                        <textarea
-                          value={entry.actionDetails}
-                          onChange={(e) => updateHostelEntry(index, 'actionDetails', e.target.value)}
-                          placeholder="Enter action details..."
-                          rows={2}
-                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
-                        />
+                        {entry.actionType === "Higher Authority" && (
+                          <select
+                            value={entry.assignedHigherAuthority}
+                            onChange={(e) => updateHostelEntry(index, 'assignedHigherAuthority', e.target.value)}
+                            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
+                          >
+                            <option value="">Select Higher Authority...</option>
+                            {getHigherAuthorities().map((user) => (
+                              <option key={user.id} value={user.id}>
+                                {user.name} ({user.role === 'admin' ? 'Admin' : user.team_manager_type?.replace('_', ' ')})
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                        {entry.actionType === "HI Self" && (
+                          <textarea
+                            value={entry.actionDetails}
+                            onChange={(e) => updateHostelEntry(index, 'actionDetails', e.target.value)}
+                            placeholder="Enter action details..."
+                            rows={2}
+                            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
+                          />
+                        )}
+                        {!entry.actionType && (
+                          <span className="text-slate-400 text-sm">Select action type first</span>
+                        )}
                       </td>
                     )}
                     {!isHostelIncharge && (

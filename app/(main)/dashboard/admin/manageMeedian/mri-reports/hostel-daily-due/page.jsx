@@ -61,20 +61,21 @@ export default function ManageHostelDailyDueReportPage() {
   );
 
   const hostelIncharges = useMemo(
-    () => users.filter((user) => user.active !== false && user.role === 'team_manager' && user.team_manager_type === 'hostel_incharge'),
+    () => users.filter((user) => user.active !== false),
     [users]
   );
 
   const hostelAuthorities = useMemo(
-    () => users.filter((user) => user.active !== false && ((user.role === 'admin') || (user.role === 'team_manager' && user.team_manager_type !== 'hostel_incharge'))),
+    () => users.filter((user) => user.active !== false && (user.role === 'admin' || (user.role === 'team_manager' && user.team_manager_type !== 'hostel_incharge'))),
     [users]
   );
 
   const [selectedUserId, setSelectedUserId] = useState("");
-  const [selectedHAUserId, setSelectedHAUserId] = useState("");
+  const [selectedHostelAuthorityId, setSelectedHostelAuthorityId] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(null);
 
   const getUserDisplayText = (user) => {
     const roleText = user.role === 'team_manager' && user.team_manager_type
@@ -111,68 +112,37 @@ export default function ManageHostelDailyDueReportPage() {
     }
   };
 
-  const handleAssignHA = async () => {
-    if (!selectedHAUserId) return;
-    setSaving(true);
-    setError("");
-    setSuccess("");
-    try {
-      const res = await fetch("/api/admin/manageMeedian?section=mriReportAssignments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          templateKey: HOSTEL_DAILY_DUE_TEMPLATE_KEY,
-          userId: parseInt(selectedHAUserId, 10),
-          active: true,
-        }),
-      });
-      const responseData = await res.json();
-      if (!res.ok) throw new Error(responseData.error || `Failed to assign: ${res.status}`);
-      setSuccess("Hostel higher authority assigned successfully!");
-      setTimeout(() => setSuccess(""), 3000);
-      await mutateAssignments();
-      setSelectedHAUserId("");
-    } catch (err) {
-      setError(`Error assigning hostel higher authority: ${err.message}`);
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const handleToggleAssignment = async (assignmentId, currentActive) => {
     setSaving(true);
     setError("");
     setSuccess("");
     try {
       const res = await fetch("/api/admin/manageMeedian?section=mriReportAssignments", {
-        method: "PATCH",
+        method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           assignmentId: parseInt(assignmentId, 10),
-          active: !currentActive,
         }),
       });
       const responseData = await res.json();
-      if (!res.ok) throw new Error(responseData.error || `Failed to update: ${res.status}`);
-      setSuccess(`Assignment ${!currentActive ? "activated" : "deactivated"} successfully!`);
+      if (!res.ok) throw new Error(responseData.error || `Failed to delete: ${res.status}`);
+      setSuccess("Assignment removed successfully!");
       setTimeout(() => setSuccess(""), 3000);
       await mutateAssignments();
+      setConfirmDelete(null);
     } catch (err) {
-      setError(`Error updating assignment: ${err.message}`);
+      setError(`Error removing assignment: ${err.message}`);
     } finally {
       setSaving(false);
     }
   };
-
-  const activeAssignments = assignments.filter((a) => a.active);
-  const inactiveAssignments = assignments.filter((a) => !a.active);
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-1">
         <h1 className="text-xl font-bold text-gray-900">Hostel Daily Due Report</h1>
         <p className="text-sm text-gray-600">
-          Manage the daily hostel due report template and assign hostel incharges and higher authorities to handle reports.
+          Manage the daily hostel due report template and assign hostel incharges to fill the report daily.
         </p>
       </div>
 
@@ -250,14 +220,14 @@ export default function ManageHostelDailyDueReportPage() {
         <CardHeader>
           <h2 className="text-base font-semibold text-gray-900">Assign Hostel Higher Authority</h2>
           <p className="text-sm text-gray-600">
-            Select a hostel higher authority to handle escalated reports and complete assigned reports.
+            Select higher authorities who can review and complete hostel due reports assigned to them by incharges.
           </p>
         </CardHeader>
         <CardBody>
           <div className="flex gap-3">
             <Select
-              value={selectedHAUserId}
-              onChange={(e) => setSelectedHAUserId(e.target.value)}
+              value={selectedHostelAuthorityId}
+              onChange={(e) => setSelectedHostelAuthorityId(e.target.value)}
               className="flex-1"
             >
               <option value="">Select Hostel Higher Authority</option>
@@ -268,8 +238,35 @@ export default function ManageHostelDailyDueReportPage() {
               ))}
             </Select>
             <Button
-              onClick={handleAssignHA}
-              disabled={!selectedHAUserId || saving}
+              onClick={async () => {
+                if (!selectedHostelAuthorityId) return;
+                setSaving(true);
+                setError("");
+                setSuccess("");
+                try {
+                  const res = await fetch("/api/admin/manageMeedian?section=mriReportAssignments", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      templateKey: HOSTEL_DAILY_DUE_TEMPLATE_KEY,
+                      userId: parseInt(selectedHostelAuthorityId, 10),
+                      active: true,
+                      role: "hostel_authority",
+                    }),
+                  });
+                  const responseData = await res.json();
+                  if (!res.ok) throw new Error(responseData.error || `Failed to assign: ${res.status}`);
+                  setSuccess("Hostel higher authority assigned successfully!");
+                  setTimeout(() => setSuccess(""), 3000);
+                  await mutateAssignments();
+                  setSelectedHostelAuthorityId("");
+                } catch (err) {
+                  setError(`Error assigning hostel authority: ${err.message}`);
+                } finally {
+                  setSaving(false);
+                }
+              }}
+              disabled={!selectedHostelAuthorityId || saving}
               className="px-4 py-2"
             >
               {saving ? "Assigning..." : "Assign"}
@@ -282,69 +279,143 @@ export default function ManageHostelDailyDueReportPage() {
         <CardHeader>
           <h2 className="text-base font-semibold text-gray-900">Current Assignments</h2>
           <p className="text-sm text-gray-600">
-            Hostel incharges assigned to fill the daily due report.
+            Overview of all assigned Hostel Incharges and Higher Authorities.
           </p>
         </CardHeader>
         <CardBody>
-          {activeAssignments.length === 0 && inactiveAssignments.length === 0 ? (
-            <p className="text-sm text-gray-500">No assignments yet.</p>
-          ) : (
-            <div className="space-y-4">
-              {activeAssignments.length > 0 && (
-                <div>
-                  <h3 className="text-sm font-semibold text-gray-900 mb-2">Active Assignments</h3>
-                  <div className="space-y-2">
-                    {activeAssignments.map((assignment) => {
-                      const user = users.find((u) => u.id === assignment.userId);
-                      return (
-                        <div key={assignment.id} className="flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-lg">
-                          <div>
-                            <p className="font-semibold text-green-900">{user?.name || "Unknown User"}</p>
-                            <p className="text-sm text-green-700">{user?.email || ""}</p>
-                          </div>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => handleToggleAssignment(assignment.id, assignment.active)}
-                            disabled={saving}
-                          >
-                            Deactivate
-                          </Button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
+          <div className="space-y-6">
+            {/* Hostel Incharges Section */}
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 text-blue-700 text-xs font-bold">HI</span>
+                Hostel Incharges
+              </h3>
+              {(() => {
+                const hiAssignments = assignments.filter((a) => !a.role || a.role !== 'hostel_authority');
 
-              {inactiveAssignments.length > 0 && (
-                <div>
-                  <h3 className="text-sm font-semibold text-gray-900 mb-2">Inactive Assignments</h3>
-                  <div className="space-y-2">
-                    {inactiveAssignments.map((assignment) => {
-                      const user = users.find((u) => u.id === assignment.userId);
-                      return (
-                        <div key={assignment.id} className="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                          <div>
-                            <p className="font-semibold text-gray-900">{user?.name || "Unknown User"}</p>
-                            <p className="text-sm text-gray-700">{user?.email || ""}</p>
-                          </div>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => handleToggleAssignment(assignment.id, assignment.active)}
-                            disabled={saving}
-                          >
-                            Reactivate
-                          </Button>
-                        </div>
-                      );
-                    })}
+                return (
+                  <div className="space-y-3">
+                    {hiAssignments.length === 0 ? (
+                      <p className="text-sm text-gray-500 italic">No hostel incharges assigned yet.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {hiAssignments.map((assignment) => {
+                          const user = users.find((u) => u.id === assignment.userId);
+                          return (
+                            <div key={assignment.id} className="flex items-center justify-between p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                              <div>
+                                <p className="font-medium text-blue-900">{user?.name || "Unknown User"}</p>
+                                <p className="text-xs text-blue-700">{user?.email || ""}</p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-semibold text-blue-700 bg-blue-100 px-2 py-1 rounded">Active</span>
+                                {confirmDelete?.id === assignment.id ? (
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs text-gray-700">Remove?</span>
+                                    <Button
+                                      size="sm"
+                                      className="bg-red-600 hover:bg-red-700 text-white"
+                                      onClick={() => handleToggleAssignment(assignment.id, assignment.active)}
+                                      disabled={saving}
+                                    >
+                                      Yes
+                                    </Button>
+                                    <Button
+                                      variant="secondary"
+                                      size="sm"
+                                      onClick={() => setConfirmDelete(null)}
+                                      disabled={saving}
+                                    >
+                                      No
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={() => setConfirmDelete({ id: assignment.id, name: user?.name })}
+                                    disabled={saving}
+                                  >
+                                    Remove
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                </div>
-              )}
+                );
+              })()}
             </div>
-          )}
+
+            {/* Hostel Higher Authorities Section */}
+            <div className="border-t border-gray-200 pt-6">
+              <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-purple-100 text-purple-700 text-xs font-bold">HA</span>
+                Hostel Higher Authorities
+              </h3>
+              {(() => {
+                const haAssignments = assignments.filter((a) => a.role === 'hostel_authority');
+
+                return (
+                  <div className="space-y-3">
+                    {haAssignments.length === 0 ? (
+                      <p className="text-sm text-gray-500 italic">No hostel higher authorities assigned yet.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {haAssignments.map((assignment) => {
+                          const user = users.find((u) => u.id === assignment.userId);
+                          return (
+                            <div key={assignment.id} className="flex items-center justify-between p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                              <div>
+                                <p className="font-medium text-purple-900">{user?.name || "Unknown User"}</p>
+                                <p className="text-xs text-purple-700">{user?.email || ""}</p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-semibold text-purple-700 bg-purple-100 px-2 py-1 rounded">Active</span>
+                                {confirmDelete?.id === assignment.id ? (
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs text-gray-700">Remove?</span>
+                                    <Button
+                                      size="sm"
+                                      className="bg-red-600 hover:bg-red-700 text-white"
+                                      onClick={() => handleToggleAssignment(assignment.id, assignment.active)}
+                                      disabled={saving}
+                                    >
+                                      Yes
+                                    </Button>
+                                    <Button
+                                      variant="secondary"
+                                      size="sm"
+                                      onClick={() => setConfirmDelete(null)}
+                                      disabled={saving}
+                                    >
+                                      No
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={() => setConfirmDelete({ id: assignment.id, name: user?.name })}
+                                    disabled={saving}
+                                  >
+                                    Remove
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
         </CardBody>
       </Card>
     </div>

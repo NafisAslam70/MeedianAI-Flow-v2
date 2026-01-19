@@ -228,6 +228,7 @@ export async function GET(req) {
           classId: mriReportAssignments.classId,
           className: Classes.name,
           classSection: Classes.section,
+          role: mriReportAssignments.role,
           targetLabel: mriReportAssignments.targetLabel,
           startDate: mriReportAssignments.startDate,
           endDate: mriReportAssignments.endDate,
@@ -1143,6 +1144,7 @@ export async function POST(req) {
           endDate,
           scopeMeta,
           active,
+          role: body?.role || null,
           createdBy: Number(session.user.id),
           updatedAt: now,
         };
@@ -1159,6 +1161,7 @@ export async function POST(req) {
               endDate: insertValues.endDate,
               scopeMeta: insertValues.scopeMeta,
               active: insertValues.active,
+              role: insertValues.role,
               updatedAt: now,
             },
           })
@@ -1187,6 +1190,7 @@ export async function POST(req) {
             startDate: mriReportAssignments.startDate,
             endDate: mriReportAssignments.endDate,
             active: mriReportAssignments.active,
+            role: mriReportAssignments.role,
             scopeMeta: mriReportAssignments.scopeMeta,
             createdAt: mriReportAssignments.createdAt,
             updatedAt: mriReportAssignments.updatedAt,
@@ -2789,8 +2793,8 @@ export async function DELETE(req) {
     }
 
     if (section === "mriReportAssignments") {
-      const id = Number(body?.id);
-      if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+      const id = Number(body?.assignmentId || body?.id);
+      if (!id) return NextResponse.json({ error: "assignmentId required" }, { status: 400 });
       await db.delete(mriReportAssignments).where(eq(mriReportAssignments.id, id));
       return NextResponse.json({ deleted: 1 }, { status: 200 });
     }
