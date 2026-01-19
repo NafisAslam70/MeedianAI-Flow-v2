@@ -285,7 +285,7 @@ export default function ReportsPage() {
       <div className="space-y-6">
         <div className="flex items-center gap-4">
           <Link
-            href="/dashboard/managersCommon/reports"
+            href="/dashboard/managersCommon/managerial-club"
             className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
           >
             <ArrowLeft size={16} /> Back to Reports
