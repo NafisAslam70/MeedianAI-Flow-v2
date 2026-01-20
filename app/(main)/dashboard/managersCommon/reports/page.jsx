@@ -51,8 +51,9 @@ export default function ReportsPage() {
   // Determine user role for hostel system
   const isHostelIncharge = session?.user?.role === 'team_manager' && session?.user?.team_manager_type === 'hostel_incharge';
   
-  // Hostel Admin = users assigned "hostel_admin" MRI role in manageMeedian OR system admin
-  const isHostelAdmin = session?.user?.role === 'admin' || userMriRoles.includes('hostel_admin');
+  // Hostel Admin = system admin OR has any MRI roles assigned in manageMeedian
+  // Any user with MRI roles is considered an admin who can access the admin report
+  const isHostelAdmin = session?.user?.role === 'admin' || (Array.isArray(userMriRoles) && userMriRoles.length > 0);
   const canAccessHostelReports = isHostelIncharge || isHostelAdmin;
 
   // Report type view state
@@ -426,7 +427,7 @@ export default function ReportsPage() {
             You do not have permission to access the Hostel Due Reports.
           </p>
           <p className="text-xs text-slate-500">
-            Only Hostel Incharge and users assigned the "hostel_admin" role in ManageMeedian can access this section.
+            Only Hostel Incharge and users assigned MRI roles in ManageMeedian can access this section.
           </p>
         </div>
       </div>
