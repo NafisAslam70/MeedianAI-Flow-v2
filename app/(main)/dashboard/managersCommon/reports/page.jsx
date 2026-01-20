@@ -46,10 +46,13 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [userMriRoles, setUserMriRoles] = useState([]);
 
   // Determine user role for hostel system
   const isHostelIncharge = session?.user?.role === 'team_manager' && session?.user?.team_manager_type === 'hostel_incharge';
-  const isHostelAdmin = session?.user?.role === 'admin' || (session?.user?.role === 'team_manager' && session?.user?.team_manager_type !== 'hostel_incharge');
+  
+  // Hostel Admin = users assigned "hostel_admin" MRI role in manageMeedian OR system admin
+  const isHostelAdmin = session?.user?.role === 'admin' || userMriRoles.includes('hostel_admin');
   const canAccessHostelReports = isHostelIncharge || isHostelAdmin;
 
   // Report type view state
@@ -118,6 +121,14 @@ export default function ReportsPage() {
 
   const classes = useMemo(() => classesData?.classes || [], [classesData?.classes]);
   const users = useMemo(() => usersData?.users || [], [usersData?.users]);
+
+  // Extract current user's MRI roles from the team data
+  useEffect(() => {
+    if (usersData?.userMriRoles && session?.user?.id) {
+      const currentUserRoles = usersData.userMriRoles[session.user.id] || [];
+      setUserMriRoles(currentUserRoles);
+    }
+  }, [usersData, session?.user?.id]);
 
   // Cache students by classId using a Map
   const [studentsByClassCache, setStudentsByClassCache] = useState(new Map());
@@ -404,6 +415,23 @@ export default function ReportsPage() {
     setShowCreateForm(true); // Switch to create form to edit
     setSelectedReport('hostel-daily-due'); // Ensure we're in the right report type
   };
+
+  if (!canAccessHostelReports) {
+    return (
+      <div className="flex h-96 items-center justify-center">
+        <div className="text-center">
+          <AlertCircle size={48} className="mx-auto text-red-500 mb-4" />
+          <h2 className="text-xl font-semibold text-slate-900 mb-2">Access Denied</h2>
+          <p className="text-sm text-slate-600 mb-4">
+            You do not have permission to access the Hostel Due Reports.
+          </p>
+          <p className="text-xs text-slate-500">
+            Only Hostel Incharge and users assigned the "hostel_admin" role in ManageMeedian can access this section.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (status === "loading") {
     return (
