@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import useSWR from "swr";
 import { useSession } from "next-auth/react";
 import { motion } from "framer-motion";
 import {
@@ -16,6 +17,17 @@ import {
   ArrowLeft,
 } from "lucide-react";
 import Link from "next/link";
+
+const fetcher = async (url) => {
+  const res = await fetch(url, { headers: { "Content-Type": "application/json" } });
+  if (!res.ok) {
+    const payload = await res.json().catch(() => ({}));
+    const error = new Error(payload?.error || res.statusText);
+    error.status = res.status;
+    throw error;
+  }
+  return res.json();
+};
 
 const REPORT_TYPES = [
   {
@@ -37,23 +49,42 @@ export default function ReportsPage() {
 
   // Determine user role for hostel system
   const isHostelIncharge = session?.user?.role === 'team_manager' && session?.user?.team_manager_type === 'hostel_incharge';
-  const isHostelAuthority = session?.user?.role === 'admin' || (session?.user?.role === 'team_manager' && session?.user?.team_manager_type !== 'hostel_incharge');
-  const canAccessHostelReports = isHostelIncharge || isHostelAuthority;
+  const isHostelAdmin = session?.user?.role === 'admin' || (session?.user?.role === 'team_manager' && session?.user?.team_manager_type !== 'hostel_incharge');
+  const canAccessHostelReports = isHostelIncharge || isHostelAdmin;
 
-  // Hostel Daily Due Report state
-  const [hostelReport, setHostelReport] = useState({
+  // Report type view state
+  const [reportType, setReportType] = useState(isHostelIncharge ? "incharge" : "admin"); // "incharge" or "admin"
+
+  // Hostel Daily Due Report state for Incharge
+  const [hiReport, setHiReport] = useState({
     reportDate: new Date().toISOString().split('T')[0],
     entries: [
       { 
         sn: 1, 
+        classId: "",
         particulars: "", 
-        studentInvolved: "", 
-        actionType: "", 
-        assignedHigherAuthority: "",
-        actionDetails: "", 
-        higherAuthorityAction: "", 
-        followUpStatus: "", 
-        needsEscalation: "", 
+        studentInvolved: [], 
+        actionType: "",
+        actionDetails: "",
+        authSign: "" 
+      }
+    ]
+  });
+
+  // Hostel Daily Due Report state for Admin
+  const [haReport, setHaReport] = useState({
+    reportDate: new Date().toISOString().split('T')[0],
+    entries: [
+      { 
+        sn: 1, 
+        classId: "",
+        particulars: "", 
+        studentInvolved: [], 
+        actionType: "",
+        actionDetails: "",
+        status: "",
+        needsEscalation: "",
+        escalationDetails: "",
         authSign: "" 
       }
     ]
@@ -62,7 +93,164 @@ export default function ReportsPage() {
   const [assignedReports, setAssignedReports] = useState([]);
   const [showCreateForm, setShowCreateForm] = useState(true);
 
-  const [students, setStudents] = useState([]);
+  // Fetch data using useSWR pattern
+  const {
+    data: classesData,
+    isLoading: classesLoading,
+  } = useSWR(
+    selectedReport === "hostel-daily-due" && canAccessHostelReports
+      ? "/api/admin/manageMeedian?section=classes"
+      : null,
+    fetcher,
+    { dedupingInterval: 60000 }
+  );
+
+  const {
+    data: usersData,
+    isLoading: usersLoading,
+  } = useSWR(
+    selectedReport === "hostel-daily-due" && canAccessHostelReports
+      ? "/api/admin/manageMeedian?section=team"
+      : null,
+    fetcher,
+    { dedupingInterval: 60000 }
+  );
+
+  const classes = useMemo(() => classesData?.classes || [], [classesData?.classes]);
+  const users = useMemo(() => usersData?.users || [], [usersData?.users]);
+
+  // Cache students by classId using a Map
+  const [studentsByClassCache, setStudentsByClassCache] = useState(new Map());
+
+  // Get unique classIds from the active report (HI or HA)
+  const currentReport = reportType === "incharge" ? hiReport : haReport;
+  const uniqueClassIds = useMemo(
+    () => [...new Set(currentReport.entries.map(e => e.classId).filter(Boolean))],
+    [currentReport.entries, reportType]
+  );
+
+  // Fetch students for each class
+  const studentsUrls = useMemo(
+    () => uniqueClassIds.map(classId => ({
+      classId,
+      url: `/api/managersCommon/guardian-calls?section=students&classId=${classId}`
+    })),
+    [uniqueClassIds]
+  );
+
+  // Use multiple SWR calls - one for each unique classId
+  useEffect(() => {
+    const fetchAllStudents = async () => {
+      const newCache = new Map(studentsByClassCache);
+      
+      for (const { classId, url } of studentsUrls) {
+        if (!newCache.has(classId)) {
+          try {
+            const res = await fetcher(url);
+            newCache.set(classId, res?.students || []);
+          } catch (err) {
+            console.error(`Failed to fetch students for class ${classId}:`, err);
+            newCache.set(classId, []);
+          }
+        }
+      }
+      
+      setStudentsByClassCache(newCache);
+    };
+
+    if (studentsUrls.length > 0) {
+      fetchAllStudents();
+    }
+  }, [studentsUrls, studentsByClassCache]);
+
+  // Get students for a specific class
+  const getStudentsByClass = (classId) => {
+    if (!classId) return [];
+    return studentsByClassCache.get(classId) || [];
+  };
+
+  // Helper function to update HI report entries
+  const updateHiEntry = (index, field, value) => {
+    setHiReport(prev => ({
+      ...prev,
+      entries: prev.entries.map((entry, i) =>
+        i === index ? { ...entry, [field]: value } : entry
+      )
+    }));
+  };
+
+  // Helper function to update HA report entries
+  const updateHaEntry = (index, field, value) => {
+    setHaReport(prev => ({
+      ...prev,
+      entries: prev.entries.map((entry, i) =>
+        i === index ? { ...entry, [field]: value } : entry
+      )
+    }));
+  };
+
+  // Helper function to add HI entry
+  const addHiEntry = () => {
+    setHiReport(prev => ({
+      ...prev,
+      entries: [
+        ...prev.entries,
+        {
+          sn: prev.entries.length + 1,
+          classId: "",
+          particulars: "",
+          studentInvolved: [],
+          actionType: "",
+          actionDetails: "",
+          authSign: ""
+        }
+      ]
+    }));
+  };
+
+  // Helper function to add HA entry
+  const addHaEntry = () => {
+    setHaReport(prev => ({
+      ...prev,
+      entries: [
+        ...prev.entries,
+        {
+          sn: prev.entries.length + 1,
+          classId: "",
+          particulars: "",
+          studentInvolved: [],
+          actionType: "",
+          actionDetails: "",
+          status: "",
+          needsEscalation: "",
+          escalationDetails: "",
+          authSign: ""
+        }
+      ]
+    }));
+  };
+
+  // Helper function to remove HI entry
+  const removeHiEntry = (index) => {
+    setHiReport(prev => ({
+      ...prev,
+      entries: prev.entries.filter((_, i) => i !== index).map((entry, i) => ({
+        ...entry,
+        sn: i + 1
+      }))
+    }));
+  };
+
+  // Helper function to remove HA entry
+  const removeHaEntry = (index) => {
+    setHaReport(prev => ({
+      ...prev,
+      entries: prev.entries.filter((_, i) => i !== index).map((entry, i) => ({
+        ...entry,
+        sn: i + 1
+      }))
+    }));
+  };
 
   useEffect(() => {
     if (status === "authenticated" && canAccessHostelReports && !selectedReport) {
@@ -72,38 +260,13 @@ export default function ReportsPage() {
 
   useEffect(() => {
     if (selectedReport === "hostel-daily-due" && canAccessHostelReports) {
-      fetchStudents();
-      if (isHostelAuthority && !isHostelIncharge) {
+      if (isHostelAdmin && !isHostelIncharge) {
         fetchAssignedReports();
       } else {
         fetchReports();
       }
     }
-  }, [selectedReport, canAccessHostelReports, isHostelAuthority, isHostelIncharge]);
-
-  const fetchStudents = async () => {
-    try {
-      const res = await fetch("/api/admin/students");
-      if (res.ok) {
-        const data = await res.json();
-        setStudents(data.students || []);
-      }
-    } catch (err) {
-      console.error("Failed to fetch students:", err);
-    }
-  };
-
-  const getStudentsByClass = () => {
-    const grouped = {};
-    students.forEach(student => {
-      const classKey = student.className || "Unknown Class";
-      if (!grouped[classKey]) {
-        grouped[classKey] = [];
-      }
-      grouped[classKey].push(student);
-    });
-    return grouped;
-  };
+  }, [selectedReport, canAccessHostelReports, isHostelAdmin, isHostelIncharge]);
 
   const getHigherAuthorities = () => {
     return users.filter(user => 
@@ -124,88 +287,48 @@ export default function ReportsPage() {
     }
   };
 
-  const addHostelEntry = () => {
-    setHostelReport(prev => ({
-      ...prev,
-      entries: [
-        ...prev.entries,
-        {
-          sn: prev.entries.length + 1,
-          particulars: "",
-          studentInvolved: "",
-          actionType: "",
-          assignedHigherAuthority: "",
-          actionDetails: "",
-          higherAuthorityAction: "",
-          followUpStatus: "",
-          needsEscalation: "",
-          authSign: ""
-        }
-      ]
-    }));
-  };
-
-  const updateHostelEntry = (index, field, value) => {
-    setHostelReport(prev => ({
-      ...prev,
-      entries: prev.entries.map((entry, i) =>
-        i === index ? { ...entry, [field]: value } : entry
-      )
-    }));
-  };
-
-  const removeHostelEntry = (index) => {
-    setHostelReport(prev => ({
-      ...prev,
-      entries: prev.entries.filter((_, i) => i !== index).map((entry, i) => ({
-        ...entry,
-        sn: i + 1
-      }))
-    }));
-  };
-
   const saveHostelReport = async () => {
     setLoading(true);
     setError("");
     setSuccess("");
 
     try {
-      // Filter out empty entries
-      const validEntries = hostelReport.entries.filter(entry => {
-        const hasBasicInfo = entry.particulars.trim() || entry.studentInvolved.trim();
-        const hasActionType = entry.actionType;
-        
-        if (isHostelIncharge) {
-          // HI only needs basic info and action type, and appropriate details based on action type
-          let hasRequiredDetails = false;
+      const reportToSave = reportType === "incharge" ? hiReport : haReport;
+      
+      // Filter out empty entries based on report type
+      let validEntries;
+      if (reportType === "incharge") {
+        // HI needs: particulars/students, actionType, and details if HI Self
+        validEntries = reportToSave.entries.filter(entry => {
+          const hasBasicInfo = entry.particulars.trim() || entry.studentInvolved.length > 0;
+          const hasActionType = entry.actionType;
           if (entry.actionType === "HI Self") {
-            hasRequiredDetails = entry.actionDetails?.trim();
-          } else if (entry.actionType === "Higher Authority") {
-            hasRequiredDetails = entry.assignedHigherAuthority;
+            return hasBasicInfo && hasActionType && entry.actionDetails?.trim();
+          } else if (entry.actionType === "Admin") {
+            return hasBasicInfo && hasActionType;
           }
-          return hasBasicInfo && hasActionType && hasRequiredDetails;
-        } else {
-          // HA needs all fields
-          const hasActionInfo = (
-            (entry.actionType === "HI Self" && entry.actionDetails?.trim()) ||
-            (entry.actionType === "Higher Authority" && entry.higherAuthorityAction?.trim())
-          );
-          const hasStatus = entry.followUpStatus && entry.needsEscalation;
-          return hasBasicInfo && hasActionType && hasActionInfo && hasStatus;
-        }
-      });
+          return false;
+        });
+      } else {
+        // Admin needs: particulars/students, actionDetails, status
+        validEntries = reportToSave.entries.filter(entry => {
+          const hasBasicInfo = entry.particulars.trim() || entry.studentInvolved.length > 0;
+          const hasActionDetails = entry.actionDetails?.trim();
+          const hasStatus = entry.status;
+          return hasBasicInfo && hasActionDetails && hasStatus;
+        });
+      }
 
       if (validEntries.length === 0) {
-        setError("Please add at least one entry with details");
+        setError("Please add at least one entry with all required details");
         return;
       }
 
       const reportData = {
-        reportDate: hostelReport.reportDate,
+        reportDate: reportToSave.reportDate,
+        reportType: reportType,
         entries: validEntries,
         submittedBy: session?.user?.id,
-        hostelInchargeId: session?.user?.id, // Assuming current user is hostel incharge
-        ...(hostelReport.reportId && { reportId: hostelReport.reportId }) // Include reportId for updates
       };
 
       const res = await fetch("/api/reports/hostel-daily-due", {
@@ -219,22 +342,35 @@ export default function ReportsPage() {
         throw new Error(errorData.error || "Failed to save report");
       }
 
-      setSuccess(hostelReport.reportId ? "Report updated successfully!" : "Hostel daily due report saved successfully!");
+      setSuccess("Hostel daily due report saved successfully!");
       
-      // Only reset form if it's a new report, not an update
-      if (!hostelReport.reportId) {
-        setHostelReport({
+      // Reset form
+      if (reportType === "incharge") {
+        setHiReport({
           reportDate: new Date().toISOString().split('T')[0],
           entries: [{ 
             sn: 1, 
+            classId: "",
             particulars: "", 
-            studentInvolved: "", 
-            actionType: "", 
-            assignedHigherAuthority: "",
-            actionDetails: "", 
-            higherAuthorityAction: "", 
-            followUpStatus: "", 
-            needsEscalation: "", 
+            studentInvolved: [], 
+            actionType: "",
+            actionDetails: "",
+            authSign: "" 
+          }]
+        });
+      } else {
+        setHaReport({
+          reportDate: new Date().toISOString().split('T')[0],
+          entries: [{ 
+            sn: 1, 
+            classId: "",
+            particulars: "", 
+            studentInvolved: [], 
+            actionType: "",
+            actionDetails: "",
+            status: "",
+            needsEscalation: "",
+            escalationDetails: "",
             authSign: "" 
           }]
         });
@@ -253,13 +389,13 @@ export default function ReportsPage() {
 
   const handleCompleteReport = (report) => {
     // Set the form to edit mode with the selected report data
-    setHostelReport({
+    setHaReport({
       reportDate: report.reportDate,
       entries: report.entries.map(entry => ({
         ...entry,
-        // Ensure all required fields are present for HA completion
-        higherAuthorityAction: entry.higherAuthorityAction || "",
-        followUpStatus: entry.followUpStatus || "",
+        // Ensure all required fields are present for Admin completion
+        actionDetails: entry.actionDetails || "",
+        status: entry.status || "",
         needsEscalation: entry.needsEscalation || "",
         authSign: entry.authSign || ""
       })),
@@ -292,18 +428,61 @@ export default function ReportsPage() {
           </Link>
           <div>
             <h1 className="text-2xl font-semibold text-slate-900">
-              {isHostelIncharge ? "Hostel Incharge - Daily Due Report" : "Hostel Authority - Daily Due Report"}
+              Hostel Due Register
             </h1>
             <p className="text-sm text-slate-600">
-              {isHostelIncharge 
-                ? "Create initial report entries for hostel dues and assign to higher authority if needed" 
-                : "Complete and manage hostel daily due reports"
+              {reportType === "incharge" 
+                ? "Hostel Incharge Report - Create initial entries for hostel dues" 
+                : "Hostel Admin Report - Review, complete, and escalate reports"
               }
             </p>
           </div>
         </div>
 
-        {!isHostelIncharge && (
+        {/* Report Type Tabs */}
+        <div className="flex gap-2 border-b border-slate-200">
+          {isHostelIncharge && (
+            <button
+              onClick={() => setReportType("incharge")}
+              className={`px-4 py-2 text-sm font-medium border-b-2 ${
+                reportType === "incharge" 
+                  ? "border-slate-900 text-slate-900" 
+                  : "border-transparent text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              HI Report
+            </button>
+          )}
+          {isHostelAdmin && (
+            <>
+              {!isHostelIncharge && (
+                <button
+                  onClick={() => setReportType("incharge")}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 ${
+                    reportType === "incharge" 
+                      ? "border-slate-900 text-slate-900" 
+                      : "border-transparent text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  HI Reports
+                </button>
+              )}
+              <button
+                onClick={() => setReportType("admin")}
+                className={`px-4 py-2 text-sm font-medium border-b-2 ${
+                  reportType === "admin" 
+                    ? "border-slate-900 text-slate-900" 
+                    : "border-transparent text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                Admin Report
+              </button>
+            </>
+          )}
+        </div>
+
+        {/* Sub-tabs for Admin view */}
+        {reportType === "admin" && isHostelAdmin && (
           <div className="flex gap-2 border-b border-slate-200">
             <button
               onClick={() => setShowCreateForm(true)}
@@ -346,211 +525,338 @@ export default function ReportsPage() {
           </div>
         )}
 
-        {(isHostelIncharge || showCreateForm) && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-slate-700 mb-2">
-              Report Date
-            </label>
-            <input
-              type="date"
-              value={hostelReport.reportDate}
-              onChange={(e) => setHostelReport(prev => ({ ...prev, reportDate: e.target.value }))}
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
-            />
-          </div>
+        {/* HOSTEL INCHARGE REPORT */}
+        {reportType === "incharge" && (
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Report Date
+              </label>
+              <input
+                type="date"
+                value={hiReport.reportDate}
+                onChange={(e) => setHiReport(prev => ({ ...prev, reportDate: e.target.value }))}
+                className="rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
+              />
+            </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse">
-              <thead>
-                <tr className="border-b border-slate-200">
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">SN</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Particulars</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Student Involved</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Action Type</th>
-                  {isHostelIncharge && (
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Assign To / Details</th>
-                  )}
-                  {!isHostelIncharge && (
-                    <>
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Action Details</th>
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Status</th>
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Escalation</th>
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Auth Sign</th>
-                    </>
-                  )}
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {hostelReport.entries.map((entry, index) => (
-                  <tr key={index} className="border-b border-slate-100">
-                    <td className="px-4 py-3 text-sm text-slate-600">{entry.sn}</td>
-                    <td className="px-4 py-3">
-                      <input
-                        type="text"
-                        value={entry.particulars}
-                        onChange={(e) => updateHostelEntry(index, 'particulars', e.target.value)}
-                        placeholder="Enter particulars..."
-                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
-                      />
-                    </td>
-                    <td className="px-4 py-3">
-                      <select
-                        value={entry.studentInvolved}
-                        onChange={(e) => updateHostelEntry(index, 'studentInvolved', e.target.value)}
-                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
-                      >
-                        <option value="">Select student...</option>
-                        {Object.entries(getStudentsByClass()).map(([className, classStudents]) => (
-                          <optgroup key={className} label={className}>
-                            {classStudents.map((student) => (
-                              <option key={student.id} value={student.name}>
-                                {student.name}
-                              </option>
-                            ))}
-                          </optgroup>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="px-4 py-3">
-                      <select
-                        value={entry.actionType}
-                        onChange={(e) => updateHostelEntry(index, 'actionType', e.target.value)}
-                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
-                      >
-                        <option value="">Select action type...</option>
-                        <option value="HI Self">HI Self</option>
-                        <option value="Higher Authority">Higher Authority</option>
-                      </select>
-                    </td>
-                    {isHostelIncharge && (
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-200">
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">SN</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Particulars</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Class</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Student Involved</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Action Type</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Action Details</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Auth Sign</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {hiReport.entries.map((entry, index) => (
+                    <tr key={index} className="border-b border-slate-100">
+                      <td className="px-4 py-3 text-sm text-slate-600">{entry.sn}</td>
                       <td className="px-4 py-3">
-                        {entry.actionType === "Higher Authority" && (
-                          <select
-                            value={entry.assignedHigherAuthority}
-                            onChange={(e) => updateHostelEntry(index, 'assignedHigherAuthority', e.target.value)}
-                            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
-                          >
-                            <option value="">Select Higher Authority...</option>
-                            {getHigherAuthorities().map((user) => (
-                              <option key={user.id} value={user.id}>
-                                {user.name} ({user.role === 'admin' ? 'Admin' : user.team_manager_type?.replace('_', ' ')})
-                              </option>
-                            ))}
-                          </select>
-                        )}
-                        {entry.actionType === "HI Self" && (
-                          <textarea
-                            value={entry.actionDetails}
-                            onChange={(e) => updateHostelEntry(index, 'actionDetails', e.target.value)}
-                            placeholder="Enter action details..."
-                            rows={2}
-                            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
-                          />
-                        )}
-                        {!entry.actionType && (
-                          <span className="text-slate-400 text-sm">Select action type first</span>
+                        <input
+                          type="text"
+                          value={entry.particulars}
+                          onChange={(e) => updateHiEntry(index, 'particulars', e.target.value)}
+                          placeholder="Enter particulars..."
+                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
+                        />
+                      </td>
+                      <td className="px-4 py-3">
+                        <select
+                          value={entry.classId}
+                          onChange={(e) => updateHiEntry(index, 'classId', e.target.value)}
+                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
+                        >
+                          <option value="">Select class...</option>
+                          {classes.map((cls) => (
+                            <option key={cls.id} value={cls.id}>
+                              {cls.name} {cls.section ? `- ${cls.section}` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-4 py-3">
+                        {entry.classId ? (
+                          <div className="space-y-2">
+                            <div className="flex flex-wrap gap-2 mb-2">
+                              {entry.studentInvolved.length > 0 && getStudentsByClass(entry.classId).filter(s => entry.studentInvolved.includes(String(s.id))).map(student => (
+                                <div key={student.id} className="inline-flex items-center gap-1 bg-blue-100 text-blue-900 px-2 py-1 rounded text-sm">
+                                  <span>{student.name}</span>
+                                  <button
+                                    onClick={() => updateHiEntry(index, 'studentInvolved', entry.studentInvolved.filter(sid => sid !== String(student.id)))}
+                                    className="text-blue-900 hover:text-blue-700 font-bold">×</button>
+                                </div>
+                              ))}
+                            </div>
+                            <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-lg bg-white">
+                              {getStudentsByClass(entry.classId).map((student) => (
+                                <label key={student.id} className="flex items-center px-3 py-2 hover:bg-slate-100 cursor-pointer border-b border-slate-100 last:border-b-0">
+                                  <input
+                                    type="checkbox"
+                                    checked={entry.studentInvolved.includes(String(student.id))}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        updateHiEntry(index, 'studentInvolved', [...entry.studentInvolved, String(student.id)]);
+                                      } else {
+                                        updateHiEntry(index, 'studentInvolved', entry.studentInvolved.filter(sid => sid !== String(student.id)));
+                                      }
+                                    }}
+                                    className="rounded border-slate-300 text-blue-600 mr-2"
+                                  />
+                                  <span className="text-sm text-slate-700">{student.name}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="text-sm text-slate-500 italic px-3 py-2">Select class first</div>
                         )}
                       </td>
-                    )}
-                    {!isHostelIncharge && (
-                      <>
-                        <td className="px-4 py-3">
-                          {entry.actionType === "HI Self" && (
-                            <textarea
-                              value={entry.actionDetails}
-                              onChange={(e) => updateHostelEntry(index, 'actionDetails', e.target.value)}
-                              placeholder="Enter action details..."
-                              rows={2}
-                              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
-                            />
-                          )}
-                          {entry.actionType === "Higher Authority" && (
-                            <textarea
-                              value={entry.higherAuthorityAction}
-                              onChange={(e) => updateHostelEntry(index, 'higherAuthorityAction', e.target.value)}
-                              placeholder="Enter higher authority action..."
-                              rows={2}
-                              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
-                            />
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          <select
-                            value={entry.followUpStatus}
-                            onChange={(e) => updateHostelEntry(index, 'followUpStatus', e.target.value)}
-                            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
-                          >
-                            <option value="">Select status...</option>
-                            <option value="Needs Follow-up">Needs Follow-up</option>
-                            <option value="Done">Done</option>
-                          </select>
-                        </td>
-                        <td className="px-4 py-3">
-                          <select
-                            value={entry.needsEscalation}
-                            onChange={(e) => updateHostelEntry(index, 'needsEscalation', e.target.value)}
-                            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
-                          >
-                            <option value="">Select...</option>
-                            <option value="Yes">Yes</option>
-                            <option value="No">No</option>
-                          </select>
-                        </td>
-                        <td className="px-4 py-3">
+                      <td className="px-4 py-3">
+                        <select
+                          value={entry.actionType}
+                          onChange={(e) => updateHiEntry(index, 'actionType', e.target.value)}
+                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
+                        >
+                          <option value="">Select action type...</option>
+                          <option value="HI Self">HI Self</option>
+                          <option value="Admin">Admin</option>
+                        </select>
+                      </td>
+                      <td className="px-4 py-3">
+                        {entry.actionType === "HI Self" && (
                           <input
                             type="text"
-                            value={entry.authSign}
-                            onChange={(e) => updateHostelEntry(index, 'authSign', e.target.value)}
-                            placeholder="Authorization signature..."
+                            value={entry.actionDetails}
+                            onChange={(e) => updateHiEntry(index, 'actionDetails', e.target.value)}
+                            placeholder="Enter action details..."
                             className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
                           />
-                        </td>
-                      </>
-                    )}
-                    <td className="px-4 py-3">
-                      {hostelReport.entries.length > 1 && (
+                        )}
+                        {entry.actionType === "Admin" && (
+                          <div className="text-sm text-slate-500 italic px-3 py-2">Sent to Admin</div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <input
+                          type="text"
+                          value={entry.authSign}
+                          onChange={(e) => updateHiEntry(index, 'authSign', e.target.value)}
+                          placeholder="Sign/Initial..."
+                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
+                        />
+                      </td>
+                      <td className="px-4 py-3">
                         <button
-                          onClick={() => removeHostelEntry(index)}
+                          onClick={() => removeHiEntry(index)}
                           className="text-red-600 hover:text-red-700 text-sm font-medium"
                         >
                           Remove
                         </button>
-                      )}
-                    </td>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-6 flex gap-4">
+              <button
+                onClick={addHiEntry}
+                className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-200"
+              >
+                <Plus size={16} /> Add Entry
+              </button>
+              <button
+                onClick={saveHostelReport}
+                disabled={loading}
+                className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:bg-slate-400"
+              >
+                <Save size={16} /> {loading ? 'Saving...' : 'Save Report'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* HOSTEL ADMIN REPORT */}
+        {reportType === "admin" && isHostelAdmin && (
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Report Date
+              </label>
+              <input
+                type="date"
+                value={haReport.reportDate}
+                onChange={(e) => setHaReport(prev => ({ ...prev, reportDate: e.target.value }))}
+                className="rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
+              />
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-200">
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">SN</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Particulars</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Class</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Student Involved</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Action Type</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Action Details</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Status</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Escalate</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Auth Sign</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {haReport.entries.map((entry, index) => (
+                    <tr key={index} className="border-b border-slate-100">
+                      <td className="px-4 py-3 text-sm text-slate-600">{entry.sn}</td>
+                      <td className="px-4 py-3">
+                        <input
+                          type="text"
+                          value={entry.particulars}
+                          onChange={(e) => updateHaEntry(index, 'particulars', e.target.value)}
+                          placeholder="Enter particulars..."
+                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
+                        />
+                      </td>
+                      <td className="px-4 py-3">
+                        <select
+                          value={entry.classId}
+                          onChange={(e) => updateHaEntry(index, 'classId', e.target.value)}
+                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
+                        >
+                          <option value="">Select class...</option>
+                          {classes.map((cls) => (
+                            <option key={cls.id} value={cls.id}>
+                              {cls.name} {cls.section ? `- ${cls.section}` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-4 py-3">
+                        {entry.classId ? (
+                          <div className="space-y-2">
+                            <div className="flex flex-wrap gap-2 mb-2">
+                              {entry.studentInvolved.length > 0 && getStudentsByClass(entry.classId).filter(s => entry.studentInvolved.includes(String(s.id))).map(student => (
+                                <div key={student.id} className="inline-flex items-center gap-1 bg-blue-100 text-blue-900 px-2 py-1 rounded text-sm">
+                                  <span>{student.name}</span>
+                                  <button
+                                    onClick={() => updateHaEntry(index, 'studentInvolved', entry.studentInvolved.filter(sid => sid !== String(student.id)))}
+                                    className="text-blue-900 hover:text-blue-700 font-bold">×</button>
+                                </div>
+                              ))}
+                            </div>
+                            <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-lg bg-white">
+                              {getStudentsByClass(entry.classId).map((student) => (
+                                <label key={student.id} className="flex items-center px-3 py-2 hover:bg-slate-100 cursor-pointer border-b border-slate-100 last:border-b-0">
+                                  <input
+                                    type="checkbox"
+                                    checked={entry.studentInvolved.includes(String(student.id))}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        updateHaEntry(index, 'studentInvolved', [...entry.studentInvolved, String(student.id)]);
+                                      } else {
+                                        updateHaEntry(index, 'studentInvolved', entry.studentInvolved.filter(sid => sid !== String(student.id)));
+                                      }
+                                    }}
+                                    className="rounded border-slate-300 text-blue-600 mr-2"
+                                  />
+                                  <span className="text-sm text-slate-700">{student.name}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="text-sm text-slate-500 italic px-3 py-2">Select class first</div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <input
+                          type="text"
+                          value={entry.actionType}
+                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-slate-50 text-slate-600"
+                          disabled
+                        />
+                      </td>
+                      <td className="px-4 py-3">
+                        <input
+                          type="text"
+                          value={entry.actionDetails}
+                          onChange={(e) => updateHaEntry(index, 'actionDetails', e.target.value)}
+                          placeholder="Enter action details..."
+                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
+                        />
+                      </td>
+                      <td className="px-4 py-3">
+                        <select
+                          value={entry.status}
+                          onChange={(e) => updateHaEntry(index, 'status', e.target.value)}
+                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
+                        >
+                          <option value="">Select status...</option>
+                          <option value="Resolved">Resolved</option>
+                          <option value="Pending">Pending</option>
+                          <option value="In Progress">In Progress</option>
+                        </select>
+                      </td>
+                      <td className="px-4 py-3">
+                        <select
+                          value={entry.needsEscalation}
+                          onChange={(e) => updateHaEntry(index, 'needsEscalation', e.target.value)}
+                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
+                        >
+                          <option value="">No</option>
+                          <option value="Yes">Yes</option>
+                        </select>
+                      </td>
+                      <td className="px-4 py-3">
+                        <input
+                          type="text"
+                          value={entry.authSign}
+                          onChange={(e) => updateHaEntry(index, 'authSign', e.target.value)}
+                          placeholder="Sign/Initial..."
+                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
+                        />
+                      </td>
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={() => removeHaEntry(index)}
+                          className="text-red-600 hover:text-red-700 text-sm font-medium"
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
 
-          <div className="mt-6 flex items-center justify-between">
-            <button
-              onClick={addHostelEntry}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
-            >
-              <Plus size={16} /> Add Entry
-            </button>
-
-            <button
-              onClick={saveHostelReport}
-              disabled={loading}
-              className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-6 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
-            >
-              {loading ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Save size={16} /> Save Report
-                </>
-              )}
-            </button>
+            <div className="mt-6 flex gap-4">
+              <button
+                onClick={addHaEntry}
+                className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-200"
+              >
+                <Plus size={16} /> Add Entry
+              </button>
+              <button
+                onClick={saveHostelReport}
+                disabled={loading}
+                className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:bg-slate-400"
+              >
+                <Save size={16} /> {loading ? 'Saving...' : 'Save Report'}
+              </button>
+            </div>
           </div>
-        </div>
         )}
 
         {!isHostelIncharge && !showCreateForm && (
