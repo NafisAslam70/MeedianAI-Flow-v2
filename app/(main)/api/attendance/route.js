@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { users, userMriRoles, scannerSessions, attendanceEvents, finalDailyAttendance, finalDailyAbsentees, userOpenCloseTimes, dayOpenCloseHistory, directWhatsappMessages, mriPrograms } from "@/lib/schema";
 import { and, eq, inArray } from "drizzle-orm";
 import crypto from "crypto";
-import { sendWhatsappMessage } from "@/lib/whatsapp";
+import { sendWhatsappMessage, sendWhatsappTemplate } from "@/lib/whatsapp";
 
 const b64u = (s) => Buffer.from(s).toString("base64").replace(/=+$/,'').replace(/\+/g,'-').replace(/\//g,'_');
 const b64uJson = (o) => b64u(JSON.stringify(o));
@@ -318,6 +318,10 @@ export async function POST(req) {
         hour: "2-digit",
         minute: "2-digit",
       })}. Please update your attendance on MeedianAI.`;
+      const templateSid =
+        process.env.TWILIO_ATTENDANCE_TEMPLATE_SID ||
+        process.env.TWILIO_DIRECT_MESSAGE_TEMPLATE_SID ||
+        "";
 
       let sent = 0;
       let skipped = 0;
@@ -351,25 +355,41 @@ export async function POST(req) {
           .returning({ id: directWhatsappMessages.id });
 
         try {
-          const tw = await sendWhatsappMessage(
-            row.whatsapp,
-            {
-              recipientName,
-              senderName: senderDisplay,
-              subject,
-              message: messageBody,
-              note: includeFooter ? footer : "",
-              contact,
-              dateTime: now.toLocaleString("en-GB", {
-                day: "2-digit",
-                month: "short",
-                year: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-              }),
-            },
-            { whatsapp_enabled: row.whatsappEnabled }
-          );
+          const dateTime = now.toLocaleString("en-GB", {
+            day: "2-digit",
+            month: "short",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+          const tw = templateSid
+            ? await sendWhatsappTemplate(
+                row.whatsapp,
+                templateSid,
+                {
+                  1: recipientName,
+                  2: senderDisplay,
+                  3: subject,
+                  4: messageBody,
+                  5: "",
+                  6: contact,
+                  7: includeFooter ? footer : "",
+                },
+                { whatsapp_enabled: row.whatsappEnabled }
+              )
+            : await sendWhatsappMessage(
+                row.whatsapp,
+                {
+                  recipientName,
+                  senderName: senderDisplay,
+                  subject,
+                  message: messageBody,
+                  note: includeFooter ? footer : "",
+                  contact,
+                  dateTime,
+                },
+                { whatsapp_enabled: row.whatsappEnabled }
+              );
 
           await db
             .update(directWhatsappMessages)

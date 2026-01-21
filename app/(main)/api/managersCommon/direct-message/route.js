@@ -8,7 +8,7 @@ import {
 } from "@/lib/schema";
 import { auth } from "@/lib/auth";
 import { eq } from "drizzle-orm";
-import { sendWhatsappMessage } from "@/lib/whatsapp";
+import { sendWhatsappMessage, sendWhatsappTemplate } from "@/lib/whatsapp";
 
 /* ================================================================== */
 /* POST – Send a direct WhatsApp message */
@@ -146,29 +146,47 @@ export async function POST(req) {
     // If you want to always log SID/failure into consolidated table, we update it here.
     // ------------------------------------------------------------------
     try {
+      const templateSid = process.env.TWILIO_DIRECT_MESSAGE_TEMPLATE_SID || "";
       if (recipientData.whatsapp_enabled && recipientData.whatsapp_number) {
         const senderDisplay = sender.name
           ? `${sender.name} (from Meed Leadership Group)`
           : "System (from Meed Leadership Group)";
-        const tw = await sendWhatsappMessage(
-          recipientData.whatsapp_number,
-          {
-            recipientName: recipientData.name,
-            senderName: senderDisplay,
-            subject,
-            message,
-            note: note.trim() || "",
-            contact,
-            dateTime: now.toLocaleString("en-GB", {
-              day: "2-digit",
-              month: "short",
-              year: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-            }),
-          },
-          recipientData
-        );
+        const dateTime = now.toLocaleString("en-GB", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+        const footer = `Sent on ${dateTime}. Please kindly check the MeedianAI portal for more information [https://meedian-ai-flow.vercel.app/]`;
+        const tw = templateSid
+          ? await sendWhatsappTemplate(
+              recipientData.whatsapp_number,
+              templateSid,
+              {
+                1: recipientData.name,
+                2: senderDisplay,
+                3: subject,
+                4: message,
+                5: note?.trim() || "",
+                6: contact,
+                7: includeFooter ? footer : "",
+              },
+              recipientData
+            )
+          : await sendWhatsappMessage(
+              recipientData.whatsapp_number,
+              {
+                recipientName: recipientData.name,
+                senderName: senderDisplay,
+                subject,
+                message,
+                note: note.trim() || "",
+                contact,
+                dateTime,
+              },
+              recipientData
+            );
 
         // Save SID in the consolidated table (optional but helpful)
         if (tw?.sid && dwmRow?.id) {

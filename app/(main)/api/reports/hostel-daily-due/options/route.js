@@ -1,33 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { Classes, mriReportAssignments, users } from "@/lib/schema";
-import { ensureHostelDailyDueTemplate } from "@/lib/mriReports";
-import { and, eq, gte, isNull, lte, or, asc } from "drizzle-orm";
-
-const todayIso = () => new Date().toISOString().slice(0, 10);
-
-const hasHostelAssignment = async (userId) => {
-  const template = await ensureHostelDailyDueTemplate();
-  if (!template?.id) return false;
-
-  const isoDate = todayIso();
-  const rows = await db
-    .select({ id: mriReportAssignments.id })
-    .from(mriReportAssignments)
-    .where(
-      and(
-        eq(mriReportAssignments.templateId, template.id),
-        eq(mriReportAssignments.userId, Number(userId)),
-        eq(mriReportAssignments.active, true),
-        or(isNull(mriReportAssignments.startDate), lte(mriReportAssignments.startDate, isoDate)),
-        or(isNull(mriReportAssignments.endDate), gte(mriReportAssignments.endDate, isoDate))
-      )
-    )
-    .limit(1);
-
-  return rows.length > 0;
-};
+import { Classes, users } from "@/lib/schema";
+import { asc } from "drizzle-orm";
 
 export async function GET(req) {
   try {
@@ -38,12 +13,6 @@ export async function GET(req) {
 
     const { searchParams } = new URL(req.url);
     const section = String(searchParams.get("section") || "").toLowerCase();
-
-    const isAdmin = session.user.role === "admin";
-    const allowed = isAdmin || (await hasHostelAssignment(session.user.id));
-    if (!allowed) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
-    }
 
     if (section === "classes") {
       const rows = await db

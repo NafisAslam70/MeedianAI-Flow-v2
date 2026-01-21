@@ -517,20 +517,6 @@ export default function AttendanceReportPage() {
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <button
-                  onClick={selectAll}
-                  className="rounded-full border border-slate-300 px-3 py-1.5 text-sm text-slate-600 transition hover:border-slate-400 hover:text-slate-700"
-                  type="button"
-                >
-                  Select all
-                </button>
-                <button
-                  onClick={clearAll}
-                  className="rounded-full border border-slate-300 px-3 py-1.5 text-sm text-slate-600 transition hover:border-slate-400 hover:text-slate-700"
-                  type="button"
-                >
-                  Clear all
-                </button>
-                <button
                   onClick={() => {
                     setMessageDirty(false);
                     setReminderMessage(defaultReminder);
@@ -579,11 +565,31 @@ export default function AttendanceReportPage() {
               />
               <p className="text-xs text-slate-400">The default text updates when you change the date. Customise it before sending if needed.</p>
             </div>
-            <div className="mt-4 max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-white">
+            <div className="mt-4 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-white">
               {absentRows.length === 0 ? (
                 <div className="p-4 text-sm text-slate-500">Everyone is present—no reminders needed.</div>
               ) : (
-                absentRows.map((row, idx) => {
+                <>
+                  <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-slate-100 bg-white px-4 py-2 text-xs text-slate-500">
+                    <span>{selectedCount} selected</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={selectAll}
+                        className="rounded-full border border-slate-200 px-2.5 py-1 text-xs text-slate-600 transition hover:border-slate-300 hover:text-slate-700"
+                        type="button"
+                      >
+                        Select all
+                      </button>
+                      <button
+                        onClick={clearAll}
+                        className="rounded-full border border-slate-200 px-2.5 py-1 text-xs text-slate-600 transition hover:border-slate-300 hover:text-slate-700"
+                        type="button"
+                      >
+                        Unselect all
+                      </button>
+                    </div>
+                  </div>
+                  {absentRows.map((row, idx) => {
                   const idValue = Number(row.userId);
                   const numericId = Number.isFinite(idValue) ? idValue : null;
                   const hasWhatsapp = typeof row.whatsapp === "string" && row.whatsapp.trim() !== "";
@@ -616,7 +622,8 @@ export default function AttendanceReportPage() {
                       />
                     </label>
                   );
-                })
+                })}
+                </>
               )}
             </div>
           </div>

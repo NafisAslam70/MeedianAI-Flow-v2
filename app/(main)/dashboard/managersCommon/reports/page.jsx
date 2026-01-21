@@ -46,59 +46,16 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const isHostelInchargeByRole =
+  const isHostelIncharge =
     session?.user?.role === 'team_manager' && session?.user?.team_manager_type === 'hostel_incharge';
 
   // Report type view state
-  const [reportType, setReportType] = useState(isHostelInchargeByRole ? "incharge" : "admin"); // "incharge" or "admin"
+  const [reportType, setReportType] = useState(isHostelIncharge ? "incharge" : "admin"); // "incharge" or "admin"
 
-  const { data: mriRolesData } = useSWR(
-    status === "authenticated" ? "/api/member/mris/roles" : null,
-    fetcher,
-    { dedupingInterval: 60000 }
-  );
-
-  const { data: hostelAssignmentsData } = useSWR(
-    status === "authenticated" ? "/api/reports/hostel-daily-due/assignments" : null,
-    fetcher,
-    { dedupingInterval: 30000 }
-  );
-
-  const userMriRoles = useMemo(() => mriRolesData?.roles || [], [mriRolesData?.roles]);
-  const hostelAssignments = useMemo(
-    () => hostelAssignmentsData?.assignments || [],
-    [hostelAssignmentsData?.assignments]
-  );
-
-  const hasHostelAuthorityAssignment = hostelAssignments.some(
-    (assignment) => assignment.role === "hostel_authority"
-  );
-  const hasHostelInchargeAssignment = hostelAssignments.some(
-    (assignment) => assignment.role !== "hostel_authority"
-  );
-  const hasHostelAssignment = hasHostelAuthorityAssignment || hasHostelInchargeAssignment;
-
-  // Determine user role for hostel system
-  const isHostelIncharge = isHostelInchargeByRole || hasHostelInchargeAssignment;
-
-  // Hostel Admin = system admin OR has any MRI roles assigned OR assigned as hostel authority
-  const isHostelAdmin =
-    session?.user?.role === 'admin' ||
-    hasHostelAuthorityAssignment ||
-    (Array.isArray(userMriRoles) && userMriRoles.length > 0);
-  const canAccessHostelReports = isHostelIncharge || isHostelAdmin;
-  const canLoadHostelOptions =
-    selectedReport === "hostel-daily-due" &&
-    canAccessHostelReports &&
-    (hasHostelAssignment || session?.user?.role === "admin");
-
-  useEffect(() => {
-    if (isHostelIncharge && !isHostelAdmin && reportType !== "incharge") {
-      setReportType("incharge");
-    } else if (isHostelAdmin && !isHostelIncharge && reportType !== "admin") {
-      setReportType("admin");
-    }
-  }, [isHostelIncharge, isHostelAdmin, reportType]);
+  // Privacy removed: show hostel due register to any authenticated user.
+  const isHostelAdmin = status === "authenticated";
+  const canAccessHostelReports = status === "authenticated";
+  const canLoadHostelOptions = selectedReport === "hostel-daily-due" && canAccessHostelReports;
 
   // Hostel Daily Due Report state for Incharge
   const [hiReport, setHiReport] = useState({
@@ -450,29 +407,26 @@ export default function ReportsPage() {
     setSelectedReport('hostel-daily-due'); // Ensure we're in the right report type
   };
 
-  if (!canAccessHostelReports) {
-    return (
-      <div className="flex h-96 items-center justify-center">
-        <div className="text-center">
-          <AlertCircle size={48} className="mx-auto text-red-500 mb-4" />
-          <h2 className="text-xl font-semibold text-slate-900 mb-2">Access Denied</h2>
-          <p className="text-sm text-slate-600 mb-4">
-            You do not have permission to access the Hostel Due Reports.
-          </p>
-          <p className="text-xs text-slate-500">
-            Only Hostel Incharge, Hostel Higher Authority assignees, and users assigned MRI roles in ManageMeedian can access this section.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   if (status === "loading") {
     return (
       <div className="flex h-64 items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-900 mx-auto"></div>
           <p className="mt-2 text-sm text-slate-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!canAccessHostelReports) {
+    return (
+      <div className="flex h-96 items-center justify-center">
+        <div className="text-center">
+          <AlertCircle size={48} className="mx-auto text-red-500 mb-4" />
+          <h2 className="text-xl font-semibold text-slate-900 mb-2">Sign in required</h2>
+          <p className="text-sm text-slate-600 mb-4">
+            Please sign in to access the Hostel Due Reports.
+          </p>
         </div>
       </div>
     );
