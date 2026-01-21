@@ -195,7 +195,15 @@ export default function AttendanceReportPage() {
 
   const selectableIds = useMemo(() => {
     return absentRows
-      .map((row) => (Number.isFinite(row.userId) ? Number(row.userId) : null))
+      .filter((row) => {
+        const number = typeof row?.whatsapp === "string" ? row.whatsapp.trim() : "";
+        if (!number) return false;
+        return row.whatsappEnabled !== false;
+      })
+      .map((row) => {
+        const id = Number(row.userId);
+        return Number.isFinite(id) ? id : null;
+      })
       .filter((id) => id !== null);
   }, [absentRows]);
 
@@ -576,9 +584,12 @@ export default function AttendanceReportPage() {
                 <div className="p-4 text-sm text-slate-500">Everyone is present—no reminders needed.</div>
               ) : (
                 absentRows.map((row, idx) => {
-                  const numericId = Number.isFinite(row.userId) ? Number(row.userId) : null;
+                  const idValue = Number(row.userId);
+                  const numericId = Number.isFinite(idValue) ? idValue : null;
+                  const hasWhatsapp = typeof row.whatsapp === "string" && row.whatsapp.trim() !== "";
+                  const whatsappDisabled = row.whatsappEnabled === false;
                   const checked = numericId !== null && selectedIds.has(numericId);
-                  const disabled = numericId === null;
+                  const disabled = numericId === null || !hasWhatsapp || whatsappDisabled;
                   return (
                     <label
                       key={numericId !== null ? `absent_${numericId}` : `absent_unknown_${idx}`}
@@ -590,6 +601,11 @@ export default function AttendanceReportPage() {
                           {numericId !== null ? `#${numericId}` : "No linked user"}
                           {row.isTeacher ? " • Teacher" : " • Member"}
                         </span>
+                        {(!hasWhatsapp || whatsappDisabled) && (
+                          <span className="mt-0.5 text-xs text-rose-500">
+                            {!hasWhatsapp ? "No WhatsApp number on file" : "WhatsApp disabled"}
+                          </span>
+                        )}
                       </span>
                       <input
                         type="checkbox"

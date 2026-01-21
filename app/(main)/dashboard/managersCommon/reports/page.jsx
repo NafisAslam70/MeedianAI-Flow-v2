@@ -76,6 +76,7 @@ export default function ReportsPage() {
   const hasHostelInchargeAssignment = hostelAssignments.some(
     (assignment) => assignment.role !== "hostel_authority"
   );
+  const hasHostelAssignment = hasHostelAuthorityAssignment || hasHostelInchargeAssignment;
 
   // Determine user role for hostel system
   const isHostelIncharge = isHostelInchargeByRole || hasHostelInchargeAssignment;
@@ -86,6 +87,10 @@ export default function ReportsPage() {
     hasHostelAuthorityAssignment ||
     (Array.isArray(userMriRoles) && userMriRoles.length > 0);
   const canAccessHostelReports = isHostelIncharge || isHostelAdmin;
+  const canLoadHostelOptions =
+    selectedReport === "hostel-daily-due" &&
+    canAccessHostelReports &&
+    (hasHostelAssignment || session?.user?.role === "admin");
 
   useEffect(() => {
     if (isHostelIncharge && !isHostelAdmin && reportType !== "incharge") {
@@ -138,8 +143,8 @@ export default function ReportsPage() {
     data: classesData,
     isLoading: classesLoading,
   } = useSWR(
-    selectedReport === "hostel-daily-due" && canAccessHostelReports
-      ? "/api/admin/manageMeedian?section=classes"
+    canLoadHostelOptions
+      ? "/api/reports/hostel-daily-due/options?section=classes"
       : null,
     fetcher,
     { dedupingInterval: 60000 }
@@ -149,8 +154,8 @@ export default function ReportsPage() {
     data: usersData,
     isLoading: usersLoading,
   } = useSWR(
-    selectedReport === "hostel-daily-due" && canAccessHostelReports
-      ? "/api/admin/manageMeedian?section=team"
+    canLoadHostelOptions
+      ? "/api/reports/hostel-daily-due/options?section=users"
       : null,
     fetcher,
     { dedupingInterval: 60000 }

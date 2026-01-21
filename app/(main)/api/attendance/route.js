@@ -82,7 +82,13 @@ export async function GET(req) {
         .where(and(...filters));
       // Fetch absentees
       const abs = await db
-        .select({ userId: finalDailyAbsentees.userId, name: finalDailyAbsentees.name, isTeacher: users.isTeacher })
+        .select({
+          userId: finalDailyAbsentees.userId,
+          name: finalDailyAbsentees.name,
+          isTeacher: users.isTeacher,
+          whatsapp: users.whatsapp_number,
+          whatsappEnabled: users.whatsapp_enabled,
+        })
         .from(finalDailyAbsentees)
         .leftJoin(users, eq(users.id, finalDailyAbsentees.userId))
         .where(and(...filtersAbs));
