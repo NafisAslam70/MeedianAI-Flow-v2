@@ -326,11 +326,13 @@ export default function ReportsPage() {
         return;
       }
 
+      const reportId = reportToSave?.reportId;
       const reportData = {
         reportDate: reportToSave.reportDate,
         reportType: reportType,
         entries: validEntries,
         submittedBy: session?.user?.id,
+        ...(reportId ? { reportId } : { hostelInchargeId: session?.user?.id }),
       };
 
       const res = await fetch("/api/reports/hostel-daily-due", {
