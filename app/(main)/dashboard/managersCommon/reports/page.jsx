@@ -46,18 +46,54 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const [userMriRoles, setUserMriRoles] = useState([]);
-
-  // Determine user role for hostel system
-  const isHostelIncharge = session?.user?.role === 'team_manager' && session?.user?.team_manager_type === 'hostel_incharge';
-  
-  // Hostel Admin = system admin OR has any MRI roles assigned in manageMeedian
-  // Any user with MRI roles is considered an admin who can access the admin report
-  const isHostelAdmin = session?.user?.role === 'admin' || (Array.isArray(userMriRoles) && userMriRoles.length > 0);
-  const canAccessHostelReports = isHostelIncharge || isHostelAdmin;
+  const isHostelInchargeByRole =
+    session?.user?.role === 'team_manager' && session?.user?.team_manager_type === 'hostel_incharge';
 
   // Report type view state
-  const [reportType, setReportType] = useState(isHostelIncharge ? "incharge" : "admin"); // "incharge" or "admin"
+  const [reportType, setReportType] = useState(isHostelInchargeByRole ? "incharge" : "admin"); // "incharge" or "admin"
+
+  const { data: mriRolesData } = useSWR(
+    status === "authenticated" ? "/api/member/mris/roles" : null,
+    fetcher,
+    { dedupingInterval: 60000 }
+  );
+
+  const { data: hostelAssignmentsData } = useSWR(
+    status === "authenticated" ? "/api/reports/hostel-daily-due/assignments" : null,
+    fetcher,
+    { dedupingInterval: 30000 }
+  );
+
+  const userMriRoles = useMemo(() => mriRolesData?.roles || [], [mriRolesData?.roles]);
+  const hostelAssignments = useMemo(
+    () => hostelAssignmentsData?.assignments || [],
+    [hostelAssignmentsData?.assignments]
+  );
+
+  const hasHostelAuthorityAssignment = hostelAssignments.some(
+    (assignment) => assignment.role === "hostel_authority"
+  );
+  const hasHostelInchargeAssignment = hostelAssignments.some(
+    (assignment) => assignment.role !== "hostel_authority"
+  );
+
+  // Determine user role for hostel system
+  const isHostelIncharge = isHostelInchargeByRole || hasHostelInchargeAssignment;
+
+  // Hostel Admin = system admin OR has any MRI roles assigned OR assigned as hostel authority
+  const isHostelAdmin =
+    session?.user?.role === 'admin' ||
+    hasHostelAuthorityAssignment ||
+    (Array.isArray(userMriRoles) && userMriRoles.length > 0);
+  const canAccessHostelReports = isHostelIncharge || isHostelAdmin;
+
+  useEffect(() => {
+    if (isHostelIncharge && !isHostelAdmin && reportType !== "incharge") {
+      setReportType("incharge");
+    } else if (isHostelAdmin && !isHostelIncharge && reportType !== "admin") {
+      setReportType("admin");
+    }
+  }, [isHostelIncharge, isHostelAdmin, reportType]);
 
   // Hostel Daily Due Report state for Incharge
   const [hiReport, setHiReport] = useState({
@@ -122,14 +158,6 @@ export default function ReportsPage() {
 
   const classes = useMemo(() => classesData?.classes || [], [classesData?.classes]);
   const users = useMemo(() => usersData?.users || [], [usersData?.users]);
-
-  // Extract current user's MRI roles from the team data
-  useEffect(() => {
-    if (usersData?.userMriRoles && session?.user?.id) {
-      const currentUserRoles = usersData.userMriRoles[session.user.id] || [];
-      setUserMriRoles(currentUserRoles);
-    }
-  }, [usersData, session?.user?.id]);
 
   // Cache students by classId using a Map
   const [studentsByClassCache, setStudentsByClassCache] = useState(new Map());
@@ -427,7 +455,7 @@ export default function ReportsPage() {
             You do not have permission to access the Hostel Due Reports.
           </p>
           <p className="text-xs text-slate-500">
-            Only Hostel Incharge and users assigned MRI roles in ManageMeedian can access this section.
+            Only Hostel Incharge, Hostel Higher Authority assignees, and users assigned MRI roles in ManageMeedian can access this section.
           </p>
         </div>
       </div>
