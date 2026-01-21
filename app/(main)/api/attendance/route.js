@@ -320,8 +320,7 @@ export async function POST(req) {
       })}. Please update your attendance on MeedianAI.`;
       const templateSid =
         process.env.TWILIO_ATTENDANCE_TEMPLATE_SID ||
-        process.env.TWILIO_DIRECT_MESSAGE_TEMPLATE_SID ||
-        "";
+        "HX460c24c3007e9b2d7370547dfbbd2aa4";
 
       let sent = 0;
       let skipped = 0;
@@ -373,7 +372,7 @@ export async function POST(req) {
                   4: messageBody,
                   5: "",
                   6: contact,
-                  7: includeFooter ? footer : "",
+                  7: dateTime,
                 },
                 { whatsapp_enabled: row.whatsappEnabled }
               )

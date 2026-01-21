@@ -40,11 +40,43 @@ export default function AttendanceReportPage() {
     const scopeLabel = scope.length ? ` (${scope.join(" • ")})` : "";
     return `Hi there! Your attendance for ${formattedDate}${scopeLabel} is still pending. Please scan in or connect with your moderator to update it.`;
   }, [date, programKey, track]);
+  const reminderTemplates = useMemo(() => {
+    const dateObj = new Date(`${date}T00:00:00`);
+    const formattedDate = Number.isNaN(dateObj.getTime())
+      ? date
+      : dateObj.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+    const scope = [];
+    if (programKey) scope.push(programKey);
+    if (track) scope.push(track.replace(/_/g, " "));
+    const scopeLabel = scope.length ? ` (${scope.join(" • ")})` : "";
+    const timeWindow = "07:00-20:00";
+    return [
+      {
+        key: "late",
+        label: "Late",
+        subject: `Late Attendance Alert - ${formattedDate}`,
+        message: `Hi there! Your attendance for ${formattedDate}${scopeLabel} was marked late. An AD has been raised on your name. Please contact your IS/COD immediately to avoid escalation to management.`,
+      },
+      {
+        key: "absent",
+        label: "Absent",
+        subject: `Absent Attendance Alert - ${formattedDate}`,
+        message: `Hi there! Our records show you are marked absent for ${formattedDate}${scopeLabel}. An AD has been raised on your name. Please contact your IS/COD immediately to avoid escalation to management.`,
+      },
+      {
+        key: "pending",
+        label: "Pending",
+        subject: `Attendance Pending - ${formattedDate}`,
+        message: `Hi there! You have not marked attendance for ${formattedDate}${scopeLabel}. Please complete it before ${timeWindow}.`,
+      },
+    ];
+  }, [date, programKey, track]);
   const [reminderSubject, setReminderSubject] = useState("Attendance Reminder");
   const [reminderMessage, setReminderMessage] = useState(defaultReminder);
   const [messageDirty, setMessageDirty] = useState(false);
   const [sendingReminder, setSendingReminder] = useState(false);
   const [banner, setBanner] = useState(null);
+  const [showSendConfirm, setShowSendConfirm] = useState(false);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const { data: programsData } = useSWR(
     "/api/admin/manageMeedian?section=metaPrograms",
@@ -131,6 +163,14 @@ export default function AttendanceReportPage() {
       setReminderMessage(defaultReminder);
     }
   }, [defaultReminder, messageDirty]);
+
+  const applyReminderTemplate = (key) => {
+    const template = reminderTemplates.find((item) => item.key === key);
+    if (!template) return;
+    setReminderSubject(template.subject);
+    setReminderMessage(template.message);
+    setMessageDirty(true);
+  };
 
   const deduped = useMemo(() => {
     if (!data) return { presents: [], absentees: [], totals: null };
@@ -308,20 +348,8 @@ export default function AttendanceReportPage() {
 
   const absenteesCount = absentRows.length;
 
-  const handleNotifyAbsentees = async () => {
+  const sendNotifyAbsentees = async () => {
     if (sendingReminder) return;
-    if (!absenteesCount) {
-      setBanner({ type: "info", text: "Everyone is already marked present for the selected filters." });
-      return;
-    }
-    if (!selectedCount) {
-      setBanner({ type: "info", text: "Please select at least one recipient." });
-      return;
-    }
-    if (!reminderSubject.trim() || !reminderMessage.trim()) {
-      setBanner({ type: "error", text: "Subject and message cannot be empty." });
-      return;
-    }
     setSendingReminder(true);
     setBanner(null);
     try {
@@ -351,6 +379,23 @@ export default function AttendanceReportPage() {
     } finally {
       setSendingReminder(false);
     }
+  };
+
+  const handleNotifyAbsentees = () => {
+    if (sendingReminder) return;
+    if (!absenteesCount) {
+      setBanner({ type: "info", text: "Everyone is already marked present for the selected filters." });
+      return;
+    }
+    if (!selectedCount) {
+      setBanner({ type: "info", text: "Please select at least one recipient." });
+      return;
+    }
+    if (!reminderSubject.trim() || !reminderMessage.trim()) {
+      setBanner({ type: "error", text: "Subject and message cannot be empty." });
+      return;
+    }
+    setShowSendConfirm(true);
   };
   return (
     <div className="min-h-screen bg-gradient-to-br from-white via-slate-50 to-slate-100 px-6 py-8 text-slate-900">
@@ -526,6 +571,16 @@ export default function AttendanceReportPage() {
                 >
                   Reset message
                 </button>
+                {reminderTemplates.map((template) => (
+                  <button
+                    key={template.key}
+                    onClick={() => applyReminderTemplate(template.key)}
+                    className="rounded-full border border-slate-300 px-3 py-1.5 text-sm text-slate-600 transition hover:border-slate-400 hover:text-slate-700"
+                    type="button"
+                  >
+                    {template.label}
+                  </button>
+                ))}
                 <button
                   onClick={handleNotifyAbsentees}
                   disabled={sendingReminder || !selectedCount}
@@ -684,6 +739,56 @@ export default function AttendanceReportPage() {
           )}
         </section>
       </div>
+      {showSendConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">Confirm WhatsApp reminder</h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  You are about to notify {selectedCount} recipient{selectedCount === 1 ? "" : "s"}.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowSendConfirm(false)}
+                className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-600 transition hover:border-slate-300 hover:text-slate-700"
+                type="button"
+              >
+                Close
+              </button>
+            </div>
+            <div className="mt-4 space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Subject</div>
+                <div className="mt-1">{reminderSubject.trim()}</div>
+              </div>
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Message</div>
+                <div className="mt-1 whitespace-pre-wrap">{reminderMessage.trim()}</div>
+              </div>
+            </div>
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                onClick={() => setShowSendConfirm(false)}
+                className="rounded-full border border-slate-200 px-4 py-2 text-sm text-slate-600 transition hover:border-slate-300 hover:text-slate-700"
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  setShowSendConfirm(false);
+                  await sendNotifyAbsentees();
+                }}
+                className="rounded-full bg-cyan-500 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-cyan-400"
+                type="button"
+              >
+                Send now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
