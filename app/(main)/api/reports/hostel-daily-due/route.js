@@ -105,14 +105,31 @@ export async function POST(request) {
       );
     }
 
-    // Validate entries for new reports
+    // Validate entries for new reports (support legacy + current UI action types)
     const validEntries = entries.filter((entry) => {
-      const hasBasicInfo = entry.particulars?.trim() || entry.studentInvolved?.trim();
-      const hasActionInfo = entry.actionType && (
-        (entry.actionType === "Student Self" && entry.actionDetails?.trim()) ||
-        (entry.actionType === "Higher Authority" && entry.higherAuthorityAction?.trim()) ||
-        (entry.actionType === "assign_to_higher_authority" && entry.assignedHigherAuthority)
-      );
+      const particulars = typeof entry.particulars === "string" ? entry.particulars.trim() : "";
+      const students =
+        typeof entry.studentInvolved === "string"
+          ? entry.studentInvolved.trim()
+          : Array.isArray(entry.studentInvolved)
+          ? entry.studentInvolved.filter(Boolean)
+          : [];
+      const hasBasicInfo = Boolean(particulars) || (Array.isArray(students) ? students.length > 0 : Boolean(students));
+
+      const actionType = String(entry.actionType || "");
+      const hasActionInfo =
+        actionType === "Student Self"
+          ? Boolean(entry.actionDetails?.trim())
+          : actionType === "Higher Authority"
+          ? Boolean(entry.higherAuthorityAction?.trim())
+          : actionType === "assign_to_higher_authority"
+          ? Boolean(entry.assignedHigherAuthority)
+          : actionType === "HI Self"
+          ? Boolean(entry.actionDetails?.trim())
+          : actionType === "Admin"
+          ? true
+          : false;
+
       return hasBasicInfo && hasActionInfo;
     });
 
@@ -144,8 +161,17 @@ export async function POST(request) {
     const escalationPromises = validEntries
       .filter(entry => entry.needsEscalation === "Yes")
       .map(entry => {
-        const title = `Hostel Due Escalation: ${entry.particulars || 'Issue'} ${entry.studentInvolved ? `(${entry.studentInvolved})` : ''}`;
-        const description = `Hostel Daily Due Report escalation\n\nParticulars: ${entry.particulars}\nStudent Involved: ${entry.studentInvolved || 'N/A'}\nAction Type: ${entry.actionType}\n${entry.actionType === "Student Self" ? `Action Details: ${entry.actionDetails}` : `Higher Authority Action: ${entry.higherAuthorityAction}`}\nStatus: ${entry.followUpStatus}\nAuth Sign: ${entry.authSign}`;
+        const studentLabel = Array.isArray(entry.studentInvolved)
+          ? entry.studentInvolved.filter(Boolean).join(", ")
+          : entry.studentInvolved || "";
+        const title = `Hostel Due Escalation: ${entry.particulars || "Issue"}${studentLabel ? ` (${studentLabel})` : ""}`;
+        const actionDetails =
+          entry.actionType === "Student Self"
+            ? entry.actionDetails
+            : entry.actionType === "HI Self"
+            ? entry.actionDetails
+            : entry.higherAuthorityAction;
+        const description = `Hostel Daily Due Report escalation\n\nParticulars: ${entry.particulars}\nStudent Involved: ${studentLabel || "N/A"}\nAction Type: ${entry.actionType}\nAction Details: ${actionDetails || "N/A"}\nStatus: ${entry.followUpStatus}\nAuth Sign: ${entry.authSign}`;
 
         return db.insert(escalationsMatters).values({
           title,

@@ -41,6 +41,7 @@ export const authOptions = {
               name: users.name,
               email: users.email,
               password: users.password,
+              active: users.active,
               role: users.role,
               team_manager_type: users.team_manager_type,
               image: users.image, // Include image
@@ -53,6 +54,10 @@ export const authOptions = {
           if (!user) {
             console.log("No user found for email:", email);
             throw new Error("No user found with the provided email");
+          }
+          if (user.active === false) {
+            console.log("Inactive account:", email);
+            throw new Error("Account is inactive");
           }
 
           const isValid = await bcrypt.compare(credentials.password, user.password);

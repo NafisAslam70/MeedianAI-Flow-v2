@@ -15,29 +15,9 @@ import {
   routineTasks,
   routineTaskLogs,
   routineTaskDailyStatuses,
-  assignedTasks,
-  assignedTaskObservers,
-  assignedTaskStatus,
-  assignedTaskLogs,
-  sprints,
-  messages,
-  nonMeeDianMessages,
-  directWhatsappMessages,
-  generalLogs,
-  memberHistory,
-  notCompletedTasks,
   userOpenCloseTimes,
-  dayOpenCloseHistory,
   dayCloseRequests,
-  dayCloseOverrides,
   leaveRequests,
-  groupMembers,
-  meRightNowSessions,
-  programTrackerEntries,
-  academicHealthReports,
-  mriDefaulterLogs,
-  hostelDailyDueReports,
-  resources,
   MRI_ROLE_OPTIONS, // ✅ expose enum options via API
   classParentTeachers,
   Classes,
@@ -166,7 +146,7 @@ export async function GET(req) {
       const mgrs = await db
         .select({ id: users.id, name: users.name, email: users.email })
         .from(users)
-        .where(eq(users.role, 'team_manager'));
+        .where(and(eq(users.role, "team_manager"), eq(users.active, true)));
       return NextResponse.json({ managers: mgrs, grants, sections: Array.from(grantableSections), programs: await (async()=>{ const progs = await db.select({ id: mriPrograms.id, name: mriPrograms.name, programKey: mriPrograms.programKey }).from(mriPrograms); return progs; })() }, { status: 200 });
     }
     if (section === "guardianGateAssignments") {
@@ -176,7 +156,7 @@ export async function GET(req) {
       const teamManagers = await db
         .select({ id: users.id, name: users.name, email: users.email })
         .from(users)
-        .where(eq(users.role, "team_manager"))
+        .where(and(eq(users.role, "team_manager"), eq(users.active, true)))
         .orderBy(users.name);
       const grants = await db
         .select({ userId: managerSectionGrants.userId })
@@ -333,8 +313,10 @@ export async function GET(req) {
           team_manager_type: users.team_manager_type,
           immediate_supervisor: users.immediate_supervisor,
           isTeacher: users.isTeacher,
+          active: users.active,
         })
-        .from(users);
+        .from(users)
+        .where(eq(users.active, true));
 
       const mriRoleData = await db
         .select({
@@ -432,7 +414,13 @@ export async function GET(req) {
       const assigns = await db
         .select({ id: slotRoleAssignments.id, slotWeeklyRoleId: slotRoleAssignments.slotWeeklyRoleId, userId: slotRoleAssignments.userId, active: slotRoleAssignments.active, startDate: slotRoleAssignments.startDate, endDate: slotRoleAssignments.endDate })
         .from(slotRoleAssignments);
-      const userMap = new Map((await db.select({ id: users.id, name: users.name, role: users.role, type: users.type }).from(users)).map(u => [u.id, u]));
+      const userMap = new Map(
+        (await db
+          .select({ id: users.id, name: users.name, role: users.role, type: users.type })
+          .from(users)
+          .where(eq(users.active, true))
+        ).map(u => [u.id, u])
+      );
 
       const rolesBySlot = new Map();
       roles.forEach(r => {
@@ -2782,92 +2770,8 @@ export async function DELETE(req) {
     if (section === "team") {
       const userId = Number(body.userId);
       if (!userId) return NextResponse.json({ error: "userId required" }, { status: 400 });
-      await db.transaction(async (tx) => {
-        // Clear references that block user deletion.
-        await tx.update(assignedTaskStatus).set({ verifiedBy: null }).where(eq(assignedTaskStatus.verifiedBy, userId));
-        await tx.update(sprints).set({ verifiedBy: null }).where(eq(sprints.verifiedBy, userId));
-        await tx.update(assignedTasks).set({ observerId: null }).where(eq(assignedTasks.observerId, userId));
-        await tx.update(dayCloseRequests).set({ approvedBy: null }).where(eq(dayCloseRequests.approvedBy, userId));
-        await tx.update(leaveRequests).set({ transferTo: null }).where(eq(leaveRequests.transferTo, userId));
-        await tx.update(leaveRequests).set({ approvedBy: null }).where(eq(leaveRequests.approvedBy, userId));
-        await tx.update(dailySlots).set({ assignedMemberId: null }).where(eq(dailySlots.assignedMemberId, userId));
-        await tx.update(dailySlotLogs).set({ createdBy: null }).where(eq(dailySlotLogs.createdBy, userId));
-        await tx.update(hostelDailyDueReports).set({ approvedBy: null }).where(eq(hostelDailyDueReports.approvedBy, userId));
-        await tx.update(resources).set({ assignedTo: null }).where(eq(resources.assignedTo, userId));
-
-        const routineTaskRows = await tx
-          .select({ id: routineTasks.id })
-          .from(routineTasks)
-          .where(eq(routineTasks.memberId, userId));
-        const routineTaskIds = routineTaskRows.map((row) => row.id);
-        if (routineTaskIds.length) {
-          await tx
-            .delete(routineTaskDailyStatuses)
-            .where(inArray(routineTaskDailyStatuses.routineTaskId, routineTaskIds));
-          await tx
-            .delete(routineTaskLogs)
-            .where(inArray(routineTaskLogs.routineTaskId, routineTaskIds));
-          await tx.delete(routineTasks).where(inArray(routineTasks.id, routineTaskIds));
-        }
-        await tx.delete(routineTaskLogs).where(eq(routineTaskLogs.userId, userId));
-
-        await tx.delete(assignedTaskStatus).where(eq(assignedTaskStatus.memberId, userId));
-        await tx.delete(assignedTaskObservers).where(eq(assignedTaskObservers.userId, userId));
-        await tx.delete(assignedTaskLogs).where(eq(assignedTaskLogs.userId, userId));
-        await tx.delete(assignedTasks).where(eq(assignedTasks.createdBy, userId));
-        await tx.delete(memberHistory).where(eq(memberHistory.memberId, userId));
-        await tx.delete(notCompletedTasks).where(eq(notCompletedTasks.userId, userId));
-        await tx.delete(generalLogs).where(eq(generalLogs.userId, userId));
-        await tx.delete(userOpenCloseTimes).where(eq(userOpenCloseTimes.userId, userId));
-        await tx.delete(dayOpenCloseHistory).where(eq(dayOpenCloseHistory.userId, userId));
-        await tx.delete(dayCloseRequests).where(eq(dayCloseRequests.userId, userId));
-        await tx.delete(dailySlotAssignments).where(eq(dailySlotAssignments.memberId, userId));
-        await tx.delete(slotRoleAssignments).where(eq(slotRoleAssignments.userId, userId));
-        await tx.delete(managerSectionGrants).where(eq(managerSectionGrants.userId, userId));
-        await tx.delete(groupMembers).where(eq(groupMembers.userId, userId));
-        await tx.delete(meRightNowSessions).where(eq(meRightNowSessions.userId, userId));
-        await tx.delete(userMriRoles).where(eq(userMriRoles.userId, userId));
-        await tx.delete(programTrackerEntries).where(eq(programTrackerEntries.userId, userId));
-        await tx.delete(mriDefaulterLogs).where(eq(mriDefaulterLogs.reportedBy, userId));
-        await tx
-          .delete(dayCloseOverrides)
-          .where(or(eq(dayCloseOverrides.userId, userId), eq(dayCloseOverrides.createdBy, userId)));
-        await tx
-          .delete(leaveRequests)
-          .where(or(eq(leaveRequests.userId, userId), eq(leaveRequests.submittedTo, userId)));
-        await tx
-          .delete(hostelDailyDueReports)
-          .where(
-            or(
-              eq(hostelDailyDueReports.hostelInchargeId, userId),
-              eq(hostelDailyDueReports.submittedBy, userId)
-            )
-          );
-        await tx
-          .delete(academicHealthReports)
-          .where(
-            or(
-              eq(academicHealthReports.assignedToUserId, userId),
-              eq(academicHealthReports.maghribSalahLedById, userId),
-              eq(academicHealthReports.createdByUserId, userId)
-            )
-          );
-        await tx
-          .delete(messages)
-          .where(or(eq(messages.senderId, userId), eq(messages.recipientId, userId)));
-        await tx.delete(nonMeeDianMessages).where(eq(nonMeeDianMessages.senderId, userId));
-        await tx
-          .delete(directWhatsappMessages)
-          .where(
-            or(
-              eq(directWhatsappMessages.senderId, userId),
-              eq(directWhatsappMessages.recipientUserId, userId)
-            )
-          );
-
-        await tx.delete(users).where(eq(users.id, userId));
-      });
-      return NextResponse.json({ deleted: 1 }, { status: 200 });
+      await db.update(users).set({ active: false }).where(eq(users.id, userId));
+      return NextResponse.json({ archived: 1 }, { status: 200 });
     }
 
     if (section === "slots") {
