@@ -46,16 +46,45 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const isHostelIncharge =
+  const isHostelInchargeRole =
     session?.user?.role === 'team_manager' && session?.user?.team_manager_type === 'hostel_incharge';
+  const isSystemAdmin = session?.user?.role === "admin";
 
   // Report type view state
-  const [reportType, setReportType] = useState(isHostelIncharge ? "incharge" : "admin"); // "incharge" or "admin"
-
-  // Privacy removed: show hostel due register to any authenticated user.
-  const isHostelAdmin = status === "authenticated";
-  const canAccessHostelReports = status === "authenticated";
+  const [reportType, setReportType] = useState(isHostelInchargeRole ? "incharge" : "admin"); // "incharge" or "admin"
+  const viewerKey = session?.user?.id ? `?viewer=${session.user.id}` : "";
+  const { data: assignmentsData, error: assignmentsError } = useSWR(
+    status === "authenticated" ? `/api/reports/hostel-daily-due/assignments${viewerKey}` : null,
+    fetcher,
+    { dedupingInterval: 30000 }
+  );
+  const assignments = useMemo(() => assignmentsData?.assignments || [], [assignmentsData?.assignments]);
+  const hasHiAssignment = assignments.some((assignment) => !assignment.role || assignment.role === "hostel_incharge");
+  const hasAdminAssignment = assignments.some(
+    (assignment) => assignment.role === "hostel_admin" || assignment.role === "hostel_authority"
+  );
+  const hasSchoolOfficeAssignment = assignments.some((assignment) => assignment.role === "school_office");
+  const isHostelIncharge = isSystemAdmin || hasHiAssignment;
+  const isHostelAdmin = isSystemAdmin || hasAdminAssignment;
+  const isSchoolOffice = isSystemAdmin || hasSchoolOfficeAssignment;
+  const canAccessHostelReports = Boolean(
+    isSystemAdmin || hasHiAssignment || hasAdminAssignment || hasSchoolOfficeAssignment
+  );
   const canLoadHostelOptions = selectedReport === "hostel-daily-due" && canAccessHostelReports;
+  const isAccessChecking =
+    status === "loading" ||
+    (status === "authenticated" && !assignmentsData && !assignmentsError && !isSystemAdmin);
+  const canSeeHiTab = isHostelIncharge;
+  const canSeeAdminTab = isHostelAdmin || isSchoolOffice;
+
+  useEffect(() => {
+    if (!canAccessHostelReports) return;
+    if (isHostelIncharge && !isHostelAdmin && !isSchoolOffice && reportType !== "incharge") {
+      setReportType("incharge");
+    } else if ((isHostelAdmin || isSchoolOffice) && !isHostelIncharge && reportType !== "admin") {
+      setReportType("admin");
+    }
+  }, [canAccessHostelReports, isHostelIncharge, isHostelAdmin, isSchoolOffice, reportType]);
 
   // Hostel Daily Due Report state for Incharge
   const [hiReport, setHiReport] = useState({
@@ -92,11 +121,12 @@ export default function ReportsPage() {
         escalationDetails: "",
         authSign: "" 
       }
-    ]
+    ],
+    allEntries: []
   });
 
   const [assignedReports, setAssignedReports] = useState([]);
-  const [showCreateForm, setShowCreateForm] = useState(true);
+  const [showCreateForm, setShowCreateForm] = useState(false);
 
   // Fetch data using useSWR pattern
   const {
@@ -171,7 +201,8 @@ export default function ReportsPage() {
   useEffect(() => {
     const fetchAllStudents = async () => {
       const newCache = new Map(studentsByClassCache);
-      
+      let hasUpdates = false;
+
       for (const { classId, url } of studentsUrls) {
         if (!newCache.has(classId)) {
           try {
@@ -181,10 +212,13 @@ export default function ReportsPage() {
             console.error(`Failed to fetch students for class ${classId}:`, err);
             newCache.set(classId, []);
           }
+          hasUpdates = true;
         }
       }
-      
-      setStudentsByClassCache(newCache);
+
+      if (hasUpdates) {
+        setStudentsByClassCache(newCache);
+      }
     };
 
     if (studentsUrls.length > 0) {
@@ -238,44 +272,9 @@ export default function ReportsPage() {
     }));
   };
 
-  // Helper function to add HA entry
-  const addHaEntry = () => {
-    setHaReport(prev => ({
-      ...prev,
-      entries: [
-        ...prev.entries,
-        {
-          sn: prev.entries.length + 1,
-          classId: "",
-          particulars: "",
-          studentInvolved: [],
-          actionType: "Hostel Admin",
-          actionDetails: "",
-          status: "",
-          needsEscalation: "",
-          createTicket: "",
-          assignedSchoolOffice: "",
-          escalationDetails: "",
-          authSign: ""
-        }
-      ]
-    }));
-  };
-
   // Helper function to remove HI entry
   const removeHiEntry = (index) => {
     setHiReport(prev => ({
-      ...prev,
-      entries: prev.entries.filter((_, i) => i !== index).map((entry, i) => ({
-        ...entry,
-        sn: i + 1
-      }))
-    }));
-  };
-
-  // Helper function to remove HA entry
-  const removeHaEntry = (index) => {
-    setHaReport(prev => ({
       ...prev,
       entries: prev.entries.filter((_, i) => i !== index).map((entry, i) => ({
         ...entry,
@@ -292,13 +291,12 @@ export default function ReportsPage() {
 
   useEffect(() => {
     if (selectedReport === "hostel-daily-due" && canAccessHostelReports) {
-      if (isHostelAdmin && !isHostelIncharge) {
+      fetchReports();
+      if (isHostelAdmin || isSchoolOffice) {
         fetchAssignedReports();
-      } else {
-        fetchReports();
       }
     }
-  }, [selectedReport, canAccessHostelReports, isHostelAdmin, isHostelIncharge]);
+  }, [selectedReport, canAccessHostelReports, isHostelAdmin, isSchoolOffice, isHostelIncharge]);
 
   const getHigherAuthorities = () => {
     if (hostelAuthorities.length) return hostelAuthorities;
@@ -325,6 +323,18 @@ export default function ReportsPage() {
     }
   };
 
+  const fetchReports = async () => {
+    try {
+      const res = await fetch("/api/reports/hostel-daily-due?limit=20");
+      if (res.ok) {
+        const data = await res.json();
+        setReports(data.reports || []);
+      }
+    } catch (err) {
+      console.error("Failed to fetch reports:", err);
+    }
+  };
+
   const saveHostelReport = async () => {
     setLoading(true);
     setError("");
@@ -348,12 +358,20 @@ export default function ReportsPage() {
           return false;
         });
       } else {
-        // Admin needs: particulars/students, actionDetails, status
+        // Hostel Admin/School Office needs: particulars/students + either action or transfer
         validEntries = reportToSave.entries.filter(entry => {
           const hasBasicInfo = entry.particulars.trim() || entry.studentInvolved.length > 0;
+          if (entry.actionType === "HI Self") {
+            return hasBasicInfo && entry.authSign?.trim();
+          }
           const hasActionDetails = entry.actionDetails?.trim();
+          const hasTransfer = entry.assignedSchoolOffice;
+          const wantsTicket = entry.createTicket === "Yes";
           const hasStatus = entry.status;
-          return hasBasicInfo && hasActionDetails && hasStatus;
+          if (wantsTicket && !hasTransfer) {
+            return false;
+          }
+          return hasBasicInfo && hasStatus && (hasActionDetails || hasTransfer || wantsTicket);
         });
       }
 
@@ -363,13 +381,25 @@ export default function ReportsPage() {
       }
 
       const reportId = reportToSave?.reportId;
-      const entriesToSave =
+      if (reportType === "admin" && !reportId) {
+        setError("Select an assigned report to complete.");
+        return;
+      }
+      const normalizedEntries =
         reportType === "admin"
           ? validEntries.map((entry) => ({
               ...entry,
               actionType: entry.assignedSchoolOffice ? "School Office" : entry.actionType || "Hostel Admin",
             }))
           : validEntries;
+      let entriesToSave = normalizedEntries;
+      if (reportType === "admin" && Array.isArray(reportToSave.allEntries) && reportToSave.allEntries.length > 0) {
+        const updatesBySn = new Map(normalizedEntries.map((entry) => [String(entry.sn), entry]));
+        entriesToSave = reportToSave.allEntries.map((entry) => {
+          const updated = updatesBySn.get(String(entry.sn));
+          return updated ? { ...entry, ...updated } : entry;
+        });
+      }
 
       const reportData = {
         reportDate: reportToSave.reportDate,
@@ -423,7 +453,8 @@ export default function ReportsPage() {
             assignedSchoolOffice: "",
             escalationDetails: "",
             authSign: "" 
-          }]
+          }],
+          allEntries: []
         });
       }
       
@@ -439,10 +470,26 @@ export default function ReportsPage() {
   };
 
   const handleCompleteReport = (report) => {
+    const viewerId = String(session?.user?.id || "");
+    const scopedEntries = Array.isArray(report.entries)
+      ? report.entries.filter((entry) => {
+          if (!viewerId) return false;
+          const assignedAdmin = String(entry.assignedHigherAuthority || "") === viewerId;
+          const assignedOffice = String(entry.assignedSchoolOffice || "") === viewerId;
+          if (isSchoolOffice && !isSystemAdmin) {
+            return assignedOffice;
+          }
+          if (isHostelAdmin && !isSystemAdmin) {
+            return assignedAdmin || entry.actionType === "HI Self";
+          }
+          return assignedAdmin || assignedOffice || entry.actionType === "HI Self";
+        })
+      : [];
+
     // Set the form to edit mode with the selected report data
     setHaReport({
       reportDate: report.reportDate,
-      entries: report.entries.map(entry => ({
+      entries: scopedEntries.map(entry => ({
         ...entry,
         // Ensure all required fields are present for Admin completion
         actionDetails: entry.actionDetails || "",
@@ -452,13 +499,15 @@ export default function ReportsPage() {
         assignedSchoolOffice: entry.assignedSchoolOffice || "",
         authSign: entry.authSign || ""
       })),
+      allEntries: Array.isArray(report.entries) ? report.entries : [],
       reportId: report.id // Add reportId for updates
     });
-    setShowCreateForm(true); // Switch to create form to edit
+    setReportType("admin");
+    setShowCreateForm(true); // Switch to selected report view
     setSelectedReport('hostel-daily-due'); // Ensure we're in the right report type
   };
 
-  if (status === "loading") {
+  if (isAccessChecking) {
     return (
       <div className="flex h-64 items-center justify-center">
         <div className="text-center">
@@ -474,9 +523,9 @@ export default function ReportsPage() {
       <div className="flex h-96 items-center justify-center">
         <div className="text-center">
           <AlertCircle size={48} className="mx-auto text-red-500 mb-4" />
-          <h2 className="text-xl font-semibold text-slate-900 mb-2">Sign in required</h2>
+          <h2 className="text-xl font-semibold text-slate-900 mb-2">Access denied</h2>
           <p className="text-sm text-slate-600 mb-4">
-            Please sign in to access the Hostel Due Reports.
+            You are not assigned to the Hostel Due Reports.
           </p>
         </div>
       </div>
@@ -500,7 +549,9 @@ export default function ReportsPage() {
             <p className="text-sm text-slate-600">
               {reportType === "incharge" 
                 ? "Hostel Incharge Report - Create initial entries for hostel dues" 
-                : "Hostel Admin Report - Review, complete, and escalate reports"
+                : isSchoolOffice && !isHostelAdmin
+                ? "School Office Report - Handle hostel issues transferred by admins"
+                : "Hostel Admin Report - Review, complete, and transfer reports"
               }
             </p>
           </div>
@@ -508,7 +559,7 @@ export default function ReportsPage() {
 
         {/* Report Type Tabs */}
         <div className="flex gap-2 border-b border-slate-200">
-          {isHostelIncharge && (
+          {canSeeHiTab && (
             <button
               onClick={() => setReportType("incharge")}
               className={`px-4 py-2 text-sm font-medium border-b-2 ${
@@ -520,20 +571,8 @@ export default function ReportsPage() {
               HI Report
             </button>
           )}
-          {isHostelAdmin && (
+          {canSeeAdminTab && (
             <>
-              {!isHostelIncharge && (
-                <button
-                  onClick={() => setReportType("incharge")}
-                  className={`px-4 py-2 text-sm font-medium border-b-2 ${
-                    reportType === "incharge" 
-                      ? "border-slate-900 text-slate-900" 
-                      : "border-transparent text-slate-500 hover:text-slate-700"
-                  }`}
-                >
-                  HI Reports
-                </button>
-              )}
               <button
                 onClick={() => setReportType("admin")}
                 className={`px-4 py-2 text-sm font-medium border-b-2 ${
@@ -542,14 +581,14 @@ export default function ReportsPage() {
                     : "border-transparent text-slate-500 hover:text-slate-700"
                 }`}
               >
-                Hostel Admin
+                {isSchoolOffice && !isHostelAdmin ? "School Office" : "Hostel Admin"}
               </button>
             </>
           )}
         </div>
 
         {/* Sub-tabs for Admin view */}
-        {reportType === "admin" && isHostelAdmin && (
+        {reportType === "admin" && (isHostelAdmin || isSchoolOffice) && (
           <div className="flex gap-2 border-b border-slate-200">
             <button
               onClick={() => setShowCreateForm(true)}
@@ -559,7 +598,7 @@ export default function ReportsPage() {
                   : "border-transparent text-slate-500 hover:text-slate-700"
               }`}
             >
-              Create Report
+              Selected Report
             </button>
             <button
               onClick={() => setShowCreateForm(false)}
@@ -778,7 +817,7 @@ export default function ReportsPage() {
         )}
 
         {/* HOSTEL ADMIN REPORT */}
-        {reportType === "admin" && isHostelAdmin && (
+        {reportType === "admin" && (isHostelAdmin || isSchoolOffice) && showCreateForm && (
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="mb-6">
               <label className="block text-sm font-medium text-slate-700 mb-2">
@@ -787,8 +826,8 @@ export default function ReportsPage() {
               <input
                 type="date"
                 value={haReport.reportDate}
-                onChange={(e) => setHaReport(prev => ({ ...prev, reportDate: e.target.value }))}
-                className="rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
+                disabled
+                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600"
               />
             </div>
 
@@ -807,7 +846,6 @@ export default function ReportsPage() {
                     <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Transfer To</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Ticket</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Auth Sign</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -818,16 +856,15 @@ export default function ReportsPage() {
                         <input
                           type="text"
                           value={entry.particulars}
-                          onChange={(e) => updateHaEntry(index, 'particulars', e.target.value)}
-                          placeholder="Enter particulars..."
-                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
+                          readOnly
+                          className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600"
                         />
                       </td>
                       <td className="px-4 py-3">
                         <select
                           value={entry.classId}
-                          onChange={(e) => updateHaEntry(index, 'classId', e.target.value)}
-                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
+                          disabled
+                          className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600"
                         >
                           <option value="">Select class...</option>
                           {classes.map((cls) => (
@@ -844,18 +881,16 @@ export default function ReportsPage() {
                               {entry.studentInvolved.length > 0 && getStudentsByClass(entry.classId).filter(s => entry.studentInvolved.includes(String(s.id))).map(student => (
                                 <div key={student.id} className="inline-flex items-center gap-1 bg-blue-100 text-blue-900 px-2 py-1 rounded text-sm">
                                   <span>{student.name}</span>
-                                  <button
-                                    onClick={() => updateHaEntry(index, 'studentInvolved', entry.studentInvolved.filter(sid => sid !== String(student.id)))}
-                                    className="text-blue-900 hover:text-blue-700 font-bold">×</button>
                                 </div>
                               ))}
                             </div>
                             <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-lg bg-white">
                               {getStudentsByClass(entry.classId).map((student) => (
-                                <label key={student.id} className="flex items-center px-3 py-2 hover:bg-slate-100 cursor-pointer border-b border-slate-100 last:border-b-0">
+                                <label key={student.id} className="flex items-center px-3 py-2 border-b border-slate-100 last:border-b-0 cursor-not-allowed">
                                   <input
                                     type="checkbox"
                                     checked={entry.studentInvolved.includes(String(student.id))}
+                                    disabled
                                     onChange={(e) => {
                                       if (e.target.checked) {
                                         updateHaEntry(index, 'studentInvolved', [...entry.studentInvolved, String(student.id)]);
@@ -863,7 +898,7 @@ export default function ReportsPage() {
                                         updateHaEntry(index, 'studentInvolved', entry.studentInvolved.filter(sid => sid !== String(student.id)));
                                       }
                                     }}
-                                    className="rounded border-slate-300 text-blue-600 mr-2"
+                                    className="mr-2 rounded border-slate-300 text-blue-600 disabled:opacity-60"
                                   />
                                   <span className="text-sm text-slate-700">{student.name}</span>
                                 </label>
@@ -888,14 +923,16 @@ export default function ReportsPage() {
                           value={entry.actionDetails}
                           onChange={(e) => updateHaEntry(index, 'actionDetails', e.target.value)}
                           placeholder="Enter action details..."
-                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
+                          readOnly={entry.actionType === "HI Self"}
+                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100 disabled:bg-slate-50"
                         />
                       </td>
                       <td className="px-4 py-3">
                         <select
                           value={entry.status}
                           onChange={(e) => updateHaEntry(index, 'status', e.target.value)}
-                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
+                          disabled={entry.actionType === "HI Self"}
+                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100 disabled:bg-slate-50"
                         >
                           <option value="">Select status...</option>
                           <option value="Resolved">Resolved</option>
@@ -907,7 +944,8 @@ export default function ReportsPage() {
                         <select
                           value={entry.needsEscalation}
                           onChange={(e) => updateHaEntry(index, 'needsEscalation', e.target.value)}
-                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
+                          disabled={entry.actionType === "HI Self"}
+                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100 disabled:bg-slate-50"
                         >
                           <option value="">No</option>
                           <option value="Yes">Yes</option>
@@ -917,7 +955,11 @@ export default function ReportsPage() {
                         <select
                           value={entry.assignedSchoolOffice || ""}
                           onChange={(e) => updateHaEntry(index, 'assignedSchoolOffice', e.target.value)}
-                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
+                          disabled={
+                            entry.actionType !== "Hostel Admin" ||
+                            (isSchoolOffice && !isSystemAdmin)
+                          }
+                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100 disabled:bg-slate-50"
                         >
                           <option value="">No transfer</option>
                           {getSchoolOfficeUsers().map((user) => (
@@ -931,7 +973,11 @@ export default function ReportsPage() {
                         <select
                           value={entry.createTicket || ""}
                           onChange={(e) => updateHaEntry(index, 'createTicket', e.target.value)}
-                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
+                          disabled={
+                            entry.actionType !== "Hostel Admin" ||
+                            (isSchoolOffice && !isSystemAdmin)
+                          }
+                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100 disabled:bg-slate-50"
                         >
                           <option value="">No</option>
                           <option value="Yes">Yes</option>
@@ -946,14 +992,6 @@ export default function ReportsPage() {
                           className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
                         />
                       </td>
-                      <td className="px-4 py-3">
-                        <button
-                          onClick={() => removeHaEntry(index)}
-                          className="text-red-600 hover:text-red-700 text-sm font-medium"
-                        >
-                          Remove
-                        </button>
-                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -961,12 +999,6 @@ export default function ReportsPage() {
             </div>
 
             <div className="mt-6 flex gap-4">
-              <button
-                onClick={addHaEntry}
-                className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-200"
-              >
-                <Plus size={16} /> Add Entry
-              </button>
               <button
                 onClick={saveHostelReport}
                 disabled={loading}
@@ -978,7 +1010,7 @@ export default function ReportsPage() {
           </div>
         )}
 
-        {!isHostelIncharge && !showCreateForm && (
+        {reportType === "admin" && (isHostelAdmin || isSchoolOffice) && !showCreateForm && (
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <h2 className="text-xl font-semibold text-slate-800 mb-6">Assigned Reports</h2>
             <div className="space-y-4">

@@ -5,6 +5,25 @@ import { Classes, mriReportAssignments, users } from "@/lib/schema";
 import { ensureHostelDailyDueTemplate } from "@/lib/mriReports";
 import { and, asc, eq, inArray } from "drizzle-orm";
 
+const canAccessHostelReport = async (sessionUser) => {
+  if (!sessionUser) return false;
+  if (sessionUser.role === "admin") return true;
+  const template = await ensureHostelDailyDueTemplate();
+  if (!template?.id) return false;
+  const rows = await db
+    .select({ id: mriReportAssignments.id })
+    .from(mriReportAssignments)
+    .where(
+      and(
+        eq(mriReportAssignments.templateId, template.id),
+        eq(mriReportAssignments.userId, Number(sessionUser.id)),
+        eq(mriReportAssignments.active, true)
+      )
+    )
+    .limit(1);
+  return rows.length > 0;
+};
+
 export async function GET(req) {
   try {
     const session = await auth();
@@ -14,6 +33,10 @@ export async function GET(req) {
 
     const { searchParams } = new URL(req.url);
     const section = String(searchParams.get("section") || "").toLowerCase();
+    const allowed = await canAccessHostelReport(session.user);
+    if (!allowed) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+    }
 
     if (section === "classes") {
       const rows = await db

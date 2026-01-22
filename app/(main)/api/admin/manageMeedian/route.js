@@ -165,6 +165,22 @@ export async function GET(req) {
       const grantedIds = grants.map((row) => Number(row.userId)).filter((id) => Number.isFinite(id));
       return NextResponse.json({ managers: teamManagers, granted: grantedIds }, { status: 200 });
     }
+    if (section === "adTrackerAssignments") {
+      if (!session || session.user?.role !== "admin") {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+      const teamManagers = await db
+        .select({ id: users.id, name: users.name, email: users.email })
+        .from(users)
+        .where(and(eq(users.role, "team_manager"), eq(users.active, true)))
+        .orderBy(users.name);
+      const grants = await db
+        .select({ userId: managerSectionGrants.userId })
+        .from(managerSectionGrants)
+        .where(eq(managerSectionGrants.section, "adTracker"));
+      const grantedIds = grants.map((row) => Number(row.userId)).filter((id) => Number.isFinite(id));
+      return NextResponse.json({ managers: teamManagers, granted: grantedIds }, { status: 200 });
+    }
     if (section === "mriReportTemplates") {
       await ensurePtTemplate();
       await ensureAcademicHealthTemplate();
@@ -904,6 +920,22 @@ export async function POST(req) {
       if (userIds.length) {
         await db.insert(managerSectionGrants).values(
           userIds.map((userId) => ({ userId, section: "guardianGateLogs", canWrite: true, programId: null }))
+        );
+      }
+
+      return NextResponse.json({ saved: userIds.length }, { status: 200 });
+    }
+    if (section === "adTrackerAssignments") {
+      if (session.user?.role !== "admin") return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      const userIds = Array.isArray(body?.userIds)
+        ? Array.from(new Set(body.userIds.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0)))
+        : [];
+
+      await db.delete(managerSectionGrants).where(eq(managerSectionGrants.section, "adTracker"));
+
+      if (userIds.length) {
+        await db.insert(managerSectionGrants).values(
+          userIds.map((userId) => ({ userId, section: "adTracker", canWrite: true, programId: null }))
         );
       }
 

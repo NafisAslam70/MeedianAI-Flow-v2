@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { Students } from "@/lib/schema";
-import { asc, eq } from "drizzle-orm";
+import { Students, mriReportAssignments } from "@/lib/schema";
+import { ensureHostelDailyDueTemplate } from "@/lib/mriReports";
+import { and, asc, eq } from "drizzle-orm";
 
 const parseId = (value) => {
   const num = Number(value);
@@ -16,6 +17,27 @@ export async function GET(req) {
   }
 
   try {
+    if (session.user.role !== "admin") {
+      const template = await ensureHostelDailyDueTemplate();
+      if (!template?.id) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+      }
+      const assignment = await db
+        .select({ id: mriReportAssignments.id })
+        .from(mriReportAssignments)
+        .where(
+          and(
+            eq(mriReportAssignments.templateId, template.id),
+            eq(mriReportAssignments.userId, Number(session.user.id)),
+            eq(mriReportAssignments.active, true)
+          )
+        )
+        .limit(1);
+      if (!assignment.length) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+      }
+    }
+
     const { searchParams } = new URL(req.url);
     const classId = parseId(searchParams.get("classId"));
     if (!classId) {

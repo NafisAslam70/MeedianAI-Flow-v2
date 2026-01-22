@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { memberAds, users, escalationsMatters } from "@/lib/schema";
-import { desc, eq } from "drizzle-orm";
+import { memberAds, users, escalationsMatters, managerSectionGrants } from "@/lib/schema";
+import { and, desc, eq } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 const CATEGORY_OPTIONS = new Set([
@@ -45,6 +45,22 @@ const mapEntry = (row) => ({
   updatedAt: toIso(row.updatedAt),
 });
 
+const canWriteAds = async (session) => {
+  if (!session?.user) return false;
+  if (session.user.role === "admin") return true;
+  if (session.user.role !== "team_manager") return false;
+  const grants = await db
+    .select({ id: managerSectionGrants.id, canWrite: managerSectionGrants.canWrite })
+    .from(managerSectionGrants)
+    .where(
+      and(
+        eq(managerSectionGrants.userId, Number(session.user.id)),
+        eq(managerSectionGrants.section, "adTracker")
+      )
+    );
+  return grants.some((row) => row && row.canWrite !== false);
+};
+
 export async function GET(req) {
   const session = await auth();
   if (!session || !["admin", "team_manager"].includes(session.user?.role)) {
@@ -83,14 +99,19 @@ export async function GET(req) {
   }
 
   const rows = await query.orderBy(desc(memberAds.occurredAt), desc(memberAds.createdAt));
+  const canWrite = await canWriteAds(session);
 
-  return NextResponse.json({ entries: rows.map(mapEntry) }, { status: 200 });
+  return NextResponse.json({ entries: rows.map(mapEntry), canWrite }, { status: 200 });
 }
 
 export async function POST(req) {
   const session = await auth();
   if (!session || !["admin", "team_manager"].includes(session.user?.role)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const canWrite = await canWriteAds(session);
+  if (!canWrite) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   let body;

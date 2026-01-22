@@ -11,6 +11,7 @@ import {
   Bell,
   BellDot,
   Users,
+  Crown,
   Sparkles,
   Mountain,
   ClipboardList,
@@ -714,6 +715,18 @@ export default function Navbar() {
             <span className="row-main">
               <span className="row-title">Daily Attendance Report</span>
               <span className="row-sub">View and export present/absent lists</span>
+            </span>
+            <ArrowRight size={16} className="row-go" />
+          </button>
+
+          <button
+            className="action-row"
+            onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/managersCommon/guardian-relationship"); }}
+          >
+            <span className="row-icon"><Crown size={18} /></span>
+            <span className="row-main">
+              <span className="row-title">King's Place</span>
+              <span className="row-sub">Guardian relationship manager</span>
             </span>
             <ArrowRight size={16} className="row-go" />
           </button>

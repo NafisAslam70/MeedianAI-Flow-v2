@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { escalationsMatters, hostelDailyDueReports, ticketActivities, tickets, users } from "@/lib/schema";
+import { escalationsMatters, hostelDailyDueReports, mriReportAssignments, ticketActivities, tickets, users } from "@/lib/schema";
 import { computeTicketSla, findCategoryByKey, formatTicketNumber } from "@/lib/ticketsConfig";
+import { ensureHostelDailyDueTemplate } from "@/lib/mriReports";
 import { eq, and, desc } from "drizzle-orm";
 
 export async function GET(request) {
@@ -173,12 +174,33 @@ export async function POST(request) {
       }
 
       const hasOfficeTransfer = updatedEntries.some((entry) => entry.assignedSchoolOffice);
+      let isOfficeActor = false;
+      try {
+        const template = await ensureHostelDailyDueTemplate();
+        if (template?.id) {
+          const officeAssign = await db
+            .select({ id: mriReportAssignments.id })
+            .from(mriReportAssignments)
+            .where(
+              and(
+                eq(mriReportAssignments.templateId, template.id),
+                eq(mriReportAssignments.userId, Number(submittedBy)),
+                eq(mriReportAssignments.role, "school_office"),
+                eq(mriReportAssignments.active, true)
+              )
+            )
+            .limit(1);
+          isOfficeActor = officeAssign.length > 0;
+        }
+      } catch (_) {
+        isOfficeActor = false;
+      }
 
       await db
         .update(hostelDailyDueReports)
         .set({
           entries: updatedEntries,
-          status: hasOfficeTransfer ? "submitted" : "completed",
+          status: isOfficeActor ? "completed" : hasOfficeTransfer ? "submitted" : "completed",
         })
         .where(eq(hostelDailyDueReports.id, reportId));
 

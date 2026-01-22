@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ClipboardList, NotebookPen, ClipboardCheck, UserPlus, Boxes, PhoneCall, GraduationCap, FileText, AlertTriangle } from "lucide-react";
+import { ClipboardList, NotebookPen, ClipboardCheck, UserPlus, Boxes, PhoneCall, GraduationCap, FileText, AlertTriangle, Users } from "lucide-react";
 
 const CLUB_TOOLS = [
   {
@@ -15,6 +15,12 @@ const CLUB_TOOLS = [
     label: "Guardian Call Log",
     icon: PhoneCall,
     href: "/dashboard/managersCommon/guardian-calls",
+  },
+  {
+    key: "guardian-relationship",
+    label: "Guardian Relationship Manager",
+    icon: Users,
+    href: "/dashboard/managersCommon/guardian-relationship",
   },
   {
     key: "pt-assist",

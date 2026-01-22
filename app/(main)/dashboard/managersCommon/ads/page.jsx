@@ -97,6 +97,8 @@ export default function AdsPage() {
   } = useSWR(showIprModal ? `/api/member/ipr?date=${iprDate}&summary=all` : null, fetcher);
 
   const entries = useMemo(() => data?.entries || [], [data?.entries]);
+  const canWrite = isAdmin || data?.canWrite === true;
+  const canWriteResolved = isAdmin || typeof data?.canWrite === "boolean";
   const users = useMemo(() => usersData?.users || [], [usersData?.users]);
   const members = useMemo(
     () =>
@@ -183,6 +185,11 @@ export default function AdsPage() {
     setError("");
     setMessage("");
 
+    if (!canWrite) {
+      setError("You are not allowed to log ADs.");
+      setTimeout(() => setError(""), 3000);
+      return;
+    }
     if (!form.memberId || !form.category || !form.occurredAt || !form.evidence.trim()) {
       setError("Member, category, time, and evidence are required.");
       setTimeout(() => setError(""), 3000);
@@ -373,6 +380,11 @@ export default function AdsPage() {
           </CardHeader>
           <CardBody>
             <form className="grid gap-3 md:grid-cols-2" onSubmit={handleSubmit}>
+              {!canWrite && canWriteResolved && (
+                <div className="md:col-span-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  Only selected managers can log ADs. Contact the admin team for access.
+                </div>
+              )}
               <div className="md:col-span-1">
                 <label className="block text-sm font-medium text-gray-700" htmlFor="ad-member">
                   Member
@@ -382,6 +394,7 @@ export default function AdsPage() {
                   className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
                   value={form.memberId}
                   onChange={(event) => setForm((prev) => ({ ...prev, memberId: event.target.value }))}
+                  disabled={!canWrite}
                 >
                   <option value="">Select member</option>
                   {members.map((member) => (
@@ -400,6 +413,7 @@ export default function AdsPage() {
                   className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
                   value={form.category}
                   onChange={(event) => setForm((prev) => ({ ...prev, category: event.target.value }))}
+                  disabled={!canWrite}
                 >
                   {AD_CATEGORIES.map((category) => (
                     <option key={category.key} value={category.key}>
@@ -418,6 +432,7 @@ export default function AdsPage() {
                   className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
                   value={form.occurredAt}
                   onChange={(event) => setForm((prev) => ({ ...prev, occurredAt: event.target.value }))}
+                  disabled={!canWrite}
                 />
               </div>
               <div className="md:col-span-1">
@@ -431,6 +446,7 @@ export default function AdsPage() {
                   value={form.evidence}
                   onChange={(event) => setForm((prev) => ({ ...prev, evidence: event.target.value }))}
                   placeholder="CCTV link, attendance log, or witness note"
+                  disabled={!canWrite}
                 />
               </div>
               <div className="md:col-span-2">
@@ -444,10 +460,11 @@ export default function AdsPage() {
                   value={form.notes}
                   onChange={(event) => setForm((prev) => ({ ...prev, notes: event.target.value }))}
                   placeholder="Context, follow-up, or IS remarks"
+                  disabled={!canWrite}
                 />
               </div>
               <div className="md:col-span-2 flex flex-wrap items-center gap-3">
-                <Button type="submit" disabled={saving}>
+                <Button type="submit" disabled={saving || !canWrite}>
                   {saving ? "Saving..." : "Log AD"}
                 </Button>
                 {(message || error) && (

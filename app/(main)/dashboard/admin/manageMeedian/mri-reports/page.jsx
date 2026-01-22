@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import Button from "@/components/ui/Button";
@@ -19,6 +19,9 @@ const HOSTEL_DAILY_DUE_TEMPLATE_KEY = "hostel_daily_due_report";
 
 export default function ManageMriReportsPage() {
   const router = useRouter();
+  const [selectedAdManagers, setSelectedAdManagers] = useState([]);
+  const [savingAdAssignments, setSavingAdAssignments] = useState(false);
+  const [adAssignmentMessage, setAdAssignmentMessage] = useState("");
 
   const { data: templateData, error: templateError } = useSWR(
     "/api/admin/manageMeedian?section=mriReportTemplates",
@@ -40,6 +43,11 @@ export default function ManageMriReportsPage() {
     fetcher,
     { dedupingInterval: 15000 }
   );
+  const { data: adAssignmentsData, error: adAssignmentsError, mutate: mutateAdAssignments } = useSWR(
+    "/api/admin/manageMeedian?section=adTrackerAssignments",
+    fetcher,
+    { dedupingInterval: 30000 }
+  );
 
   const templates = templateData?.templates || [];
   const assignments = assignmentData?.assignments || [];
@@ -58,6 +66,12 @@ export default function ManageMriReportsPage() {
     () => templates.find((tpl) => tpl.key === HOSTEL_DAILY_DUE_TEMPLATE_KEY),
     [templates]
   );
+  const adManagers = useMemo(() => adAssignmentsData?.managers || [], [adAssignmentsData?.managers]);
+  const adGrantedIds = useMemo(() => adAssignmentsData?.granted || [], [adAssignmentsData?.granted]);
+
+  useEffect(() => {
+    setSelectedAdManagers(adGrantedIds);
+  }, [adGrantedIds.join(",")]);
 
   const assignmentCount = assignments.length;
   const activeAssignments = assignments.filter((assignment) => assignment.active).length;
@@ -80,6 +94,38 @@ export default function ManageMriReportsPage() {
     ? format(new Date(hostelTemplate.updatedAt), "yyyy-MM-dd")
     : "—";
 
+  const toggleAdManager = (userId) => {
+    setSelectedAdManagers((prev) => {
+      const exists = prev.includes(userId);
+      if (exists) {
+        return prev.filter((id) => id !== userId);
+      }
+      return [...prev, userId];
+    });
+  };
+
+  const handleSaveAdAssignments = async () => {
+    setSavingAdAssignments(true);
+    setAdAssignmentMessage("");
+    try {
+      const res = await fetch("/api/admin/manageMeedian?section=adTrackerAssignments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userIds: selectedAdManagers }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.error || `HTTP ${res.status}`);
+      setAdAssignmentMessage("AD tracker access updated.");
+      await mutateAdAssignments();
+    } catch (error) {
+      console.error(error);
+      setAdAssignmentMessage(error.message || "Failed to save AD tracker access.");
+    } finally {
+      setSavingAdAssignments(false);
+      setTimeout(() => setAdAssignmentMessage(""), 2500);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-1">
@@ -90,7 +136,7 @@ export default function ManageMriReportsPage() {
         </p>
       </div>
 
-      {(templateError || assignmentError || phoneAssignmentError || hostelAssignmentError) && (
+      {(templateError || assignmentError || phoneAssignmentError || hostelAssignmentError || adAssignmentsError) && (
         <p className="text-sm text-red-600">
           Failed to load report data. Refresh the page or check API logs.
         </p>
@@ -272,6 +318,50 @@ export default function ManageMriReportsPage() {
             <Button variant="secondary" onClick={() => router.push("/dashboard/admin/manageMeedian/daily-reports/gate-logs")}>
               Open Daily Gate Logs
             </Button>
+          </div>
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <h2 className="text-base font-semibold text-gray-900">AD Tracker Access</h2>
+          <p className="text-sm text-gray-600">
+            Choose which managers can log AD entries from the Managerial Club. Admins always have access.
+          </p>
+        </CardHeader>
+        <CardBody>
+          {adManagers.length === 0 ? (
+            <p className="text-sm text-gray-600">No active managers found.</p>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {adManagers.map((manager) => {
+                const selected = selectedAdManagers.includes(manager.id);
+                return (
+                  <label
+                    key={manager.id}
+                    className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
+                      selected ? "border-teal-200 bg-teal-50/40" : "border-gray-200"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      onChange={() => toggleAdManager(manager.id)}
+                      className="h-4 w-4"
+                    />
+                    <span className="text-gray-900">{manager.name}</span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <Button onClick={handleSaveAdAssignments} disabled={savingAdAssignments}>
+              {savingAdAssignments ? "Saving..." : "Save AD tracker access"}
+            </Button>
+            {adAssignmentMessage && (
+              <span className="text-sm text-gray-600">{adAssignmentMessage}</span>
+            )}
           </div>
         </CardBody>
       </Card>
