@@ -127,6 +127,7 @@ export default function ReportsPage() {
 
   const [assignedReports, setAssignedReports] = useState([]);
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [pastReportModal, setPastReportModal] = useState(null);
 
   // Fetch data using useSWR pattern
   const {
@@ -151,14 +152,6 @@ export default function ReportsPage() {
     { dedupingInterval: 60000 }
   );
 
-  const { data: authoritiesData } = useSWR(
-    canLoadHostelOptions
-      ? "/api/reports/hostel-daily-due/options?section=authorities"
-      : null,
-    fetcher,
-    { dedupingInterval: 60000 }
-  );
-
   const { data: schoolOfficeData } = useSWR(
     canLoadHostelOptions
       ? "/api/reports/hostel-daily-due/options?section=schoolOffice"
@@ -169,10 +162,6 @@ export default function ReportsPage() {
 
   const classes = useMemo(() => classesData?.classes || [], [classesData?.classes]);
   const users = useMemo(() => usersData?.users || [], [usersData?.users]);
-  const hostelAuthorities = useMemo(
-    () => authoritiesData?.authorities || [],
-    [authoritiesData?.authorities]
-  );
   const schoolOfficeUsers = useMemo(
     () => schoolOfficeData?.schoolOffice || [],
     [schoolOfficeData?.schoolOffice]
@@ -298,14 +287,6 @@ export default function ReportsPage() {
     }
   }, [selectedReport, canAccessHostelReports, isHostelAdmin, isSchoolOffice, isHostelIncharge]);
 
-  const getHigherAuthorities = () => {
-    if (hostelAuthorities.length) return hostelAuthorities;
-    return users.filter(user =>
-      user.role === 'admin' ||
-      (user.role === 'team_manager' && user.team_manager_type !== 'hostel_incharge')
-    );
-  };
-
   const getSchoolOfficeUsers = () => {
     if (schoolOfficeUsers.length) return schoolOfficeUsers;
     return users.filter(user => user.role === "admin" || user.role === "team_manager");
@@ -313,10 +294,17 @@ export default function ReportsPage() {
 
   const fetchAssignedReports = async () => {
     try {
-      const res = await fetch(`/api/reports/hostel-daily-due?assignedTo=${session?.user?.id}`);
+      const url =
+        isSchoolOffice && !isSystemAdmin
+          ? `/api/reports/hostel-daily-due?assignedTo=${session?.user?.id}`
+          : "/api/reports/hostel-daily-due?limit=20";
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
-        setAssignedReports(data.reports || []);
+        const pendingReports = (data.reports || []).filter(
+          (report) => String(report.status || "").toLowerCase() !== "completed"
+        );
+        setAssignedReports(pendingReports);
       }
     } catch (err) {
       console.error("Failed to fetch assigned reports:", err);
@@ -352,8 +340,9 @@ export default function ReportsPage() {
           const hasActionType = entry.actionType;
           if (entry.actionType === "HI Self") {
             return hasBasicInfo && hasActionType && entry.actionDetails?.trim();
-          } else if (entry.actionType === "Hostel Admin") {
-            return hasBasicInfo && hasActionType && entry.assignedHigherAuthority;
+          }
+          if (entry.actionType === "Hostel Admin") {
+            return hasBasicInfo && hasActionType;
           }
           return false;
         });
@@ -474,15 +463,13 @@ export default function ReportsPage() {
     const scopedEntries = Array.isArray(report.entries)
       ? report.entries.filter((entry) => {
           if (!viewerId) return false;
-          const assignedAdmin = String(entry.assignedHigherAuthority || "") === viewerId;
-          const assignedOffice = String(entry.assignedSchoolOffice || "") === viewerId;
           if (isSchoolOffice && !isSystemAdmin) {
-            return assignedOffice;
+            return String(entry.assignedSchoolOffice || "") === viewerId;
           }
-          if (isHostelAdmin && !isSystemAdmin) {
-            return assignedAdmin || entry.actionType === "HI Self";
+          if (isHostelAdmin || isSystemAdmin) {
+            return true;
           }
-          return assignedAdmin || assignedOffice || entry.actionType === "HI Self";
+          return false;
         })
       : [];
 
@@ -727,13 +714,7 @@ export default function ReportsPage() {
                       <td className="px-4 py-3">
                         <select
                           value={entry.actionType}
-                          onChange={(e) => {
-                            const value = e.target.value;
-                            updateHiEntry(index, 'actionType', value);
-                            if (value !== "Hostel Admin") {
-                              updateHiEntry(index, 'assignedHigherAuthority', "");
-                            }
-                          }}
+                          onChange={(e) => updateHiEntry(index, 'actionType', e.target.value)}
                           className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
                         >
                           <option value="">Select action type...</option>
@@ -752,27 +733,13 @@ export default function ReportsPage() {
                           />
                         )}
                         {entry.actionType === "Hostel Admin" && (
-                          <div className="space-y-2">
-                            <select
-                              value={entry.assignedHigherAuthority || ""}
-                              onChange={(e) => updateHiEntry(index, 'assignedHigherAuthority', e.target.value)}
-                              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
-                            >
-                              <option value="">Select hostel admin...</option>
-                              {getHigherAuthorities().map((user) => (
-                                <option key={user.id} value={user.id}>
-                                  {user.name} ({user.role === "team_manager" ? user.team_manager_type : user.role})
-                                </option>
-                              ))}
-                            </select>
-                            <input
-                              type="text"
-                              value={entry.actionDetails}
-                              onChange={(e) => updateHiEntry(index, 'actionDetails', e.target.value)}
-                              placeholder="Optional note for hostel admin..."
-                              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
-                            />
-                          </div>
+                          <input
+                            type="text"
+                            value={entry.actionDetails}
+                            onChange={(e) => updateHiEntry(index, 'actionDetails', e.target.value)}
+                            placeholder="Optional note for hostel admin..."
+                            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
+                          />
                         )}
                       </td>
                       <td className="px-4 py-3">
@@ -1044,6 +1011,103 @@ export default function ReportsPage() {
                   </div>
                 ))
               )}
+            </div>
+          </div>
+        )}
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-semibold text-slate-900">Past Reports</h2>
+            <span className="text-xs text-slate-500">Last {Math.min(reports.length, 5)} entries</span>
+          </div>
+          <div className="mt-3 space-y-3">
+            {reports.length === 0 ? (
+              <p className="text-sm text-slate-500">No past reports available yet.</p>
+            ) : (
+              reports.slice(0, 5).map((report) => (
+                <button
+                  key={report.id}
+                  type="button"
+                  onClick={() => setPastReportModal(report)}
+                  className="flex w-full items-center justify-between rounded-lg border border-slate-200 px-4 py-3 text-left transition hover:border-slate-300 hover:bg-slate-50"
+                >
+                  <div>
+                    <p className="text-sm font-medium text-slate-900">
+                      Report #{report.id} • {new Date(report.reportDate).toLocaleDateString()}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {Array.isArray(report.entries) ? report.entries.length : 0} entries
+                    </p>
+                  </div>
+                  <span className="text-xs text-slate-500">{new Date(report.createdAt).toLocaleDateString()}</span>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+
+        {pastReportModal && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+            onClick={() => setPastReportModal(null)}
+          >
+            <div
+              className="w-full max-w-4xl rounded-2xl bg-white p-6 shadow-xl"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-900">
+                    Past Report #{pastReportModal.id}
+                  </h2>
+                  <p className="text-sm text-slate-600">
+                    {new Date(pastReportModal.reportDate).toLocaleDateString()} •{" "}
+                    {pastReportModal.submittedByName || "Unknown"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPastReportModal(null)}
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
+                >
+                  Close
+                </button>
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
+                      <th className="px-3 py-2">SN</th>
+                      <th className="px-3 py-2">Particulars</th>
+                      <th className="px-3 py-2">Students</th>
+                      <th className="px-3 py-2">Action Type</th>
+                      <th className="px-3 py-2">Action Details</th>
+                      <th className="px-3 py-2">Status</th>
+                      <th className="px-3 py-2">Auth Sign</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(Array.isArray(pastReportModal.entries) ? pastReportModal.entries : []).map((entry, index) => {
+                      const students = Array.isArray(entry.studentInvolved)
+                        ? entry.studentInvolved.length
+                          ? `${entry.studentInvolved.length} selected`
+                          : "—"
+                        : entry.studentInvolved || "—";
+                      return (
+                        <tr key={`${entry.sn || index}`} className="border-b border-slate-100 text-sm text-slate-700">
+                          <td className="px-3 py-2">{entry.sn || index + 1}</td>
+                          <td className="px-3 py-2">{entry.particulars || "—"}</td>
+                          <td className="px-3 py-2">{students}</td>
+                          <td className="px-3 py-2">{entry.actionType || "—"}</td>
+                          <td className="px-3 py-2">{entry.actionDetails || "—"}</td>
+                          <td className="px-3 py-2">{entry.status || "—"}</td>
+                          <td className="px-3 py-2">{entry.authSign || "—"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}

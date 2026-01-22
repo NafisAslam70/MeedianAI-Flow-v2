@@ -255,7 +255,7 @@ export async function POST(request) {
           : actionType === "Higher Authority"
           ? Boolean(entry.assignedHigherAuthority)
           : actionType === "Hostel Admin"
-          ? Boolean(entry.assignedHigherAuthority)
+          ? true
           : actionType === "assign_to_higher_authority"
           ? Boolean(entry.assignedHigherAuthority)
           : actionType === "HI Self"

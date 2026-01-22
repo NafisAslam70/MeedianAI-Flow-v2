@@ -775,6 +775,7 @@ export async function GET(req) {
           studentName: guardianGateLogs.studentName,
           className: guardianGateLogs.className,
           purpose: guardianGateLogs.purpose,
+          feesSubmitted: guardianGateLogs.feesSubmitted,
           inAt: guardianGateLogs.inAt,
           outAt: guardianGateLogs.outAt,
           signature: guardianGateLogs.signature,
@@ -795,6 +796,7 @@ export async function GET(req) {
         studentName: row.studentName,
         className: row.className,
         purpose: row.purpose,
+        feesSubmitted: Boolean(row.feesSubmitted),
         inAt: row.inAt instanceof Date ? row.inAt.toISOString() : row.inAt,
         outAt: row.outAt instanceof Date ? row.outAt.toISOString() : row.outAt,
         signature: row.signature,
@@ -948,6 +950,11 @@ export async function POST(req) {
       const className = typeof body?.className === "string" ? body.className.trim() : "";
       const purpose = typeof body?.purpose === "string" ? body.purpose.trim() : "";
       const signature = typeof body?.signature === "string" ? body.signature.trim() : "";
+      const feesSubmitted =
+        body?.feesSubmitted === true ||
+        body?.feesSubmitted === "true" ||
+        body?.feesSubmitted === 1 ||
+        body?.feesSubmitted === "1";
 
       if (!visitDateRaw) {
         return NextResponse.json({ error: "visitDate is required" }, { status: 400 });
@@ -996,6 +1003,7 @@ export async function POST(req) {
           studentName,
           className,
           purpose,
+          feesSubmitted,
           inAt,
           outAt,
           signature: signature || null,
@@ -1010,6 +1018,7 @@ export async function POST(req) {
           studentName: guardianGateLogs.studentName,
           className: guardianGateLogs.className,
           purpose: guardianGateLogs.purpose,
+          feesSubmitted: guardianGateLogs.feesSubmitted,
           inAt: guardianGateLogs.inAt,
           outAt: guardianGateLogs.outAt,
           signature: guardianGateLogs.signature,

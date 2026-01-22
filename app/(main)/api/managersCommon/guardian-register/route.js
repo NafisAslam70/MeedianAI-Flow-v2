@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { guardianGateLogs, managerSectionGrants, users } from "@/lib/schema";
-import { and, desc, eq } from "drizzle-orm";
+import { Classes, guardianGateLogs, managerSectionGrants, Students, users } from "@/lib/schema";
+import { and, asc, desc, eq } from "drizzle-orm";
 
 const todayKey = () => {
   const now = new Date();
@@ -26,6 +26,7 @@ const mapEntry = (row) => ({
   studentName: row.studentName,
   className: row.className,
   purpose: row.purpose,
+  feesSubmitted: Boolean(row.feesSubmitted),
   inAt: row.inAt instanceof Date ? row.inAt.toISOString() : row.inAt,
   outAt: row.outAt instanceof Date ? row.outAt.toISOString() : row.outAt,
   signature: row.signature,
@@ -46,6 +47,34 @@ export async function GET(req) {
   }
 
   const { searchParams } = new URL(req.url);
+  const section = searchParams.get("section") || "logs";
+  if (section === "options") {
+    const rows = await db
+      .select({
+        id: Students.id,
+        name: Students.name,
+        guardianName: Students.guardianName,
+        className: Classes.name,
+        classSection: Classes.section,
+        classTrack: Classes.track,
+      })
+      .from(Students)
+      .leftJoin(Classes, eq(Classes.id, Students.classId))
+      .orderBy(asc(Classes.name), asc(Students.name));
+
+    return NextResponse.json(
+      {
+        students: rows.map((row) => ({
+          id: row.id,
+          name: row.name,
+          guardianName: row.guardianName,
+          className: [row.className, row.classSection, row.classTrack].filter(Boolean).join(" ").trim() || null,
+        })),
+      },
+      { status: 200 }
+    );
+  }
+
   const dateParam = searchParams.get("date");
   const targetDate = dateParam ? new Date(dateParam) : new Date();
   if (Number.isNaN(targetDate.getTime())) {
@@ -61,6 +90,7 @@ export async function GET(req) {
       studentName: guardianGateLogs.studentName,
       className: guardianGateLogs.className,
       purpose: guardianGateLogs.purpose,
+      feesSubmitted: guardianGateLogs.feesSubmitted,
       inAt: guardianGateLogs.inAt,
       outAt: guardianGateLogs.outAt,
       signature: guardianGateLogs.signature,
@@ -121,6 +151,11 @@ export async function POST(req) {
   const className = typeof body?.className === "string" ? body.className.trim() : "";
   const purpose = typeof body?.purpose === "string" ? body.purpose.trim() : "";
   const signature = typeof body?.signature === "string" ? body.signature.trim() : "";
+  const feesSubmitted =
+    body?.feesSubmitted === true ||
+    body?.feesSubmitted === "true" ||
+    body?.feesSubmitted === 1 ||
+    body?.feesSubmitted === "1";
 
   if (!visitDateRaw) {
     return NextResponse.json({ error: "visitDate is required" }, { status: 400 });
@@ -142,6 +177,7 @@ export async function POST(req) {
     studentName,
     className,
     purpose,
+    feesSubmitted,
     inAt: inAt || null,
     outAt: outAt || null,
     signature: signature || null,

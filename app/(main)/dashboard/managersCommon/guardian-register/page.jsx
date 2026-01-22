@@ -33,14 +33,24 @@ const formatTime = (value) => {
   return dt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 };
 
+const purposeOptions = [
+  "Sat/Sun meet student",
+  "Random day meet",
+  "Report after holiday",
+  "Regular school (DS/DB)",
+  "Other",
+];
+
+const normalizeKey = (value) => (typeof value === "string" ? value.trim().toLowerCase() : "");
+
 const initialForm = {
   guardianName: "",
   studentName: "",
   className: "",
   purpose: "",
+  feesSubmitted: false,
   inTime: "",
   outTime: "",
-  signature: "",
 };
 
 export default function GuardianRegisterPage() {
@@ -51,13 +61,87 @@ export default function GuardianRegisterPage() {
 
   const key = selectedDate ? `/api/managersCommon/guardian-register?date=${selectedDate}` : null;
   const { data, error, isLoading, mutate } = useSWR(key, fetcher, { dedupingInterval: 15000 });
+  const { data: optionsData } = useSWR("/api/managersCommon/guardian-register?section=options", fetcher, {
+    dedupingInterval: 60000,
+  });
 
   const entries = useMemo(() => data?.entries || [], [data?.entries]);
+  const students = useMemo(() => optionsData?.students || [], [optionsData?.students]);
+
+  const studentLookup = useMemo(() => {
+    const map = new Map();
+    for (const student of students) {
+      const name = student?.name ? student.name.trim() : "";
+      if (!name) continue;
+      const key = normalizeKey(name);
+      if (!key || map.has(key)) continue;
+      map.set(key, {
+        studentName: name,
+        guardianName: student.guardianName ? student.guardianName.trim() : "",
+        className: student.className || "",
+      });
+    }
+    return map;
+  }, [students]);
+
+  const guardianLookup = useMemo(() => {
+    const map = new Map();
+    for (const student of students) {
+      const guardianName = student?.guardianName ? student.guardianName.trim() : "";
+      const studentName = student?.name ? student.name.trim() : "";
+      if (!guardianName || !studentName) continue;
+      const key = normalizeKey(guardianName);
+      if (!key) continue;
+      if (!map.has(key)) {
+        map.set(key, { guardianName, students: [] });
+      }
+      map.get(key).students.push({ name: studentName, className: student.className || "" });
+    }
+    return map;
+  }, [students]);
+
+  const guardianOptions = useMemo(() => {
+    const seen = new Map();
+    for (const student of students) {
+      const name = student?.guardianName ? student.guardianName.trim() : "";
+      if (!name) continue;
+      seen.set(normalizeKey(name), name);
+    }
+    return Array.from(seen.values()).sort((a, b) => a.localeCompare(b));
+  }, [students]);
 
   const unauthorized = error?.status === 401;
 
   const updateFormField = (field) => (event) => {
-    setForm((prev) => ({ ...prev, [field]: event.target.value }));
+    const { type, value, checked } = event.target;
+    setForm((prev) => ({ ...prev, [field]: type === "checkbox" ? checked : value }));
+  };
+
+  const handleGuardianChange = (event) => {
+    const value = event.target.value;
+    setForm((prev) => {
+      const next = { ...prev, guardianName: value };
+      const match = guardianLookup.get(normalizeKey(value));
+      if (match && match.students.length === 1) {
+        const [student] = match.students;
+        next.studentName = student.name;
+        if (student.className) next.className = student.className;
+      }
+      return next;
+    });
+  };
+
+  const handleStudentChange = (event) => {
+    const value = event.target.value;
+    setForm((prev) => {
+      const next = { ...prev, studentName: value };
+      const match = studentLookup.get(normalizeKey(value));
+      if (match) {
+        next.guardianName = match.guardianName || "";
+        if (match.className) next.className = match.className;
+      }
+      return next;
+    });
   };
 
   const resetForm = () => setForm(initialForm);
@@ -175,8 +259,9 @@ export default function GuardianRegisterPage() {
                 id="guardian-name"
                 type="text"
                 className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
+                list="guardian-options"
                 value={form.guardianName}
-                onChange={updateFormField("guardianName")}
+                onChange={handleGuardianChange}
                 placeholder="Visitor / Guardian"
               />
             </div>
@@ -188,8 +273,9 @@ export default function GuardianRegisterPage() {
                 id="student-name"
                 type="text"
                 className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
+                list="student-options"
                 value={form.studentName}
-                onChange={updateFormField("studentName")}
+                onChange={handleStudentChange}
                 placeholder="Student"
               />
             </div>
@@ -210,14 +296,32 @@ export default function GuardianRegisterPage() {
               <label htmlFor="purpose" className="block text-sm font-medium text-gray-700">
                 Purpose of visit
               </label>
-              <input
+              <select
                 id="purpose"
-                type="text"
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
+                className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm"
                 value={form.purpose}
                 onChange={updateFormField("purpose")}
-                placeholder="Reason noted in register"
-              />
+              >
+                <option value="">Select reason</option>
+                {purposeOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <span className="block text-sm font-medium text-gray-700">Fees submitted</span>
+              <label className="mt-2 inline-flex items-center gap-2 text-sm text-gray-700" htmlFor="fees-submitted">
+                <input
+                  id="fees-submitted"
+                  type="checkbox"
+                  className="h-4 w-4 rounded border border-gray-300"
+                  checked={form.feesSubmitted}
+                  onChange={updateFormField("feesSubmitted")}
+                />
+                Yes
+              </label>
             </div>
             <div>
               <label htmlFor="in-time" className="block text-sm font-medium text-gray-700">
@@ -243,19 +347,6 @@ export default function GuardianRegisterPage() {
                 onChange={updateFormField("outTime")}
               />
             </div>
-            <div>
-              <label htmlFor="signature" className="block text-sm font-medium text-gray-700">
-                Signature / Notes
-              </label>
-              <input
-                id="signature"
-                type="text"
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
-                value={form.signature}
-                onChange={updateFormField("signature")}
-                placeholder="Initials or remarks"
-              />
-            </div>
             <div className="md:col-span-2 lg:col-span-3 flex items-center gap-3 pt-1">
               <Button type="submit" disabled={saving}>
                 {saving ? "Saving…" : "Add entry"}
@@ -265,6 +356,20 @@ export default function GuardianRegisterPage() {
                 Reset
               </Button>
             </div>
+            <datalist id="guardian-options">
+              {guardianOptions.map((name) => (
+                <option key={name} value={name} />
+              ))}
+            </datalist>
+            <datalist id="student-options">
+              {students.map((student) => (
+                <option
+                  key={student.id}
+                  value={student.name}
+                  label={student.className ? `${student.className}${student.guardianName ? ` - ${student.guardianName}` : ""}` : undefined}
+                />
+              ))}
+            </datalist>
           </form>
         </CardBody>
       </Card>
@@ -292,9 +397,9 @@ export default function GuardianRegisterPage() {
                   <th className="px-3 py-2 text-left font-semibold text-gray-700">Student</th>
                   <th className="px-3 py-2 text-left font-semibold text-gray-700">Class</th>
                   <th className="px-3 py-2 text-left font-semibold text-gray-700">Purpose</th>
+                  <th className="px-3 py-2 text-left font-semibold text-gray-700">Fees submitted</th>
                   <th className="px-3 py-2 text-left font-semibold text-gray-700">In</th>
                   <th className="px-3 py-2 text-left font-semibold text-gray-700">Out</th>
-                  <th className="px-3 py-2 text-left font-semibold text-gray-700">Signature / Notes</th>
                   <th className="px-3 py-2 text-right font-semibold text-gray-700">Actions</th>
                 </tr>
               </thead>
@@ -318,9 +423,9 @@ export default function GuardianRegisterPage() {
                       <td className="px-3 py-2 text-sm text-gray-600">{entry.studentName}</td>
                       <td className="px-3 py-2 text-sm text-gray-600">{entry.className || "—"}</td>
                       <td className="px-3 py-2 text-sm text-gray-600">{entry.purpose || "—"}</td>
+                      <td className="px-3 py-2 text-sm text-gray-600">{entry.feesSubmitted ? "Yes" : "No"}</td>
                       <td className="px-3 py-2 text-sm text-emerald-600">{formatTime(entry.inAt)}</td>
                       <td className="px-3 py-2 text-sm text-amber-600">{formatTime(entry.outAt)}</td>
-                      <td className="px-3 py-2 text-sm text-gray-600">{entry.signature || "—"}</td>
                       <td className="px-3 py-2 text-right">
                         <Button variant="ghost" size="sm" onClick={() => handleDelete(entry.id)}>
                           <Trash2 className="h-4 w-4 text-red-600" />

@@ -941,28 +941,30 @@ const GuardianRelationshipManager = () => {
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-slate-900">King's Place</h1>
-          <p className="text-sm text-slate-600">Guardian relationship manager for admissions.</p>
-        </div>
-        <div className="flex items-center gap-2 text-xs text-slate-500">
-          <Badge color="gray">Total {totalGuardians}</Badge>
-          <Badge color="teal">Ongoing {ongoingCount}</Badge>
-          <Badge color="blue">Probable {probableCount}</Badge>
+      <header className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-4 py-3 shadow-sm">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold text-teal-700">King's Place</h1>
+            <p className="text-sm text-slate-500">Guardian relationship manager for admissions.</p>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <Badge color="gray">Total {totalGuardians}</Badge>
+            <Badge color="teal">Ongoing {ongoingCount}</Badge>
+            <Badge color="blue">Probable {probableCount}</Badge>
+          </div>
         </div>
       </header>
 
-      <div className="border-b border-slate-200">
-        <nav className="flex flex-wrap gap-4">
+      <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-2 py-1 shadow-sm">
+        <nav className="flex flex-wrap gap-2">
           {["dashboard", "guardians", "communications", "analytics"].map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`pb-3 text-sm font-semibold capitalize transition-colors border-b-2 ${
+              className={`px-3 py-2 rounded-lg text-sm font-semibold capitalize transition-colors ${
                 activeTab === tab
-                  ? "border-teal-600 text-teal-700"
-                  : "border-transparent text-slate-500 hover:text-slate-700"
+                  ? "bg-white text-teal-700 border border-teal-200 shadow-sm"
+                  : "text-slate-500 hover:bg-white/80 hover:text-slate-700"
               }`}
             >
               {tab}
