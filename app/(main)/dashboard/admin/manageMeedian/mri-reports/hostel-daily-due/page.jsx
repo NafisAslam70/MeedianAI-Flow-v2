@@ -65,13 +65,30 @@ export default function ManageHostelDailyDueReportPage() {
     [users]
   );
 
-  const hostelAuthorities = useMemo(
-    () => users.filter((user) => user.active !== false && (user.role === 'admin' || (user.role === 'team_manager' && user.team_manager_type !== 'hostel_incharge'))),
+  const hostelAdmins = useMemo(
+    () =>
+      users.filter(
+        (user) =>
+          user.active !== false &&
+          (user.role === "admin" ||
+            (user.role === "team_manager" && user.team_manager_type !== "hostel_incharge"))
+      ),
+    [users]
+  );
+
+  const schoolOfficeUsers = useMemo(
+    () =>
+      users.filter(
+        (user) =>
+          user.active !== false &&
+          (user.role === "admin" || user.role === "team_manager")
+      ),
     [users]
   );
 
   const [selectedUserId, setSelectedUserId] = useState("");
-  const [selectedHostelAuthorityId, setSelectedHostelAuthorityId] = useState("");
+  const [selectedHostelAdminId, setSelectedHostelAdminId] = useState("");
+  const [selectedSchoolOfficeId, setSelectedSchoolOfficeId] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -218,20 +235,20 @@ export default function ManageHostelDailyDueReportPage() {
 
       <Card>
         <CardHeader>
-          <h2 className="text-base font-semibold text-gray-900">Assign Hostel Higher Authority</h2>
+          <h2 className="text-base font-semibold text-gray-900">Assign Hostel Admin</h2>
           <p className="text-sm text-gray-600">
-            Select higher authorities who can review and complete hostel due reports assigned to them by incharges.
+            Select hostel admins who can review and complete hostel due reports assigned to them by incharges.
           </p>
         </CardHeader>
         <CardBody>
           <div className="flex gap-3">
             <Select
-              value={selectedHostelAuthorityId}
-              onChange={(e) => setSelectedHostelAuthorityId(e.target.value)}
+              value={selectedHostelAdminId}
+              onChange={(e) => setSelectedHostelAdminId(e.target.value)}
               className="flex-1"
             >
-              <option value="">Select Hostel Higher Authority</option>
-              {hostelAuthorities.map((user) => (
+              <option value="">Select Hostel Admin</option>
+              {hostelAdmins.map((user) => (
                 <option key={user.id} value={user.id}>
                   {getUserDisplayText(user)}
                 </option>
@@ -239,7 +256,7 @@ export default function ManageHostelDailyDueReportPage() {
             </Select>
             <Button
               onClick={async () => {
-                if (!selectedHostelAuthorityId) return;
+                if (!selectedHostelAdminId) return;
                 setSaving(true);
                 setError("");
                 setSuccess("");
@@ -249,24 +266,83 @@ export default function ManageHostelDailyDueReportPage() {
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                       templateKey: HOSTEL_DAILY_DUE_TEMPLATE_KEY,
-                      userId: parseInt(selectedHostelAuthorityId, 10),
+                      userId: parseInt(selectedHostelAdminId, 10),
                       active: true,
-                      role: "hostel_authority",
+                      role: "hostel_admin",
                     }),
                   });
                   const responseData = await res.json();
                   if (!res.ok) throw new Error(responseData.error || `Failed to assign: ${res.status}`);
-                  setSuccess("Hostel higher authority assigned successfully!");
+                  setSuccess("Hostel admin assigned successfully!");
                   setTimeout(() => setSuccess(""), 3000);
                   await mutateAssignments();
-                  setSelectedHostelAuthorityId("");
+                  setSelectedHostelAdminId("");
                 } catch (err) {
-                  setError(`Error assigning hostel authority: ${err.message}`);
+                  setError(`Error assigning hostel admin: ${err.message}`);
                 } finally {
                   setSaving(false);
                 }
               }}
-              disabled={!selectedHostelAuthorityId || saving}
+              disabled={!selectedHostelAdminId || saving}
+              className="px-4 py-2"
+            >
+              {saving ? "Assigning..." : "Assign"}
+            </Button>
+          </div>
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <h2 className="text-base font-semibold text-gray-900">Assign School Office</h2>
+          <p className="text-sm text-gray-600">
+            Select school office users who can handle hostel issues transferred by hostel admins.
+          </p>
+        </CardHeader>
+        <CardBody>
+          <div className="flex gap-3">
+            <Select
+              value={selectedSchoolOfficeId}
+              onChange={(e) => setSelectedSchoolOfficeId(e.target.value)}
+              className="flex-1"
+            >
+              <option value="">Select School Office</option>
+              {schoolOfficeUsers.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {getUserDisplayText(user)}
+                </option>
+              ))}
+            </Select>
+            <Button
+              onClick={async () => {
+                if (!selectedSchoolOfficeId) return;
+                setSaving(true);
+                setError("");
+                setSuccess("");
+                try {
+                  const res = await fetch("/api/admin/manageMeedian?section=mriReportAssignments", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      templateKey: HOSTEL_DAILY_DUE_TEMPLATE_KEY,
+                      userId: parseInt(selectedSchoolOfficeId, 10),
+                      active: true,
+                      role: "school_office",
+                    }),
+                  });
+                  const responseData = await res.json();
+                  if (!res.ok) throw new Error(responseData.error || `Failed to assign: ${res.status}`);
+                  setSuccess("School office assigned successfully!");
+                  setTimeout(() => setSuccess(""), 3000);
+                  await mutateAssignments();
+                  setSelectedSchoolOfficeId("");
+                } catch (err) {
+                  setError(`Error assigning school office: ${err.message}`);
+                } finally {
+                  setSaving(false);
+                }
+              }}
+              disabled={!selectedSchoolOfficeId || saving}
               className="px-4 py-2"
             >
               {saving ? "Assigning..." : "Assign"}
@@ -278,9 +354,7 @@ export default function ManageHostelDailyDueReportPage() {
       <Card>
         <CardHeader>
           <h2 className="text-base font-semibold text-gray-900">Current Assignments</h2>
-          <p className="text-sm text-gray-600">
-            Overview of all assigned Hostel Incharges and Higher Authorities.
-          </p>
+          <p className="text-sm text-gray-600">Overview of all assigned Hostel Incharges, Hostel Admins, and School Office.</p>
         </CardHeader>
         <CardBody>
           <div className="space-y-6">
@@ -291,7 +365,12 @@ export default function ManageHostelDailyDueReportPage() {
                 Hostel Incharges
               </h3>
               {(() => {
-                const hiAssignments = assignments.filter((a) => !a.role || a.role !== 'hostel_authority');
+                const hiAssignments = assignments.filter(
+                  (a) =>
+                    !a.role ||
+                    a.role === "hostel_incharge" ||
+                    (a.role !== "hostel_admin" && a.role !== "hostel_authority" && a.role !== "school_office")
+                );
 
                 return (
                   <div className="space-y-3">
@@ -350,14 +429,16 @@ export default function ManageHostelDailyDueReportPage() {
               })()}
             </div>
 
-            {/* Hostel Higher Authorities Section */}
+            {/* Hostel Admins Section */}
             <div className="border-t border-gray-200 pt-6">
               <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
                 <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-purple-100 text-purple-700 text-xs font-bold">HA</span>
-                Hostel Higher Authorities
+                Hostel Admins
               </h3>
               {(() => {
-                const haAssignments = assignments.filter((a) => a.role === 'hostel_authority');
+                const haAssignments = assignments.filter(
+                  (a) => a.role === "hostel_admin" || a.role === "hostel_authority"
+                );
 
                 return (
                   <div className="space-y-3">
@@ -375,6 +456,72 @@ export default function ManageHostelDailyDueReportPage() {
                               </div>
                               <div className="flex items-center gap-2">
                                 <span className="text-xs font-semibold text-purple-700 bg-purple-100 px-2 py-1 rounded">Active</span>
+                                {confirmDelete?.id === assignment.id ? (
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs text-gray-700">Remove?</span>
+                                    <Button
+                                      size="sm"
+                                      className="bg-red-600 hover:bg-red-700 text-white"
+                                      onClick={() => handleToggleAssignment(assignment.id, assignment.active)}
+                                      disabled={saving}
+                                    >
+                                      Yes
+                                    </Button>
+                                    <Button
+                                      variant="secondary"
+                                      size="sm"
+                                      onClick={() => setConfirmDelete(null)}
+                                      disabled={saving}
+                                    >
+                                      No
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={() => setConfirmDelete({ id: assignment.id, name: user?.name })}
+                                    disabled={saving}
+                                  >
+                                    Remove
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* School Office Section */}
+            <div className="border-t border-gray-200 pt-6">
+              <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-100 text-amber-700 text-xs font-bold">SO</span>
+                School Office
+              </h3>
+              {(() => {
+                const officeAssignments = assignments.filter((a) => a.role === "school_office");
+
+                return (
+                  <div className="space-y-3">
+                    {officeAssignments.length === 0 ? (
+                      <p className="text-sm text-gray-500 italic">No school office users assigned yet.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {officeAssignments.map((assignment) => {
+                          const user = users.find((u) => u.id === assignment.userId);
+                          return (
+                            <div key={assignment.id} className="flex items-center justify-between p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                              <div>
+                                <p className="font-medium text-amber-900">{user?.name || "Unknown User"}</p>
+                                <p className="text-xs text-amber-700">{user?.email || ""}</p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-semibold text-amber-700 bg-amber-100 px-2 py-1 rounded">Active</span>
                                 {confirmDelete?.id === assignment.id ? (
                                   <div className="flex items-center gap-2">
                                     <span className="text-xs text-gray-700">Remove?</span>

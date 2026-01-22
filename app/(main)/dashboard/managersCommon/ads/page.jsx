@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import useSWR from "swr";
+import { useSession } from "next-auth/react";
 import { AlertTriangle, RefreshCw, ShieldAlert, X } from "lucide-react";
 import Button from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
@@ -64,6 +65,8 @@ const formatDateTime = (value) => {
 };
 
 export default function AdsPage() {
+  const { data: session } = useSession();
+  const isAdmin = session?.user?.role === "admin";
   const [form, setForm] = useState({
     memberId: "",
     category: "punctuality",
@@ -235,6 +238,31 @@ export default function AdsPage() {
   };
 
   const closeIprModal = () => setShowIprModal(false);
+
+  const handleToggleHidden = async (entry) => {
+    if (!entry || !isAdmin) return;
+    setError("");
+    setMessage("");
+    try {
+      const res = await fetch("/api/managersCommon/ads", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ adId: entry.id, hidden: !entry.isHidden }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.error || "Failed to update visibility.");
+      setMessage(entry.isHidden ? "AD is now visible." : "AD is now hidden.");
+      await mutate();
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "Failed to update AD visibility.");
+    } finally {
+      setTimeout(() => {
+        setMessage("");
+        setError("");
+      }, 2500);
+    }
+  };
 
   const handleConvert = async () => {
     if (!convertTarget) return;
@@ -530,6 +558,7 @@ export default function AdsPage() {
                     <th className="px-3 py-2">Points deducted</th>
                     <th className="px-3 py-2">Raised by</th>
                     <th className="px-3 py-2">Escalation</th>
+                    {isAdmin && <th className="px-3 py-2">Visibility</th>}
                     <th className="px-3 py-2">Action</th>
                   </tr>
                 </thead>
@@ -556,18 +585,30 @@ export default function AdsPage() {
                           <span className="text-gray-400">Not linked</span>
                         )}
                       </td>
+                      {isAdmin && (
+                        <td className="px-3 py-2 text-gray-600">
+                          {entry.isHidden ? (
+                            <span className="text-rose-600">Hidden</span>
+                          ) : (
+                            <span className="text-emerald-700">Visible</span>
+                          )}
+                        </td>
+                      )}
                       <td className="px-3 py-2">
-                        {entry.escalationMatterId ? (
-                          <span className="text-xs text-gray-500">-</span>
-                        ) : (
-                          <Button
-                            size="xs"
-                            variant="light"
-                            onClick={() => openConvert(entry)}
-                          >
-                            Convert
-                          </Button>
-                        )}
+                        <div className="flex flex-wrap items-center gap-2">
+                          {entry.escalationMatterId ? (
+                            <span className="text-xs text-gray-500">-</span>
+                          ) : (
+                            <Button size="xs" variant="light" onClick={() => openConvert(entry)}>
+                              Convert
+                            </Button>
+                          )}
+                          {isAdmin && (
+                            <Button size="xs" variant="light" onClick={() => handleToggleHidden(entry)}>
+                              {entry.isHidden ? "Unhide" : "Hide"}
+                            </Button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}

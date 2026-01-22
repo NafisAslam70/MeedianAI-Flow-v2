@@ -35,6 +35,7 @@ const mapEntry = (row) => ({
   evidence: row.evidence,
   notes: row.notes,
   points: row.points,
+  isHidden: row.isHidden,
   createdBy: row.createdBy,
   createdByName: row.createdByName,
   escalationMatterId: row.escalationMatterId,
@@ -53,7 +54,7 @@ export async function GET(req) {
   const memberAlias = alias(users, "ad_member");
   const creatorAlias = alias(users, "ad_creator");
 
-  const rows = await db
+  let query = db
     .select({
       id: memberAds.id,
       memberId: memberAds.memberId,
@@ -63,6 +64,7 @@ export async function GET(req) {
       evidence: memberAds.evidence,
       notes: memberAds.notes,
       points: memberAds.points,
+      isHidden: memberAds.isHidden,
       createdBy: memberAds.createdBy,
       createdByName: creatorAlias.name,
       escalationMatterId: memberAds.escalationMatterId,
@@ -74,8 +76,13 @@ export async function GET(req) {
     .from(memberAds)
     .leftJoin(memberAlias, eq(memberAds.memberId, memberAlias.id))
     .leftJoin(creatorAlias, eq(memberAds.createdBy, creatorAlias.id))
-    .leftJoin(escalationsMatters, eq(memberAds.escalationMatterId, escalationsMatters.id))
-    .orderBy(desc(memberAds.occurredAt), desc(memberAds.createdAt));
+    .leftJoin(escalationsMatters, eq(memberAds.escalationMatterId, escalationsMatters.id));
+
+  if (session.user.role !== "admin") {
+    query = query.where(eq(memberAds.isHidden, false));
+  }
+
+  const rows = await query.orderBy(desc(memberAds.occurredAt), desc(memberAds.createdAt));
 
   return NextResponse.json({ entries: rows.map(mapEntry) }, { status: 200 });
 }
@@ -143,9 +150,24 @@ export async function PATCH(req) {
   }
 
   const adId = Number(body?.adId);
+  if (!adId) {
+    return NextResponse.json({ error: "adId is required" }, { status: 400 });
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "hidden")) {
+    if (session.user.role !== "admin") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    const hidden = !!body.hidden;
+    await db
+      .update(memberAds)
+      .set({ isHidden: hidden, updatedAt: new Date() })
+      .where(eq(memberAds.id, adId));
+    return NextResponse.json({ ok: true }, { status: 200 });
+  }
+
   const matterId = Number(body?.matterId);
-  if (!adId || !matterId) {
-    return NextResponse.json({ error: "adId and matterId are required" }, { status: 400 });
+  if (!matterId) {
+    return NextResponse.json({ error: "matterId is required" }, { status: 400 });
   }
 
   const [ad] = await db

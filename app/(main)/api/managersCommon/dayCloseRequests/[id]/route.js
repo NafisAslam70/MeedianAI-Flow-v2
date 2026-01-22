@@ -11,9 +11,11 @@ import {
   routineTaskDailyStatuses,
   routineTaskLogs,
   messages,
+  directWhatsappMessages,
 } from "@/lib/schema";
 import { eq, and } from "drizzle-orm";
 import { format } from "date-fns";
+import { sendWhatsappMessage, sendWhatsappTemplate } from "@/lib/whatsapp";
 
 export async function PATCH(req, { params }) {
   const session = await auth();
@@ -166,6 +168,116 @@ export async function PATCH(req, { params }) {
       createdAt: new Date(),
       status: "sent",
     });
+
+    // WhatsApp notify (best-effort)
+    try {
+      const [recipient] = await db
+        .select({
+          id: users.id,
+          name: users.name,
+          whatsapp_number: users.whatsapp_number,
+          whatsapp_enabled: users.whatsapp_enabled,
+        })
+        .from(users)
+        .where(eq(users.id, request.userId))
+        .limit(1);
+      const [supervisor] = await db
+        .select({ id: users.id, name: users.name })
+        .from(users)
+        .where(eq(users.id, supervisorId))
+        .limit(1);
+
+      if (recipient?.whatsapp_number && recipient.whatsapp_enabled !== false) {
+        const dateLabel = format(new Date(request.date), "dd MMM yyyy");
+        const subject = status === "approved" ? "Day Close Approved" : "Day Close Rejected";
+        const messageBody =
+          status === "approved"
+            ? `Hi ${recipient.name || "there"}, your day close request for ${dateLabel} has been approved.`
+            : `Hi ${recipient.name || "there"}, your day close request for ${dateLabel} has been rejected. Please review and resubmit.`;
+        const noteParts = [];
+        if (ISRoutineLog) noteParts.push(`Supervisor Routine Comment: ${ISRoutineLog}`);
+        if (ISGeneralLog) noteParts.push(`Supervisor General Comment: ${ISGeneralLog}`);
+        const note = noteParts.join(" ");
+        const contact = supervisor?.name || "IS/COD";
+        const senderDisplay = supervisor?.name
+          ? `${supervisor.name} (from Meed Leadership Group)`
+          : "Meed Leadership Group";
+        const dateTime = new Date().toLocaleString("en-GB", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+        const templateSid =
+          process.env.TWILIO_DAY_CLOSE_TEMPLATE_SID ||
+          process.env.TWILIO_DIRECT_MESSAGE_TEMPLATE_SID ||
+          "";
+
+        const [log] = await db
+          .insert(directWhatsappMessages)
+          .values({
+            senderId: supervisorId,
+            recipientType: "existing",
+            recipientUserId: recipient.id,
+            recipientName: recipient.name || null,
+            recipientWhatsappNumber: recipient.whatsapp_number,
+            subject,
+            message: messageBody,
+            note: note || null,
+            contact,
+            createdAt: new Date(),
+          })
+          .returning({ id: directWhatsappMessages.id });
+
+        try {
+          const tw = templateSid
+            ? await sendWhatsappTemplate(
+                recipient.whatsapp_number,
+                templateSid,
+                {
+                  1: recipient.name || "there",
+                  2: senderDisplay,
+                  3: subject,
+                  4: messageBody,
+                  5: note || "",
+                  6: contact,
+                  7: dateTime,
+                },
+                { whatsapp_enabled: recipient.whatsapp_enabled }
+              )
+            : await sendWhatsappMessage(
+                recipient.whatsapp_number,
+                {
+                  recipientName: recipient.name || "there",
+                  senderName: senderDisplay,
+                  subject,
+                  message: messageBody,
+                  note,
+                  contact,
+                  dateTime,
+                },
+                { whatsapp_enabled: recipient.whatsapp_enabled }
+              );
+
+          if (tw?.sid && log?.id) {
+            await db
+              .update(directWhatsappMessages)
+              .set({ twilioSid: tw.sid })
+              .where(eq(directWhatsappMessages.id, log.id));
+          }
+        } catch (err) {
+          if (log?.id) {
+            await db
+              .update(directWhatsappMessages)
+              .set({ status: "failed", error: err?.message || String(err) })
+              .where(eq(directWhatsappMessages.id, log.id));
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Day close WhatsApp notify failed:", err?.message || err);
+    }
 
     return NextResponse.json({ success: true }, { status: 200 });
   } catch (error) {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { hostelDailyDueReports, users } from "@/lib/schema";
-import { escalationsMatters } from "@/lib/schema";
+import { escalationsMatters, hostelDailyDueReports, ticketActivities, tickets, users } from "@/lib/schema";
+import { computeTicketSla, findCategoryByKey, formatTicketNumber } from "@/lib/ticketsConfig";
 import { eq, and, desc } from "drizzle-orm";
 
 export async function GET(request) {
@@ -30,10 +30,16 @@ export async function GET(request) {
       const allReports = await query.limit(100); // Fetch more to filter
       const filteredReports = allReports.filter(report => {
         if (!report.entries) return false;
-        // Check if any entry has assignedHigherAuthority matching the user
-        return Array.isArray(report.entries) && report.entries.some(entry =>
-          entry.assignedHigherAuthority === assignedTo && entry.actionType === 'assign_to_higher_authority'
-        );
+        // Check if any entry has assigned hostel admin or school office
+        return Array.isArray(report.entries) && report.entries.some(entry => {
+          const assignedAdmin =
+            entry.assignedHigherAuthority === assignedTo &&
+            (entry.actionType === 'assign_to_higher_authority' ||
+              entry.actionType === 'Higher Authority' ||
+              entry.actionType === 'Hostel Admin');
+          const assignedOffice = entry.assignedSchoolOffice === assignedTo;
+          return assignedAdmin || assignedOffice;
+        });
       });
       return NextResponse.json({ reports: filteredReports.slice(0, limit) }, { status: 200 });
     }
@@ -61,19 +67,123 @@ export async function POST(request) {
       );
     }
 
-    // If reportId is provided, this is an update (HA completing assigned report)
+    // If reportId is provided, this is an update (Hostel Admin or School Office completion)
     if (reportId) {
-      // Update existing report
+      if (!Array.isArray(entries)) {
+        return NextResponse.json({ error: "Entries must be an array" }, { status: 400 });
+      }
+
+      const now = new Date();
+      const updatedEntries = [];
+      let escalationsCreated = 0;
+      let ticketsCreated = 0;
+
+      for (const entry of entries) {
+        const nextEntry = { ...entry };
+
+        if (entry.needsEscalation === "Yes" && !entry.escalationId) {
+          const studentLabel = Array.isArray(entry.studentInvolved)
+            ? entry.studentInvolved.filter(Boolean).join(", ")
+            : entry.studentInvolved || "";
+          const actionDetails =
+            entry.actionType === "Student Self"
+              ? entry.actionDetails
+              : entry.actionType === "HI Self"
+              ? entry.actionDetails
+              : entry.actionType === "Hostel Admin"
+              ? entry.actionDetails
+              : entry.actionType === "Higher Authority"
+              ? entry.actionDetails
+              : entry.actionType === "School Office"
+              ? entry.actionDetails
+              : entry.higherAuthorityAction;
+
+          const [createdEscalation] = await db
+            .insert(escalationsMatters)
+            .values({
+              title: `Hostel Due Escalation: ${entry.particulars || "Issue"}${studentLabel ? ` (${studentLabel})` : ""}`,
+              description: `Hostel Daily Due Report escalation\n\nParticulars: ${entry.particulars}\nStudent Involved: ${studentLabel || "N/A"}\nAction Type: ${entry.actionType}\nAction Details: ${actionDetails || "N/A"}\nStatus: ${entry.followUpStatus}\nAuth Sign: ${entry.authSign}`,
+              createdById: submittedBy,
+              status: "OPEN",
+              level: 1,
+            })
+            .returning({ id: escalationsMatters.id });
+
+          if (createdEscalation?.id) {
+            nextEntry.escalationId = createdEscalation.id;
+            escalationsCreated += 1;
+          }
+        }
+
+        if (entry.createTicket === "Yes" && !entry.ticketId) {
+          const category = findCategoryByKey("hostel") || findCategoryByKey("operations");
+          const priority = "normal";
+          const titleBase = String(entry.particulars || "Hostel Due Issue").slice(0, 180);
+          const studentLabel = Array.isArray(entry.studentInvolved)
+            ? entry.studentInvolved.filter(Boolean).join(", ")
+            : entry.studentInvolved || "";
+          const description = `Hostel Daily Due Report ticket\n\nParticulars: ${entry.particulars}\nStudent Involved: ${studentLabel || "N/A"}\nAction Type: ${entry.actionType}\nAction Details: ${entry.actionDetails || "N/A"}`;
+          const { firstResponseAt, resolveBy } = computeTicketSla(priority, now);
+          const placeholderNumber = `TMP-${Date.now()}-${Math.floor(Math.random() * 1e5).toString(36)}`;
+          const assignedToId = entry.assignedSchoolOffice ? Number(entry.assignedSchoolOffice) : null;
+
+          const [createdTicket] = await db
+            .insert(tickets)
+            .values({
+              ticketNumber: placeholderNumber,
+              createdById: submittedBy,
+              assignedToId: assignedToId || null,
+              queue: category?.queue || "hostel",
+              category: category?.label || "Hostel & Residential",
+              subcategory: null,
+              title: studentLabel ? `${titleBase} (${studentLabel})` : titleBase,
+              description,
+              priority,
+              status: "open",
+              escalated: false,
+              slaFirstResponseAt: firstResponseAt,
+              slaResolveBy: resolveBy,
+              lastActivityAt: now,
+              metadata: {
+                categoryKey: category?.key || "hostel",
+                hostelDailyDueReportId: reportId,
+                entrySn: entry.sn,
+              },
+              createdAt: now,
+              updatedAt: now,
+            })
+            .returning({ id: tickets.id, createdAt: tickets.createdAt });
+
+          if (createdTicket?.id) {
+            const finalNumber = formatTicketNumber(createdTicket.id, createdTicket.createdAt || now);
+            await db.update(tickets).set({ ticketNumber: finalNumber }).where(eq(tickets.id, createdTicket.id));
+            await db.insert(ticketActivities).values({
+              ticketId: createdTicket.id,
+              authorId: submittedBy,
+              type: "comment",
+              message: "Created from Hostel Daily Due Report.",
+              createdAt: now,
+            });
+            nextEntry.ticketId = createdTicket.id;
+            ticketsCreated += 1;
+          }
+        }
+
+        updatedEntries.push(nextEntry);
+      }
+
+      const hasOfficeTransfer = updatedEntries.some((entry) => entry.assignedSchoolOffice);
+
       await db
         .update(hostelDailyDueReports)
         .set({
-          entries: entries,
-          status: 'completed'
+          entries: updatedEntries,
+          status: hasOfficeTransfer ? "submitted" : "completed",
         })
         .where(eq(hostelDailyDueReports.id, reportId));
 
       return NextResponse.json(
-        { message: "Report updated successfully" },
+        { message: "Report updated successfully", escalationsCreated, ticketsCreated },
         { status: 200 }
       );
     }
@@ -121,7 +231,9 @@ export async function POST(request) {
         actionType === "Student Self"
           ? Boolean(entry.actionDetails?.trim())
           : actionType === "Higher Authority"
-          ? Boolean(entry.higherAuthorityAction?.trim())
+          ? Boolean(entry.assignedHigherAuthority)
+          : actionType === "Hostel Admin"
+          ? Boolean(entry.assignedHigherAuthority)
           : actionType === "assign_to_higher_authority"
           ? Boolean(entry.assignedHigherAuthority)
           : actionType === "HI Self"
@@ -169,6 +281,10 @@ export async function POST(request) {
           entry.actionType === "Student Self"
             ? entry.actionDetails
             : entry.actionType === "HI Self"
+            ? entry.actionDetails
+            : entry.actionType === "Higher Authority"
+            ? entry.actionDetails
+            : entry.actionType === "Hostel Admin"
             ? entry.actionDetails
             : entry.higherAuthorityAction;
         const description = `Hostel Daily Due Report escalation\n\nParticulars: ${entry.particulars}\nStudent Involved: ${studentLabel || "N/A"}\nAction Type: ${entry.actionType}\nAction Details: ${actionDetails || "N/A"}\nStatus: ${entry.followUpStatus}\nAuth Sign: ${entry.authSign}`;

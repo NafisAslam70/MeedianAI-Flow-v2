@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { Classes, users } from "@/lib/schema";
-import { asc } from "drizzle-orm";
+import { Classes, mriReportAssignments, users } from "@/lib/schema";
+import { ensureHostelDailyDueTemplate } from "@/lib/mriReports";
+import { and, asc, eq, inArray } from "drizzle-orm";
 
 export async function GET(req) {
   try {
@@ -43,6 +44,62 @@ export async function GET(req) {
         .from(users)
         .orderBy(asc(users.name));
       return NextResponse.json({ users: rows }, { status: 200 });
+    }
+
+    if (section === "authorities") {
+      const template = await ensureHostelDailyDueTemplate();
+      if (!template?.id) {
+        return NextResponse.json({ authorities: [] }, { status: 200 });
+      }
+
+      const rows = await db
+        .select({
+          id: users.id,
+          name: users.name,
+          email: users.email,
+          role: users.role,
+          team_manager_type: users.team_manager_type,
+        })
+        .from(mriReportAssignments)
+        .innerJoin(users, eq(users.id, mriReportAssignments.userId))
+        .where(
+          and(
+            eq(mriReportAssignments.templateId, template.id),
+            inArray(mriReportAssignments.role, ["hostel_admin", "hostel_authority"]),
+            eq(mriReportAssignments.active, true)
+          )
+        )
+        .orderBy(asc(users.name));
+
+      return NextResponse.json({ authorities: rows }, { status: 200 });
+    }
+
+    if (section === "schooloffice") {
+      const template = await ensureHostelDailyDueTemplate();
+      if (!template?.id) {
+        return NextResponse.json({ schoolOffice: [] }, { status: 200 });
+      }
+
+      const rows = await db
+        .select({
+          id: users.id,
+          name: users.name,
+          email: users.email,
+          role: users.role,
+          team_manager_type: users.team_manager_type,
+        })
+        .from(mriReportAssignments)
+        .innerJoin(users, eq(users.id, mriReportAssignments.userId))
+        .where(
+          and(
+            eq(mriReportAssignments.templateId, template.id),
+            eq(mriReportAssignments.role, "school_office"),
+            eq(mriReportAssignments.active, true)
+          )
+        )
+        .orderBy(asc(users.name));
+
+      return NextResponse.json({ schoolOffice: rows }, { status: 200 });
     }
 
     return NextResponse.json({ error: "Invalid section" }, { status: 400 });

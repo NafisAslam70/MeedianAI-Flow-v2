@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS "member_ads" (
     "evidence" text,
     "notes" text,
     "points" integer NOT NULL DEFAULT 5,
+    "is_hidden" boolean NOT NULL DEFAULT false,
     "created_by" integer REFERENCES "users"("id") ON DELETE SET NULL,
     "escalation_matter_id" integer REFERENCES "escalations_matters"("id") ON DELETE SET NULL,
     "created_at" timestamp NOT NULL DEFAULT now(),

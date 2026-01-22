@@ -68,6 +68,7 @@ export default function ReportsPage() {
         studentInvolved: [], 
         actionType: "",
         actionDetails: "",
+        assignedHigherAuthority: "",
         authSign: "" 
       }
     ]
@@ -82,10 +83,12 @@ export default function ReportsPage() {
         classId: "",
         particulars: "", 
         studentInvolved: [], 
-        actionType: "",
+        actionType: "Hostel Admin",
         actionDetails: "",
         status: "",
         needsEscalation: "",
+        createTicket: "",
+        assignedSchoolOffice: "",
         escalationDetails: "",
         authSign: "" 
       }
@@ -118,8 +121,32 @@ export default function ReportsPage() {
     { dedupingInterval: 60000 }
   );
 
+  const { data: authoritiesData } = useSWR(
+    canLoadHostelOptions
+      ? "/api/reports/hostel-daily-due/options?section=authorities"
+      : null,
+    fetcher,
+    { dedupingInterval: 60000 }
+  );
+
+  const { data: schoolOfficeData } = useSWR(
+    canLoadHostelOptions
+      ? "/api/reports/hostel-daily-due/options?section=schoolOffice"
+      : null,
+    fetcher,
+    { dedupingInterval: 60000 }
+  );
+
   const classes = useMemo(() => classesData?.classes || [], [classesData?.classes]);
   const users = useMemo(() => usersData?.users || [], [usersData?.users]);
+  const hostelAuthorities = useMemo(
+    () => authoritiesData?.authorities || [],
+    [authoritiesData?.authorities]
+  );
+  const schoolOfficeUsers = useMemo(
+    () => schoolOfficeData?.schoolOffice || [],
+    [schoolOfficeData?.schoolOffice]
+  );
 
   // Cache students by classId using a Map
   const [studentsByClassCache, setStudentsByClassCache] = useState(new Map());
@@ -135,7 +162,7 @@ export default function ReportsPage() {
   const studentsUrls = useMemo(
     () => uniqueClassIds.map(classId => ({
       classId,
-      url: `/api/managersCommon/guardian-calls?section=students&classId=${classId}`
+      url: `/api/reports/hostel-daily-due/students?classId=${classId}`
     })),
     [uniqueClassIds]
   );
@@ -204,6 +231,7 @@ export default function ReportsPage() {
           studentInvolved: [],
           actionType: "",
           actionDetails: "",
+          assignedHigherAuthority: "",
           authSign: ""
         }
       ]
@@ -221,10 +249,12 @@ export default function ReportsPage() {
           classId: "",
           particulars: "",
           studentInvolved: [],
-          actionType: "",
+          actionType: "Hostel Admin",
           actionDetails: "",
           status: "",
           needsEscalation: "",
+          createTicket: "",
+          assignedSchoolOffice: "",
           escalationDetails: "",
           authSign: ""
         }
@@ -271,10 +301,16 @@ export default function ReportsPage() {
   }, [selectedReport, canAccessHostelReports, isHostelAdmin, isHostelIncharge]);
 
   const getHigherAuthorities = () => {
-    return users.filter(user => 
-      user.role === 'admin' || 
+    if (hostelAuthorities.length) return hostelAuthorities;
+    return users.filter(user =>
+      user.role === 'admin' ||
       (user.role === 'team_manager' && user.team_manager_type !== 'hostel_incharge')
     );
+  };
+
+  const getSchoolOfficeUsers = () => {
+    if (schoolOfficeUsers.length) return schoolOfficeUsers;
+    return users.filter(user => user.role === "admin" || user.role === "team_manager");
   };
 
   const fetchAssignedReports = async () => {
@@ -306,8 +342,8 @@ export default function ReportsPage() {
           const hasActionType = entry.actionType;
           if (entry.actionType === "HI Self") {
             return hasBasicInfo && hasActionType && entry.actionDetails?.trim();
-          } else if (entry.actionType === "Admin") {
-            return hasBasicInfo && hasActionType;
+          } else if (entry.actionType === "Hostel Admin") {
+            return hasBasicInfo && hasActionType && entry.assignedHigherAuthority;
           }
           return false;
         });
@@ -327,10 +363,18 @@ export default function ReportsPage() {
       }
 
       const reportId = reportToSave?.reportId;
+      const entriesToSave =
+        reportType === "admin"
+          ? validEntries.map((entry) => ({
+              ...entry,
+              actionType: entry.assignedSchoolOffice ? "School Office" : entry.actionType || "Hostel Admin",
+            }))
+          : validEntries;
+
       const reportData = {
         reportDate: reportToSave.reportDate,
         reportType: reportType,
-        entries: validEntries,
+        entries: entriesToSave,
         submittedBy: session?.user?.id,
         ...(reportId ? { reportId } : { hostelInchargeId: session?.user?.id }),
       };
@@ -359,6 +403,7 @@ export default function ReportsPage() {
             studentInvolved: [], 
             actionType: "",
             actionDetails: "",
+            assignedHigherAuthority: "",
             authSign: "" 
           }]
         });
@@ -370,10 +415,12 @@ export default function ReportsPage() {
             classId: "",
             particulars: "", 
             studentInvolved: [], 
-            actionType: "",
+            actionType: "Hostel Admin",
             actionDetails: "",
             status: "",
             needsEscalation: "",
+            createTicket: "",
+            assignedSchoolOffice: "",
             escalationDetails: "",
             authSign: "" 
           }]
@@ -401,6 +448,8 @@ export default function ReportsPage() {
         actionDetails: entry.actionDetails || "",
         status: entry.status || "",
         needsEscalation: entry.needsEscalation || "",
+        createTicket: entry.createTicket || "",
+        assignedSchoolOffice: entry.assignedSchoolOffice || "",
         authSign: entry.authSign || ""
       })),
       reportId: report.id // Add reportId for updates
@@ -493,7 +542,7 @@ export default function ReportsPage() {
                     : "border-transparent text-slate-500 hover:text-slate-700"
                 }`}
               >
-                Admin Report
+                Hostel Admin
               </button>
             </>
           )}
@@ -639,12 +688,18 @@ export default function ReportsPage() {
                       <td className="px-4 py-3">
                         <select
                           value={entry.actionType}
-                          onChange={(e) => updateHiEntry(index, 'actionType', e.target.value)}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            updateHiEntry(index, 'actionType', value);
+                            if (value !== "Hostel Admin") {
+                              updateHiEntry(index, 'assignedHigherAuthority', "");
+                            }
+                          }}
                           className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
                         >
                           <option value="">Select action type...</option>
                           <option value="HI Self">HI Self</option>
-                          <option value="Admin">Admin</option>
+                          <option value="Hostel Admin">Hostel Admin</option>
                         </select>
                       </td>
                       <td className="px-4 py-3">
@@ -657,8 +712,28 @@ export default function ReportsPage() {
                             className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
                           />
                         )}
-                        {entry.actionType === "Admin" && (
-                          <div className="text-sm text-slate-500 italic px-3 py-2">Sent to Admin</div>
+                        {entry.actionType === "Hostel Admin" && (
+                          <div className="space-y-2">
+                            <select
+                              value={entry.assignedHigherAuthority || ""}
+                              onChange={(e) => updateHiEntry(index, 'assignedHigherAuthority', e.target.value)}
+                              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
+                            >
+                              <option value="">Select hostel admin...</option>
+                              {getHigherAuthorities().map((user) => (
+                                <option key={user.id} value={user.id}>
+                                  {user.name} ({user.role === "team_manager" ? user.team_manager_type : user.role})
+                                </option>
+                              ))}
+                            </select>
+                            <input
+                              type="text"
+                              value={entry.actionDetails}
+                              onChange={(e) => updateHiEntry(index, 'actionDetails', e.target.value)}
+                              placeholder="Optional note for hostel admin..."
+                              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
+                            />
+                          </div>
                         )}
                       </td>
                       <td className="px-4 py-3">
@@ -729,6 +804,8 @@ export default function ReportsPage() {
                     <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Action Details</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Status</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Escalate</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Transfer To</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Ticket</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Auth Sign</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-slate-900">Actions</th>
                   </tr>
@@ -837,6 +914,30 @@ export default function ReportsPage() {
                         </select>
                       </td>
                       <td className="px-4 py-3">
+                        <select
+                          value={entry.assignedSchoolOffice || ""}
+                          onChange={(e) => updateHaEntry(index, 'assignedSchoolOffice', e.target.value)}
+                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
+                        >
+                          <option value="">No transfer</option>
+                          {getSchoolOfficeUsers().map((user) => (
+                            <option key={user.id} value={user.id}>
+                              {user.name} ({user.role === "team_manager" ? user.team_manager_type : user.role})
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-4 py-3">
+                        <select
+                          value={entry.createTicket || ""}
+                          onChange={(e) => updateHaEntry(index, 'createTicket', e.target.value)}
+                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
+                        >
+                          <option value="">No</option>
+                          <option value="Yes">Yes</option>
+                        </select>
+                      </td>
+                      <td className="px-4 py-3">
                         <input
                           type="text"
                           value={entry.authSign}
@@ -889,13 +990,16 @@ export default function ReportsPage() {
                     <div className="flex justify-between items-start mb-4">
                       <div>
                         <h3 className="font-medium text-slate-800">
-                          Report #{report.id} - {report.entries?.studentName || 'Unknown Student'}
+                          Report #{report.id}
                         </h3>
                         <p className="text-sm text-slate-600">
-                          Assigned by: {report.entries?.assignedBy || 'Unknown'}
+                          Assigned by: {report.submittedByName || 'Unknown'}
                         </p>
                         <p className="text-sm text-slate-600">
                           Date: {new Date(report.createdAt).toLocaleDateString()}
+                        </p>
+                        <p className="text-sm text-slate-600">
+                          Entries: {Array.isArray(report.entries) ? report.entries.length : 0}
                         </p>
                       </div>
                       <button
@@ -904,20 +1008,6 @@ export default function ReportsPage() {
                       >
                         Complete Report
                       </button>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <span className="font-medium">Class:</span> {report.entries?.class || 'N/A'}
-                      </div>
-                      <div>
-                        <span className="font-medium">Amount Due:</span> {report.entries?.amountDue || 'N/A'}
-                      </div>
-                      <div>
-                        <span className="font-medium">Reason:</span> {report.entries?.reason || 'N/A'}
-                      </div>
-                      <div>
-                        <span className="font-medium">Status:</span> {report.entries?.status || 'Pending'}
-                      </div>
                     </div>
                   </div>
                 ))
