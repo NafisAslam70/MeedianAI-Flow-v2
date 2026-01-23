@@ -86,6 +86,7 @@ export default function AdsPage() {
   const [convertError, setConvertError] = useState("");
   const [showIprModal, setShowIprModal] = useState(false);
   const [iprDate, setIprDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [notesTarget, setNotesTarget] = useState(null);
 
   const { data, error: loadError, isLoading, mutate } = useSWR("/api/managersCommon/ads", fetcher);
   const { data: usersData } = useSWR("/api/member/users", fetcher, { dedupingInterval: 60000 });
@@ -245,6 +246,8 @@ export default function AdsPage() {
   };
 
   const closeIprModal = () => setShowIprModal(false);
+
+  const closeNotes = () => setNotesTarget(null);
 
   const handleToggleHidden = async (entry) => {
     if (!entry || !isAdmin) return;
@@ -620,6 +623,14 @@ export default function AdsPage() {
                               Convert
                             </Button>
                           )}
+                          <Button
+                            size="xs"
+                            variant="light"
+                            onClick={() => setNotesTarget(entry)}
+                            disabled={!entry.notes?.trim()}
+                          >
+                            Notes
+                          </Button>
                           {isAdmin && (
                             <Button size="xs" variant="light" onClick={() => handleToggleHidden(entry)}>
                               {entry.isHidden ? "Unhide" : "Hide"}
@@ -780,6 +791,34 @@ export default function AdsPage() {
                   </table>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {notesTarget && (
+        <div className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-xl rounded-2xl bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">AD Notes</h3>
+                <p className="text-xs text-gray-500">
+                  {notesTarget.memberName || `User #${notesTarget.memberId}`} -{" "}
+                  {CATEGORY_LABELS[notesTarget.category] || notesTarget.category}
+                </p>
+              </div>
+              <button
+                className="text-gray-500 hover:text-gray-700"
+                onClick={closeNotes}
+                type="button"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="px-5 py-4">
+              <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 whitespace-pre-wrap">
+                {notesTarget.notes?.trim() || "No notes added."}
+              </div>
             </div>
           </div>
         </div>
