@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { Classes, guardianGateLogs, managerSectionGrants, Students, users } from "@/lib/schema";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, lte, or } from "drizzle-orm";
 
 const todayKey = () => {
   const now = new Date();
@@ -27,6 +27,14 @@ const mapEntry = (row) => ({
   className: row.className,
   purpose: row.purpose,
   feesSubmitted: Boolean(row.feesSubmitted),
+  satisfactionIslamic:
+    row.satisfactionIslamic === null || row.satisfactionIslamic === undefined
+      ? null
+      : Number(row.satisfactionIslamic),
+  satisfactionAcademic:
+    row.satisfactionAcademic === null || row.satisfactionAcademic === undefined
+      ? null
+      : Number(row.satisfactionAcademic),
   inAt: row.inAt instanceof Date ? row.inAt.toISOString() : row.inAt,
   outAt: row.outAt instanceof Date ? row.outAt.toISOString() : row.outAt,
   signature: row.signature,
@@ -35,6 +43,50 @@ const mapEntry = (row) => ({
   createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : row.createdAt,
   updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : row.updatedAt,
 });
+
+const isMissingColumnError = (error) => {
+  const code = error?.code || error?.cause?.code;
+  if (code === "42703") return true;
+  const message = String(error?.cause?.message || error?.message || "");
+  return message.includes("does not exist");
+};
+
+const buildGuardianLogSelection = (withSatisfaction) => ({
+  id: guardianGateLogs.id,
+  visitDate: guardianGateLogs.visitDate,
+  guardianName: guardianGateLogs.guardianName,
+  studentName: guardianGateLogs.studentName,
+  className: guardianGateLogs.className,
+  purpose: guardianGateLogs.purpose,
+  feesSubmitted: guardianGateLogs.feesSubmitted,
+  ...(withSatisfaction
+    ? {
+        satisfactionIslamic: guardianGateLogs.satisfactionIslamic,
+        satisfactionAcademic: guardianGateLogs.satisfactionAcademic,
+      }
+    : {}),
+  inAt: guardianGateLogs.inAt,
+  outAt: guardianGateLogs.outAt,
+  signature: guardianGateLogs.signature,
+  createdBy: guardianGateLogs.createdBy,
+  createdAt: guardianGateLogs.createdAt,
+  updatedAt: guardianGateLogs.updatedAt,
+  createdByName: users.name,
+});
+
+const selectGuardianLogs = async (queryBuilder) => {
+  try {
+    return await queryBuilder(true);
+  } catch (error) {
+    if (!isMissingColumnError(error)) throw error;
+    const rows = await queryBuilder(false);
+    return rows.map((row) => ({
+      ...row,
+      satisfactionIslamic: null,
+      satisfactionAcademic: null,
+    }));
+  }
+};
 
 export async function GET(req) {
   const session = await auth();
@@ -75,6 +127,72 @@ export async function GET(req) {
     );
   }
 
+  if (section === "guardian") {
+    const guardianName = searchParams.get("guardianName")?.trim() || "";
+    const studentName = searchParams.get("studentName")?.trim() || "";
+    const studentNamesRaw = searchParams.get("studentNames")?.trim() || "";
+    const limit = Math.min(Number(searchParams.get("limit")) || 25, 200);
+    const days = Math.min(Math.max(Number(searchParams.get("days")) || 90, 7), 365);
+
+    const formatKey = (date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    };
+
+    const parseDateKey = (value) => {
+      if (!value) return null;
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) return null;
+      return formatKey(parsed);
+    };
+
+    const endKey = parseDateKey(searchParams.get("endDate")) || todayKey();
+    const startKey =
+      parseDateKey(searchParams.get("startDate")) ||
+      formatKey(new Date(Date.now() - days * 24 * 60 * 60 * 1000));
+
+    const nameFilters = [];
+    if (guardianName) {
+      nameFilters.push(ilike(guardianGateLogs.guardianName, `%${guardianName}%`));
+    }
+
+    if (studentName) {
+      nameFilters.push(ilike(guardianGateLogs.studentName, `%${studentName}%`));
+    }
+
+    if (studentNamesRaw) {
+      studentNamesRaw
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean)
+        .forEach((name) => nameFilters.push(ilike(guardianGateLogs.studentName, `%${name}%`)));
+    }
+
+    if (!nameFilters.length) {
+      return NextResponse.json({ error: "guardianName or studentName is required" }, { status: 400 });
+    }
+
+    const rows = await selectGuardianLogs((withSatisfaction) =>
+      db
+        .select(buildGuardianLogSelection(withSatisfaction))
+        .from(guardianGateLogs)
+        .leftJoin(users, eq(users.id, guardianGateLogs.createdBy))
+        .where(
+          and(
+            or(...nameFilters),
+            gte(guardianGateLogs.visitDate, startKey),
+            lte(guardianGateLogs.visitDate, endKey)
+          )
+        )
+        .orderBy(desc(guardianGateLogs.visitDate), desc(guardianGateLogs.createdAt))
+        .limit(limit)
+    );
+
+    return NextResponse.json({ entries: rows.map(mapEntry) }, { status: 200 });
+  }
+
   const dateParam = searchParams.get("date");
   const targetDate = dateParam ? new Date(dateParam) : new Date();
   if (Number.isNaN(targetDate.getTime())) {
@@ -82,27 +200,14 @@ export async function GET(req) {
   }
   const dayKey = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, "0")}-${String(targetDate.getDate()).padStart(2, "0")}`;
 
-  const rows = await db
-    .select({
-      id: guardianGateLogs.id,
-      visitDate: guardianGateLogs.visitDate,
-      guardianName: guardianGateLogs.guardianName,
-      studentName: guardianGateLogs.studentName,
-      className: guardianGateLogs.className,
-      purpose: guardianGateLogs.purpose,
-      feesSubmitted: guardianGateLogs.feesSubmitted,
-      inAt: guardianGateLogs.inAt,
-      outAt: guardianGateLogs.outAt,
-      signature: guardianGateLogs.signature,
-      createdBy: guardianGateLogs.createdBy,
-      createdAt: guardianGateLogs.createdAt,
-      updatedAt: guardianGateLogs.updatedAt,
-      createdByName: users.name,
-    })
-    .from(guardianGateLogs)
-    .leftJoin(users, eq(users.id, guardianGateLogs.createdBy))
-    .where(eq(guardianGateLogs.visitDate, dayKey))
-    .orderBy(desc(guardianGateLogs.createdAt));
+  const rows = await selectGuardianLogs((withSatisfaction) =>
+    db
+      .select(buildGuardianLogSelection(withSatisfaction))
+      .from(guardianGateLogs)
+      .leftJoin(users, eq(users.id, guardianGateLogs.createdBy))
+      .where(eq(guardianGateLogs.visitDate, dayKey))
+      .orderBy(desc(guardianGateLogs.createdAt))
+  );
 
   return NextResponse.json({ entries: rows.map(mapEntry) });
 }
@@ -151,6 +256,8 @@ export async function POST(req) {
   const className = typeof body?.className === "string" ? body.className.trim() : "";
   const purpose = typeof body?.purpose === "string" ? body.purpose.trim() : "";
   const signature = typeof body?.signature === "string" ? body.signature.trim() : "";
+  const satisfactionIslamicRaw = Number(body?.satisfactionIslamic);
+  const satisfactionAcademicRaw = Number(body?.satisfactionAcademic);
   const feesSubmitted =
     body?.feesSubmitted === true ||
     body?.feesSubmitted === "true" ||
@@ -170,8 +277,16 @@ export async function POST(req) {
 
   const inAt = parseTime(body?.inTime, visitDateRaw, visitDate);
   const outAt = parseTime(body?.outTime, visitDateRaw, visitDate);
+  const satisfactionIslamic =
+    Number.isFinite(satisfactionIslamicRaw) && satisfactionIslamicRaw >= 1 && satisfactionIslamicRaw <= 5
+      ? Math.round(satisfactionIslamicRaw)
+      : null;
+  const satisfactionAcademic =
+    Number.isFinite(satisfactionAcademicRaw) && satisfactionAcademicRaw >= 1 && satisfactionAcademicRaw <= 5
+      ? Math.round(satisfactionAcademicRaw)
+      : null;
 
-  await db.insert(guardianGateLogs).values({
+  const baseInsert = {
     visitDate,
     guardianName,
     studentName,
@@ -182,7 +297,18 @@ export async function POST(req) {
     outAt: outAt || null,
     signature: signature || null,
     createdBy: session.user.id,
-  });
+  };
+
+  try {
+    await db.insert(guardianGateLogs).values({
+      ...baseInsert,
+      satisfactionIslamic,
+      satisfactionAcademic,
+    });
+  } catch (error) {
+    if (!isMissingColumnError(error)) throw error;
+    await db.insert(guardianGateLogs).values(baseInsert);
+  }
 
   return NextResponse.json({ ok: true }, { status: 200 });
 }

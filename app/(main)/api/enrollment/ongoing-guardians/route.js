@@ -68,6 +68,7 @@ export async function GET(request) {
       const location = row.address || row.className || "Unknown";
 
       const childEntry = {
+        studentId: row.studentId,
         name: row.studentName,
         age: null,
         currentSchool: row.className ? `Class ${row.className}` : "MEED",

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Phone,
   MessageCircle,
@@ -15,6 +16,7 @@ import {
   Plus,
   Eye,
   Edit3,
+  Trash2,
 } from "lucide-react";
 import Button from "@/components/ui/Button";
 import Badge from "@/components/ui/Badge";
@@ -91,11 +93,84 @@ const formatDate = (value) => {
   return date.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
 };
 
+const formatTime = (value) => {
+  if (!value) return "—";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+};
+
+const normalizeName = (value) =>
+  String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const extractNames = (value) => {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.map((item) => String(item || "").trim()).filter(Boolean);
+  return String(value)
+    .split(/[,;\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+};
+
+const buildCddSignals = (instances, studentName) => {
+  const studentKey = normalizeName(studentName);
+  if (!studentKey || !Array.isArray(instances)) return [];
+
+  const fields = [
+    { key: "absentStudents", label: "Absent" },
+    { key: "disciplineDefaulters", label: "Discipline" },
+    { key: "homeworkDefaulters", label: "Homework" },
+    { key: "languageDefaulters", label: "Language" },
+    { key: "assemblyUniformDefaulters", label: "Uniform" },
+  ];
+
+  const matchesName = (candidate) => {
+    const normalized = normalizeName(candidate);
+    if (!normalized) return false;
+    return normalized === studentKey || normalized.includes(studentKey) || studentKey.includes(normalized);
+  };
+
+  const byDate = new Map();
+  instances.forEach((instance) => {
+    const baseDate = instance?.targetDate || "";
+    const rows = Array.isArray(instance?.cddRows) ? instance.cddRows : [];
+    rows.forEach((row) => {
+      const dateKey = row?.date || baseDate;
+      if (!dateKey) return;
+      const categories = new Set();
+      fields.forEach((field) => {
+        const names = extractNames(row?.[field.key]);
+        if (names.some(matchesName)) {
+          categories.add(field.label);
+        }
+      });
+      if (!categories.size) return;
+      if (!byDate.has(dateKey)) {
+        byDate.set(dateKey, new Set());
+      }
+      const existing = byDate.get(dateKey);
+      categories.forEach((label) => existing.add(label));
+    });
+  });
+
+  return Array.from(byDate.entries())
+    .map(([date, categories]) => ({
+      date,
+      categories: Array.from(categories.values()),
+    }))
+    .sort((a, b) => (a.date > b.date ? -1 : 1));
+};
+
 const GuardianRelationshipManager = () => {
   const [activeTab, setActiveTab] = useState("dashboard");
   const [probableGuardians, setProbableGuardians] = useState([]);
   const [ongoingGuardians, setOngoingGuardians] = useState([]);
   const [selectedGuardian, setSelectedGuardian] = useState(null);
+  const [selectedGuardianGroup, setSelectedGuardianGroup] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
   const [guardianGroup, setGuardianGroup] = useState("probable");
@@ -112,6 +187,50 @@ const GuardianRelationshipManager = () => {
   const [addForm, setAddForm] = useState(() => buildAddForm());
   const [addSaving, setAddSaving] = useState(false);
   const [addError, setAddError] = useState("");
+  const [mgcpSection, setMgcpSection] = useState("admin");
+  const [mgcpLoading, setMgcpLoading] = useState(false);
+  const [mgcpError, setMgcpError] = useState("");
+  const [mgcpBelts, setMgcpBelts] = useState([]);
+  const [mgcpRandomLeads, setMgcpRandomLeads] = useState([]);
+  const [mgcpHeads, setMgcpHeads] = useState([]);
+  const [mgcpUsers, setMgcpUsers] = useState([]);
+  const [selectedBeltId, setSelectedBeltId] = useState("");
+  const [mgcpActionState, setMgcpActionState] = useState({
+    error: "",
+    saving: false,
+  });
+  const [beltForm, setBeltForm] = useState({ name: "", notes: "" });
+  const [villageForm, setVillageForm] = useState({ name: "", notes: "" });
+  const [leadManagerForm, setLeadManagerForm] = useState({
+    name: "",
+    phone: "",
+    whatsapp: "",
+    notes: "",
+  });
+  const [existingKingForm, setExistingKingForm] = useState({
+    name: "",
+    phone: "",
+    whatsapp: "",
+    notes: "",
+    trusted: false,
+  });
+  const [beltLeadForm, setBeltLeadForm] = useState({
+    name: "",
+    phone: "",
+    whatsapp: "",
+    location: "",
+    source: "",
+    notes: "",
+  });
+  const [randomLeadForm, setRandomLeadForm] = useState({
+    name: "",
+    phone: "",
+    whatsapp: "",
+    location: "",
+    source: "",
+    notes: "",
+  });
+  const [headForm, setHeadForm] = useState({ userId: "" });
 
   useEffect(() => {
     let isMounted = true;
@@ -241,7 +360,88 @@ const GuardianRelationshipManager = () => {
     };
   }, [ongoingClassId, includeInactive]);
 
+  const loadMgcpData = async (signal) => {
+    setMgcpLoading(true);
+    setMgcpError("");
+    try {
+      const res = await fetch("/api/enrollment/mgcp/belts?include=details", {
+        headers: { "Content-Type": "application/json" },
+        signal,
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(payload?.error || "Failed to load MGCP data");
+      }
+      const belts = Array.isArray(payload?.belts) ? payload.belts : [];
+      setMgcpBelts(belts);
+      setMgcpRandomLeads(Array.isArray(payload?.randomLeads) ? payload.randomLeads : []);
+    } catch (error) {
+      if (error.name === "AbortError") return;
+      setMgcpError(error.message || "Failed to load MGCP data");
+      setMgcpBelts([]);
+      setMgcpRandomLeads([]);
+    } finally {
+      setMgcpLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab !== "mgcp") return;
+    const controller = new AbortController();
+    loadMgcpData(controller.signal);
+    return () => controller.abort();
+  }, [activeTab]);
+
+  const loadMgcpHeads = async (signal) => {
+    try {
+      const res = await fetch("/api/enrollment/mgcp/heads", {
+        headers: { "Content-Type": "application/json" },
+        signal,
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.error || "Failed to load MGCP heads");
+      setMgcpHeads(Array.isArray(payload?.heads) ? payload.heads : []);
+    } catch (error) {
+      if (error.name === "AbortError") return;
+      setMgcpHeads([]);
+    }
+  };
+
+  const loadMgcpUsers = async (signal) => {
+    try {
+      const res = await fetch("/api/admin/users", {
+        headers: { "Content-Type": "application/json" },
+        signal,
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.error || "Failed to load users");
+      setMgcpUsers(Array.isArray(payload?.users) ? payload.users : []);
+    } catch (error) {
+      if (error.name === "AbortError") return;
+      setMgcpUsers([]);
+    }
+  };
+
+  useEffect(() => {
+    if (!mgcpBelts.length) {
+      if (selectedBeltId) setSelectedBeltId("");
+      return;
+    }
+    if (!selectedBeltId || !mgcpBelts.some((belt) => String(belt.id) === String(selectedBeltId))) {
+      setSelectedBeltId(String(mgcpBelts[0].id));
+    }
+  }, [mgcpBelts, selectedBeltId]);
+
+  useEffect(() => {
+    if (activeTab !== "mgcp" || mgcpSection !== "admin") return;
+    const controller = new AbortController();
+    loadMgcpHeads(controller.signal);
+    loadMgcpUsers(controller.signal);
+    return () => controller.abort();
+  }, [activeTab, mgcpSection]);
+
   const currentGuardians = guardianGroup === "ongoing" ? ongoingGuardians : probableGuardians;
+  const selectedBelt = mgcpBelts.find((belt) => String(belt.id) === String(selectedBeltId)) || null;
 
   const filteredGuardians = useMemo(() => {
     const needle = searchTerm.trim().toLowerCase();
@@ -385,6 +585,26 @@ const GuardianRelationshipManager = () => {
       setAddError(error.message || "Failed to add guardian");
     } finally {
       setAddSaving(false);
+    }
+  };
+
+  const runMgcpAction = async (request) => {
+    setMgcpActionState({ saving: true, error: "" });
+    try {
+      const res = await fetch(request.url, {
+        method: request.method || "POST",
+        headers: { "Content-Type": "application/json" },
+        body: request.body ? JSON.stringify(request.body) : null,
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.error || "MGCP action failed");
+      await loadMgcpData();
+      if (request.afterSuccess) request.afterSuccess(payload);
+      setMgcpActionState({ saving: false, error: "" });
+      return payload;
+    } catch (error) {
+      setMgcpActionState({ saving: false, error: error.message || "MGCP action failed" });
+      return null;
     }
   };
 
@@ -626,7 +846,7 @@ const GuardianRelationshipManager = () => {
           </div>
           <p className="text-xs text-slate-500">
             {guardianGroup === "ongoing"
-              ? "Ongoing Kings are enrolled guardians."
+              ? "Ongoing Kings are enrolled guardians with visit tracking."
               : "Probable Kings are leads with potential to enroll."}
           </p>
         </CardBody>
@@ -653,6 +873,12 @@ const GuardianRelationshipManager = () => {
               guardianGroup === "ongoing"
                 ? getOngoingStatusMeta(guardian)
                 : getStatusMeta(guardian.status);
+            const isOngoing = guardianGroup === "ongoing";
+            const activeWards = (guardian.children || []).filter((child) =>
+              isActiveStatus(child.status)
+            ).length;
+            const hostellerCount = (guardian.children || []).filter((child) => child.isHosteller)
+              .length;
             return (
               <Card key={guardian.id} className="hover:shadow-md transition-shadow">
                 <CardBody className="space-y-4">
@@ -668,7 +894,9 @@ const GuardianRelationshipManager = () => {
                   </div>
 
                   <div>
-                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Children</p>
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                      {isOngoing ? "Wards" : "Children"}
+                    </p>
                     <div className="space-y-1">
                       {guardian.children.length ? (
                         guardian.children.map((child, index) => (
@@ -682,42 +910,62 @@ const GuardianRelationshipManager = () => {
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between text-xs text-slate-500">
-                    <div className="flex items-center gap-1">
-                      Islamic Ed: {getPriorityIcon(guardian.interests.islamic_education_priority)}
-                    </div>
-                    <div className="flex items-center gap-1">
-                      Academic: {getPriorityIcon(guardian.interests.academic_excellence_priority)}
-                    </div>
-                    <div>
-                      Boarding: {guardian.interests.boarding_interest === "yes"
-                        ? "Yes"
-                        : guardian.interests.boarding_interest === "no"
-                        ? "No"
-                        : "Maybe"}
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm text-slate-500">Engagement</span>
-                      <span className="text-sm font-medium text-slate-700">
-                        {guardian.engagementScore || 0}%
+                  {isOngoing ? (
+                    <div className="flex flex-wrap gap-2 text-xs text-slate-500">
+                      <Badge color={activeWards ? "teal" : "gray"}>
+                        Active wards {activeWards}/{guardian.children.length}
+                      </Badge>
+                      <Badge color={hostellerCount ? "blue" : "gray"}>
+                        Hostellers {hostellerCount}
+                      </Badge>
+                      <span className="text-xs text-slate-400">
+                        Visits tracked in Guardian Register.
                       </span>
                     </div>
-                    <div className="w-full bg-slate-100 rounded-full h-2">
-                      <div
-                        className="bg-teal-500 h-2 rounded-full transition-all"
-                        style={{ width: `${guardian.engagementScore || 0}%` }}
-                      ></div>
-                    </div>
-                  </div>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between text-xs text-slate-500">
+                        <div className="flex items-center gap-1">
+                          Islamic Ed: {getPriorityIcon(guardian.interests.islamic_education_priority)}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          Academic: {getPriorityIcon(guardian.interests.academic_excellence_priority)}
+                        </div>
+                        <div>
+                          Boarding:{" "}
+                          {guardian.interests.boarding_interest === "yes"
+                            ? "Yes"
+                            : guardian.interests.boarding_interest === "no"
+                            ? "No"
+                            : "Maybe"}
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-sm text-slate-500">Engagement</span>
+                          <span className="text-sm font-medium text-slate-700">
+                            {guardian.engagementScore || 0}%
+                          </span>
+                        </div>
+                        <div className="w-full bg-slate-100 rounded-full h-2">
+                          <div
+                            className="bg-teal-500 h-2 rounded-full transition-all"
+                            style={{ width: `${guardian.engagementScore || 0}%` }}
+                          ></div>
+                        </div>
+                      </div>
+                    </>
+                  )}
 
                   <div className="flex gap-2">
                     <Button
                       variant="light"
                       className="flex-1 gap-2"
-                      onClick={() => setSelectedGuardian(guardian)}
+                      onClick={() => {
+                        setSelectedGuardian(guardian);
+                        setSelectedGuardianGroup(guardianGroup);
+                      }}
                     >
                       <Eye className="w-4 h-4" />
                       View
@@ -738,209 +986,870 @@ const GuardianRelationshipManager = () => {
     </div>
   );
 
-  const GuardianDetailView = ({ guardian, onClose }) => (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto shadow-xl">
-        <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 rounded-t-2xl">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <h2 className="text-xl font-semibold text-slate-900">{guardian.name}</h2>
-              {guardianGroup === "ongoing" ? (
-                <Badge color={getOngoingStatusMeta(guardian).color}>
-                  {getOngoingStatusMeta(guardian).label}
-                </Badge>
-              ) : (
-                <Badge color={getStatusMeta(guardian.status).color}>
-                  {getStatusMeta(guardian.status).label}
-                </Badge>
-              )}
+  const OngoingGuardianDetailView = ({ guardian, onClose }) => {
+    const router = useRouter();
+    const [visitsState, setVisitsState] = useState({
+      loading: true,
+      error: "",
+      entries: [],
+    });
+    const [profileState, setProfileState] = useState({
+      loading: true,
+      error: "",
+      profiles: {},
+    });
+    const [callLogsState, setCallLogsState] = useState({
+      loading: true,
+      error: "",
+      calls: [],
+    });
+    const [activeSection, setActiveSection] = useState("overview");
+    const [cddState, setCddState] = useState({
+      loading: false,
+      loaded: false,
+      error: "",
+      byClassId: {},
+      rangeDays: 30,
+    });
+
+    useEffect(() => {
+      let active = true;
+      const controller = new AbortController();
+
+      const loadVisits = async () => {
+        setVisitsState((prev) => ({ ...prev, loading: true, error: "" }));
+        try {
+          const params = new URLSearchParams();
+          params.set("section", "guardian");
+          if (guardian?.name) params.set("guardianName", guardian.name);
+          const studentNames = (guardian?.children || [])
+            .map((child) => child.name)
+            .filter(Boolean);
+          if (studentNames.length) {
+            params.set("studentNames", studentNames.join(","));
+          }
+          params.set("limit", "50");
+          params.set("days", "180");
+
+          const res = await fetch(`/api/managersCommon/guardian-register?${params.toString()}`, {
+            headers: { "Content-Type": "application/json" },
+            signal: controller.signal,
+          });
+          const payload = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            throw new Error(payload?.error || "Failed to load visit history");
+          }
+          if (!active) return;
+          setVisitsState({
+            loading: false,
+            error: "",
+            entries: Array.isArray(payload?.entries) ? payload.entries : [],
+          });
+        } catch (error) {
+          if (!active || error.name === "AbortError") return;
+          setVisitsState({ loading: false, error: error.message || "Failed to load visits", entries: [] });
+        }
+      };
+
+      const loadProfiles = async () => {
+        const studentIds = (guardian?.children || [])
+          .map((child) => Number(child.studentId))
+          .filter((id) => Number.isFinite(id));
+        if (!studentIds.length) {
+          if (active) setProfileState({ loading: false, error: "", profiles: {} });
+          return;
+        }
+
+        setProfileState((prev) => ({ ...prev, loading: true, error: "" }));
+        try {
+          const results = await Promise.allSettled(
+            studentIds.map(async (id) => {
+              const res = await fetch(`/api/member/student/${id}`, {
+                headers: { "Content-Type": "application/json" },
+                signal: controller.signal,
+              });
+              const payload = await res.json().catch(() => ({}));
+              if (!res.ok) {
+                throw new Error(payload?.error || `Failed to load student ${id}`);
+              }
+              return payload?.student;
+            })
+          );
+
+          if (!active) return;
+          const profiles = {};
+          results.forEach((result) => {
+            if (result.status === "fulfilled" && result.value) {
+              profiles[result.value.id] = result.value;
+            }
+          });
+          setProfileState({ loading: false, error: "", profiles });
+        } catch (error) {
+          if (!active || error.name === "AbortError") return;
+          setProfileState({
+            loading: false,
+            error: error.message || "Failed to load student profiles",
+            profiles: {},
+          });
+        }
+      };
+
+      const loadCallLogs = async () => {
+        const studentIds = Array.from(
+          new Set(
+            (guardian?.children || [])
+              .map((child) => Number(child.studentId))
+              .filter((id) => Number.isFinite(id))
+          )
+        );
+
+        if (!studentIds.length) {
+          if (active) setCallLogsState({ loading: false, error: "", calls: [] });
+          return;
+        }
+
+        setCallLogsState((prev) => ({ ...prev, loading: true, error: "" }));
+
+        try {
+          const results = await Promise.allSettled(
+            studentIds.map(async (id) => {
+              const res = await fetch(`/api/managersCommon/guardian-calls?studentId=${id}`, {
+                headers: { "Content-Type": "application/json" },
+                signal: controller.signal,
+              });
+              const payload = await res.json().catch(() => ({}));
+              if (!res.ok) {
+                throw new Error(payload?.error || `Failed to load call logs for student ${id}`);
+              }
+              return payload?.calls || [];
+            })
+          );
+
+          if (!active) return;
+          const callMap = new Map();
+          results.forEach((result) => {
+            if (result.status === "fulfilled") {
+              result.value.forEach((call) => {
+                if (call?.id) callMap.set(call.id, call);
+              });
+            }
+          });
+          const calls = Array.from(callMap.values()).sort((a, b) => {
+            const aDate = a.callDate || a.createdAt || "";
+            const bDate = b.callDate || b.createdAt || "";
+            return aDate > bDate ? -1 : 1;
+          });
+
+          setCallLogsState({ loading: false, error: "", calls });
+        } catch (error) {
+          if (!active || error.name === "AbortError") return;
+          setCallLogsState({
+            loading: false,
+            error: error.message || "Failed to load call logs",
+            calls: [],
+          });
+        }
+      };
+
+      loadVisits();
+      loadProfiles();
+      loadCallLogs();
+
+      return () => {
+        active = false;
+        controller.abort();
+      };
+    }, [guardian]);
+
+    const handleLoadCdd = async () => {
+      const classIds = Array.from(
+        new Set(
+          (guardian?.children || [])
+            .map((child) => Number(child.classId))
+            .filter((id) => Number.isFinite(id))
+        )
+      );
+      if (!classIds.length) {
+        setCddState((prev) => ({ ...prev, loaded: true, error: "No class data for wards." }));
+        return;
+      }
+
+      const endDate = new Date();
+      const startDate = new Date(Date.now() - cddState.rangeDays * 24 * 60 * 60 * 1000);
+      const formatKey = (date) => date.toISOString().slice(0, 10);
+      const startKey = formatKey(startDate);
+      const endKey = formatKey(endDate);
+
+      setCddState((prev) => ({ ...prev, loading: true, error: "" }));
+      try {
+        const results = await Promise.allSettled(
+          classIds.map(async (classId) => {
+            const res = await fetch(
+              `/api/admin/admin-club/pt-history?classId=${classId}&startDate=${startKey}&endDate=${endKey}`,
+              { headers: { "Content-Type": "application/json" } }
+            );
+            const payload = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              throw new Error(payload?.error || `Failed to load PT history for class ${classId}`);
+            }
+            return { classId, payload };
+          })
+        );
+
+        const byClassId = {};
+        const errors = [];
+        results.forEach((result) => {
+          if (result.status === "fulfilled" && result.value) {
+            byClassId[result.value.classId] = result.value.payload;
+          } else if (result.status === "rejected") {
+            errors.push(result.reason?.message || "Failed to load PT history");
+          }
+        });
+
+        setCddState((prev) => ({
+          ...prev,
+          loading: false,
+          loaded: true,
+          error: errors[0] || "",
+          byClassId,
+        }));
+      } catch (error) {
+        setCddState((prev) => ({
+          ...prev,
+          loading: false,
+          loaded: true,
+          error: error.message || "Failed to load PT history",
+          byClassId: {},
+        }));
+      }
+    };
+
+    const visitEntries = visitsState.entries || [];
+    const sectionItems = [
+      { id: "overview", label: "Overview" },
+      { id: "wards", label: "Ward Files" },
+      { id: "calls", label: "Call Logs" },
+      { id: "visits", label: "Visit History" },
+    ];
+
+    return (
+      <div className="fixed inset-0 z-50 bg-black/40">
+        <div className="absolute inset-y-0 right-0 w-full max-w-6xl bg-white shadow-xl">
+          <div className="h-full flex flex-col">
+            <div className="border-b border-slate-200 px-6 py-4">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div className="flex flex-wrap items-center gap-3">
+                  <h2 className="text-xl font-semibold text-slate-900">{guardian.name}</h2>
+                  <Badge color={getOngoingStatusMeta(guardian).color}>
+                    {getOngoingStatusMeta(guardian).label}
+                  </Badge>
+                  <Badge color="blue">{guardian.children.length} wards</Badge>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="light"
+                    onClick={() => router.push("/dashboard/managersCommon/guardian-register")}
+                  >
+                    Guardian Register
+                  </Button>
+                  <button
+                    onClick={onClose}
+                    className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-full"
+                  >
+                    X
+                  </button>
+                </div>
+              </div>
             </div>
-            <button
-              onClick={onClose}
-              className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-full"
-            >
-              X
-            </button>
-          </div>
-        </div>
 
-        <div className="p-6 space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Card>
-              <CardHeader>
-                <h3 className="text-sm font-semibold text-slate-700">Contact Information</h3>
-              </CardHeader>
-              <CardBody className="space-y-2 text-sm text-slate-600">
-                <div className="flex items-center gap-2">
-                  <Phone className="w-4 h-4 text-slate-500" />
-                  <span>{guardian.whatsapp}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <MapPin className="w-4 h-4 text-slate-500" />
-                  <span>{guardian.location}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-slate-500" />
-                  <span>Last contact: {formatDate(guardian.lastContact)}</span>
-                </div>
-              </CardBody>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <h3 className="text-sm font-semibold text-slate-700">Engagement Score</h3>
-              </CardHeader>
-              <CardBody>
-                <div className="flex items-center gap-4">
-                  <div className="flex-1">
-                    <div className="w-full bg-slate-100 rounded-full h-3">
-                      <div
-                        className="bg-teal-500 h-3 rounded-full"
-                        style={{ width: `${guardian.engagementScore || 0}%` }}
-                      ></div>
-                    </div>
+            <div className="flex-1 overflow-hidden">
+              <div className="h-full grid grid-cols-1 lg:grid-cols-[220px_minmax(0,1fr)]">
+                <aside className="border-b border-slate-200 bg-slate-50/60 lg:border-b-0 lg:border-r">
+                  <div className="flex gap-2 overflow-x-auto px-4 py-4 lg:flex-col">
+                    {sectionItems.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setActiveSection(item.id)}
+                        className={`px-3 py-2 rounded-lg text-sm font-semibold whitespace-nowrap transition ${
+                          activeSection === item.id
+                            ? "bg-teal-600 text-white shadow-sm"
+                            : "bg-white text-slate-600 hover:bg-slate-100"
+                        }`}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
                   </div>
-                  <span className="text-xl font-semibold text-slate-900">
-                    {guardian.engagementScore || 0}%
-                  </span>
-                </div>
-              </CardBody>
-            </Card>
-          </div>
+                </aside>
 
-          <Card>
-            <CardHeader>
-              <h3 className="text-sm font-semibold text-slate-700">Children</h3>
-            </CardHeader>
-            <CardBody className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {guardian.children.length ? (
-                guardian.children.map((child, index) => (
-                  <div key={index} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                    <h4 className="font-medium text-slate-800">{child.name}</h4>
-                    <p className="text-sm text-slate-600">Age: {child.age || "?"} years</p>
-                    <p className="text-sm text-slate-600">
-                      Current School: {child.currentSchool || "Unknown"}
-                    </p>
-                  </div>
-                ))
-              ) : (
-                <p className="text-sm text-slate-500">No children listed for this guardian.</p>
-              )}
-            </CardBody>
-          </Card>
+                <main className="h-full overflow-y-auto p-6 space-y-6">
+                  {activeSection === "overview" && (
+                    <div className="space-y-6">
+                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                        <Card className="lg:col-span-2">
+                          <CardHeader>
+                            <h3 className="text-sm font-semibold text-slate-700">Guardian Snapshot</h3>
+                          </CardHeader>
+                          <CardBody className="space-y-3 text-sm text-slate-600">
+                            <div className="flex items-center gap-2">
+                              <Phone className="w-4 h-4 text-slate-500" />
+                              <span>{guardian.whatsapp || "No phone on file"}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <MapPin className="w-4 h-4 text-slate-500" />
+                              <span>{guardian.location || "Location not captured"}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Users className="w-4 h-4 text-slate-500" />
+                              <span>
+                                Active wards:{" "}
+                                {(guardian.children || []).filter((child) => isActiveStatus(child.status)).length}
+                              </span>
+                            </div>
+                          </CardBody>
+                        </Card>
 
-          <Card>
-            <CardHeader>
-              <h3 className="text-sm font-semibold text-slate-700">Interests and Priorities</h3>
-            </CardHeader>
-            <CardBody className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
-              <div>
-                <p className="text-xs text-slate-500 mb-2">Islamic Education</p>
-                <div className="flex justify-center">
-                  {getPriorityIcon(guardian.interests.islamic_education_priority)}
-                </div>
-                <p className="text-xs text-slate-400 mt-2">
-                  {guardian.interests.islamic_education_priority}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-500 mb-2">Academic Excellence</p>
-                <div className="flex justify-center">
-                  {getPriorityIcon(guardian.interests.academic_excellence_priority)}
-                </div>
-                <p className="text-xs text-slate-400 mt-2">
-                  {guardian.interests.academic_excellence_priority}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-500 mb-2">Boarding Interest</p>
-                <div className="text-lg font-semibold text-slate-800">
-                  {guardian.interests.boarding_interest === "yes"
-                    ? "Yes"
-                    : guardian.interests.boarding_interest === "no"
-                    ? "No"
-                    : "Maybe"}
-                </div>
-                <p className="text-xs text-slate-400 mt-2">
-                  {guardian.interests.boarding_interest}
-                </p>
-              </div>
-            </CardBody>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <h3 className="text-sm font-semibold text-slate-700">Notes</h3>
-            </CardHeader>
-            <CardBody>
-              <p className="text-sm text-slate-600">
-                {guardian.notes || "No notes yet."}
-              </p>
-            </CardBody>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <h3 className="text-sm font-semibold text-slate-700">Interaction History</h3>
-            </CardHeader>
-            <CardBody className="space-y-3">
-              {guardian.interactions.length ? (
-                guardian.interactions.map((interaction, index) => (
-                  <div key={index} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                    <div className="flex items-start gap-3">
-                      <div className="rounded-full bg-teal-50 p-2 text-teal-600">
-                        {interaction.type === "call" && <Phone className="w-4 h-4" />}
-                        {interaction.type === "whatsapp" && <MessageCircle className="w-4 h-4" />}
-                        {interaction.type === "community_event" && <Users className="w-4 h-4" />}
+                        <Card>
+                          <CardHeader>
+                            <h3 className="text-sm font-semibold text-slate-700">Recent Visits</h3>
+                          </CardHeader>
+                          <CardBody className="space-y-2 text-sm text-slate-600">
+                            {visitsState.loading ? (
+                              <p className="text-sm text-slate-500">Loading visit history...</p>
+                            ) : visitsState.error ? (
+                              <p className="text-sm text-rose-600">{visitsState.error}</p>
+                            ) : visitEntries.length ? (
+                              <div className="space-y-2">
+                                {visitEntries.slice(0, 3).map((entry) => (
+                                  <div key={entry.id} className="rounded-lg border border-slate-200 p-3">
+                                    <p className="text-xs text-slate-500">{formatDate(entry.visitDate)}</p>
+                                    <p className="text-sm font-medium text-slate-700">
+                                      {entry.purpose || "Visit"}
+                                    </p>
+                                    <p className="text-xs text-slate-500">
+                                      {entry.studentName || "Ward"} · {formatTime(entry.inAt)} - {formatTime(entry.outAt)}
+                                    </p>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-sm text-slate-500">No visits recorded yet.</p>
+                            )}
+                          </CardBody>
+                        </Card>
                       </div>
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-sm font-medium text-slate-700 capitalize">
-                            {interaction.type?.replace(/_/g, " ")}
-                          </span>
-                          <span className="text-xs text-slate-400">
-                            {formatDate(interaction.date || interaction.createdAt)}
-                          </span>
+
+                      <Card>
+                        <CardHeader>
+                          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                            <div>
+                              <h3 className="text-sm font-semibold text-slate-700">Quick Actions</h3>
+                              <p className="text-xs text-slate-500">Jump into related manager tools.</p>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <Button
+                                type="button"
+                                variant="light"
+                                onClick={() => router.push("/dashboard/managersCommon/guardian-calls")}
+                              >
+                                Guardian Call Drive
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="light"
+                                onClick={() => router.push("/dashboard/managersCommon/guardian-register")}
+                              >
+                                Guardian Register
+                              </Button>
+                            </div>
+                          </div>
+                        </CardHeader>
+                      </Card>
+                    </div>
+                  )}
+
+                  {activeSection === "wards" && (
+                    <Card>
+                      <CardHeader>
+                        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                          <div>
+                            <h3 className="text-sm font-semibold text-slate-700">Ward Files</h3>
+                            <p className="text-xs text-slate-500">Student register details with CDD flags.</p>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="light"
+                            onClick={handleLoadCdd}
+                            disabled={cddState.loading}
+                          >
+                            {cddState.loading ? "Loading CDD..." : "Load CDD Signals"}
+                          </Button>
                         </div>
-                        <p className="text-sm text-slate-600">
-                          {interaction.content || interaction.notes || "Interaction logged"}
-                        </p>
-                        {interaction.duration && (
-                          <p className="text-xs text-slate-400 mt-1">
-                            Duration: {interaction.duration}
-                          </p>
+                        {cddState.error && <p className="text-xs text-rose-600 mt-2">{cddState.error}</p>}
+                        {profileState.loading && (
+                          <p className="text-xs text-slate-500 mt-1">Loading student profiles…</p>
                         )}
-                      </div>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="text-sm text-slate-500">No interactions recorded yet.</p>
-              )}
-            </CardBody>
-          </Card>
+                        {profileState.error && <p className="text-xs text-rose-600 mt-1">{profileState.error}</p>}
+                      </CardHeader>
+                      <CardBody className="space-y-4">
+                        {(guardian.children || []).length ? (
+                          (guardian.children || []).map((child, index) => {
+                            const profile = profileState.profiles[child.studentId] || null;
+                            const classCdd = cddState.byClassId[child.classId];
+                            const signals = classCdd
+                              ? buildCddSignals(classCdd.instances, child.name).slice(0, 4)
+                              : [];
 
-          <div className="flex flex-col gap-3 md:flex-row">
-            <Button className="flex-1 gap-2">
-              <MessageCircle className="w-4 h-4" />
-              Send WhatsApp
-            </Button>
-            <Button variant="secondary" className="flex-1 gap-2">
-              <Phone className="w-4 h-4" />
-              Make Call
-            </Button>
-            <Button variant="light" className="flex-1 gap-2">
-              <Edit3 className="w-4 h-4" />
-              Edit Details
-            </Button>
+                            return (
+                              <div key={`${child.name}-${index}`} className="rounded-xl border border-slate-200 p-4">
+                                <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                                  <div>
+                                    <h4 className="text-base font-semibold text-slate-900">{child.name}</h4>
+                                    <p className="text-xs text-slate-500">
+                                      {child.className ? `Class ${child.className}` : "Class not set"}{" "}
+                                      {child.isHosteller ? "· Hosteller" : ""}
+                                    </p>
+                                  </div>
+                                  <Badge color={isActiveStatus(child.status) ? "teal" : "gray"}>
+                                    {isActiveStatus(child.status) ? "Active" : "Inactive"}
+                                  </Badge>
+                                </div>
+
+                                <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm text-slate-600">
+                                  <div className="space-y-1">
+                                    <p>
+                                      Admission:{" "}
+                                      <span className="text-slate-800">
+                                        {profile?.admissionNumber || "—"}
+                                      </span>
+                                    </p>
+                                    <p>
+                                      Guardian phone:{" "}
+                                      <span className="text-slate-800">
+                                        {profile?.guardianPhone || guardian.whatsapp || "—"}
+                                      </span>
+                                    </p>
+                                    <p>
+                                      Fee status:{" "}
+                                      <span className="text-slate-800">{profile?.feeStatus || "—"}</span>
+                                    </p>
+                                  </div>
+                                  <div className="space-y-1">
+                                    <p>
+                                      Academic year:{" "}
+                                      <span className="text-slate-800">{profile?.academicYear || "—"}</span>
+                                    </p>
+                                    <p>
+                                      Transport:{" "}
+                                      <span className="text-slate-800">
+                                        {profile?.transportChosen ? "Yes" : "No"}
+                                      </span>
+                                    </p>
+                                    <p>
+                                      Blood group:{" "}
+                                      <span className="text-slate-800">{profile?.bloodGroup || "—"}</span>
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <div className="mt-4 rounded-lg bg-slate-50 border border-slate-200 p-3">
+                                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                                    CDD signals (last {cddState.rangeDays} days)
+                                  </p>
+                                  {!cddState.loaded ? (
+                                    <p className="text-sm text-slate-500 mt-2">
+                                      Load CDD signals to view flags.
+                                    </p>
+                                  ) : signals.length ? (
+                                    <div className="mt-2 space-y-2">
+                                      {signals.map((signal) => (
+                                        <div key={signal.date} className="text-sm text-slate-600">
+                                          <span className="font-medium text-slate-700">
+                                            {formatDate(signal.date)}:
+                                          </span>{" "}
+                                          {signal.categories.join(", ")}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <p className="text-sm text-slate-500 mt-2">No CDD flags recorded.</p>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <p className="text-sm text-slate-500">No wards linked to this guardian yet.</p>
+                        )}
+                      </CardBody>
+                    </Card>
+                  )}
+
+                  {activeSection === "calls" && (
+                    <Card>
+                      <CardHeader>
+                        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                          <div>
+                            <h3 className="text-sm font-semibold text-slate-700">Guardian Call Log</h3>
+                            <p className="text-xs text-slate-500">
+                              Calls recorded under Guardian Call Drive.
+                            </p>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="light"
+                            onClick={() => router.push("/dashboard/managersCommon/guardian-calls")}
+                          >
+                            Open Call Drive
+                          </Button>
+                        </div>
+                      </CardHeader>
+                      <CardBody>
+                        {callLogsState.loading ? (
+                          <p className="text-sm text-slate-500">Loading call logs...</p>
+                        ) : callLogsState.error ? (
+                          <p className="text-sm text-rose-600">{callLogsState.error}</p>
+                        ) : callLogsState.calls.length ? (
+                          <div className="space-y-3">
+                            {callLogsState.calls.slice(0, 8).map((call) => (
+                              <div key={call.id} className="rounded-xl border border-slate-200 p-4">
+                                <div className="grid gap-3 md:grid-cols-[minmax(180px,220px)_minmax(220px,1fr)_minmax(160px,200px)]">
+                                  <div className="space-y-1">
+                                    <p className="text-sm font-semibold text-slate-800">
+                                      {call.student?.name || "Student"}
+                                    </p>
+                                    <p className="text-xs text-slate-500">
+                                      {call.class?.name ? `Class ${call.class.name}` : "Class"}
+                                    </p>
+                                    <p className="text-xs text-slate-500">
+                                      {formatDate(call.callDate)} · {call.guardian?.name || "Guardian"}
+                                    </p>
+                                  </div>
+                                  <div className="text-sm text-slate-600">
+                                    {call.report || "No report recorded."}
+                                  </div>
+                                  <div className="flex flex-col gap-2 text-xs text-slate-500">
+                                    <Badge color={call.followUpNeeded ? "amber" : "teal"}>
+                                      {call.followUpNeeded ? "Follow-up" : "Closed"}
+                                    </Badge>
+                                    <span>Called by {call.calledBy?.name || "—"}</span>
+                                    {call.followUpDate && (
+                                      <span>Follow-up {formatDate(call.followUpDate)}</span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-slate-500">No call logs found for this guardian.</p>
+                        )}
+                      </CardBody>
+                    </Card>
+                  )}
+
+                  {activeSection === "visits" && (
+                    <Card>
+                      <CardHeader>
+                        <h3 className="text-sm font-semibold text-slate-700">Visit History</h3>
+                      </CardHeader>
+                      <CardBody>
+                        {visitsState.loading ? (
+                          <p className="text-sm text-slate-500">Loading visit history...</p>
+                        ) : visitsState.error ? (
+                          <p className="text-sm text-rose-600">{visitsState.error}</p>
+                        ) : visitEntries.length ? (
+                          <div className="space-y-3">
+                            {visitEntries.map((entry) => (
+                              <div key={entry.id} className="rounded-xl border border-slate-200 p-4">
+                                <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                                  <div>
+                                    <p className="text-sm font-semibold text-slate-800">
+                                      {entry.purpose || "Visit"}
+                                    </p>
+                                    <p className="text-xs text-slate-500">
+                                      {formatDate(entry.visitDate)} · {entry.studentName || "Ward"}
+                                    </p>
+                                  </div>
+                                  <div className="text-xs text-slate-500">
+                                    In {formatTime(entry.inAt)} · Out {formatTime(entry.outAt)}
+                                  </div>
+                                </div>
+                                <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-600">
+                                  <Badge color={entry.feesSubmitted ? "teal" : "gray"}>
+                                    Fees {entry.feesSubmitted ? "Submitted" : "Not submitted"}
+                                  </Badge>
+                                  <Badge color="blue">
+                                    Islamic {entry.satisfactionIslamic ?? "—"}/5
+                                  </Badge>
+                                  <Badge color="amber">
+                                    Academic {entry.satisfactionAcademic ?? "—"}/5
+                                  </Badge>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-slate-500">No visits logged for this guardian.</p>
+                        )}
+                      </CardBody>
+                    </Card>
+                  )}
+                </main>
+              </div>
+            </div>
           </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
+
+  const ProbableGuardianDetailView = ({ guardian, onClose }) => {
+    const [activeSection, setActiveSection] = useState("overview");
+
+    return (
+      <div className="fixed inset-0 z-50 bg-black/40">
+      <div className="absolute inset-y-0 right-0 w-full max-w-5xl bg-white shadow-xl">
+        <div className="h-full flex flex-col">
+          <div className="border-b border-slate-200 px-6 py-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="flex flex-wrap items-center gap-3">
+                <h2 className="text-xl font-semibold text-slate-900">{guardian.name}</h2>
+                <Badge color={getStatusMeta(guardian.status).color}>
+                  {getStatusMeta(guardian.status).label}
+                </Badge>
+              </div>
+              <button
+                onClick={onClose}
+                className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-full"
+              >
+                X
+              </button>
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-hidden">
+            <div className="h-full grid grid-cols-1 lg:grid-cols-[220px_minmax(0,1fr)]">
+              <aside className="border-b border-slate-200 bg-slate-50/60 lg:border-b-0 lg:border-r">
+                <div className="flex gap-2 overflow-x-auto px-4 py-4 lg:flex-col">
+                  {[
+                    { id: "overview", label: "Overview" },
+                    { id: "children", label: "Children" },
+                    { id: "priorities", label: "Priorities" },
+                    { id: "notes", label: "Notes" },
+                    { id: "interactions", label: "Interactions" },
+                  ].map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setActiveSection(item.id)}
+                      className={`px-3 py-2 rounded-lg text-sm font-semibold whitespace-nowrap transition ${
+                        activeSection === item.id
+                          ? "bg-teal-600 text-white shadow-sm"
+                          : "bg-white text-slate-600 hover:bg-slate-100"
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </aside>
+
+              <main className="h-full overflow-y-auto p-6 space-y-6">
+                {activeSection === "overview" && (
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <Card>
+                        <CardHeader>
+                          <h3 className="text-sm font-semibold text-slate-700">Contact Information</h3>
+                        </CardHeader>
+                        <CardBody className="space-y-2 text-sm text-slate-600">
+                          <div className="flex items-center gap-2">
+                            <Phone className="w-4 h-4 text-slate-500" />
+                            <span>{guardian.whatsapp}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <MapPin className="w-4 h-4 text-slate-500" />
+                            <span>{guardian.location}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Clock className="w-4 h-4 text-slate-500" />
+                            <span>Last contact: {formatDate(guardian.lastContact)}</span>
+                          </div>
+                        </CardBody>
+                      </Card>
+
+                      <Card>
+                        <CardHeader>
+                          <h3 className="text-sm font-semibold text-slate-700">Engagement Score</h3>
+                        </CardHeader>
+                        <CardBody>
+                          <div className="flex items-center gap-4">
+                            <div className="flex-1">
+                              <div className="w-full bg-slate-100 rounded-full h-3">
+                                <div
+                                  className="bg-teal-500 h-3 rounded-full"
+                                  style={{ width: `${guardian.engagementScore || 0}%` }}
+                                ></div>
+                              </div>
+                            </div>
+                            <span className="text-xl font-semibold text-slate-900">
+                              {guardian.engagementScore || 0}%
+                            </span>
+                          </div>
+                        </CardBody>
+                      </Card>
+                    </div>
+
+                    <div className="flex flex-wrap gap-3">
+                      <Button className="gap-2">
+                        <MessageCircle className="w-4 h-4" />
+                        Send WhatsApp
+                      </Button>
+                      <Button variant="secondary" className="gap-2">
+                        <Phone className="w-4 h-4" />
+                        Make Call
+                      </Button>
+                      <Button variant="light" className="gap-2">
+                        <Edit3 className="w-4 h-4" />
+                        Edit Details
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {activeSection === "children" && (
+                  <Card>
+                    <CardHeader>
+                      <h3 className="text-sm font-semibold text-slate-700">Children</h3>
+                    </CardHeader>
+                    <CardBody className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {guardian.children.length ? (
+                        guardian.children.map((child, index) => (
+                          <div key={index} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                            <h4 className="font-medium text-slate-800">{child.name}</h4>
+                            <p className="text-sm text-slate-600">Age: {child.age || "?"} years</p>
+                            <p className="text-sm text-slate-600">
+                              Current School: {child.currentSchool || "Unknown"}
+                            </p>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-sm text-slate-500">No children listed for this guardian.</p>
+                      )}
+                    </CardBody>
+                  </Card>
+                )}
+
+                {activeSection === "priorities" && (
+                  <Card>
+                    <CardHeader>
+                      <h3 className="text-sm font-semibold text-slate-700">Interests and Priorities</h3>
+                    </CardHeader>
+                    <CardBody className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
+                      <div>
+                        <p className="text-xs text-slate-500 mb-2">Islamic Education</p>
+                        <div className="flex justify-center">
+                          {getPriorityIcon(guardian.interests.islamic_education_priority)}
+                        </div>
+                        <p className="text-xs text-slate-400 mt-2">
+                          {guardian.interests.islamic_education_priority}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-500 mb-2">Academic Excellence</p>
+                        <div className="flex justify-center">
+                          {getPriorityIcon(guardian.interests.academic_excellence_priority)}
+                        </div>
+                        <p className="text-xs text-slate-400 mt-2">
+                          {guardian.interests.academic_excellence_priority}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-500 mb-2">Boarding Interest</p>
+                        <div className="text-lg font-semibold text-slate-800">
+                          {guardian.interests.boarding_interest === "yes"
+                            ? "Yes"
+                            : guardian.interests.boarding_interest === "no"
+                            ? "No"
+                            : "Maybe"}
+                        </div>
+                        <p className="text-xs text-slate-400 mt-2">
+                          {guardian.interests.boarding_interest}
+                        </p>
+                      </div>
+                    </CardBody>
+                  </Card>
+                )}
+
+                {activeSection === "notes" && (
+                  <Card>
+                    <CardHeader>
+                      <h3 className="text-sm font-semibold text-slate-700">Notes</h3>
+                    </CardHeader>
+                    <CardBody>
+                      <p className="text-sm text-slate-600">
+                        {guardian.notes || "No notes yet."}
+                      </p>
+                    </CardBody>
+                  </Card>
+                )}
+
+                {activeSection === "interactions" && (
+                  <Card>
+                    <CardHeader>
+                      <h3 className="text-sm font-semibold text-slate-700">Interaction History</h3>
+                    </CardHeader>
+                    <CardBody className="space-y-3">
+                      {guardian.interactions.length ? (
+                        guardian.interactions.map((interaction, index) => (
+                          <div key={index} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                            <div className="flex items-start gap-3">
+                              <div className="rounded-full bg-teal-50 p-2 text-teal-600">
+                                {interaction.type === "call" && <Phone className="w-4 h-4" />}
+                                {interaction.type === "whatsapp" && <MessageCircle className="w-4 h-4" />}
+                                {interaction.type === "community_event" && <Users className="w-4 h-4" />}
+                              </div>
+                              <div className="flex-1">
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className="text-sm font-medium text-slate-700 capitalize">
+                                    {interaction.type?.replace(/_/g, " ")}
+                                  </span>
+                                  <span className="text-xs text-slate-400">
+                                    {formatDate(interaction.date || interaction.createdAt)}
+                                  </span>
+                                </div>
+                                <p className="text-sm text-slate-600">
+                                  {interaction.content || interaction.notes || "Interaction logged"}
+                                </p>
+                                {interaction.duration && (
+                                  <p className="text-xs text-slate-400 mt-1">
+                                    Duration: {interaction.duration}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-sm text-slate-500">No interactions recorded yet.</p>
+                      )}
+                    </CardBody>
+                  </Card>
+                )}
+              </main>
+            </div>
+          </div>
+        </div>
+      </div>
+      </div>
+    );
+  };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 p-4 md:p-6">
       <header className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-4 py-3 shadow-sm">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
@@ -957,19 +1866,22 @@ const GuardianRelationshipManager = () => {
 
       <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-2 py-1 shadow-sm">
         <nav className="flex flex-wrap gap-2">
-          {["dashboard", "guardians", "communications", "analytics"].map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-3 py-2 rounded-lg text-sm font-semibold capitalize transition-colors ${
-                activeTab === tab
-                  ? "bg-white text-teal-700 border border-teal-200 shadow-sm"
-                  : "text-slate-500 hover:bg-white/80 hover:text-slate-700"
-              }`}
-            >
-              {tab}
-            </button>
-          ))}
+          {["dashboard", "guardians", "communications", "analytics", "mgcp"].map((tab) => {
+            const label = tab === "mgcp" ? "MGCP" : tab;
+            return (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`px-3 py-2 rounded-lg text-sm font-semibold capitalize transition-colors ${
+                  activeTab === tab
+                    ? "bg-white text-teal-700 border border-teal-200 shadow-sm"
+                    : "text-slate-500 hover:bg-white/80 hover:text-slate-700"
+                }`}
+              >
+                {label}
+              </button>
+            );
+          })}
         </nav>
       </div>
 
@@ -992,6 +1904,785 @@ const GuardianRelationshipManager = () => {
             <p className="text-sm text-slate-500">Engagement analytics coming soon.</p>
           </CardBody>
         </Card>
+      )}
+      {activeTab === "mgcp" && (
+        <div className="space-y-4">
+          <header className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-4 py-3 shadow-sm">
+            <div>
+              <h3 className="text-base font-semibold text-slate-900">MGCP Control Room</h3>
+              <p className="text-sm text-slate-500">
+                Manage belts, villages, trusted kings, and lead managers.
+              </p>
+            </div>
+          </header>
+
+          <div className="rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+            <div className="grid grid-cols-1 lg:grid-cols-[220px_minmax(0,1fr)]">
+              <aside className="border-b border-slate-200 bg-slate-50/60 lg:border-b-0 lg:border-r">
+                <div className="flex gap-2 overflow-x-auto px-4 py-4 lg:flex-col">
+                  {[
+                    { id: "admin", label: "Admin Section" },
+                    { id: "head", label: "MGCP Head" },
+                    { id: "belts", label: "Belts Overview" },
+                    { id: "random", label: "Random Leads" },
+                  ].map((section) => (
+                    <button
+                      key={section.id}
+                      type="button"
+                      onClick={() => setMgcpSection(section.id)}
+                      className={`px-3 py-2 rounded-lg text-sm font-semibold transition ${
+                        mgcpSection === section.id
+                          ? "bg-teal-600 text-white shadow-sm"
+                          : "bg-white text-slate-600 hover:bg-slate-100"
+                      }`}
+                    >
+                      {section.label}
+                    </button>
+                  ))}
+                </div>
+              </aside>
+
+              <main className="p-5 space-y-5">
+                {mgcpError && (
+                  <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                    {mgcpError}
+                  </div>
+                )}
+                {mgcpActionState.error && (
+                  <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                    {mgcpActionState.error}
+                  </div>
+                )}
+
+                {mgcpSection === "admin" && (
+                  <Card>
+                    <CardHeader>
+                      <h3 className="text-sm font-semibold text-slate-700">Assign MGCP Head</h3>
+                    </CardHeader>
+                    <CardBody className="space-y-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                        <Select
+                          label="Select user"
+                          value={headForm.userId}
+                          onChange={(event) => setHeadForm({ userId: event.target.value })}
+                          className="flex-1 min-w-[220px]"
+                        >
+                          <option value="">Choose user</option>
+                          {mgcpUsers.map((user) => (
+                            <option key={user.id} value={user.id}>
+                              {user.name} · {user.role}
+                            </option>
+                          ))}
+                        </Select>
+                        <Button
+                          type="button"
+                          disabled={!headForm.userId || mgcpActionState.saving}
+                          onClick={() =>
+                            runMgcpAction({
+                              url: "/api/enrollment/mgcp/heads",
+                              method: "POST",
+                              body: { userId: Number(headForm.userId) },
+                              afterSuccess: () => {
+                                setHeadForm({ userId: "" });
+                                loadMgcpHeads();
+                              },
+                            })
+                          }
+                        >
+                          Add Head
+                        </Button>
+                      </div>
+
+                      <div className="space-y-2">
+                        {mgcpHeads.length ? (
+                          mgcpHeads.map((head) => (
+                            <div
+                              key={head.id}
+                              className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                            >
+                              <div>
+                                <p className="font-medium text-slate-800">{head.name}</p>
+                                <p className="text-xs text-slate-500">{head.role}</p>
+                              </div>
+                              <Button
+                                variant="light"
+                                size="sm"
+                                onClick={() =>
+                                  runMgcpAction({
+                                    url: "/api/enrollment/mgcp/heads",
+                                    method: "DELETE",
+                                    body: { id: head.id },
+                                    afterSuccess: () => loadMgcpHeads(),
+                                  })
+                                }
+                              >
+                                <Trash2 className="w-4 h-4 text-rose-600" />
+                              </Button>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-sm text-slate-500">No MGCP heads assigned yet.</p>
+                        )}
+                      </div>
+                    </CardBody>
+                  </Card>
+                )}
+
+                {mgcpSection === "belts" && (
+                  <Card>
+                    <CardHeader>
+                      <h3 className="text-sm font-semibold text-slate-700">Belts Overview</h3>
+                    </CardHeader>
+                    <CardBody>
+                      {mgcpLoading ? (
+                        <p className="text-sm text-slate-500">Loading belts...</p>
+                      ) : mgcpBelts.length ? (
+                        <div className="space-y-3">
+                          {mgcpBelts.map((belt) => (
+                            <div key={belt.id} className="rounded-xl border border-slate-200 px-4 py-3">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <p className="text-sm font-semibold text-slate-800">{belt.name}</p>
+                                  <p className="text-xs text-slate-500">{belt.notes || "No notes"}</p>
+                                </div>
+                                <Badge color={belt.active ? "teal" : "gray"}>
+                                  {belt.active ? "Active" : "Inactive"}
+                                </Badge>
+                              </div>
+                              <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-600">
+                                <Badge color="blue">Villages {belt.villages?.length || 0}</Badge>
+                                <Badge color="amber">Leads {belt.leads?.length || 0}</Badge>
+                                <Badge color="gray">Kings {belt.guardians?.length || 0}</Badge>
+                                <Badge color="teal">Managers {belt.leadManagers?.length || 0}</Badge>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-slate-500">No belts created yet.</p>
+                      )}
+                    </CardBody>
+                  </Card>
+                )}
+
+                {mgcpSection === "head" && (
+                  <div className="space-y-6">
+                    <Card>
+                      <CardHeader>
+                        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                          <div>
+                            <h3 className="text-sm font-semibold text-slate-700">Create Belt</h3>
+                            <p className="text-xs text-slate-500">Define regions and teams.</p>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardBody className="flex flex-col gap-3 md:flex-row md:items-end">
+                        <Input
+                          label="Belt name"
+                          value={beltForm.name}
+                          onChange={(event) =>
+                            setBeltForm((prev) => ({ ...prev, name: event.target.value }))
+                          }
+                          placeholder="e.g. North Pakur Belt"
+                          className="flex-1"
+                        />
+                        <Input
+                          label="Notes"
+                          value={beltForm.notes}
+                          onChange={(event) =>
+                            setBeltForm((prev) => ({ ...prev, notes: event.target.value }))
+                          }
+                          placeholder="Optional notes"
+                          className="flex-1"
+                        />
+                        <Button
+                          type="button"
+                          disabled={!beltForm.name || mgcpActionState.saving}
+                          onClick={() =>
+                            runMgcpAction({
+                              url: "/api/enrollment/mgcp/belts",
+                              method: "POST",
+                              body: { name: beltForm.name, notes: beltForm.notes },
+                              afterSuccess: () => setBeltForm({ name: "", notes: "" }),
+                            })
+                          }
+                        >
+                          Create Belt
+                        </Button>
+                      </CardBody>
+                    </Card>
+
+                    <div className="grid grid-cols-1 xl:grid-cols-[280px_minmax(0,1fr)] gap-5">
+                      <Card>
+                        <CardHeader>
+                          <h3 className="text-sm font-semibold text-slate-700">Belts</h3>
+                        </CardHeader>
+                        <CardBody className="space-y-2">
+                          {mgcpBelts.length ? (
+                            mgcpBelts.map((belt) => (
+                              <button
+                                key={belt.id}
+                                type="button"
+                                onClick={() => setSelectedBeltId(String(belt.id))}
+                                className={`w-full text-left rounded-xl border px-3 py-2 text-sm transition ${
+                                  String(belt.id) === String(selectedBeltId)
+                                    ? "border-teal-200 bg-teal-50 text-teal-700"
+                                    : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                                }`}
+                              >
+                                <p className="font-semibold">{belt.name}</p>
+                                <p className="text-xs text-slate-500">
+                                  Villages {belt.villages?.length || 0} · Kings {belt.guardians?.length || 0}
+                                </p>
+                              </button>
+                            ))
+                          ) : (
+                            <p className="text-sm text-slate-500">No belts created yet.</p>
+                          )}
+                        </CardBody>
+                      </Card>
+
+                      <div className="space-y-5">
+                        <Card>
+                          <CardHeader>
+                            <div className="flex items-center justify-between">
+                              <h3 className="text-sm font-semibold text-slate-700">
+                                {selectedBelt ? selectedBelt.name : "Select a belt"}
+                              </h3>
+                              {selectedBelt && (
+                                <Button
+                                  variant="light"
+                                  size="sm"
+                                  onClick={() =>
+                                    runMgcpAction({
+                                      url: "/api/enrollment/mgcp/belts",
+                                      method: "DELETE",
+                                      body: { id: selectedBelt.id },
+                                    })
+                                  }
+                                >
+                                  <Trash2 className="w-4 h-4 text-rose-600" />
+                                </Button>
+                              )}
+                            </div>
+                          </CardHeader>
+                          <CardBody className="space-y-4">
+                            {selectedBelt ? (
+                              <>
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                  <Card>
+                                    <CardHeader>
+                                      <h4 className="text-xs font-semibold text-slate-600 uppercase">
+                                        Villages
+                                      </h4>
+                                    </CardHeader>
+                                    <CardBody className="space-y-3">
+                                      <div className="flex flex-col gap-2">
+                                        <Input
+                                          label="Village name"
+                                          value={villageForm.name}
+                                          onChange={(event) =>
+                                            setVillageForm((prev) => ({ ...prev, name: event.target.value }))
+                                          }
+                                          placeholder="Village"
+                                        />
+                                        <Input
+                                          label="Notes"
+                                          value={villageForm.notes}
+                                          onChange={(event) =>
+                                            setVillageForm((prev) => ({ ...prev, notes: event.target.value }))
+                                          }
+                                          placeholder="Optional"
+                                        />
+                                        <Button
+                                          type="button"
+                                          disabled={!villageForm.name || mgcpActionState.saving}
+                                          onClick={() =>
+                                            runMgcpAction({
+                                              url: "/api/enrollment/mgcp/villages",
+                                              method: "POST",
+                                              body: {
+                                                beltId: selectedBelt.id,
+                                                name: villageForm.name,
+                                                notes: villageForm.notes,
+                                              },
+                                              afterSuccess: () => setVillageForm({ name: "", notes: "" }),
+                                            })
+                                          }
+                                        >
+                                          Add Village
+                                        </Button>
+                                      </div>
+                                      <div className="space-y-2 text-sm">
+                                        {(selectedBelt.villages || []).map((village) => (
+                                          <div
+                                            key={village.id}
+                                            className="flex items-center justify-between rounded-lg border border-slate-200 px-2 py-1"
+                                          >
+                                            <span>{village.name}</span>
+                                            <Button
+                                              variant="ghost"
+                                              size="sm"
+                                              onClick={() =>
+                                                runMgcpAction({
+                                                  url: "/api/enrollment/mgcp/villages",
+                                                  method: "DELETE",
+                                                  body: { id: village.id },
+                                                })
+                                              }
+                                            >
+                                              <Trash2 className="w-4 h-4 text-rose-600" />
+                                            </Button>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </CardBody>
+                                  </Card>
+
+                                  <Card>
+                                    <CardHeader>
+                                      <h4 className="text-xs font-semibold text-slate-600 uppercase">
+                                        Lead Managers
+                                      </h4>
+                                    </CardHeader>
+                                    <CardBody className="space-y-3">
+                                      <div className="flex flex-col gap-2">
+                                        <Input
+                                          label="Name"
+                                          value={leadManagerForm.name}
+                                          onChange={(event) =>
+                                            setLeadManagerForm((prev) => ({ ...prev, name: event.target.value }))
+                                          }
+                                          placeholder="Lead manager name"
+                                        />
+                                        <Input
+                                          label="Phone"
+                                          value={leadManagerForm.phone}
+                                          onChange={(event) =>
+                                            setLeadManagerForm((prev) => ({ ...prev, phone: event.target.value }))
+                                          }
+                                          placeholder="+91..."
+                                        />
+                                        <Input
+                                          label="WhatsApp"
+                                          value={leadManagerForm.whatsapp}
+                                          onChange={(event) =>
+                                            setLeadManagerForm((prev) => ({ ...prev, whatsapp: event.target.value }))
+                                          }
+                                          placeholder="Optional"
+                                        />
+                                        <Input
+                                          label="Notes"
+                                          value={leadManagerForm.notes}
+                                          onChange={(event) =>
+                                            setLeadManagerForm((prev) => ({ ...prev, notes: event.target.value }))
+                                          }
+                                          placeholder="Notes"
+                                        />
+                                        <Button
+                                          type="button"
+                                          disabled={!leadManagerForm.name || mgcpActionState.saving}
+                                          onClick={() =>
+                                            runMgcpAction({
+                                              url: "/api/enrollment/mgcp/lead-managers",
+                                              method: "POST",
+                                              body: { beltId: selectedBelt.id, ...leadManagerForm },
+                                              afterSuccess: () =>
+                                                setLeadManagerForm({
+                                                  name: "",
+                                                  phone: "",
+                                                  whatsapp: "",
+                                                  notes: "",
+                                                }),
+                                            })
+                                          }
+                                        >
+                                          Add Manager
+                                        </Button>
+                                      </div>
+                                      <div className="space-y-2 text-sm">
+                                        {(selectedBelt.leadManagers || []).map((manager) => (
+                                          <div
+                                            key={manager.id}
+                                            className="flex items-center justify-between rounded-lg border border-slate-200 px-2 py-1"
+                                          >
+                                            <div>
+                                              <p className="font-medium text-slate-700">{manager.name}</p>
+                                              <p className="text-xs text-slate-500">{manager.phone || "No phone"}</p>
+                                            </div>
+                                            <Button
+                                              variant="ghost"
+                                              size="sm"
+                                              onClick={() =>
+                                                runMgcpAction({
+                                                  url: "/api/enrollment/mgcp/lead-managers",
+                                                  method: "DELETE",
+                                                  body: { id: manager.id },
+                                                })
+                                              }
+                                            >
+                                              <Trash2 className="w-4 h-4 text-rose-600" />
+                                            </Button>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </CardBody>
+                                  </Card>
+                                </div>
+
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                  <Card>
+                                    <CardHeader>
+                                      <h4 className="text-xs font-semibold text-slate-600 uppercase">
+                                        Existing Kings (Trusted)
+                                      </h4>
+                                    </CardHeader>
+                                    <CardBody className="space-y-3">
+                                      <div className="flex flex-col gap-2">
+                                        <Input
+                                          label="Guardian name"
+                                          value={existingKingForm.name}
+                                          onChange={(event) =>
+                                            setExistingKingForm((prev) => ({ ...prev, name: event.target.value }))
+                                          }
+                                          placeholder="Guardian name"
+                                        />
+                                        <Input
+                                          label="Phone"
+                                          value={existingKingForm.phone}
+                                          onChange={(event) =>
+                                            setExistingKingForm((prev) => ({ ...prev, phone: event.target.value }))
+                                          }
+                                          placeholder="+91..."
+                                        />
+                                        <Input
+                                          label="WhatsApp"
+                                          value={existingKingForm.whatsapp}
+                                          onChange={(event) =>
+                                            setExistingKingForm((prev) => ({ ...prev, whatsapp: event.target.value }))
+                                          }
+                                          placeholder="Optional"
+                                        />
+                                        <Input
+                                          label="Notes"
+                                          value={existingKingForm.notes}
+                                          onChange={(event) =>
+                                            setExistingKingForm((prev) => ({ ...prev, notes: event.target.value }))
+                                          }
+                                          placeholder="Notes"
+                                        />
+                                        <label className="flex items-center gap-2 text-xs text-slate-600">
+                                          <input
+                                            type="checkbox"
+                                            checked={existingKingForm.trusted}
+                                            onChange={(event) =>
+                                              setExistingKingForm((prev) => ({ ...prev, trusted: event.target.checked }))
+                                            }
+                                          />
+                                          Mark as trusted
+                                        </label>
+                                        <Button
+                                          type="button"
+                                          disabled={!existingKingForm.name || mgcpActionState.saving}
+                                          onClick={() =>
+                                            runMgcpAction({
+                                              url: "/api/enrollment/mgcp/guardians",
+                                              method: "POST",
+                                              body: {
+                                                beltId: selectedBelt.id,
+                                                guardianName: existingKingForm.name,
+                                                guardianPhone: existingKingForm.phone,
+                                                guardianWhatsapp: existingKingForm.whatsapp,
+                                                notes: existingKingForm.notes,
+                                                isTrusted: existingKingForm.trusted,
+                                              },
+                                              afterSuccess: () =>
+                                                setExistingKingForm({
+                                                  name: "",
+                                                  phone: "",
+                                                  whatsapp: "",
+                                                  notes: "",
+                                                  trusted: false,
+                                                }),
+                                            })
+                                          }
+                                        >
+                                          Add King
+                                        </Button>
+                                      </div>
+                                      <div className="space-y-2 text-sm">
+                                        {(selectedBelt.guardians || []).map((guard) => (
+                                          <div
+                                            key={guard.id}
+                                            className="flex items-center justify-between rounded-lg border border-slate-200 px-2 py-1"
+                                          >
+                                            <div>
+                                              <p className="font-medium text-slate-700">{guard.guardianName}</p>
+                                              <p className="text-xs text-slate-500">{guard.guardianPhone || "No phone"}</p>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                              <button
+                                                type="button"
+                                                className={`text-xs font-semibold ${
+                                                  guard.isTrusted ? "text-teal-700" : "text-slate-400"
+                                                }`}
+                                                onClick={() =>
+                                                  runMgcpAction({
+                                                    url: "/api/enrollment/mgcp/guardians",
+                                                    method: "PATCH",
+                                                    body: { id: guard.id, isTrusted: !guard.isTrusted },
+                                                  })
+                                                }
+                                              >
+                                                {guard.isTrusted ? "Trusted" : "Trust?"}
+                                              </button>
+                                              <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() =>
+                                                  runMgcpAction({
+                                                    url: "/api/enrollment/mgcp/guardians",
+                                                    method: "DELETE",
+                                                    body: { id: guard.id },
+                                                  })
+                                                }
+                                              >
+                                                <Trash2 className="w-4 h-4 text-rose-600" />
+                                              </Button>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </CardBody>
+                                  </Card>
+
+                                  <Card>
+                                    <CardHeader>
+                                      <h4 className="text-xs font-semibold text-slate-600 uppercase">
+                                        Belt Leads
+                                      </h4>
+                                    </CardHeader>
+                                    <CardBody className="space-y-3">
+                                      <div className="flex flex-col gap-2">
+                                        <Input
+                                          label="Lead name"
+                                          value={beltLeadForm.name}
+                                          onChange={(event) =>
+                                            setBeltLeadForm((prev) => ({ ...prev, name: event.target.value }))
+                                          }
+                                        />
+                                        <Input
+                                          label="Phone"
+                                          value={beltLeadForm.phone}
+                                          onChange={(event) =>
+                                            setBeltLeadForm((prev) => ({ ...prev, phone: event.target.value }))
+                                          }
+                                        />
+                                        <Input
+                                          label="WhatsApp"
+                                          value={beltLeadForm.whatsapp}
+                                          onChange={(event) =>
+                                            setBeltLeadForm((prev) => ({ ...prev, whatsapp: event.target.value }))
+                                          }
+                                        />
+                                        <Input
+                                          label="Location"
+                                          value={beltLeadForm.location}
+                                          onChange={(event) =>
+                                            setBeltLeadForm((prev) => ({ ...prev, location: event.target.value }))
+                                          }
+                                        />
+                                        <Input
+                                          label="Source"
+                                          value={beltLeadForm.source}
+                                          onChange={(event) =>
+                                            setBeltLeadForm((prev) => ({ ...prev, source: event.target.value }))
+                                          }
+                                        />
+                                        <Input
+                                          label="Notes"
+                                          value={beltLeadForm.notes}
+                                          onChange={(event) =>
+                                            setBeltLeadForm((prev) => ({ ...prev, notes: event.target.value }))
+                                          }
+                                        />
+                                        <Button
+                                          type="button"
+                                          disabled={!beltLeadForm.name || mgcpActionState.saving}
+                                          onClick={() =>
+                                            runMgcpAction({
+                                              url: "/api/enrollment/mgcp/leads",
+                                              method: "POST",
+                                              body: { beltId: selectedBelt.id, ...beltLeadForm },
+                                              afterSuccess: () =>
+                                                setBeltLeadForm({
+                                                  name: "",
+                                                  phone: "",
+                                                  whatsapp: "",
+                                                  location: "",
+                                                  source: "",
+                                                  notes: "",
+                                                }),
+                                            })
+                                          }
+                                        >
+                                          Add Belt Lead
+                                        </Button>
+                                      </div>
+                                      <div className="space-y-2 text-sm">
+                                        {(selectedBelt.leads || []).map((lead) => (
+                                          <div
+                                            key={lead.id}
+                                            className="flex items-center justify-between rounded-lg border border-slate-200 px-2 py-1"
+                                          >
+                                            <div>
+                                              <p className="font-medium text-slate-700">{lead.name}</p>
+                                              <p className="text-xs text-slate-500">{lead.phone || "No phone"}</p>
+                                            </div>
+                                            <Button
+                                              variant="ghost"
+                                              size="sm"
+                                              onClick={() =>
+                                                runMgcpAction({
+                                                  url: "/api/enrollment/mgcp/leads",
+                                                  method: "DELETE",
+                                                  body: { id: lead.id },
+                                                })
+                                              }
+                                            >
+                                              <Trash2 className="w-4 h-4 text-rose-600" />
+                                            </Button>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </CardBody>
+                                  </Card>
+                                </div>
+                              </>
+                            ) : (
+                              <p className="text-sm text-slate-500">Select a belt to manage details.</p>
+                            )}
+                          </CardBody>
+                        </Card>
+
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {mgcpSection === "random" && (
+                  <Card>
+                    <CardHeader>
+                      <h3 className="text-sm font-semibold text-slate-700">Random Leads</h3>
+                      <p className="text-xs text-slate-500">Leads collected from anywhere.</p>
+                    </CardHeader>
+                    <CardBody className="space-y-3">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <Input
+                          label="Lead name"
+                          value={randomLeadForm.name}
+                          onChange={(event) =>
+                            setRandomLeadForm((prev) => ({ ...prev, name: event.target.value }))
+                          }
+                        />
+                        <Input
+                          label="Phone"
+                          value={randomLeadForm.phone}
+                          onChange={(event) =>
+                            setRandomLeadForm((prev) => ({ ...prev, phone: event.target.value }))
+                          }
+                        />
+                        <Input
+                          label="WhatsApp"
+                          value={randomLeadForm.whatsapp}
+                          onChange={(event) =>
+                            setRandomLeadForm((prev) => ({ ...prev, whatsapp: event.target.value }))
+                          }
+                        />
+                        <Input
+                          label="Location"
+                          value={randomLeadForm.location}
+                          onChange={(event) =>
+                            setRandomLeadForm((prev) => ({ ...prev, location: event.target.value }))
+                          }
+                        />
+                        <Input
+                          label="Source"
+                          value={randomLeadForm.source}
+                          onChange={(event) =>
+                            setRandomLeadForm((prev) => ({ ...prev, source: event.target.value }))
+                          }
+                        />
+                        <Input
+                          label="Notes"
+                          value={randomLeadForm.notes}
+                          onChange={(event) =>
+                            setRandomLeadForm((prev) => ({ ...prev, notes: event.target.value }))
+                          }
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        disabled={!randomLeadForm.name || mgcpActionState.saving}
+                        onClick={() =>
+                          runMgcpAction({
+                            url: "/api/enrollment/mgcp/leads",
+                            method: "POST",
+                            body: { ...randomLeadForm, category: "MGCP Lead" },
+                            afterSuccess: () =>
+                              setRandomLeadForm({
+                                name: "",
+                                phone: "",
+                                whatsapp: "",
+                                location: "",
+                                source: "",
+                                notes: "",
+                              }),
+                          })
+                        }
+                      >
+                        Add Random Lead
+                      </Button>
+                      <div className="space-y-2 text-sm">
+                        {mgcpRandomLeads.length ? (
+                          mgcpRandomLeads.map((lead) => (
+                            <div
+                              key={lead.id}
+                              className="flex items-center justify-between rounded-lg border border-slate-200 px-2 py-1"
+                            >
+                              <div>
+                                <p className="font-medium text-slate-700">{lead.name}</p>
+                                <p className="text-xs text-slate-500">{lead.phone || "No phone"}</p>
+                                <p className="text-[11px] font-semibold text-teal-600">
+                                  {lead.category || "MGCP Lead"}
+                                </p>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() =>
+                                  runMgcpAction({
+                                    url: "/api/enrollment/mgcp/leads",
+                                    method: "DELETE",
+                                    body: { id: lead.id },
+                                  })
+                                }
+                              >
+                                <Trash2 className="w-4 h-4 text-rose-600" />
+                              </Button>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-sm text-slate-500">No random leads yet.</p>
+                        )}
+                      </div>
+                    </CardBody>
+                  </Card>
+                )}
+              </main>
+            </div>
+          </div>
+        </div>
       )}
 
       {isAddOpen && (
@@ -1149,12 +2840,24 @@ const GuardianRelationshipManager = () => {
         </div>
       )}
 
-      {selectedGuardian && (
-        <GuardianDetailView
-          guardian={selectedGuardian}
-          onClose={() => setSelectedGuardian(null)}
-        />
-      )}
+      {selectedGuardian &&
+        (selectedGuardianGroup === "ongoing" ? (
+          <OngoingGuardianDetailView
+            guardian={selectedGuardian}
+            onClose={() => {
+              setSelectedGuardian(null);
+              setSelectedGuardianGroup(null);
+            }}
+          />
+        ) : (
+          <ProbableGuardianDetailView
+            guardian={selectedGuardian}
+            onClose={() => {
+              setSelectedGuardian(null);
+              setSelectedGuardianGroup(null);
+            }}
+          />
+        ))}
     </div>
   );
 };

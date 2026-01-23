@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 import { useSession } from "next-auth/react";
 import { AlertTriangle, RefreshCw, ShieldAlert, X } from "lucide-react";
@@ -36,6 +36,13 @@ const IPR_METRICS = [
   { key: "languagePersonality", label: "Language & Personality" },
   { key: "willSkill", label: "Will Skill" },
 ];
+const DATE_FILTERS = [
+  { key: "today", label: "Today" },
+  { key: "yesterday", label: "Yesterday" },
+  { key: "last_week", label: "Last week" },
+  { key: "this_month", label: "This month" },
+  { key: "last_month", label: "Last month" },
+];
 
 const CATEGORY_LABELS = AD_CATEGORIES.reduce((acc, item) => {
   acc[item.key] = item.label;
@@ -50,6 +57,25 @@ const toLocalInput = (date = new Date()) =>
   `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}T${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
 
 const toMonthInput = (date = new Date()) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}`;
+
+const startOfDay = (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+const endOfDay = (date) =>
+  new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+
+const parseMonthValue = (value) => {
+  const parts = String(value || "").split("-");
+  if (parts.length !== 2) return null;
+  const year = Number(parts[0]);
+  const month = Number(parts[1]);
+  if (!Number.isFinite(year) || !Number.isFinite(month)) return null;
+  return { year, monthIndex: month - 1 };
+};
+
+const rangeFromMonth = (year, monthIndex) => ({
+  start: new Date(year, monthIndex, 1),
+  end: new Date(year, monthIndex + 1, 0, 23, 59, 59, 999),
+});
 
 const formatDateTime = (value) => {
   if (!value) return "-";
@@ -74,12 +100,15 @@ export default function AdsPage() {
     evidence: "",
     notes: "",
   });
+  const [evidenceFile, setEvidenceFile] = useState(null);
+  const evidenceInputRef = useRef(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [query, setQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [monthFilter, setMonthFilter] = useState(toMonthInput());
+  const [dateFilter, setDateFilter] = useState("this_month");
   const [convertTarget, setConvertTarget] = useState(null);
   const [convertForm, setConvertForm] = useState({ title: "", note: "", l1AssigneeId: "" });
   const [convertBusy, setConvertBusy] = useState(false);
@@ -87,6 +116,7 @@ export default function AdsPage() {
   const [showIprModal, setShowIprModal] = useState(false);
   const [iprDate, setIprDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [notesTarget, setNotesTarget] = useState(null);
+  const [evidenceTarget, setEvidenceTarget] = useState(null);
 
   const { data, error: loadError, isLoading, mutate } = useSWR("/api/managersCommon/ads", fetcher);
   const { data: usersData } = useSWR("/api/member/users", fetcher, { dedupingInterval: 60000 });
@@ -120,6 +150,48 @@ export default function AdsPage() {
 
   const unauthorized = loadError?.status === 401;
 
+  const applyDateFilter = (key) => {
+    setDateFilter(key);
+    if (key === "this_month") {
+      setMonthFilter(toMonthInput());
+    }
+    if (key === "last_month") {
+      const prev = new Date();
+      prev.setMonth(prev.getMonth() - 1);
+      setMonthFilter(toMonthInput(prev));
+    }
+  };
+
+  const resolveDateRange = (filterKey) => {
+    const today = new Date();
+    if (filterKey === "today") {
+      return { start: startOfDay(today), end: endOfDay(today) };
+    }
+    if (filterKey === "yesterday") {
+      const d = new Date(today);
+      d.setDate(d.getDate() - 1);
+      return { start: startOfDay(d), end: endOfDay(d) };
+    }
+    if (filterKey === "last_week") {
+      const end = endOfDay(today);
+      const start = startOfDay(today);
+      start.setDate(start.getDate() - 6);
+      return { start, end };
+    }
+    if (filterKey === "this_month") {
+      return rangeFromMonth(today.getFullYear(), today.getMonth());
+    }
+    if (filterKey === "last_month") {
+      const d = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+      return rangeFromMonth(d.getFullYear(), d.getMonth());
+    }
+    if (filterKey === "custom") {
+      const parsed = parseMonthValue(monthFilter);
+      return parsed ? rangeFromMonth(parsed.year, parsed.monthIndex) : null;
+    }
+    return null;
+  };
+
   const filteredEntries = useMemo(() => {
     const queryText = query.trim().toLowerCase();
     const monthValue = monthFilter ? monthFilter.split("-") : [];
@@ -150,6 +222,33 @@ export default function AdsPage() {
       return true;
     });
   }, [entries, categoryFilter, query, monthFilter]);
+
+  const ledgerEntries = useMemo(() => {
+    const queryText = query.trim().toLowerCase();
+    const range = resolveDateRange(dateFilter);
+    return entries.filter((entry) => {
+      if (categoryFilter !== "all" && entry.category !== categoryFilter) return false;
+      if (queryText) {
+        const haystack = [
+          entry.memberName,
+          entry.createdByName,
+          entry.evidence,
+          entry.notes,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        if (!haystack.includes(queryText)) return false;
+      }
+      if (range) {
+        const baseDate = entry.occurredAt || entry.createdAt;
+        const parsed = baseDate ? new Date(baseDate) : null;
+        if (!parsed || Number.isNaN(parsed.getTime())) return false;
+        if (parsed < range.start || parsed > range.end) return false;
+      }
+      return true;
+    });
+  }, [entries, categoryFilter, query, dateFilter, monthFilter]);
 
   const memberTotals = useMemo(() => {
     const map = new Map();
@@ -191,30 +290,33 @@ export default function AdsPage() {
       setTimeout(() => setError(""), 3000);
       return;
     }
-    if (!form.memberId || !form.category || !form.occurredAt || !form.evidence.trim()) {
-      setError("Member, category, time, and evidence are required.");
+    if (!form.memberId || !form.category || !form.occurredAt || (!form.evidence.trim() && !evidenceFile)) {
+      setError("Member, category, time, and evidence text or photo are required.");
       setTimeout(() => setError(""), 3000);
       return;
     }
 
     setSaving(true);
     try {
+      const formPayload = new FormData();
+      formPayload.append("memberId", String(form.memberId));
+      formPayload.append("category", form.category);
+      formPayload.append("occurredAt", form.occurredAt);
+      formPayload.append("evidence", form.evidence.trim());
+      formPayload.append("notes", form.notes.trim());
+      formPayload.append("points", String(POINTS_PER_AD));
+      if (evidenceFile) formPayload.append("evidenceFile", evidenceFile);
+
       const res = await fetch("/api/managersCommon/ads", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          memberId: Number(form.memberId),
-          category: form.category,
-          occurredAt: form.occurredAt,
-          evidence: form.evidence.trim(),
-          notes: form.notes.trim(),
-          points: POINTS_PER_AD,
-        }),
+        body: formPayload,
       });
-      const payload = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(payload?.error || "Failed to save AD.");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "Failed to save AD.");
       setMessage("AD logged successfully.");
       resetForm();
+      setEvidenceFile(null);
+      if (evidenceInputRef.current) evidenceInputRef.current.value = "";
       await mutate();
     } catch (err) {
       console.error(err);
@@ -248,6 +350,7 @@ export default function AdsPage() {
   const closeIprModal = () => setShowIprModal(false);
 
   const closeNotes = () => setNotesTarget(null);
+  const closeEvidence = () => setEvidenceTarget(null);
 
   const handleToggleHidden = async (entry) => {
     if (!entry || !isAdmin) return;
@@ -452,6 +555,23 @@ export default function AdsPage() {
                   disabled={!canWrite}
                 />
               </div>
+              <div className="md:col-span-1">
+                <label className="block text-sm font-medium text-gray-700" htmlFor="ad-evidence-file">
+                  Evidence photo
+                </label>
+                <input
+                  id="ad-evidence-file"
+                  ref={evidenceInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0] || null;
+                    setEvidenceFile(file);
+                  }}
+                  disabled={!canWrite}
+                />
+              </div>
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700" htmlFor="ad-notes">
                   Notes (optional)
@@ -501,7 +621,10 @@ export default function AdsPage() {
                 type="month"
                 className="rounded-lg border border-gray-300 px-2 py-1 text-sm"
                 value={monthFilter}
-                onChange={(event) => setMonthFilter(event.target.value)}
+                onChange={(event) => {
+                  setMonthFilter(event.target.value);
+                  setDateFilter("custom");
+                }}
               />
             </div>
             <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-3">
@@ -533,38 +656,59 @@ export default function AdsPage() {
 
       <Card>
         <CardHeader>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="text-base font-semibold text-gray-900">AD ledger</h2>
-              <p className="text-sm text-gray-600">Filter, review evidence, and escalate recurring deviations.</p>
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-gray-900">AD ledger</h2>
+                <p className="text-sm text-gray-600">Filter, review evidence, and escalate recurring deviations.</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="text"
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  placeholder="Search name or evidence"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                />
+                <select
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  value={categoryFilter}
+                  onChange={(event) => setCategoryFilter(event.target.value)}
+                >
+                  <option value="all">All categories</option>
+                  {AD_CATEGORIES.map((category) => (
+                    <option key={category.key} value={category.key}>
+                      {category.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <input
-                type="text"
-                className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                placeholder="Search name or evidence"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-              />
-              <select
-                className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                value={categoryFilter}
-                onChange={(event) => setCategoryFilter(event.target.value)}
-              >
-                <option value="all">All categories</option>
-                {AD_CATEGORIES.map((category) => (
-                  <option key={category.key} value={category.key}>
-                    {category.label}
-                  </option>
-                ))}
-              </select>
+              {DATE_FILTERS.map((filter) => {
+                const active = dateFilter === filter.key;
+                return (
+                  <button
+                    key={filter.key}
+                    type="button"
+                    onClick={() => applyDateFilter(filter.key)}
+                    className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                      active
+                        ? "border-slate-900 bg-slate-900 text-white"
+                        : "border-gray-200 bg-white text-gray-600 hover:border-slate-300 hover:text-slate-800"
+                    }`}
+                  >
+                    {filter.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </CardHeader>
         <CardBody>
           {isLoading ? (
             <p className="text-sm text-gray-600">Loading ADs...</p>
-          ) : filteredEntries.length === 0 ? (
+          ) : ledgerEntries.length === 0 ? (
             <p className="text-sm text-gray-600">No ADs logged for the current filters.</p>
           ) : (
             <div className="overflow-x-auto">
@@ -583,7 +727,7 @@ export default function AdsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {filteredEntries.map((entry) => (
+                  {ledgerEntries.map((entry) => (
                     <tr key={entry.id} className="align-top">
                       <td className="px-3 py-2 text-gray-900">{entry.memberName || `User #${entry.memberId}`}</td>
                       <td className="px-3 py-2 text-gray-700">
@@ -591,7 +735,9 @@ export default function AdsPage() {
                       </td>
                       <td className="px-3 py-2 text-gray-600">{formatDateTime(entry.occurredAt)}</td>
                       <td className="px-3 py-2 text-gray-600">
-                        <span className="block max-w-[220px] truncate">{entry.evidence || "-"}</span>
+                        <span className="block max-w-[220px] truncate">
+                          {entry.evidence || (entry.evidenceUrl ? "Photo evidence" : "-")}
+                        </span>
                       </td>
                       <td className="px-3 py-2 text-gray-700">-{Math.abs(entry.points ?? POINTS_PER_AD)}</td>
                       <td className="px-3 py-2 text-gray-600">{entry.createdByName || "-"}</td>
@@ -616,6 +762,14 @@ export default function AdsPage() {
                       )}
                       <td className="px-3 py-2">
                         <div className="flex flex-wrap items-center gap-2">
+                          <Button
+                            size="xs"
+                            variant="light"
+                            onClick={() => setEvidenceTarget(entry)}
+                            disabled={!entry.evidenceUrl}
+                          >
+                            Evidence
+                          </Button>
                           {entry.escalationMatterId ? (
                             <span className="text-xs text-gray-500">-</span>
                           ) : (
@@ -819,6 +973,50 @@ export default function AdsPage() {
               <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 whitespace-pre-wrap">
                 {notesTarget.notes?.trim() || "No notes added."}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {evidenceTarget && (
+        <div className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-3xl rounded-2xl bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">AD Evidence</h3>
+                <p className="text-xs text-gray-500">
+                  {evidenceTarget.memberName || `User #${evidenceTarget.memberId}`} -{" "}
+                  {CATEGORY_LABELS[evidenceTarget.category] || evidenceTarget.category}
+                </p>
+              </div>
+              <button
+                className="text-gray-500 hover:text-gray-700"
+                onClick={closeEvidence}
+                type="button"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="px-5 py-4">
+              {evidenceTarget.evidenceUrl ? (
+                <div className="space-y-3">
+                  <img
+                    src={evidenceTarget.evidenceUrl}
+                    alt="AD evidence"
+                    className="w-full max-h-[65vh] object-contain rounded-lg border border-gray-200"
+                  />
+                  <a
+                    href={evidenceTarget.evidenceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-teal-600 hover:text-teal-700 underline"
+                  >
+                    Open full image
+                  </a>
+                </div>
+              ) : (
+                <p className="text-sm text-gray-600">No evidence image attached.</p>
+              )}
             </div>
           </div>
         </div>

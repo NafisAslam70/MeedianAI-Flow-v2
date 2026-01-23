@@ -31,8 +31,9 @@ const studentSelect = {
   notes: students.notes,
 };
 
-const parseId = (params) => {
-  const raw = params?.id;
+const parseId = async (params) => {
+  const resolvedParams = await Promise.resolve(params);
+  const raw = resolvedParams?.id;
   const id = Number(raw);
   if (!raw || Number.isNaN(id)) return null;
   return id;
@@ -48,7 +49,7 @@ const fetchStudent = async (id) => {
 };
 
 export async function GET(_request, { params }) {
-  const id = parseId(params);
+  const id = await parseId(params);
   if (!id) {
     return NextResponse.json({ error: "Invalid student id" }, { status: 400 });
   }
@@ -62,7 +63,7 @@ export async function GET(_request, { params }) {
 }
 
 export async function PATCH(request, { params }) {
-  const id = parseId(params);
+  const id = await parseId(params);
   if (!id) {
     return NextResponse.json({ error: "Invalid student id" }, { status: 400 });
   }
@@ -109,7 +110,7 @@ export async function PATCH(request, { params }) {
 }
 
 export async function DELETE(request, { params }) {
-  const id = parseId(params);
+  const id = await parseId(params);
   if (!id) {
     return NextResponse.json({ error: "Invalid student id" }, { status: 400 });
   }

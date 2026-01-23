@@ -4,6 +4,8 @@ import { db } from "@/lib/db";
 import { memberAds, users, escalationsMatters, managerSectionGrants } from "@/lib/schema";
 import { and, desc, eq } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
+import { writeFile } from "fs/promises";
+import path from "path";
 
 const CATEGORY_OPTIONS = new Set([
   "punctuality",
@@ -33,6 +35,7 @@ const mapEntry = (row) => ({
   category: row.category,
   occurredAt: toIso(row.occurredAt),
   evidence: row.evidence,
+  evidenceUrl: row.evidenceUrl,
   notes: row.notes,
   points: row.points,
   isHidden: row.isHidden,
@@ -78,6 +81,7 @@ export async function GET(req) {
       category: memberAds.category,
       occurredAt: memberAds.occurredAt,
       evidence: memberAds.evidence,
+      evidenceUrl: memberAds.evidenceUrl,
       notes: memberAds.notes,
       points: memberAds.points,
       isHidden: memberAds.isHidden,
@@ -115,26 +119,73 @@ export async function POST(req) {
   }
 
   let body;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  let memberId;
+  let category;
+  let occurredAtRaw = "";
+  let evidence = "";
+  let notes = "";
+  let points = 5;
+  let evidenceFile = null;
+
+  const contentType = req.headers.get("content-type") || "";
+  if (contentType.includes("multipart/form-data")) {
+    let formData;
+    try {
+      formData = await req.formData();
+    } catch {
+      return NextResponse.json({ error: "Invalid form data" }, { status: 400 });
+    }
+    memberId = Number(formData.get("memberId"));
+    category = normalizeCategory(formData.get("category"));
+    occurredAtRaw = String(formData.get("occurredAt") || "").trim();
+    evidence = String(formData.get("evidence") || "").trim();
+    notes = String(formData.get("notes") || "").trim();
+    points = Number.isFinite(Number(formData.get("points"))) ? Number(formData.get("points")) : 5;
+    evidenceFile = formData.get("evidenceFile");
+  } else {
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    }
+    memberId = Number(body?.memberId);
+    category = normalizeCategory(body?.category);
+    occurredAtRaw = String(body?.occurredAt || "").trim();
+    evidence = typeof body?.evidence === "string" ? body.evidence.trim() : "";
+    notes = typeof body?.notes === "string" ? body.notes.trim() : "";
+    points = Number.isFinite(Number(body?.points)) ? Number(body.points) : 5;
   }
 
-  const memberId = Number(body?.memberId);
-  const category = normalizeCategory(body?.category);
-  const occurredAtRaw = String(body?.occurredAt || "").trim();
-  const evidence = typeof body?.evidence === "string" ? body.evidence.trim() : "";
-  const notes = typeof body?.notes === "string" ? body.notes.trim() : "";
-  const points = Number.isFinite(Number(body?.points)) ? Number(body.points) : 5;
-
-  if (!memberId || !category || !occurredAtRaw || !evidence) {
-    return NextResponse.json({ error: "memberId, category, occurredAt, and evidence are required" }, { status: 400 });
+  if (!memberId || !category || !occurredAtRaw) {
+    return NextResponse.json({ error: "memberId, category, and occurredAt are required" }, { status: 400 });
   }
 
   const occurredAt = new Date(occurredAtRaw);
   if (Number.isNaN(occurredAt.getTime())) {
     return NextResponse.json({ error: "Invalid occurredAt value" }, { status: 400 });
+  }
+
+  let evidenceUrl = null;
+  if (evidenceFile && evidenceFile instanceof File) {
+    const validTypes = ["image/jpeg", "image/png", "image/webp"];
+    if (!validTypes.includes(evidenceFile.type)) {
+      return NextResponse.json({ error: "Evidence image must be JPG, PNG, or WEBP." }, { status: 400 });
+    }
+    if (evidenceFile.size > 5 * 1024 * 1024) {
+      return NextResponse.json({ error: "Evidence image must be less than 5MB." }, { status: 400 });
+    }
+    const fileName = `${memberId}-${Date.now()}${path.extname(evidenceFile.name)}`;
+    const filePath = path.join(process.cwd(), "public", "uploads", "ad-evidence", fileName);
+    const buffer = Buffer.from(await evidenceFile.arrayBuffer());
+    await writeFile(filePath, buffer);
+    evidenceUrl = `/uploads/ad-evidence/${fileName}`;
+  }
+
+  if (!evidence && !evidenceUrl) {
+    return NextResponse.json(
+      { error: "Evidence text or an evidence image is required" },
+      { status: 400 }
+    );
   }
 
   const [member] = await db.select({ id: users.id }).from(users).where(eq(users.id, memberId));
@@ -147,6 +198,7 @@ export async function POST(req) {
     category,
     occurredAt,
     evidence: evidence || null,
+    evidenceUrl,
     notes: notes || null,
     points: Number.isFinite(points) && points > 0 ? points : 5,
     createdBy: Number(session.user.id),

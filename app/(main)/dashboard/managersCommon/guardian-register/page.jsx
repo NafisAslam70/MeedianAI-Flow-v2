@@ -49,6 +49,8 @@ const initialForm = {
   className: "",
   purpose: "",
   feesSubmitted: false,
+  satisfactionIslamic: "",
+  satisfactionAcademic: "",
   inTime: "",
   outTime: "",
 };
@@ -250,8 +252,8 @@ export default function GuardianRegisterPage() {
           </div>
         </CardHeader>
         <CardBody>
-          <form className="grid gap-3 md:grid-cols-2 lg:grid-cols-3" onSubmit={handleSubmit}>
-            <div className="md:col-span-1">
+          <form className="flex flex-wrap items-end gap-3" onSubmit={handleSubmit}>
+            <div className="min-w-[200px] flex-1">
               <label htmlFor="guardian-name" className="block text-sm font-medium text-gray-700">
                 Guardian name
               </label>
@@ -265,7 +267,7 @@ export default function GuardianRegisterPage() {
                 placeholder="Visitor / Guardian"
               />
             </div>
-            <div className="md:col-span-1">
+            <div className="min-w-[200px] flex-1">
               <label htmlFor="student-name" className="block text-sm font-medium text-gray-700">
                 Student name
               </label>
@@ -279,7 +281,7 @@ export default function GuardianRegisterPage() {
                 placeholder="Student"
               />
             </div>
-            <div className="md:col-span-1">
+            <div className="min-w-[200px] flex-1">
               <label htmlFor="class-name" className="block text-sm font-medium text-gray-700">
                 Class / Section
               </label>
@@ -292,7 +294,7 @@ export default function GuardianRegisterPage() {
                 placeholder="e.g. MSP - Grade 3"
               />
             </div>
-            <div className="md:col-span-2">
+            <div className="min-w-[240px] flex-[2]">
               <label htmlFor="purpose" className="block text-sm font-medium text-gray-700">
                 Purpose of visit
               </label>
@@ -306,11 +308,11 @@ export default function GuardianRegisterPage() {
                 {purposeOptions.map((option) => (
                   <option key={option} value={option}>
                     {option}
-                  </option>
-                ))}
+                </option>
+              ))}
               </select>
             </div>
-            <div>
+            <div className="min-w-[160px]">
               <span className="block text-sm font-medium text-gray-700">Fees submitted</span>
               <label className="mt-2 inline-flex items-center gap-2 text-sm text-gray-700" htmlFor="fees-submitted">
                 <input
@@ -323,7 +325,43 @@ export default function GuardianRegisterPage() {
                 Yes
               </label>
             </div>
-            <div>
+            <div className="min-w-[180px]">
+              <label htmlFor="satisfaction-islamic" className="block text-sm font-medium text-gray-700">
+                Islamic satisfaction
+              </label>
+              <select
+                id="satisfaction-islamic"
+                className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm"
+                value={form.satisfactionIslamic}
+                onChange={updateFormField("satisfactionIslamic")}
+              >
+                <option value="">Not captured</option>
+                <option value="5">5 - Excellent</option>
+                <option value="4">4 - Good</option>
+                <option value="3">3 - Okay</option>
+                <option value="2">2 - Needs work</option>
+                <option value="1">1 - Poor</option>
+              </select>
+            </div>
+            <div className="min-w-[180px]">
+              <label htmlFor="satisfaction-academic" className="block text-sm font-medium text-gray-700">
+                Academic satisfaction
+              </label>
+              <select
+                id="satisfaction-academic"
+                className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm"
+                value={form.satisfactionAcademic}
+                onChange={updateFormField("satisfactionAcademic")}
+              >
+                <option value="">Not captured</option>
+                <option value="5">5 - Excellent</option>
+                <option value="4">4 - Good</option>
+                <option value="3">3 - Okay</option>
+                <option value="2">2 - Needs work</option>
+                <option value="1">1 - Poor</option>
+              </select>
+            </div>
+            <div className="min-w-[140px]">
               <label htmlFor="in-time" className="block text-sm font-medium text-gray-700">
                 In time
               </label>
@@ -335,7 +373,7 @@ export default function GuardianRegisterPage() {
                 onChange={updateFormField("inTime")}
               />
             </div>
-            <div>
+            <div className="min-w-[140px]">
               <label htmlFor="out-time" className="block text-sm font-medium text-gray-700">
                 Out time
               </label>
@@ -347,7 +385,7 @@ export default function GuardianRegisterPage() {
                 onChange={updateFormField("outTime")}
               />
             </div>
-            <div className="md:col-span-2 lg:col-span-3 flex items-center gap-3 pt-1">
+            <div className="flex flex-wrap items-center gap-3 pt-1 w-full">
               <Button type="submit" disabled={saving}>
                 {saving ? "Saving…" : "Add entry"}
               </Button>
@@ -398,6 +436,8 @@ export default function GuardianRegisterPage() {
                   <th className="px-3 py-2 text-left font-semibold text-gray-700">Class</th>
                   <th className="px-3 py-2 text-left font-semibold text-gray-700">Purpose</th>
                   <th className="px-3 py-2 text-left font-semibold text-gray-700">Fees submitted</th>
+                  <th className="px-3 py-2 text-left font-semibold text-gray-700">Islamic</th>
+                  <th className="px-3 py-2 text-left font-semibold text-gray-700">Academic</th>
                   <th className="px-3 py-2 text-left font-semibold text-gray-700">In</th>
                   <th className="px-3 py-2 text-left font-semibold text-gray-700">Out</th>
                   <th className="px-3 py-2 text-right font-semibold text-gray-700">Actions</th>
@@ -406,13 +446,13 @@ export default function GuardianRegisterPage() {
               <tbody className="divide-y divide-gray-100">
                 {isLoading ? (
                   <tr>
-                    <td colSpan={8} className="px-3 py-4 text-center text-sm text-gray-500">
+                    <td colSpan={10} className="px-3 py-4 text-center text-sm text-gray-500">
                       Loading entries…
                     </td>
                   </tr>
                 ) : entries.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-3 py-4 text-center text-sm text-gray-500">
+                    <td colSpan={10} className="px-3 py-4 text-center text-sm text-gray-500">
                       No entries captured for this date yet.
                     </td>
                   </tr>
@@ -424,6 +464,12 @@ export default function GuardianRegisterPage() {
                       <td className="px-3 py-2 text-sm text-gray-600">{entry.className || "—"}</td>
                       <td className="px-3 py-2 text-sm text-gray-600">{entry.purpose || "—"}</td>
                       <td className="px-3 py-2 text-sm text-gray-600">{entry.feesSubmitted ? "Yes" : "No"}</td>
+                      <td className="px-3 py-2 text-sm text-gray-600">
+                        {entry.satisfactionIslamic ?? "—"}
+                      </td>
+                      <td className="px-3 py-2 text-sm text-gray-600">
+                        {entry.satisfactionAcademic ?? "—"}
+                      </td>
                       <td className="px-3 py-2 text-sm text-emerald-600">{formatTime(entry.inAt)}</td>
                       <td className="px-3 py-2 text-sm text-amber-600">{formatTime(entry.outAt)}</td>
                       <td className="px-3 py-2 text-right">
