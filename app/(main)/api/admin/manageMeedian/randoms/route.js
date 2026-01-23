@@ -14,6 +14,8 @@ const FLAG_KEYS = {
   chatMuteManager: "chat_mute_allow_managers",
   chatMuteMember: "chat_mute_allow_members",
   leaveProof: "leave_proof_required",
+  leaveNoticeAnytime: "leave_notice_anytime",
+  leaveNoticeOneDay: "leave_notice_one_day",
 };
 
 const FLAG_DEFAULTS = {
@@ -26,6 +28,8 @@ const FLAG_DEFAULTS = {
   chatMuteAllowManagers: true,
   chatMuteAllowMembers: true,
   leaveProofRequired: false,
+  leaveNoticeAnytime: false,
+  leaveNoticeOneDay: false,
 };
 
 async function requireAccess({ write = false } = {}) {
@@ -97,6 +101,12 @@ export async function GET() {
       leaveProofRequired: map.has(FLAG_KEYS.leaveProof)
         ? !!map.get(FLAG_KEYS.leaveProof)
         : FLAG_DEFAULTS.leaveProofRequired,
+      leaveNoticeAnytime: map.has(FLAG_KEYS.leaveNoticeAnytime)
+        ? !!map.get(FLAG_KEYS.leaveNoticeAnytime)
+        : FLAG_DEFAULTS.leaveNoticeAnytime,
+      leaveNoticeOneDay: map.has(FLAG_KEYS.leaveNoticeOneDay)
+        ? !!map.get(FLAG_KEYS.leaveNoticeOneDay)
+        : FLAG_DEFAULTS.leaveNoticeOneDay,
     },
     { status: 200 }
   );
@@ -146,6 +156,12 @@ export async function POST(req) {
   if (body.hasOwnProperty("leaveProofRequired")) {
     updates.push({ key: FLAG_KEYS.leaveProof, value: !!body.leaveProofRequired });
   }
+  if (body.hasOwnProperty("leaveNoticeAnytime")) {
+    updates.push({ key: FLAG_KEYS.leaveNoticeAnytime, value: !!body.leaveNoticeAnytime });
+  }
+  if (body.hasOwnProperty("leaveNoticeOneDay")) {
+    updates.push({ key: FLAG_KEYS.leaveNoticeOneDay, value: !!body.leaveNoticeOneDay });
+  }
 
   if (!updates.length) {
     return NextResponse.json({ error: "No updates provided" }, { status: 400 });
@@ -175,6 +191,8 @@ export async function POST(req) {
       chatMuteAllowManagers: updates.find((item) => item.key === FLAG_KEYS.chatMuteManager)?.value ?? undefined,
       chatMuteAllowMembers: updates.find((item) => item.key === FLAG_KEYS.chatMuteMember)?.value ?? undefined,
       leaveProofRequired: updates.find((item) => item.key === FLAG_KEYS.leaveProof)?.value ?? undefined,
+      leaveNoticeAnytime: updates.find((item) => item.key === FLAG_KEYS.leaveNoticeAnytime)?.value ?? undefined,
+      leaveNoticeOneDay: updates.find((item) => item.key === FLAG_KEYS.leaveNoticeOneDay)?.value ?? undefined,
     },
     { status: 200 }
   );

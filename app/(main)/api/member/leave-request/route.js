@@ -2,11 +2,13 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { users, leaveRequests, messages, systemFlags } from "@/lib/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, inArray } from "drizzle-orm";
 import { writeFile } from "fs/promises";
 import path from "path";
 
 const LEAVE_PROOF_FLAG_KEY = "leave_proof_required";
+const LEAVE_NOTICE_ANYTIME_KEY = "leave_notice_anytime";
+const LEAVE_NOTICE_ONE_DAY_KEY = "leave_notice_one_day";
 
 async function isProofRequired() {
   try {
@@ -19,6 +21,23 @@ async function isProofRequired() {
   } catch (err) {
     console.error("Failed to read leave proof flag:", err);
     return false;
+  }
+}
+
+async function getLeaveNoticePolicy() {
+  try {
+    const rows = await db
+      .select({ key: systemFlags.key, value: systemFlags.value })
+      .from(systemFlags)
+      .where(inArray(systemFlags.key, [LEAVE_NOTICE_ANYTIME_KEY, LEAVE_NOTICE_ONE_DAY_KEY]));
+    const map = new Map(rows.map((row) => [row.key, row.value]));
+    const allowAnytime = map.has(LEAVE_NOTICE_ANYTIME_KEY) ? !!map.get(LEAVE_NOTICE_ANYTIME_KEY) : false;
+    const oneDay = map.has(LEAVE_NOTICE_ONE_DAY_KEY) ? !!map.get(LEAVE_NOTICE_ONE_DAY_KEY) : false;
+    const minNoticeDays = allowAnytime ? 0 : oneDay ? 1 : 2;
+    return { allowAnytime, minNoticeDays };
+  } catch (err) {
+    console.error("Failed to read leave notice policy:", err);
+    return { allowAnytime: false, minNoticeDays: 2 };
   }
 }
 
@@ -68,6 +87,7 @@ export async function GET(req) {
         requests,
         config: {
           proofRequired: await isProofRequired(),
+          noticePolicy: await getLeaveNoticePolicy(),
         },
       },
       { status: 200, headers: { "Content-Type": "application/json" } }
@@ -106,6 +126,7 @@ export async function POST(req) {
     const resolvedCategory = allowedCategories.includes(category) ? category : "personal";
 
     const proofRequired = await isProofRequired();
+    const noticePolicy = await getLeaveNoticePolicy();
 
     // Validate dates
     const start = new Date(startDate);
@@ -182,9 +203,10 @@ export async function POST(req) {
         );
       }
     } else {
-      if (diffDays < 2) {
+      if (!noticePolicy.allowAnytime && diffDays < noticePolicy.minNoticeDays) {
+        const dayLabel = noticePolicy.minNoticeDays === 1 ? "1 day" : `${noticePolicy.minNoticeDays} days`;
         return NextResponse.json(
-          { error: "This leave type must be applied at least 2 days in advance." },
+          { error: `This leave type must be applied at least ${dayLabel} in advance.` },
           { status: 400 }
         );
       }

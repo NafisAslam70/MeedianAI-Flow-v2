@@ -108,6 +108,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
   const [compiledMessage, setCompiledMessage] = useState("");
   const [leaveHistory, setLeaveHistory] = useState([]);
   const [isLeaveProofRequired, setIsLeaveProofRequired] = useState(false);
+  const [leaveNoticePolicy, setLeaveNoticePolicy] = useState({ allowAnytime: false, minNoticeDays: 2 });
   const [sentMessages, setSentMessages] = useState([]);
   const [users, setUsers] = useState([]);
   const [immediateSupervisor, setImmediateSupervisor] = useState(null);
@@ -137,6 +138,15 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
       return [];
     }
   }, [users, messageData.recipientIds]);
+
+  const leaveNoticeText = useMemo(() => {
+    if (leaveNoticePolicy.allowAnytime) {
+      return "Other leave types can be applied anytime.";
+    }
+    const days = Number.isFinite(leaveNoticePolicy.minNoticeDays) ? leaveNoticePolicy.minNoticeDays : 2;
+    const dayLabel = days === 1 ? "1 day" : `${days} days`;
+    return `Other leave types must be applied at least ${dayLabel} in advance.`;
+  }, [leaveNoticePolicy.allowAnytime, leaveNoticePolicy.minNoticeDays]);
   // Current MRN widget removed from Profile
   // removed selectedWidget (widgets moved to right sidebar quick actions)
 
@@ -228,6 +238,14 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
           : [];
         setLeaveHistory(normalized);
         setIsLeaveProofRequired(Boolean(data?.config?.proofRequired));
+        const noticePolicy = data?.config?.noticePolicy || {};
+        const minNoticeDays = Number.isFinite(Number(noticePolicy.minNoticeDays))
+          ? Number(noticePolicy.minNoticeDays)
+          : 2;
+        setLeaveNoticePolicy({
+          allowAnytime: Boolean(noticePolicy.allowAnytime),
+          minNoticeDays,
+        });
       } catch (err) {
         console.error("Fetch leave history error:", err);
         setError(`Failed to fetch leave history: ${err.message}`);
@@ -562,8 +580,14 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
         return;
       }
     } else {
-      if (diffDays < 2) {
-        setError("This leave type must be applied at least 2 days in advance.");
+      const minNoticeDays = leaveNoticePolicy.allowAnytime
+        ? 0
+        : Number.isFinite(leaveNoticePolicy.minNoticeDays)
+        ? leaveNoticePolicy.minNoticeDays
+        : 2;
+      if (!leaveNoticePolicy.allowAnytime && diffDays < minNoticeDays) {
+        const dayLabel = minNoticeDays === 1 ? "1 day" : `${minNoticeDays} days`;
+        setError(`This leave type must be applied at least ${dayLabel} in advance.`);
         setTimeout(() => setError(""), 3000);
         setIsLoading(false);
         return;
@@ -646,6 +670,14 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
         : [];
       setLeaveHistory(normalized);
       setIsLeaveProofRequired(Boolean(historyData?.config?.proofRequired));
+      const noticePolicy = historyData?.config?.noticePolicy || {};
+      const minNoticeDays = Number.isFinite(Number(noticePolicy.minNoticeDays))
+        ? Number(noticePolicy.minNoticeDays)
+        : 2;
+      setLeaveNoticePolicy({
+        allowAnytime: Boolean(noticePolicy.allowAnytime),
+        minNoticeDays,
+      });
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
       setError(err.message);
@@ -1335,7 +1367,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                         <option value="personal">Personal</option>
                       </select>
                       <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
-                        Health leave: same-day or next-day only. Others require at least 2 days' notice.
+                        Health leave: same-day or next-day only. {leaveNoticeText}
                       </p>
                     </div>
                   </div>

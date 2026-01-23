@@ -26,6 +26,7 @@ export default function RandomsPage() {
   const [isSavingChatMuteManagers, setIsSavingChatMuteManagers] = useState(false);
   const [isSavingChatMuteMembers, setIsSavingChatMuteMembers] = useState(false);
   const [isSavingLeaveProof, setIsSavingLeaveProof] = useState(false);
+  const [isSavingLeaveNotice, setIsSavingLeaveNotice] = useState(false);
 
   const showDayCloseBypass = data?.showDayCloseBypass ?? false;
   const showIprJourney = data?.showIprJourney ?? true;
@@ -36,6 +37,9 @@ export default function RandomsPage() {
   const chatMuteAllowManagers = data?.chatMuteAllowManagers ?? true;
   const chatMuteAllowMembers = data?.chatMuteAllowMembers ?? true;
   const leaveProofRequired = data?.leaveProofRequired ?? false;
+  const leaveNoticeAnytime = data?.leaveNoticeAnytime ?? false;
+  const leaveNoticeOneDay = data?.leaveNoticeOneDay ?? false;
+  const leaveNoticePolicy = leaveNoticeAnytime ? "anytime" : leaveNoticeOneDay ? "one_day" : "two_days";
 
   const updateFlag = async ({ payload, setSaving, successMessage }) => {
     if (setSaving) setSaving(true);
@@ -176,6 +180,18 @@ export default function RandomsPage() {
       successMessage: nextValue
         ? "Supporting documents are now mandatory for new leave requests."
         : "Supporting documents are optional again for leave requests.",
+    });
+  };
+
+  const handleLeaveNoticeChange = (event) => {
+    if (isSavingLeaveNotice) return;
+    const value = event.target.value;
+    const nextAnytime = value === "anytime";
+    const nextOneDay = value === "one_day";
+    updateFlag({
+      payload: { leaveNoticeAnytime: nextAnytime, leaveNoticeOneDay: nextOneDay },
+      setSaving: setIsSavingLeaveNotice,
+      successMessage: "Leave advance notice rule updated.",
     });
   };
 
@@ -322,6 +338,39 @@ export default function RandomsPage() {
             : leaveProofRequired
             ? "Evidence upload is mandatory for new leave submissions."
             : "Members can submit leave without uploading evidence."}
+        </div>
+      </div>
+
+      <div className="max-w-xl rounded-2xl border border-emerald-100 bg-white/90 shadow-sm p-6 space-y-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-800">Leave Advance Notice</h2>
+            <p className="text-sm text-gray-600">
+              Choose how early members must apply for non-health leave. Health leave stays same-day or next-day only.
+            </p>
+          </div>
+          <div className="min-w-[190px]">
+            <select
+              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700"
+              value={leaveNoticePolicy}
+              onChange={handleLeaveNoticeChange}
+              disabled={isLoading || isSavingLeaveNotice}
+            >
+              <option value="two_days">Apply 2 days before</option>
+              <option value="one_day">Apply 1 day before</option>
+              <option value="anytime">Allow anytime</option>
+            </select>
+          </div>
+        </div>
+        <div className="text-sm text-gray-500">
+          Status:{" "}
+          {isLoading
+            ? "Loading…"
+            : leaveNoticePolicy === "anytime"
+            ? "Members can apply for leave anytime."
+            : leaveNoticePolicy === "one_day"
+            ? "Members must apply at least 1 day in advance."
+            : "Members must apply at least 2 days in advance."}
         </div>
       </div>
 
