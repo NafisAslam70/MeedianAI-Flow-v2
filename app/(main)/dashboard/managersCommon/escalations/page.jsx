@@ -29,6 +29,10 @@ const statusStyles = {
     badge: "bg-blue-100 text-blue-700 border-blue-200",
     dot: "bg-blue-500",
   },
+  ON_HOLD: {
+    badge: "bg-orange-100 text-orange-700 border-orange-200",
+    dot: "bg-orange-500",
+  },
   ESCALATED: {
     badge: "bg-purple-100 text-purple-700 border-purple-200",
     dot: "bg-purple-500",
@@ -345,8 +349,13 @@ export default function EscalationsPage() {
     recognition.onend = () => setIsRecording(false);
   };
 
-  const renderList = (rows, { actions = false, variant = "open" } = {}) => {
+  const renderList = (rows, { actions = null, variant = "open" } = {}) => {
     const q = query.trim().toLowerCase();
+    const actionConfig = actions && typeof actions === "object"
+      ? actions
+      : actions
+        ? { canEscalate: true, canClose: true }
+        : null;
     const dataset = (rows || []).filter((m) => {
       if (!q) return true;
       return (
@@ -382,6 +391,10 @@ export default function EscalationsPage() {
           const closedNoteClass = useDarkTheme
             ? "rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-sm text-emerald-200"
             : "rounded-xl bg-emerald-50 p-3 text-sm text-emerald-700";
+          const canEscalate = actionConfig?.canEscalate && m.level === 1 && status !== "CLOSED";
+          const canHold = actionConfig?.canHold && status !== "CLOSED" && status !== "ON_HOLD";
+          const canWithdraw = actionConfig?.canWithdraw && status !== "CLOSED";
+          const canClose = actionConfig?.canClose && status !== "CLOSED";
 
           return (
             <motion.div
@@ -456,13 +469,26 @@ export default function EscalationsPage() {
                   </div>
                 )}
 
-                {actions && (
+                {actionConfig && (
                   <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
                     <div className={`text-xs ${subText}`}>
                       Last updated {formatDateTime(m.updatedAt || m.createdAt)}
                     </div>
                     <div className="flex items-center gap-2">
-                      {m.level === 1 && (
+                      {canHold && (
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 rounded-full border border-orange-200 px-3 py-1 text-xs font-semibold text-orange-700 transition hover:border-orange-300 hover:bg-orange-50"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActionModal({ type: "hold", id: m.id });
+                            setModalNote("");
+                          }}
+                        >
+                          <Clock className="h-3 w-3" /> On hold
+                        </button>
+                      )}
+                      {canEscalate && (
                         <button
                           type="button"
                           className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 transition hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700"
@@ -476,17 +502,32 @@ export default function EscalationsPage() {
                           <ArrowUpRight className="h-3 w-3" /> Escalate to L2
                         </button>
                       )}
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-1 rounded-full bg-teal-600 px-3 py-1 text-xs font-semibold text-white shadow-sm transition hover:bg-teal-500"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setActionModal({ type: "close", id: m.id });
-                          setModalNote("");
-                        }}
-                      >
-                        <CheckCircle className="h-3 w-3" /> Close
-                      </button>
+                      {canWithdraw && (
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 rounded-full border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-50"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActionModal({ type: "withdraw", id: m.id });
+                            setModalNote("");
+                          }}
+                        >
+                          <X className="h-3 w-3" /> Withdraw
+                        </button>
+                      )}
+                      {canClose && (
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 rounded-full bg-teal-600 px-3 py-1 text-xs font-semibold text-white shadow-sm transition hover:bg-teal-500"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActionModal({ type: "close", id: m.id });
+                            setModalNote("");
+                          }}
+                        >
+                          <CheckCircle className="h-3 w-3" /> Close
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}
@@ -929,8 +970,8 @@ export default function EscalationsPage() {
         </div>
       )}
 
-      {tab === "forYou" && renderList(forYou?.matters, { actions: true })}
-      {tab === "mine" && renderList(mine?.matters)}
+      {tab === "forYou" && renderList(forYou?.matters, { actions: { canEscalate: true, canHold: true, canClose: true } })}
+      {tab === "mine" && renderList(mine?.matters, { actions: { canWithdraw: true } })}
       {tab === "openAll" && renderList(openAll?.matters)}
       {tab === "closedAll" && renderList(closedAll?.matters, { actions: false, variant: "closed" })}
 
@@ -1270,7 +1311,13 @@ export default function EscalationsPage() {
               <div className="flex items-center justify-between">
                 <div className="space-y-1">
                   <h3 className="text-lg font-semibold text-slate-900">
-                    {actionModal.type === "escalate" ? "Escalate to level 2" : "Close escalation"}
+                    {actionModal.type === "escalate"
+                      ? "Escalate to level 2"
+                      : actionModal.type === "hold"
+                        ? "Place escalation on hold"
+                        : actionModal.type === "withdraw"
+                          ? "Withdraw escalation"
+                          : "Close escalation"}
                   </h3>
                   <p className="text-xs text-slate-500">Matter #{actionModal.id}</p>
                 </div>
@@ -1336,13 +1383,25 @@ export default function EscalationsPage() {
               ) : (
                 <div className="mt-6 space-y-4">
                   <div className="space-y-2">
-                    <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Closing note</label>
+                    <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      {actionModal.type === "withdraw"
+                        ? "Withdrawal note"
+                        : actionModal.type === "hold"
+                          ? "On-hold note"
+                          : "Closing note"}
+                    </label>
                     <textarea
                       value={modalNote}
                       onChange={(e) => setModalNote(e.target.value)}
                       rows={4}
                       className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
-                      placeholder="Explain why this escalation is resolved."
+                      placeholder={
+                        actionModal.type === "withdraw"
+                          ? "Share why you are withdrawing this escalation (optional)."
+                          : actionModal.type === "hold"
+                            ? "Share why this escalation is on hold (optional)."
+                            : "Explain why this escalation is resolved."
+                      }
                     />
                   </div>
                   <div className="flex justify-end gap-2">
@@ -1355,36 +1414,56 @@ export default function EscalationsPage() {
                     </button>
                     <button
                       type="button"
-                      className="rounded-full bg-rose-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-rose-500"
+                      className={`rounded-full px-4 py-2 text-xs font-semibold text-white shadow-sm transition ${
+                        actionModal.type === "hold"
+                          ? "bg-orange-600 hover:bg-orange-500"
+                          : "bg-rose-600 hover:bg-rose-500"
+                      }`}
                       onClick={async () => {
-                        if (!modalNote.trim()) {
+                        const noteValue = modalNote.trim();
+                        if (actionModal.type === "close" && !noteValue) {
                           setErr("A closing note is required.");
                           return;
                         }
                         setErr("");
                         setMsg("");
                         try {
+                          const section = actionModal.type === "hold"
+                            ? "hold"
+                            : actionModal.type === "withdraw"
+                              ? "withdraw"
+                              : "close";
                           const res = await fetch(
-                            "/api/managersCommon/escalations?section=close",
+                            `/api/managersCommon/escalations?section=${section}`,
                             {
                               method: "PATCH",
                               headers: { "Content-Type": "application/json" },
                               body: JSON.stringify({
                                 id: actionModal.id,
-                                note: modalNote.trim(),
+                                note: noteValue || null,
                               }),
                             }
                           );
                           const d = await res.json();
                           if (!res.ok) throw new Error(d.error || `Failed (${res.status})`);
-                          setMsg(`Escalation #${actionModal.id} closed.`);
+                          if (actionModal.type === "hold") {
+                            setMsg(`Escalation #${actionModal.id} placed on hold.`);
+                          } else if (actionModal.type === "withdraw") {
+                            setMsg(`Escalation #${actionModal.id} withdrawn.`);
+                          } else {
+                            setMsg(`Escalation #${actionModal.id} closed.`);
+                          }
                           setActionModal(null);
                         } catch (e) {
                           setErr(e.message);
                         }
                       }}
                     >
-                      Close escalation
+                      {actionModal.type === "hold"
+                        ? "Place on hold"
+                        : actionModal.type === "withdraw"
+                          ? "Withdraw escalation"
+                          : "Close escalation"}
                     </button>
                   </div>
                 </div>

@@ -417,6 +417,80 @@ export async function PATCH(req) {
       return NextResponse.json({ updated: 1 }, { status: 200 });
     }
 
+    if (section === "hold") {
+      const id = Number(body.id);
+      const note = body.note ? String(body.note).trim() : "";
+      if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+      const [m] = await db.select().from(escalationsMatters).where(eq(escalationsMatters.id, id));
+      if (!m) return NextResponse.json({ error: "not found" }, { status: 404 });
+      if (m.status === "CLOSED") return NextResponse.json({ error: "Already closed" }, { status: 400 });
+      if (!(isAdmin || m.currentAssigneeId === uid)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      const now = new Date();
+      const stepNote = note ? `On hold: ${note}` : "On hold";
+      await db.update(escalationsMatters).set({ status: "ON_HOLD", updatedAt: now }).where(eq(escalationsMatters.id, id));
+      await db.insert(escalationsSteps).values({
+        matterId: id,
+        level: m.level,
+        action: "PROGRESS",
+        fromUserId: uid,
+        toUserId: m.currentAssigneeId,
+        note: stepNote,
+      });
+
+      if (m.ticketId) {
+        const message = note ? `Escalation on hold: ${note.slice(0, 160)}` : "Escalation on hold";
+        await db.insert(ticketActivities).values({
+          ticketId: m.ticketId,
+          authorId: uid,
+          type: "comment",
+          message,
+          metadata: { escalationAction: "ON_HOLD", level: m.level },
+        });
+        await db.update(tickets).set({ updatedAt: now, lastActivityAt: now }).where(eq(tickets.id, m.ticketId));
+      }
+
+      return NextResponse.json({ updated: 1 }, { status: 200 });
+    }
+
+    if (section === "withdraw") {
+      const id = Number(body.id);
+      const note = body.note ? String(body.note).trim() : "";
+      if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+      const [m] = await db.select().from(escalationsMatters).where(eq(escalationsMatters.id, id));
+      if (!m) return NextResponse.json({ error: "not found" }, { status: 404 });
+      if (m.status === "CLOSED") return NextResponse.json({ error: "Already closed" }, { status: 400 });
+      if (!(isAdmin || m.createdById === uid)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      const now = new Date();
+      const closeNote = note ? `Withdrawn by creator: ${note}` : "Withdrawn by creator";
+      await db.update(escalationsMatters).set({ status: "CLOSED", currentAssigneeId: null, updatedAt: now }).where(eq(escalationsMatters.id, id));
+      await db.insert(escalationsSteps).values({ matterId: id, level: m.level, action: "CLOSE", fromUserId: uid, toUserId: null, note: closeNote });
+
+      if (m.ticketId) {
+        const message = note ? `Escalation withdrawn: ${note.slice(0, 120)}` : "Escalation withdrawn";
+        await db
+          .update(tickets)
+          .set({
+            status: "resolved",
+            escalated: false,
+            updatedAt: now,
+            lastActivityAt: now,
+            resolvedAt: now,
+          })
+          .where(eq(tickets.id, m.ticketId));
+        await db.insert(ticketActivities).values({
+          ticketId: m.ticketId,
+          authorId: uid,
+          type: "status_change",
+          message,
+          fromStatus: "escalated",
+          toStatus: "resolved",
+          metadata: { escalationAction: "WITHDRAW", matterId: id },
+        });
+      }
+
+      return NextResponse.json({ updated: 1 }, { status: 200 });
+    }
+
     if (section === "close") {
       const id = Number(body.id);
       const note = String(body.note || "").trim();
