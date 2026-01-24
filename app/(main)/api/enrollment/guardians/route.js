@@ -185,7 +185,7 @@ export async function PUT(request) {
       return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
     }
 
-    const { id, createdBy, createdAt, ...rest } = body || {};
+    const { id, createdBy, createdAt, children, ...rest } = body || {};
     const updateData = {
       ...rest,
       updatedAt: new Date(),
@@ -199,6 +199,32 @@ export async function PUT(request) {
 
     if (!updatedGuardian) {
       return NextResponse.json({ error: "Guardian not found" }, { status: 404 });
+    }
+
+    if (Array.isArray(children)) {
+      await db
+        .delete(enrollmentGuardianChildren)
+        .where(eq(enrollmentGuardianChildren.guardianId, guardianId));
+
+      const childRows = children
+        .map((child) => {
+          const childName = typeof child?.name === "string" ? child.name.trim() : "";
+          if (!childName) return null;
+          const ageValue = Number(child?.age);
+          return {
+            guardianId,
+            name: childName,
+            age: Number.isFinite(ageValue) ? ageValue : null,
+            currentSchool: typeof child?.currentSchool === "string" ? child.currentSchool.trim() : null,
+            grade: typeof child?.grade === "string" ? child.grade.trim() : null,
+            createdAt: new Date(),
+          };
+        })
+        .filter(Boolean);
+
+      if (childRows.length) {
+        await db.insert(enrollmentGuardianChildren).values(childRows);
+      }
     }
 
     return NextResponse.json({ guardian: updatedGuardian });

@@ -29,6 +29,8 @@ const DEFAULT_INTERESTS = {
   academic_excellence_priority: "medium",
   boarding_interest: "maybe",
 };
+const DEFAULT_WHATSAPP_TEMPLATE_SID = "HX3149b82c2591e2b1a64bf762e394fb41";
+const DEFAULT_WHATSAPP_SUBJECT = "उपस्थिति सूचना";
 
 const STATUS_META = {
   new_lead: { label: "New Lead", color: "blue" },
@@ -187,7 +189,36 @@ const GuardianRelationshipManager = () => {
   const [addForm, setAddForm] = useState(() => buildAddForm());
   const [addSaving, setAddSaving] = useState(false);
   const [addError, setAddError] = useState("");
-  const [mgcpSection, setMgcpSection] = useState("admin");
+  const [editGuardianId, setEditGuardianId] = useState(null);
+  const [guardianModalMode, setGuardianModalMode] = useState("add");
+  const [interactionModal, setInteractionModal] = useState({
+    open: false,
+    mode: "whatsapp",
+    guardian: null,
+  });
+  const [whatsappTemplates, setWhatsappTemplates] = useState([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [templatesError, setTemplatesError] = useState("");
+  const [selectedTemplateId, setSelectedTemplateId] = useState("default");
+  const [interactionForm, setInteractionForm] = useState({
+    message: "",
+    subject: DEFAULT_WHATSAPP_SUBJECT,
+    notes: "",
+    duration: "",
+    outcome: "positive",
+    followUpRequired: false,
+    followUpDate: "",
+    followUpNotes: "",
+  });
+  const [interactionSaving, setInteractionSaving] = useState(false);
+  const [interactionError, setInteractionError] = useState("");
+  const [commSearch, setCommSearch] = useState("");
+  const [mgcpSection, setMgcpSection] = useState("head");
+  const [isMgcpDrawerOpen, setIsMgcpDrawerOpen] = useState(false);
+  const [leadModal, setLeadModal] = useState({ open: false, scope: "random", beltId: null });
+  const [leadForm, setLeadForm] = useState(() => buildAddForm());
+  const [leadSaving, setLeadSaving] = useState(false);
+  const [leadError, setLeadError] = useState("");
   const [mgcpLoading, setMgcpLoading] = useState(false);
   const [mgcpError, setMgcpError] = useState("");
   const [mgcpBelts, setMgcpBelts] = useState([]);
@@ -213,22 +244,6 @@ const GuardianRelationshipManager = () => {
     whatsapp: "",
     notes: "",
     trusted: false,
-  });
-  const [beltLeadForm, setBeltLeadForm] = useState({
-    name: "",
-    phone: "",
-    whatsapp: "",
-    location: "",
-    source: "",
-    notes: "",
-  });
-  const [randomLeadForm, setRandomLeadForm] = useState({
-    name: "",
-    phone: "",
-    whatsapp: "",
-    location: "",
-    source: "",
-    notes: "",
   });
   const [headForm, setHeadForm] = useState({ userId: "" });
 
@@ -392,6 +407,12 @@ const GuardianRelationshipManager = () => {
     return () => controller.abort();
   }, [activeTab]);
 
+  useEffect(() => {
+    if (activeTab !== "mgcp" && isMgcpDrawerOpen) {
+      setIsMgcpDrawerOpen(false);
+    }
+  }, [activeTab, isMgcpDrawerOpen]);
+
   const loadMgcpHeads = async (signal) => {
     try {
       const res = await fetch("/api/enrollment/mgcp/heads", {
@@ -433,15 +454,19 @@ const GuardianRelationshipManager = () => {
   }, [mgcpBelts, selectedBeltId]);
 
   useEffect(() => {
-    if (activeTab !== "mgcp" || mgcpSection !== "admin") return;
+    if (activeTab !== "mgcp") return;
     const controller = new AbortController();
     loadMgcpHeads(controller.signal);
     loadMgcpUsers(controller.signal);
     return () => controller.abort();
-  }, [activeTab, mgcpSection]);
+  }, [activeTab]);
 
   const currentGuardians = guardianGroup === "ongoing" ? ongoingGuardians : probableGuardians;
   const selectedBelt = mgcpBelts.find((belt) => String(belt.id) === String(selectedBeltId)) || null;
+  const leadBelt =
+    leadModal.open && leadModal.scope === "belt"
+      ? mgcpBelts.find((belt) => String(belt.id) === String(leadModal.beltId)) || null
+      : null;
 
   const filteredGuardians = useMemo(() => {
     const needle = searchTerm.trim().toLowerCase();
@@ -477,10 +502,50 @@ const GuardianRelationshipManager = () => {
           probableGuardians.length
       )
     : 0;
+  const isEditingGuardian =
+    guardianModalMode === "edit" &&
+    editGuardianId !== null &&
+    editGuardianId !== "" &&
+    Number.isFinite(Number(editGuardianId));
 
   const openAddModal = () => {
     setAddError("");
+    setEditGuardianId(null);
+    setGuardianModalMode("add");
+    setAddForm(buildAddForm());
     setIsAddOpen(true);
+  };
+
+  const openEditModal = (guardian) => {
+    if (!guardian) return;
+    const children = Array.isArray(guardian.children) && guardian.children.length
+      ? guardian.children.map((child) => ({
+          name: child.name || "",
+          age: Number.isFinite(Number(child.age)) ? String(child.age) : "",
+          currentSchool: child.currentSchool || "",
+        }))
+      : [buildEmptyChild()];
+
+    setAddError("");
+    setEditGuardianId(guardian.id);
+    setGuardianModalMode("edit");
+    setAddForm({
+      name: guardian.name || "",
+      whatsapp: guardian.whatsapp || "",
+      location: guardian.location || "",
+      notes: guardian.notes || "",
+      islamic_education_priority: guardian.interests?.islamic_education_priority || "medium",
+      academic_excellence_priority: guardian.interests?.academic_excellence_priority || "medium",
+      boarding_interest: guardian.interests?.boarding_interest || "maybe",
+      children,
+    });
+    setIsAddOpen(true);
+  };
+
+  const openLeadModal = (scope, beltId = null) => {
+    setLeadError("");
+    setLeadForm(buildAddForm());
+    setLeadModal({ open: true, scope, beltId });
   };
 
   const closeAddModal = () => {
@@ -488,16 +553,118 @@ const GuardianRelationshipManager = () => {
     setIsAddOpen(false);
     setAddForm(buildAddForm());
     setAddError("");
+    setEditGuardianId(null);
+    setGuardianModalMode("add");
   };
+
+  const closeLeadModal = () => {
+    if (leadSaving) return;
+    setLeadModal({ open: false, scope: "random", beltId: null });
+    setLeadForm(buildAddForm());
+    setLeadError("");
+  };
+
+  const openInteractionModal = (guardian, mode) => {
+    if (!guardian) return;
+    setInteractionError("");
+    setTemplatesError("");
+    setInteractionForm({
+      message: "",
+      subject: DEFAULT_WHATSAPP_SUBJECT,
+      notes: "",
+      duration: "",
+      outcome: "positive",
+      followUpRequired: false,
+      followUpDate: "",
+      followUpNotes: "",
+    });
+    setSelectedTemplateId("default");
+    setInteractionModal({ open: true, mode, guardian });
+  };
+
+  const closeInteractionModal = () => {
+    if (interactionSaving) return;
+    setInteractionModal({ open: false, mode: "whatsapp", guardian: null });
+    setSelectedTemplateId("default");
+    setWhatsappTemplates([]);
+    setTemplatesError("");
+    setInteractionForm({
+      message: "",
+      subject: DEFAULT_WHATSAPP_SUBJECT,
+      notes: "",
+      duration: "",
+      outcome: "positive",
+      followUpRequired: false,
+      followUpDate: "",
+      followUpNotes: "",
+    });
+    setInteractionError("");
+  };
+
+  useEffect(() => {
+    if (!interactionModal.open || interactionModal.mode !== "whatsapp") return;
+    let active = true;
+    const controller = new AbortController();
+
+    const loadTemplates = async () => {
+      setTemplatesLoading(true);
+      setTemplatesError("");
+      try {
+        const res = await fetch("/api/enrollment/communications?action=templates", {
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(payload?.error || "Failed to load templates");
+        }
+        if (!active) return;
+        const rows = Array.isArray(payload?.templates) ? payload.templates : [];
+        setWhatsappTemplates(rows);
+      } catch (error) {
+        if (!active || error.name === "AbortError") return;
+        setTemplatesError(error.message || "Failed to load templates");
+        setWhatsappTemplates([]);
+      } finally {
+        if (active) setTemplatesLoading(false);
+      }
+    };
+
+    loadTemplates();
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [interactionModal.open, interactionModal.mode]);
 
   const updateAddField = (field) => (event) => {
     const value = event.target.value;
     setAddForm((prev) => ({ ...prev, [field]: value }));
   };
 
+  const updateLeadField = (field) => (event) => {
+    const value = event.target.value;
+    setLeadForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const updateInteractionField = (field) => (event) => {
+    const value = event.target.type === "checkbox" ? event.target.checked : event.target.value;
+    setInteractionForm((prev) => ({ ...prev, [field]: value }));
+  };
+
   const updateChildField = (index, field) => (event) => {
     const value = event.target.value;
     setAddForm((prev) => ({
+      ...prev,
+      children: prev.children.map((child, idx) =>
+        idx === index ? { ...child, [field]: value } : child
+      ),
+    }));
+  };
+
+  const updateLeadChildField = (index, field) => (event) => {
+    const value = event.target.value;
+    setLeadForm((prev) => ({
       ...prev,
       children: prev.children.map((child, idx) =>
         idx === index ? { ...child, [field]: value } : child
@@ -512,6 +679,13 @@ const GuardianRelationshipManager = () => {
     }));
   };
 
+  const addLeadChildRow = () => {
+    setLeadForm((prev) => ({
+      ...prev,
+      children: [...prev.children, buildEmptyChild()],
+    }));
+  };
+
   const removeChildRow = (index) => {
     setAddForm((prev) => ({
       ...prev,
@@ -519,21 +693,24 @@ const GuardianRelationshipManager = () => {
     }));
   };
 
-  const handleAddGuardian = async (event) => {
-    event.preventDefault();
-    if (addSaving) return;
+  const removeLeadChildRow = (index) => {
+    setLeadForm((prev) => ({
+      ...prev,
+      children: prev.children.filter((_, idx) => idx !== index),
+    }));
+  };
 
-    const name = addForm.name.trim();
-    const whatsapp = addForm.whatsapp.trim();
-    const location = addForm.location.trim();
-    const notes = addForm.notes.trim();
+  const buildGuardianPayload = (form) => {
+    const name = form.name.trim();
+    const whatsapp = form.whatsapp.trim();
+    const location = form.location.trim();
+    const notes = form.notes.trim();
 
     if (!name || !whatsapp || !location) {
-      setAddError("Name, WhatsApp, and location are required.");
-      return;
+      return { error: "Name, WhatsApp, and location are required." };
     }
 
-    const children = addForm.children
+    const children = form.children
       .map((child) => {
         const childName = child.name.trim();
         if (!childName) return null;
@@ -546,45 +723,280 @@ const GuardianRelationshipManager = () => {
       })
       .filter(Boolean);
 
-    const payload = {
-      name,
-      whatsapp,
-      location,
-      notes: notes || null,
-      interests: {
-        islamic_education_priority: addForm.islamic_education_priority,
-        academic_excellence_priority: addForm.academic_excellence_priority,
-        boarding_interest: addForm.boarding_interest,
+    return {
+      payload: {
+        name,
+        whatsapp,
+        location,
+        notes: notes || null,
+        interests: {
+          islamic_education_priority: form.islamic_education_priority,
+          academic_excellence_priority: form.academic_excellence_priority,
+          boarding_interest: form.boarding_interest,
+        },
+        children,
       },
       children,
     };
+  };
+
+  const handleAddGuardian = async (event) => {
+    event.preventDefault();
+    if (addSaving) return;
+
+    const built = buildGuardianPayload(addForm);
+    if (built.error) {
+      setAddError(built.error);
+      return;
+    }
+    const { payload, children } = built;
 
     setAddSaving(true);
     setAddError("");
 
     try {
-      const res = await fetch("/api/enrollment/guardians", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      const isEditing = isEditingGuardian;
+      const res = await fetch(
+        isEditing
+          ? `/api/enrollment/guardians?id=${editGuardianId}`
+          : "/api/enrollment/guardians",
+        {
+          method: isEditing ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        }
+      );
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data?.error || "Failed to add guardian");
+        throw new Error(data?.error || (isEditing ? "Failed to update guardian" : "Failed to add guardian"));
       }
 
-      const newGuardian = normalizeGuardian({
-        ...data.guardian,
-        children,
-        interactions: [],
-      });
-      setProbableGuardians((prev) => [newGuardian, ...prev]);
+      if (isEditing) {
+        setProbableGuardians((prev) =>
+          prev.map((guardian) => {
+            if (guardian.id !== editGuardianId) return guardian;
+            return normalizeGuardian({
+              ...guardian,
+              ...data.guardian,
+              children,
+              interactions: guardian.interactions || [],
+            });
+          })
+        );
+      } else {
+        const newGuardian = normalizeGuardian({
+          ...data.guardian,
+          children,
+          interactions: [],
+        });
+        setProbableGuardians((prev) => [newGuardian, ...prev]);
+      }
       closeAddModal();
     } catch (error) {
-      setAddError(error.message || "Failed to add guardian");
+      setAddError(
+        error.message || (isEditingGuardian ? "Failed to update guardian" : "Failed to add guardian")
+      );
     } finally {
       setAddSaving(false);
+    }
+  };
+
+  const handleLeadSubmit = async (event) => {
+    event.preventDefault();
+    if (leadSaving) return;
+
+    const built = buildGuardianPayload(leadForm);
+    if (built.error) {
+      setLeadError(built.error);
+      return;
+    }
+
+    setLeadSaving(true);
+    setLeadError("");
+
+    let guardianId = null;
+
+    try {
+      const res = await fetch("/api/enrollment/guardians", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(built.payload),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const message = data?.error || "Failed to add guardian";
+        const isDuplicate = /exist|duplicate|unique/i.test(message);
+        if (!isDuplicate) {
+          throw new Error(message);
+        }
+      } else if (data?.guardian?.id) {
+        guardianId = data.guardian.id;
+        const newGuardian = normalizeGuardian({
+          ...data.guardian,
+          children: built.children,
+          interactions: [],
+        });
+        setProbableGuardians((prev) => {
+          if (prev.some((item) => item.id === newGuardian.id)) return prev;
+          return [newGuardian, ...prev];
+        });
+      }
+
+      const beltId =
+        leadModal.scope === "belt" && Number.isFinite(Number(leadModal.beltId))
+          ? Number(leadModal.beltId)
+          : null;
+
+      const leadPayload = {
+        beltId,
+        guardianId: guardianId || null,
+        name: built.payload.name,
+        phone: built.payload.whatsapp,
+        whatsapp: built.payload.whatsapp,
+        location: built.payload.location,
+        notes: built.payload.notes,
+        source: leadModal.scope === "belt" ? "belt" : "random",
+        category: "MGCP Lead",
+      };
+
+      const leadRes = await fetch("/api/enrollment/mgcp/leads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(leadPayload),
+      });
+      const leadData = await leadRes.json().catch(() => ({}));
+      if (!leadRes.ok) {
+        throw new Error(leadData?.error || "Failed to add MGCP lead");
+      }
+
+      const controller = new AbortController();
+      await loadMgcpData(controller.signal);
+      closeLeadModal();
+    } catch (error) {
+      setLeadError(error.message || "Failed to add lead");
+    } finally {
+      setLeadSaving(false);
+    }
+  };
+
+  const appendGuardianInteraction = (guardianId, interaction) => {
+    if (!guardianId || !interaction) return;
+
+    setProbableGuardians((prev) =>
+      prev.map((guardian) => {
+        if (guardian.id !== guardianId) return guardian;
+        const interactions = Array.isArray(guardian.interactions) ? guardian.interactions : [];
+        return {
+          ...guardian,
+          interactions: [interaction, ...interactions],
+          lastContact: interaction.createdAt || guardian.lastContact,
+        };
+      })
+    );
+
+    setSelectedGuardian((prev) => {
+      if (!prev || prev.id !== guardianId) return prev;
+      const interactions = Array.isArray(prev.interactions) ? prev.interactions : [];
+      return {
+        ...prev,
+        interactions: [interaction, ...interactions],
+        lastContact: interaction.createdAt || prev.lastContact,
+      };
+    });
+  };
+
+  const handleInteractionSubmit = async (event) => {
+    event.preventDefault();
+    if (interactionSaving || !interactionModal.guardian) return;
+
+    const guardianId = interactionModal.guardian.id;
+    const mode = interactionModal.mode;
+    setInteractionSaving(true);
+    setInteractionError("");
+
+    try {
+      if (mode === "whatsapp") {
+        const message = interactionForm.message.trim();
+        const useDefaultTemplate = selectedTemplateId === "default";
+        const templateId =
+          selectedTemplateId && !useDefaultTemplate ? Number(selectedTemplateId) : null;
+        const childName =
+          (interactionModal.guardian?.children || [])
+            .map((child) => child.name)
+            .filter(Boolean)
+            .join(", ") || "आपके बच्चे";
+        const templateVariables = useDefaultTemplate
+          ? {
+              "1": interactionModal.guardian?.name || "",
+              "2": childName,
+              "3": interactionForm.subject?.trim() || DEFAULT_WHATSAPP_SUBJECT,
+              "4": message,
+            }
+          : null;
+
+        if (!message && !templateId && !useDefaultTemplate) {
+          setInteractionError("Message or template is required.");
+          setInteractionSaving(false);
+          return;
+        }
+        if (useDefaultTemplate && !message) {
+          setInteractionError("Message is required for the default template.");
+          setInteractionSaving(false);
+          return;
+        }
+        const res = await fetch("/api/enrollment/communications", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "send-message",
+            guardianId,
+            message,
+            templateId,
+            templateSid: useDefaultTemplate ? DEFAULT_WHATSAPP_TEMPLATE_SID : null,
+            templateVariables,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data?.error || "Failed to send WhatsApp message");
+        }
+        if (data?.interaction) {
+          appendGuardianInteraction(guardianId, data.interaction);
+        }
+      } else {
+        const payload = {
+          action: "log-interaction",
+          guardianId,
+          type: "call",
+          method: "outgoing",
+          content: interactionForm.notes.trim() || "Call logged",
+          duration: interactionForm.duration.trim() || null,
+          outcome: interactionForm.outcome,
+          followUpRequired: interactionForm.followUpRequired,
+          followUpDate: interactionForm.followUpDate || null,
+          followUpNotes: interactionForm.followUpNotes.trim() || null,
+        };
+        const res = await fetch("/api/enrollment/communications", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data?.error || "Failed to log call");
+        }
+        if (data?.interaction) {
+          appendGuardianInteraction(guardianId, data.interaction);
+        }
+      }
+
+      closeInteractionModal();
+    } catch (error) {
+      setInteractionError(error.message || "Failed to save interaction");
+    } finally {
+      setInteractionSaving(false);
     }
   };
 
@@ -970,12 +1382,20 @@ const GuardianRelationshipManager = () => {
                       <Eye className="w-4 h-4" />
                       View
                     </Button>
-                    <Button variant="light" className="px-3">
-                      <MessageCircle className="w-4 h-4" />
-                    </Button>
-                    <Button variant="light" className="px-3">
-                      <Phone className="w-4 h-4" />
-                    </Button>
+                <Button
+                  variant="light"
+                  className="px-3"
+                  onClick={() => openInteractionModal(guardian, "whatsapp")}
+                >
+                  <MessageCircle className="w-4 h-4" />
+                </Button>
+                <Button
+                  variant="light"
+                  className="px-3"
+                  onClick={() => openInteractionModal(guardian, "call")}
+                >
+                  <Phone className="w-4 h-4" />
+                </Button>
                   </div>
                 </CardBody>
               </Card>
@@ -985,6 +1405,131 @@ const GuardianRelationshipManager = () => {
       )}
     </div>
   );
+
+  const CommunicationsView = () => {
+    const query = commSearch.trim().toLowerCase();
+    const list = probableGuardians.filter((guardian) => {
+      if (!query) return true;
+      return (
+        guardian.name?.toLowerCase().includes(query) ||
+        guardian.whatsapp?.toLowerCase().includes(query) ||
+        guardian.location?.toLowerCase().includes(query)
+      );
+    });
+    const recentInteractions = useMemo(() => {
+      const entries = probableGuardians.flatMap((guardian) =>
+        (guardian.interactions || []).map((interaction) => ({
+          ...interaction,
+          guardianName: guardian.name,
+          guardianId: guardian.id,
+          guardianPhone: guardian.whatsapp,
+        }))
+      );
+
+      return entries
+        .sort((a, b) => {
+          const aTime = new Date(a.createdAt || a.date || 0).getTime();
+          const bTime = new Date(b.createdAt || b.date || 0).getTime();
+          return bTime - aTime;
+        })
+        .slice(0, 10);
+    }, [probableGuardians]);
+
+    return (
+      <div className="space-y-4">
+        <Card>
+          <CardBody className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-900">Communications Hub</h3>
+              <p className="text-sm text-slate-500">
+                Quick WhatsApp and call actions for probable kings.
+              </p>
+            </div>
+            <Input
+              label="Search"
+              value={commSearch}
+              onChange={(event) => setCommSearch(event.target.value)}
+              placeholder="Search name, phone, or location"
+              className="md:max-w-xs"
+            />
+          </CardBody>
+        </Card>
+
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)] gap-4">
+          <div className="space-y-3">
+            {list.length ? (
+              list.map((guardian) => (
+                <Card key={guardian.id}>
+                  <CardBody className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-800">{guardian.name}</p>
+                      <p className="text-xs text-slate-500">
+                        {guardian.location || "Location unknown"} · {guardian.whatsapp || "No phone"}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button variant="light" onClick={() => openInteractionModal(guardian, "whatsapp")}>
+                        <MessageCircle className="w-4 h-4" />
+                        WhatsApp
+                      </Button>
+                      <Button variant="secondary" onClick={() => openInteractionModal(guardian, "call")}>
+                        <Phone className="w-4 h-4" />
+                        Call
+                      </Button>
+                    </div>
+                  </CardBody>
+                </Card>
+              ))
+            ) : (
+              <Card>
+                <CardBody className="py-10 text-center text-sm text-slate-500">
+                  No probable kings match this search.
+                </CardBody>
+              </Card>
+            )}
+          </div>
+          <Card>
+            <CardHeader>
+              <h3 className="text-sm font-semibold text-slate-700">Recent Communications</h3>
+            </CardHeader>
+            <CardBody className="space-y-3">
+              {recentInteractions.length ? (
+                recentInteractions.map((interaction, index) => (
+                  <div key={`${interaction.guardianId}-${index}`} className="rounded-xl border border-slate-200 p-3">
+                    <div className="flex items-start gap-3">
+                      <div className="rounded-full bg-teal-50 p-2 text-teal-600">
+                        {interaction.type === "call" && <Phone className="w-4 h-4" />}
+                        {interaction.type === "whatsapp" && <MessageCircle className="w-4 h-4" />}
+                        {interaction.type === "community_event" && <Users className="w-4 h-4" />}
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm font-semibold text-slate-800">
+                            {interaction.guardianName || "Guardian"}
+                          </p>
+                          <span className="text-xs text-slate-400">
+                            {formatDate(interaction.date || interaction.createdAt)}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500">
+                          {interaction.type?.replace(/_/g, " ")} · {interaction.guardianPhone || "No phone"}
+                        </p>
+                        <p className="text-sm text-slate-600 mt-2">
+                          {interaction.content || interaction.notes || "Interaction logged"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-slate-500">No communication history yet.</p>
+              )}
+            </CardBody>
+          </Card>
+        </div>
+      </div>
+    );
+  };
 
   const OngoingGuardianDetailView = ({ guardian, onClose }) => {
     const router = useRouter();
@@ -1606,7 +2151,7 @@ const GuardianRelationshipManager = () => {
     );
   };
 
-  const ProbableGuardianDetailView = ({ guardian, onClose }) => {
+  const ProbableGuardianDetailView = ({ guardian, onClose, onWhatsApp, onCall, onEdit }) => {
     const [activeSection, setActiveSection] = useState("overview");
 
     return (
@@ -1704,15 +2249,35 @@ const GuardianRelationshipManager = () => {
                     </div>
 
                     <div className="flex flex-wrap gap-3">
-                      <Button className="gap-2">
+                      <Button
+                        className="gap-2"
+                        onClick={() => {
+                          onClose?.();
+                          onWhatsApp?.(guardian);
+                        }}
+                      >
                         <MessageCircle className="w-4 h-4" />
                         Send WhatsApp
                       </Button>
-                      <Button variant="secondary" className="gap-2">
+                      <Button
+                        variant="secondary"
+                        className="gap-2"
+                        onClick={() => {
+                          onClose?.();
+                          onCall?.(guardian);
+                        }}
+                      >
                         <Phone className="w-4 h-4" />
                         Make Call
                       </Button>
-                      <Button variant="light" className="gap-2">
+                      <Button
+                        variant="light"
+                        className="gap-2"
+                        onClick={() => {
+                          onClose?.();
+                          onEdit?.(guardian);
+                        }}
+                      >
                         <Edit3 className="w-4 h-4" />
                         Edit Details
                       </Button>
@@ -1864,8 +2429,15 @@ const GuardianRelationshipManager = () => {
         </div>
       </header>
 
-      <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-2 py-1 shadow-sm">
-        <nav className="flex flex-wrap gap-2">
+      <div
+        className="rounded-2xl border border-emerald-200 px-2 py-1 shadow-sm"
+        style={{ backgroundColor: "#eef8f3" }}
+      >
+        <div
+          role="tablist"
+          className="flex flex-wrap gap-2"
+          style={{ backgroundColor: "#eef8f3" }}
+        >
           {["dashboard", "guardians", "communications", "analytics", "mgcp"].map((tab) => {
             const label = tab === "mgcp" ? "MGCP" : tab;
             return (
@@ -1874,28 +2446,20 @@ const GuardianRelationshipManager = () => {
                 onClick={() => setActiveTab(tab)}
                 className={`px-3 py-2 rounded-lg text-sm font-semibold capitalize transition-colors ${
                   activeTab === tab
-                    ? "bg-white text-teal-700 border border-teal-200 shadow-sm"
-                    : "text-slate-500 hover:bg-white/80 hover:text-slate-700"
+                    ? "bg-emerald-100 text-emerald-900 border border-emerald-200"
+                    : "text-emerald-700 hover:bg-emerald-50 hover:text-emerald-900"
                 }`}
               >
                 {label}
               </button>
             );
           })}
-        </nav>
+        </div>
       </div>
 
       {activeTab === "dashboard" && <DashboardView />}
       {activeTab === "guardians" && <GuardiansListView />}
-      {activeTab === "communications" && (
-        <Card>
-          <CardBody className="py-10 text-center">
-            <MessageCircle className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-slate-900 mb-2">Communications Hub</h3>
-            <p className="text-sm text-slate-500">WhatsApp automation coming soon.</p>
-          </CardBody>
-        </Card>
-      )}
+      {activeTab === "communications" && <CommunicationsView />}
       {activeTab === "analytics" && (
         <Card>
           <CardBody className="py-10 text-center">
@@ -1906,7 +2470,7 @@ const GuardianRelationshipManager = () => {
         </Card>
       )}
       {activeTab === "mgcp" && (
-        <div className="space-y-4">
+        <div className="space-y-6">
           <header className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-4 py-3 shadow-sm">
             <div>
               <h3 className="text-base font-semibold text-slate-900">MGCP Control Room</h3>
@@ -1916,772 +2480,1075 @@ const GuardianRelationshipManager = () => {
             </div>
           </header>
 
-          <div className="rounded-2xl border border-slate-200/80 bg-white shadow-sm">
-            <div className="grid grid-cols-1 lg:grid-cols-[220px_minmax(0,1fr)]">
-              <aside className="border-b border-slate-200 bg-slate-50/60 lg:border-b-0 lg:border-r">
-                <div className="flex gap-2 overflow-x-auto px-4 py-4 lg:flex-col">
-                  {[
-                    { id: "admin", label: "Admin Section" },
-                    { id: "head", label: "MGCP Head" },
-                    { id: "belts", label: "Belts Overview" },
-                    { id: "random", label: "Random Leads" },
-                  ].map((section) => (
-                    <button
-                      key={section.id}
-                      type="button"
-                      onClick={() => setMgcpSection(section.id)}
-                      className={`px-3 py-2 rounded-lg text-sm font-semibold transition ${
-                        mgcpSection === section.id
-                          ? "bg-teal-600 text-white shadow-sm"
-                          : "bg-white text-slate-600 hover:bg-slate-100"
-                      }`}
-                    >
-                      {section.label}
-                    </button>
-                  ))}
+          {mgcpError && (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              {mgcpError}
+            </div>
+          )}
+          {mgcpActionState.error && (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              {mgcpActionState.error}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+            <Card>
+              <CardHeader>
+                <h3 className="text-sm font-semibold text-slate-700">Assign MGCP Head</h3>
+              </CardHeader>
+              <CardBody className="space-y-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                  <Select
+                    label="Select user"
+                    value={headForm.userId}
+                    onChange={(event) => setHeadForm({ userId: event.target.value })}
+                    className="flex-1 min-w-[220px]"
+                  >
+                    <option value="">Choose user</option>
+                    {mgcpUsers.map((user) => (
+                      <option key={user.id} value={user.id}>
+                        {user.name} · {user.role}
+                      </option>
+                    ))}
+                  </Select>
+                  <Button
+                    type="button"
+                    disabled={!headForm.userId || mgcpActionState.saving}
+                    onClick={() =>
+                      runMgcpAction({
+                        url: "/api/enrollment/mgcp/heads",
+                        method: "POST",
+                        body: { userId: Number(headForm.userId) },
+                        afterSuccess: () => {
+                          setHeadForm({ userId: "" });
+                          loadMgcpHeads();
+                        },
+                      })
+                    }
+                  >
+                    Add Head
+                  </Button>
                 </div>
-              </aside>
 
-              <main className="p-5 space-y-5">
-                {mgcpError && (
-                  <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-                    {mgcpError}
-                  </div>
-                )}
-                {mgcpActionState.error && (
-                  <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-                    {mgcpActionState.error}
-                  </div>
-                )}
-
-                {mgcpSection === "admin" && (
-                  <Card>
-                    <CardHeader>
-                      <h3 className="text-sm font-semibold text-slate-700">Assign MGCP Head</h3>
-                    </CardHeader>
-                    <CardBody className="space-y-4">
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                        <Select
-                          label="Select user"
-                          value={headForm.userId}
-                          onChange={(event) => setHeadForm({ userId: event.target.value })}
-                          className="flex-1 min-w-[220px]"
-                        >
-                          <option value="">Choose user</option>
-                          {mgcpUsers.map((user) => (
-                            <option key={user.id} value={user.id}>
-                              {user.name} · {user.role}
-                            </option>
-                          ))}
-                        </Select>
+                <div className="space-y-2">
+                  {mgcpHeads.length ? (
+                    mgcpHeads.map((head) => (
+                      <div
+                        key={head.id}
+                        className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                      >
+                        <div>
+                          <p className="font-medium text-slate-800">{head.name}</p>
+                          <p className="text-xs text-slate-500">{head.role}</p>
+                        </div>
                         <Button
-                          type="button"
-                          disabled={!headForm.userId || mgcpActionState.saving}
+                          variant="light"
+                          size="sm"
                           onClick={() =>
                             runMgcpAction({
                               url: "/api/enrollment/mgcp/heads",
-                              method: "POST",
-                              body: { userId: Number(headForm.userId) },
-                              afterSuccess: () => {
-                                setHeadForm({ userId: "" });
-                                loadMgcpHeads();
-                              },
+                              method: "DELETE",
+                              body: { id: head.id },
+                              afterSuccess: () => loadMgcpHeads(),
                             })
                           }
                         >
-                          Add Head
+                          <Trash2 className="w-4 h-4 text-rose-600" />
                         </Button>
                       </div>
+                    ))
+                  ) : (
+                    <p className="text-sm text-slate-500">No MGCP heads assigned yet.</p>
+                  )}
+                </div>
+              </CardBody>
+            </Card>
 
-                      <div className="space-y-2">
-                        {mgcpHeads.length ? (
-                          mgcpHeads.map((head) => (
-                            <div
-                              key={head.id}
-                              className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                            >
-                              <div>
-                                <p className="font-medium text-slate-800">{head.name}</p>
-                                <p className="text-xs text-slate-500">{head.role}</p>
-                              </div>
-                              <Button
-                                variant="light"
-                                size="sm"
-                                onClick={() =>
-                                  runMgcpAction({
-                                    url: "/api/enrollment/mgcp/heads",
-                                    method: "DELETE",
-                                    body: { id: head.id },
-                                    afterSuccess: () => loadMgcpHeads(),
-                                  })
-                                }
-                              >
-                                <Trash2 className="w-4 h-4 text-rose-600" />
-                              </Button>
-                            </div>
-                          ))
-                        ) : (
-                          <p className="text-sm text-slate-500">No MGCP heads assigned yet.</p>
-                        )}
+            <Card>
+              <CardHeader>
+                <h3 className="text-sm font-semibold text-slate-700">Belts Overview</h3>
+              </CardHeader>
+              <CardBody>
+                {mgcpLoading ? (
+                  <p className="text-sm text-slate-500">Loading belts...</p>
+                ) : mgcpBelts.length ? (
+                  <div className="space-y-3">
+                    {mgcpBelts.map((belt) => (
+                      <div key={belt.id} className="rounded-xl border border-slate-200 px-4 py-3">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-800">{belt.name}</p>
+                            <p className="text-xs text-slate-500">{belt.notes || "No notes"}</p>
+                          </div>
+                          <Badge color={belt.active ? "teal" : "gray"}>
+                            {belt.active ? "Active" : "Inactive"}
+                          </Badge>
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-600">
+                          <Badge color="blue">Villages {belt.villages?.length || 0}</Badge>
+                          <Badge color="amber">Leads {belt.leads?.length || 0}</Badge>
+                          <Badge color="gray">Kings {belt.guardians?.length || 0}</Badge>
+                          <Badge color="teal">Managers {belt.leadManagers?.length || 0}</Badge>
+                        </div>
                       </div>
-                    </CardBody>
-                  </Card>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-500">No belts created yet.</p>
                 )}
+              </CardBody>
+            </Card>
+          </div>
 
-                {mgcpSection === "belts" && (
-                  <Card>
-                    <CardHeader>
-                      <h3 className="text-sm font-semibold text-slate-700">Belts Overview</h3>
-                    </CardHeader>
-                    <CardBody>
-                      {mgcpLoading ? (
-                        <p className="text-sm text-slate-500">Loading belts...</p>
-                      ) : mgcpBelts.length ? (
-                        <div className="space-y-3">
-                          {mgcpBelts.map((belt) => (
-                            <div key={belt.id} className="rounded-xl border border-slate-200 px-4 py-3">
-                              <div className="flex items-center justify-between">
-                                <div>
-                                  <p className="text-sm font-semibold text-slate-800">{belt.name}</p>
-                                  <p className="text-xs text-slate-500">{belt.notes || "No notes"}</p>
-                                </div>
-                                <Badge color={belt.active ? "teal" : "gray"}>
-                                  {belt.active ? "Active" : "Inactive"}
-                                </Badge>
-                              </div>
-                              <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-600">
-                                <Badge color="blue">Villages {belt.villages?.length || 0}</Badge>
-                                <Badge color="amber">Leads {belt.leads?.length || 0}</Badge>
-                                <Badge color="gray">Kings {belt.guardians?.length || 0}</Badge>
-                                <Badge color="teal">Managers {belt.leadManagers?.length || 0}</Badge>
-                              </div>
-                            </div>
+          <div className="rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+            <div className="flex flex-col gap-3 px-4 py-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h4 className="text-sm font-semibold text-slate-800">Manage MGCP</h4>
+                <p className="text-xs text-slate-500">
+                  Open the control drawer to manage belts, kings, and leads.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setMgcpSection("head");
+                  setIsMgcpDrawerOpen(true);
+                }}
+                className="group inline-flex items-center gap-2 rounded-full border border-teal-200 bg-teal-50 px-4 py-2 text-sm font-semibold text-teal-700 transition hover:bg-teal-100"
+              >
+                <span>Manage MGCP</span>
+                <span className="text-xs text-teal-600 transition-transform group-hover:translate-x-1">
+                  Open →
+                </span>
+              </button>
+            </div>
+          </div>
+
+          {isMgcpDrawerOpen && (
+            <div className="fixed inset-0 z-40 bg-black/40">
+              <div className="absolute inset-y-0 right-0 w-full max-w-6xl bg-white shadow-xl">
+                <div className="h-full flex flex-col">
+                  <div className="border-b border-slate-200 px-6 py-4">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <h3 className="text-lg font-semibold text-slate-900">Manage MGCP</h3>
+                        <p className="text-sm text-slate-500">Set belts, kings, and leads.</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsMgcpDrawerOpen(false)}
+                        className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-full"
+                      >
+                        X
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex-1 overflow-hidden">
+                    <div className="h-full grid grid-cols-1 lg:grid-cols-[220px_minmax(0,1fr)]">
+                      <aside className="border-b border-slate-200 bg-slate-50/60 lg:border-b-0 lg:border-r">
+                        <div className="flex gap-2 overflow-x-auto px-4 py-4 lg:flex-col">
+                          {[
+                            { id: "head", label: "MGCP Head" },
+                            { id: "kings", label: "Kings & Leads" },
+                            { id: "random", label: "Random Leads" },
+                          ].map((section) => (
+                            <button
+                              key={section.id}
+                              type="button"
+                              onClick={() => setMgcpSection(section.id)}
+                              className={`px-3 py-2 rounded-lg text-sm font-semibold transition ${
+                                mgcpSection === section.id
+                                  ? "bg-teal-600 text-white shadow-sm"
+                                  : "bg-white text-slate-600 hover:bg-slate-100"
+                              }`}
+                            >
+                              {section.label}
+                            </button>
                           ))}
                         </div>
-                      ) : (
-                        <p className="text-sm text-slate-500">No belts created yet.</p>
-                      )}
-                    </CardBody>
-                  </Card>
-                )}
+                      </aside>
 
-                {mgcpSection === "head" && (
-                  <div className="space-y-6">
-                    <Card>
-                      <CardHeader>
-                        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                          <div>
-                            <h3 className="text-sm font-semibold text-slate-700">Create Belt</h3>
-                            <p className="text-xs text-slate-500">Define regions and teams.</p>
-                          </div>
-                        </div>
-                      </CardHeader>
-                      <CardBody className="flex flex-col gap-3 md:flex-row md:items-end">
-                        <Input
-                          label="Belt name"
-                          value={beltForm.name}
-                          onChange={(event) =>
-                            setBeltForm((prev) => ({ ...prev, name: event.target.value }))
-                          }
-                          placeholder="e.g. North Pakur Belt"
-                          className="flex-1"
-                        />
-                        <Input
-                          label="Notes"
-                          value={beltForm.notes}
-                          onChange={(event) =>
-                            setBeltForm((prev) => ({ ...prev, notes: event.target.value }))
-                          }
-                          placeholder="Optional notes"
-                          className="flex-1"
-                        />
-                        <Button
-                          type="button"
-                          disabled={!beltForm.name || mgcpActionState.saving}
-                          onClick={() =>
-                            runMgcpAction({
-                              url: "/api/enrollment/mgcp/belts",
-                              method: "POST",
-                              body: { name: beltForm.name, notes: beltForm.notes },
-                              afterSuccess: () => setBeltForm({ name: "", notes: "" }),
-                            })
-                          }
-                        >
-                          Create Belt
-                        </Button>
-                      </CardBody>
-                    </Card>
-
-                    <div className="grid grid-cols-1 xl:grid-cols-[280px_minmax(0,1fr)] gap-5">
-                      <Card>
-                        <CardHeader>
-                          <h3 className="text-sm font-semibold text-slate-700">Belts</h3>
-                        </CardHeader>
-                        <CardBody className="space-y-2">
-                          {mgcpBelts.length ? (
-                            mgcpBelts.map((belt) => (
-                              <button
-                                key={belt.id}
-                                type="button"
-                                onClick={() => setSelectedBeltId(String(belt.id))}
-                                className={`w-full text-left rounded-xl border px-3 py-2 text-sm transition ${
-                                  String(belt.id) === String(selectedBeltId)
-                                    ? "border-teal-200 bg-teal-50 text-teal-700"
-                                    : "border-slate-200 text-slate-600 hover:bg-slate-50"
-                                }`}
-                              >
-                                <p className="font-semibold">{belt.name}</p>
-                                <p className="text-xs text-slate-500">
-                                  Villages {belt.villages?.length || 0} · Kings {belt.guardians?.length || 0}
-                                </p>
-                              </button>
-                            ))
-                          ) : (
-                            <p className="text-sm text-slate-500">No belts created yet.</p>
-                          )}
-                        </CardBody>
-                      </Card>
-
-                      <div className="space-y-5">
-                        <Card>
-                          <CardHeader>
-                            <div className="flex items-center justify-between">
-                              <h3 className="text-sm font-semibold text-slate-700">
-                                {selectedBelt ? selectedBelt.name : "Select a belt"}
-                              </h3>
-                              {selectedBelt && (
+                      <main className="h-full overflow-y-auto p-6 space-y-6">
+                        {mgcpSection === "head" && (
+                          <div className="space-y-6">
+                            <Card>
+                              <CardHeader>
+                                <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                                  <div>
+                                    <h3 className="text-sm font-semibold text-slate-700">Create Belt</h3>
+                                    <p className="text-xs text-slate-500">Define regions and teams.</p>
+                                  </div>
+                                </div>
+                              </CardHeader>
+                              <CardBody className="flex flex-col gap-3 md:flex-row md:items-end">
+                                <Input
+                                  label="Belt name"
+                                  value={beltForm.name}
+                                  onChange={(event) =>
+                                    setBeltForm((prev) => ({ ...prev, name: event.target.value }))
+                                  }
+                                  placeholder="e.g. North Pakur Belt"
+                                  className="flex-1"
+                                />
+                                <Input
+                                  label="Notes"
+                                  value={beltForm.notes}
+                                  onChange={(event) =>
+                                    setBeltForm((prev) => ({ ...prev, notes: event.target.value }))
+                                  }
+                                  placeholder="Optional notes"
+                                  className="flex-1"
+                                />
                                 <Button
-                                  variant="light"
-                                  size="sm"
+                                  type="button"
+                                  disabled={!beltForm.name || mgcpActionState.saving}
                                   onClick={() =>
                                     runMgcpAction({
                                       url: "/api/enrollment/mgcp/belts",
-                                      method: "DELETE",
-                                      body: { id: selectedBelt.id },
+                                      method: "POST",
+                                      body: { name: beltForm.name, notes: beltForm.notes },
+                                      afterSuccess: () => setBeltForm({ name: "", notes: "" }),
                                     })
                                   }
                                 >
-                                  <Trash2 className="w-4 h-4 text-rose-600" />
+                                  Create Belt
                                 </Button>
-                              )}
-                            </div>
-                          </CardHeader>
-                          <CardBody className="space-y-4">
-                            {selectedBelt ? (
-                              <>
-                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                                  <Card>
-                                    <CardHeader>
-                                      <h4 className="text-xs font-semibold text-slate-600 uppercase">
-                                        Villages
-                                      </h4>
-                                    </CardHeader>
-                                    <CardBody className="space-y-3">
-                                      <div className="flex flex-col gap-2">
-                                        <Input
-                                          label="Village name"
-                                          value={villageForm.name}
-                                          onChange={(event) =>
-                                            setVillageForm((prev) => ({ ...prev, name: event.target.value }))
-                                          }
-                                          placeholder="Village"
-                                        />
-                                        <Input
-                                          label="Notes"
-                                          value={villageForm.notes}
-                                          onChange={(event) =>
-                                            setVillageForm((prev) => ({ ...prev, notes: event.target.value }))
-                                          }
-                                          placeholder="Optional"
-                                        />
-                                        <Button
-                                          type="button"
-                                          disabled={!villageForm.name || mgcpActionState.saving}
-                                          onClick={() =>
-                                            runMgcpAction({
-                                              url: "/api/enrollment/mgcp/villages",
-                                              method: "POST",
-                                              body: {
-                                                beltId: selectedBelt.id,
-                                                name: villageForm.name,
-                                                notes: villageForm.notes,
-                                              },
-                                              afterSuccess: () => setVillageForm({ name: "", notes: "" }),
-                                            })
-                                          }
-                                        >
-                                          Add Village
-                                        </Button>
-                                      </div>
-                                      <div className="space-y-2 text-sm">
-                                        {(selectedBelt.villages || []).map((village) => (
-                                          <div
-                                            key={village.id}
-                                            className="flex items-center justify-between rounded-lg border border-slate-200 px-2 py-1"
-                                          >
-                                            <span>{village.name}</span>
-                                            <Button
-                                              variant="ghost"
-                                              size="sm"
-                                              onClick={() =>
-                                                runMgcpAction({
-                                                  url: "/api/enrollment/mgcp/villages",
-                                                  method: "DELETE",
-                                                  body: { id: village.id },
-                                                })
-                                              }
-                                            >
-                                              <Trash2 className="w-4 h-4 text-rose-600" />
-                                            </Button>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    </CardBody>
-                                  </Card>
+                              </CardBody>
+                            </Card>
 
-                                  <Card>
-                                    <CardHeader>
-                                      <h4 className="text-xs font-semibold text-slate-600 uppercase">
-                                        Lead Managers
-                                      </h4>
-                                    </CardHeader>
-                                    <CardBody className="space-y-3">
-                                      <div className="flex flex-col gap-2">
-                                        <Input
-                                          label="Name"
-                                          value={leadManagerForm.name}
-                                          onChange={(event) =>
-                                            setLeadManagerForm((prev) => ({ ...prev, name: event.target.value }))
-                                          }
-                                          placeholder="Lead manager name"
-                                        />
-                                        <Input
-                                          label="Phone"
-                                          value={leadManagerForm.phone}
-                                          onChange={(event) =>
-                                            setLeadManagerForm((prev) => ({ ...prev, phone: event.target.value }))
-                                          }
-                                          placeholder="+91..."
-                                        />
-                                        <Input
-                                          label="WhatsApp"
-                                          value={leadManagerForm.whatsapp}
-                                          onChange={(event) =>
-                                            setLeadManagerForm((prev) => ({ ...prev, whatsapp: event.target.value }))
-                                          }
-                                          placeholder="Optional"
-                                        />
-                                        <Input
-                                          label="Notes"
-                                          value={leadManagerForm.notes}
-                                          onChange={(event) =>
-                                            setLeadManagerForm((prev) => ({ ...prev, notes: event.target.value }))
-                                          }
-                                          placeholder="Notes"
-                                        />
-                                        <Button
-                                          type="button"
-                                          disabled={!leadManagerForm.name || mgcpActionState.saving}
-                                          onClick={() =>
-                                            runMgcpAction({
-                                              url: "/api/enrollment/mgcp/lead-managers",
-                                              method: "POST",
-                                              body: { beltId: selectedBelt.id, ...leadManagerForm },
-                                              afterSuccess: () =>
-                                                setLeadManagerForm({
-                                                  name: "",
-                                                  phone: "",
-                                                  whatsapp: "",
-                                                  notes: "",
-                                                }),
-                                            })
-                                          }
-                                        >
-                                          Add Manager
-                                        </Button>
-                                      </div>
-                                      <div className="space-y-2 text-sm">
-                                        {(selectedBelt.leadManagers || []).map((manager) => (
-                                          <div
-                                            key={manager.id}
-                                            className="flex items-center justify-between rounded-lg border border-slate-200 px-2 py-1"
-                                          >
-                                            <div>
-                                              <p className="font-medium text-slate-700">{manager.name}</p>
-                                              <p className="text-xs text-slate-500">{manager.phone || "No phone"}</p>
-                                            </div>
-                                            <Button
-                                              variant="ghost"
-                                              size="sm"
-                                              onClick={() =>
-                                                runMgcpAction({
-                                                  url: "/api/enrollment/mgcp/lead-managers",
-                                                  method: "DELETE",
-                                                  body: { id: manager.id },
-                                                })
-                                              }
-                                            >
-                                              <Trash2 className="w-4 h-4 text-rose-600" />
-                                            </Button>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    </CardBody>
-                                  </Card>
-                                </div>
+                            <div className="grid grid-cols-1 xl:grid-cols-[280px_minmax(0,1fr)] gap-5">
+                              <Card>
+                                <CardHeader>
+                                  <h3 className="text-sm font-semibold text-slate-700">Belts</h3>
+                                </CardHeader>
+                                <CardBody className="space-y-2">
+                                  {mgcpBelts.length ? (
+                                    mgcpBelts.map((belt) => (
+                                      <button
+                                        key={belt.id}
+                                        type="button"
+                                        onClick={() => setSelectedBeltId(String(belt.id))}
+                                        className={`w-full text-left rounded-xl border px-3 py-2 text-sm transition ${
+                                          String(belt.id) === String(selectedBeltId)
+                                            ? "border-teal-200 bg-teal-50 text-teal-700"
+                                            : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                                        }`}
+                                      >
+                                        <p className="font-semibold">{belt.name}</p>
+                                        <p className="text-xs text-slate-500">
+                                          Villages {belt.villages?.length || 0} · Managers {belt.leadManagers?.length || 0}
+                                        </p>
+                                      </button>
+                                    ))
+                                  ) : (
+                                    <p className="text-sm text-slate-500">No belts created yet.</p>
+                                  )}
+                                </CardBody>
+                              </Card>
 
-                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                                  <Card>
-                                    <CardHeader>
-                                      <h4 className="text-xs font-semibold text-slate-600 uppercase">
-                                        Existing Kings (Trusted)
-                                      </h4>
-                                    </CardHeader>
-                                    <CardBody className="space-y-3">
-                                      <div className="flex flex-col gap-2">
-                                        <Input
-                                          label="Guardian name"
-                                          value={existingKingForm.name}
-                                          onChange={(event) =>
-                                            setExistingKingForm((prev) => ({ ...prev, name: event.target.value }))
-                                          }
-                                          placeholder="Guardian name"
-                                        />
-                                        <Input
-                                          label="Phone"
-                                          value={existingKingForm.phone}
-                                          onChange={(event) =>
-                                            setExistingKingForm((prev) => ({ ...prev, phone: event.target.value }))
-                                          }
-                                          placeholder="+91..."
-                                        />
-                                        <Input
-                                          label="WhatsApp"
-                                          value={existingKingForm.whatsapp}
-                                          onChange={(event) =>
-                                            setExistingKingForm((prev) => ({ ...prev, whatsapp: event.target.value }))
-                                          }
-                                          placeholder="Optional"
-                                        />
-                                        <Input
-                                          label="Notes"
-                                          value={existingKingForm.notes}
-                                          onChange={(event) =>
-                                            setExistingKingForm((prev) => ({ ...prev, notes: event.target.value }))
-                                          }
-                                          placeholder="Notes"
-                                        />
-                                        <label className="flex items-center gap-2 text-xs text-slate-600">
-                                          <input
-                                            type="checkbox"
-                                            checked={existingKingForm.trusted}
-                                            onChange={(event) =>
-                                              setExistingKingForm((prev) => ({ ...prev, trusted: event.target.checked }))
-                                            }
-                                          />
-                                          Mark as trusted
-                                        </label>
+                              <div className="space-y-5">
+                                <Card>
+                                  <CardHeader>
+                                    <div className="flex items-center justify-between">
+                                      <h3 className="text-sm font-semibold text-slate-700">
+                                        {selectedBelt ? selectedBelt.name : "Select a belt"}
+                                      </h3>
+                                      {selectedBelt && (
                                         <Button
-                                          type="button"
-                                          disabled={!existingKingForm.name || mgcpActionState.saving}
+                                          variant="light"
+                                          size="sm"
                                           onClick={() =>
                                             runMgcpAction({
-                                              url: "/api/enrollment/mgcp/guardians",
-                                              method: "POST",
-                                              body: {
-                                                beltId: selectedBelt.id,
-                                                guardianName: existingKingForm.name,
-                                                guardianPhone: existingKingForm.phone,
-                                                guardianWhatsapp: existingKingForm.whatsapp,
-                                                notes: existingKingForm.notes,
-                                                isTrusted: existingKingForm.trusted,
-                                              },
-                                              afterSuccess: () =>
-                                                setExistingKingForm({
-                                                  name: "",
-                                                  phone: "",
-                                                  whatsapp: "",
-                                                  notes: "",
-                                                  trusted: false,
-                                                }),
+                                              url: "/api/enrollment/mgcp/belts",
+                                              method: "DELETE",
+                                              body: { id: selectedBelt.id },
                                             })
                                           }
                                         >
-                                          Add King
+                                          <Trash2 className="w-4 h-4 text-rose-600" />
                                         </Button>
-                                      </div>
-                                      <div className="space-y-2 text-sm">
-                                        {(selectedBelt.guardians || []).map((guard) => (
-                                          <div
-                                            key={guard.id}
-                                            className="flex items-center justify-between rounded-lg border border-slate-200 px-2 py-1"
-                                          >
-                                            <div>
-                                              <p className="font-medium text-slate-700">{guard.guardianName}</p>
-                                              <p className="text-xs text-slate-500">{guard.guardianPhone || "No phone"}</p>
-                                            </div>
-                                            <div className="flex items-center gap-2">
-                                              <button
+                                      )}
+                                    </div>
+                                  </CardHeader>
+                                  <CardBody className="space-y-4">
+                                    {selectedBelt ? (
+                                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                        <Card>
+                                          <CardHeader>
+                                            <h4 className="text-xs font-semibold text-slate-600 uppercase">
+                                              Villages
+                                            </h4>
+                                          </CardHeader>
+                                          <CardBody className="space-y-3">
+                                            <div className="flex flex-col gap-2">
+                                              <Input
+                                                label="Village name"
+                                                value={villageForm.name}
+                                                onChange={(event) =>
+                                                  setVillageForm((prev) => ({ ...prev, name: event.target.value }))
+                                                }
+                                                placeholder="Village"
+                                              />
+                                              <Input
+                                                label="Notes"
+                                                value={villageForm.notes}
+                                                onChange={(event) =>
+                                                  setVillageForm((prev) => ({ ...prev, notes: event.target.value }))
+                                                }
+                                                placeholder="Optional"
+                                              />
+                                              <Button
                                                 type="button"
-                                                className={`text-xs font-semibold ${
-                                                  guard.isTrusted ? "text-teal-700" : "text-slate-400"
-                                                }`}
+                                                disabled={!villageForm.name || mgcpActionState.saving}
                                                 onClick={() =>
                                                   runMgcpAction({
-                                                    url: "/api/enrollment/mgcp/guardians",
-                                                    method: "PATCH",
-                                                    body: { id: guard.id, isTrusted: !guard.isTrusted },
+                                                    url: "/api/enrollment/mgcp/villages",
+                                                    method: "POST",
+                                                    body: {
+                                                      beltId: selectedBelt.id,
+                                                      name: villageForm.name,
+                                                      notes: villageForm.notes,
+                                                    },
+                                                    afterSuccess: () => setVillageForm({ name: "", notes: "" }),
                                                   })
                                                 }
                                               >
-                                                {guard.isTrusted ? "Trusted" : "Trust?"}
-                                              </button>
+                                                Add Village
+                                              </Button>
+                                            </div>
+                                            <div className="space-y-2 text-sm">
+                                              {(selectedBelt.villages || []).map((village) => (
+                                                <div
+                                                  key={village.id}
+                                                  className="flex items-center justify-between rounded-lg border border-slate-200 px-2 py-1"
+                                                >
+                                                  <span>{village.name}</span>
+                                                  <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    onClick={() =>
+                                                      runMgcpAction({
+                                                        url: "/api/enrollment/mgcp/villages",
+                                                        method: "DELETE",
+                                                        body: { id: village.id },
+                                                      })
+                                                    }
+                                                  >
+                                                    <Trash2 className="w-4 h-4 text-rose-600" />
+                                                  </Button>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          </CardBody>
+                                        </Card>
+
+                                        <Card>
+                                          <CardHeader>
+                                            <h4 className="text-xs font-semibold text-slate-600 uppercase">
+                                              Lead Managers
+                                            </h4>
+                                          </CardHeader>
+                                          <CardBody className="space-y-3">
+                                            <div className="flex flex-col gap-2">
+                                              <Input
+                                                label="Name"
+                                                value={leadManagerForm.name}
+                                                onChange={(event) =>
+                                                  setLeadManagerForm((prev) => ({ ...prev, name: event.target.value }))
+                                                }
+                                                placeholder="Lead manager name"
+                                              />
+                                              <Input
+                                                label="Phone"
+                                                value={leadManagerForm.phone}
+                                                onChange={(event) =>
+                                                  setLeadManagerForm((prev) => ({ ...prev, phone: event.target.value }))
+                                                }
+                                                placeholder="+91..."
+                                              />
+                                              <Input
+                                                label="WhatsApp"
+                                                value={leadManagerForm.whatsapp}
+                                                onChange={(event) =>
+                                                  setLeadManagerForm((prev) => ({ ...prev, whatsapp: event.target.value }))
+                                                }
+                                                placeholder="Optional"
+                                              />
+                                              <Input
+                                                label="Notes"
+                                                value={leadManagerForm.notes}
+                                                onChange={(event) =>
+                                                  setLeadManagerForm((prev) => ({ ...prev, notes: event.target.value }))
+                                                }
+                                                placeholder="Notes"
+                                              />
+                                              <Button
+                                                type="button"
+                                                disabled={!leadManagerForm.name || mgcpActionState.saving}
+                                                onClick={() =>
+                                                  runMgcpAction({
+                                                    url: "/api/enrollment/mgcp/lead-managers",
+                                                    method: "POST",
+                                                    body: { beltId: selectedBelt.id, ...leadManagerForm },
+                                                    afterSuccess: () =>
+                                                      setLeadManagerForm({
+                                                        name: "",
+                                                        phone: "",
+                                                        whatsapp: "",
+                                                        notes: "",
+                                                      }),
+                                                  })
+                                                }
+                                              >
+                                                Add Manager
+                                              </Button>
+                                            </div>
+                                            <div className="space-y-2 text-sm">
+                                              {(selectedBelt.leadManagers || []).map((manager) => (
+                                                <div
+                                                  key={manager.id}
+                                                  className="flex items-center justify-between rounded-lg border border-slate-200 px-2 py-1"
+                                                >
+                                                  <div>
+                                                    <p className="font-medium text-slate-700">{manager.name}</p>
+                                                    <p className="text-xs text-slate-500">{manager.phone || "No phone"}</p>
+                                                  </div>
+                                                  <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    onClick={() =>
+                                                      runMgcpAction({
+                                                        url: "/api/enrollment/mgcp/lead-managers",
+                                                        method: "DELETE",
+                                                        body: { id: manager.id },
+                                                      })
+                                                    }
+                                                  >
+                                                    <Trash2 className="w-4 h-4 text-rose-600" />
+                                                  </Button>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          </CardBody>
+                                        </Card>
+                                      </div>
+                                    ) : (
+                                      <p className="text-sm text-slate-500">Select a belt to manage details.</p>
+                                    )}
+                                  </CardBody>
+                                </Card>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {mgcpSection === "kings" && (
+                          <div className="grid grid-cols-1 xl:grid-cols-[280px_minmax(0,1fr)] gap-5">
+                            <Card>
+                              <CardHeader>
+                                <h3 className="text-sm font-semibold text-slate-700">Belts</h3>
+                              </CardHeader>
+                              <CardBody className="space-y-2">
+                                {mgcpBelts.length ? (
+                                  mgcpBelts.map((belt) => (
+                                    <button
+                                      key={belt.id}
+                                      type="button"
+                                      onClick={() => setSelectedBeltId(String(belt.id))}
+                                      className={`w-full text-left rounded-xl border px-3 py-2 text-sm transition ${
+                                        String(belt.id) === String(selectedBeltId)
+                                          ? "border-teal-200 bg-teal-50 text-teal-700"
+                                          : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                                      }`}
+                                    >
+                                      <p className="font-semibold">{belt.name}</p>
+                                      <p className="text-xs text-slate-500">
+                                        Villages {belt.villages?.length || 0} · Kings {belt.guardians?.length || 0}
+                                      </p>
+                                    </button>
+                                  ))
+                                ) : (
+                                  <p className="text-sm text-slate-500">No belts created yet.</p>
+                                )}
+                              </CardBody>
+                            </Card>
+
+                            <Card>
+                              <CardHeader>
+                                <div className="flex items-center justify-between">
+                                  <h3 className="text-sm font-semibold text-slate-700">
+                                    {selectedBelt ? selectedBelt.name : "Select a belt"}
+                                  </h3>
+                                </div>
+                              </CardHeader>
+                              <CardBody className="space-y-4">
+                                {selectedBelt ? (
+                                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                    <Card>
+                                      <CardHeader>
+                                        <h4 className="text-xs font-semibold text-slate-600 uppercase">
+                                          Existing Kings (Trusted)
+                                        </h4>
+                                      </CardHeader>
+                                      <CardBody className="space-y-3">
+                                        <div className="flex flex-col gap-2">
+                                          <Input
+                                            label="Guardian name"
+                                            value={existingKingForm.name}
+                                            onChange={(event) =>
+                                              setExistingKingForm((prev) => ({ ...prev, name: event.target.value }))
+                                            }
+                                            placeholder="Guardian name"
+                                          />
+                                          <Input
+                                            label="Phone"
+                                            value={existingKingForm.phone}
+                                            onChange={(event) =>
+                                              setExistingKingForm((prev) => ({ ...prev, phone: event.target.value }))
+                                            }
+                                            placeholder="+91..."
+                                          />
+                                          <Input
+                                            label="WhatsApp"
+                                            value={existingKingForm.whatsapp}
+                                            onChange={(event) =>
+                                              setExistingKingForm((prev) => ({ ...prev, whatsapp: event.target.value }))
+                                            }
+                                            placeholder="Optional"
+                                          />
+                                          <Input
+                                            label="Notes"
+                                            value={existingKingForm.notes}
+                                            onChange={(event) =>
+                                              setExistingKingForm((prev) => ({ ...prev, notes: event.target.value }))
+                                            }
+                                            placeholder="Notes"
+                                          />
+                                          <label className="flex items-center gap-2 text-xs text-slate-600">
+                                            <input
+                                              type="checkbox"
+                                              checked={existingKingForm.trusted}
+                                              onChange={(event) =>
+                                                setExistingKingForm((prev) => ({
+                                                  ...prev,
+                                                  trusted: event.target.checked,
+                                                }))
+                                              }
+                                            />
+                                            Mark as trusted
+                                          </label>
+                                          <Button
+                                            type="button"
+                                            disabled={!existingKingForm.name || mgcpActionState.saving}
+                                            onClick={() =>
+                                              runMgcpAction({
+                                                url: "/api/enrollment/mgcp/guardians",
+                                                method: "POST",
+                                                body: {
+                                                  beltId: selectedBelt.id,
+                                                  guardianName: existingKingForm.name,
+                                                  guardianPhone: existingKingForm.phone,
+                                                  guardianWhatsapp: existingKingForm.whatsapp,
+                                                  notes: existingKingForm.notes,
+                                                  isTrusted: existingKingForm.trusted,
+                                                },
+                                                afterSuccess: () =>
+                                                  setExistingKingForm({
+                                                    name: "",
+                                                    phone: "",
+                                                    whatsapp: "",
+                                                    notes: "",
+                                                    trusted: false,
+                                                  }),
+                                              })
+                                            }
+                                          >
+                                            Add King
+                                          </Button>
+                                        </div>
+                                        <div className="space-y-2 text-sm">
+                                          {(selectedBelt.guardians || []).map((guard) => (
+                                            <div
+                                              key={guard.id}
+                                              className="flex items-center justify-between rounded-lg border border-slate-200 px-2 py-1"
+                                            >
+                                              <div>
+                                                <p className="font-medium text-slate-700">{guard.guardianName}</p>
+                                                <p className="text-xs text-slate-500">
+                                                  {guard.guardianPhone || "No phone"}
+                                                </p>
+                                              </div>
+                                              <div className="flex items-center gap-2">
+                                                <button
+                                                  type="button"
+                                                  className={`text-xs font-semibold ${
+                                                    guard.isTrusted ? "text-teal-700" : "text-slate-400"
+                                                  }`}
+                                                  onClick={() =>
+                                                    runMgcpAction({
+                                                      url: "/api/enrollment/mgcp/guardians",
+                                                      method: "PATCH",
+                                                      body: { id: guard.id, isTrusted: !guard.isTrusted },
+                                                    })
+                                                  }
+                                                >
+                                                  {guard.isTrusted ? "Trusted" : "Trust?"}
+                                                </button>
+                                                <Button
+                                                  variant="ghost"
+                                                  size="sm"
+                                                  onClick={() =>
+                                                    runMgcpAction({
+                                                      url: "/api/enrollment/mgcp/guardians",
+                                                      method: "DELETE",
+                                                      body: { id: guard.id },
+                                                    })
+                                                  }
+                                                >
+                                                  <Trash2 className="w-4 h-4 text-rose-600" />
+                                                </Button>
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </CardBody>
+                                    </Card>
+
+                                    <Card>
+                                      <CardHeader>
+                                        <div className="flex items-center justify-between">
+                                          <h4 className="text-xs font-semibold text-slate-600 uppercase">Belt Leads</h4>
+                                          <Button
+                                            variant="light"
+                                            size="sm"
+                                            disabled={!selectedBelt}
+                                            onClick={() => selectedBelt && openLeadModal("belt", selectedBelt.id)}
+                                          >
+                                            Add Lead
+                                          </Button>
+                                        </div>
+                                      </CardHeader>
+                                      <CardBody className="space-y-2 text-sm">
+                                        {(selectedBelt.leads || []).length ? (
+                                          (selectedBelt.leads || []).map((lead) => (
+                                            <div
+                                              key={lead.id}
+                                              className="flex items-center justify-between rounded-lg border border-slate-200 px-2 py-1"
+                                            >
+                                              <div>
+                                                <p className="font-medium text-slate-700">{lead.name}</p>
+                                                <p className="text-xs text-slate-500">{lead.phone || "No phone"}</p>
+                                              </div>
                                               <Button
                                                 variant="ghost"
                                                 size="sm"
                                                 onClick={() =>
                                                   runMgcpAction({
-                                                    url: "/api/enrollment/mgcp/guardians",
+                                                    url: "/api/enrollment/mgcp/leads",
                                                     method: "DELETE",
-                                                    body: { id: guard.id },
+                                                    body: { id: lead.id },
                                                   })
                                                 }
                                               >
                                                 <Trash2 className="w-4 h-4 text-rose-600" />
                                               </Button>
                                             </div>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    </CardBody>
-                                  </Card>
+                                          ))
+                                        ) : (
+                                          <p className="text-sm text-slate-500">No belt leads yet.</p>
+                                        )}
+                                      </CardBody>
+                                    </Card>
+                                  </div>
+                                ) : (
+                                  <p className="text-sm text-slate-500">Select a belt to manage details.</p>
+                                )}
+                              </CardBody>
+                            </Card>
+                          </div>
+                        )}
 
-                                  <Card>
-                                    <CardHeader>
-                                      <h4 className="text-xs font-semibold text-slate-600 uppercase">
-                                        Belt Leads
-                                      </h4>
-                                    </CardHeader>
-                                    <CardBody className="space-y-3">
-                                      <div className="flex flex-col gap-2">
-                                        <Input
-                                          label="Lead name"
-                                          value={beltLeadForm.name}
-                                          onChange={(event) =>
-                                            setBeltLeadForm((prev) => ({ ...prev, name: event.target.value }))
-                                          }
-                                        />
-                                        <Input
-                                          label="Phone"
-                                          value={beltLeadForm.phone}
-                                          onChange={(event) =>
-                                            setBeltLeadForm((prev) => ({ ...prev, phone: event.target.value }))
-                                          }
-                                        />
-                                        <Input
-                                          label="WhatsApp"
-                                          value={beltLeadForm.whatsapp}
-                                          onChange={(event) =>
-                                            setBeltLeadForm((prev) => ({ ...prev, whatsapp: event.target.value }))
-                                          }
-                                        />
-                                        <Input
-                                          label="Location"
-                                          value={beltLeadForm.location}
-                                          onChange={(event) =>
-                                            setBeltLeadForm((prev) => ({ ...prev, location: event.target.value }))
-                                          }
-                                        />
-                                        <Input
-                                          label="Source"
-                                          value={beltLeadForm.source}
-                                          onChange={(event) =>
-                                            setBeltLeadForm((prev) => ({ ...prev, source: event.target.value }))
-                                          }
-                                        />
-                                        <Input
-                                          label="Notes"
-                                          value={beltLeadForm.notes}
-                                          onChange={(event) =>
-                                            setBeltLeadForm((prev) => ({ ...prev, notes: event.target.value }))
-                                          }
-                                        />
-                                        <Button
-                                          type="button"
-                                          disabled={!beltLeadForm.name || mgcpActionState.saving}
-                                          onClick={() =>
-                                            runMgcpAction({
-                                              url: "/api/enrollment/mgcp/leads",
-                                              method: "POST",
-                                              body: { beltId: selectedBelt.id, ...beltLeadForm },
-                                              afterSuccess: () =>
-                                                setBeltLeadForm({
-                                                  name: "",
-                                                  phone: "",
-                                                  whatsapp: "",
-                                                  location: "",
-                                                  source: "",
-                                                  notes: "",
-                                                }),
-                                            })
-                                          }
-                                        >
-                                          Add Belt Lead
-                                        </Button>
-                                      </div>
-                                      <div className="space-y-2 text-sm">
-                                        {(selectedBelt.leads || []).map((lead) => (
-                                          <div
-                                            key={lead.id}
-                                            className="flex items-center justify-between rounded-lg border border-slate-200 px-2 py-1"
-                                          >
-                                            <div>
-                                              <p className="font-medium text-slate-700">{lead.name}</p>
-                                              <p className="text-xs text-slate-500">{lead.phone || "No phone"}</p>
-                                            </div>
-                                            <Button
-                                              variant="ghost"
-                                              size="sm"
-                                              onClick={() =>
-                                                runMgcpAction({
-                                                  url: "/api/enrollment/mgcp/leads",
-                                                  method: "DELETE",
-                                                  body: { id: lead.id },
-                                                })
-                                              }
-                                            >
-                                              <Trash2 className="w-4 h-4 text-rose-600" />
-                                            </Button>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    </CardBody>
-                                  </Card>
+      {mgcpSection === "random" && (
+        <Card>
+                            <CardHeader>
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <h3 className="text-sm font-semibold text-slate-700">Random Leads</h3>
+                                  <p className="text-xs text-slate-500">Leads collected from anywhere.</p>
                                 </div>
-                              </>
-                            ) : (
-                              <p className="text-sm text-slate-500">Select a belt to manage details.</p>
-                            )}
-                          </CardBody>
-                        </Card>
-
-                      </div>
+                                <Button variant="light" size="sm" onClick={() => openLeadModal("random")}>
+                                  Add Lead
+                                </Button>
+                              </div>
+                            </CardHeader>
+                            <CardBody className="space-y-2 text-sm">
+                              {mgcpRandomLeads.length ? (
+                                mgcpRandomLeads.map((lead) => (
+                                  <div
+                                    key={lead.id}
+                                    className="flex items-center justify-between rounded-lg border border-slate-200 px-2 py-1"
+                                  >
+                                    <div>
+                                      <p className="font-medium text-slate-700">{lead.name}</p>
+                                      <p className="text-xs text-slate-500">{lead.phone || "No phone"}</p>
+                                      <p className="text-[11px] font-semibold text-teal-600">
+                                        {lead.category || "MGCP Lead"}
+                                      </p>
+                                    </div>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() =>
+                                        runMgcpAction({
+                                          url: "/api/enrollment/mgcp/leads",
+                                          method: "DELETE",
+                                          body: { id: lead.id },
+                                        })
+                                      }
+                                    >
+                                      <Trash2 className="w-4 h-4 text-rose-600" />
+                                    </Button>
+                                  </div>
+                                ))
+                              ) : (
+                                <p className="text-sm text-slate-500">No random leads yet.</p>
+                              )}
+                            </CardBody>
+                          </Card>
+                        )}
+                      </main>
                     </div>
                   </div>
-                )}
-
-                {mgcpSection === "random" && (
-                  <Card>
-                    <CardHeader>
-                      <h3 className="text-sm font-semibold text-slate-700">Random Leads</h3>
-                      <p className="text-xs text-slate-500">Leads collected from anywhere.</p>
-                    </CardHeader>
-                    <CardBody className="space-y-3">
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                        <Input
-                          label="Lead name"
-                          value={randomLeadForm.name}
-                          onChange={(event) =>
-                            setRandomLeadForm((prev) => ({ ...prev, name: event.target.value }))
-                          }
-                        />
-                        <Input
-                          label="Phone"
-                          value={randomLeadForm.phone}
-                          onChange={(event) =>
-                            setRandomLeadForm((prev) => ({ ...prev, phone: event.target.value }))
-                          }
-                        />
-                        <Input
-                          label="WhatsApp"
-                          value={randomLeadForm.whatsapp}
-                          onChange={(event) =>
-                            setRandomLeadForm((prev) => ({ ...prev, whatsapp: event.target.value }))
-                          }
-                        />
-                        <Input
-                          label="Location"
-                          value={randomLeadForm.location}
-                          onChange={(event) =>
-                            setRandomLeadForm((prev) => ({ ...prev, location: event.target.value }))
-                          }
-                        />
-                        <Input
-                          label="Source"
-                          value={randomLeadForm.source}
-                          onChange={(event) =>
-                            setRandomLeadForm((prev) => ({ ...prev, source: event.target.value }))
-                          }
-                        />
-                        <Input
-                          label="Notes"
-                          value={randomLeadForm.notes}
-                          onChange={(event) =>
-                            setRandomLeadForm((prev) => ({ ...prev, notes: event.target.value }))
-                          }
-                        />
-                      </div>
-                      <Button
-                        type="button"
-                        disabled={!randomLeadForm.name || mgcpActionState.saving}
-                        onClick={() =>
-                          runMgcpAction({
-                            url: "/api/enrollment/mgcp/leads",
-                            method: "POST",
-                            body: { ...randomLeadForm, category: "MGCP Lead" },
-                            afterSuccess: () =>
-                              setRandomLeadForm({
-                                name: "",
-                                phone: "",
-                                whatsapp: "",
-                                location: "",
-                                source: "",
-                                notes: "",
-                              }),
-                          })
-                        }
-                      >
-                        Add Random Lead
-                      </Button>
-                      <div className="space-y-2 text-sm">
-                        {mgcpRandomLeads.length ? (
-                          mgcpRandomLeads.map((lead) => (
-                            <div
-                              key={lead.id}
-                              className="flex items-center justify-between rounded-lg border border-slate-200 px-2 py-1"
-                            >
-                              <div>
-                                <p className="font-medium text-slate-700">{lead.name}</p>
-                                <p className="text-xs text-slate-500">{lead.phone || "No phone"}</p>
-                                <p className="text-[11px] font-semibold text-teal-600">
-                                  {lead.category || "MGCP Lead"}
-                                </p>
-                              </div>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() =>
-                                  runMgcpAction({
-                                    url: "/api/enrollment/mgcp/leads",
-                                    method: "DELETE",
-                                    body: { id: lead.id },
-                                  })
-                                }
-                              >
-                                <Trash2 className="w-4 h-4 text-rose-600" />
-                              </Button>
-                            </div>
-                          ))
-                        ) : (
-                          <p className="text-sm text-slate-500">No random leads yet.</p>
-                        )}
-                      </div>
-                    </CardBody>
-                  </Card>
-                )}
-              </main>
+                </div>
+              </div>
             </div>
-          </div>
+          )}
+        </div>
+      )}
+
+      {interactionModal.open && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <form
+            onSubmit={handleInteractionSubmit}
+            className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-xl"
+          >
+            <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 rounded-t-2xl flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">
+                  {interactionModal.mode === "whatsapp" ? "Send WhatsApp" : "Log Call"}
+                </h2>
+                <p className="text-xs text-slate-500">
+                  {interactionModal.guardian?.name || "Guardian"}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeInteractionModal}
+                className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-full"
+              >
+                X
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              {interactionError && (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                  {interactionError}
+                </div>
+              )}
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                <div className="flex items-center gap-2">
+                  <Phone className="w-4 h-4 text-slate-500" />
+                  <span>{interactionModal.guardian?.whatsapp || "No phone on file"}</span>
+                  {interactionModal.guardian?.whatsapp && interactionModal.mode === "call" && (
+                    <a
+                      href={`tel:${interactionModal.guardian.whatsapp}`}
+                      className="ml-auto text-xs font-semibold text-teal-700 hover:text-teal-800"
+                    >
+                      Call now
+                    </a>
+                  )}
+                </div>
+              </div>
+
+              {interactionModal.mode === "whatsapp" ? (
+                <div className="space-y-4">
+                  <Select
+                    label="WhatsApp Template (recommended)"
+                    value={selectedTemplateId}
+                    onChange={(event) => setSelectedTemplateId(event.target.value)}
+                  >
+                    <option value="default">Default: meed_grm_1 (Hindi)</option>
+                    <option value="">Freeform (24h window)</option>
+                    {whatsappTemplates.map((template) => (
+                      <option
+                        key={template.id}
+                        value={template.id}
+                        disabled={!template.whatsappTemplateId}
+                      >
+                        {template.name} · {template.category}
+                        {template.whatsappTemplateId ? "" : " (Not approved)"}
+                      </option>
+                    ))}
+                  </Select>
+                  {templatesLoading && (
+                    <p className="text-xs text-slate-500">Loading templates...</p>
+                  )}
+                  {templatesError && (
+                    <p className="text-xs text-rose-600">{templatesError}</p>
+                  )}
+                  {selectedTemplateId === "default" && (
+                    <Input
+                      label="Subject"
+                      value={interactionForm.subject}
+                      onChange={updateInteractionField("subject")}
+                      placeholder="उपस्थिति सूचना"
+                    />
+                  )}
+                  <label className="block">
+                    <span className="block text-sm font-medium text-slate-700 mb-1">
+                      Message (required for default template)
+                    </span>
+                    <textarea
+                      value={interactionForm.message}
+                      onChange={updateInteractionField("message")}
+                      className="w-full rounded-lg border border-slate-200 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                      placeholder="Type your WhatsApp message..."
+                      rows={4}
+                    />
+                  </label>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <label className="block md:col-span-2">
+                    <span className="block text-sm font-medium text-slate-700 mb-1">Call Notes</span>
+                    <textarea
+                      value={interactionForm.notes}
+                      onChange={updateInteractionField("notes")}
+                      className="w-full rounded-lg border border-slate-200 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                      placeholder="Summarize the call..."
+                      rows={3}
+                    />
+                  </label>
+                  <Input
+                    label="Duration"
+                    value={interactionForm.duration}
+                    onChange={updateInteractionField("duration")}
+                    placeholder="e.g. 12 min"
+                  />
+                  <Select label="Outcome" value={interactionForm.outcome} onChange={updateInteractionField("outcome")}>
+                    <option value="positive">Positive</option>
+                    <option value="neutral">Neutral</option>
+                    <option value="negative">Negative</option>
+                  </Select>
+                </div>
+              )}
+
+              <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+                <label className="flex items-center gap-2 text-sm text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={interactionForm.followUpRequired}
+                    onChange={updateInteractionField("followUpRequired")}
+                  />
+                  Follow-up required
+                </label>
+                {interactionForm.followUpRequired && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Input
+                      label="Follow-up date"
+                      type="date"
+                      value={interactionForm.followUpDate}
+                      onChange={updateInteractionField("followUpDate")}
+                    />
+                    <Input
+                      label="Follow-up notes"
+                      value={interactionForm.followUpNotes}
+                      onChange={updateInteractionField("followUpNotes")}
+                      placeholder="Reminder notes"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+                <Button type="button" variant="light" onClick={closeInteractionModal} disabled={interactionSaving}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={interactionSaving}>
+                  {interactionSaving
+                    ? "Saving..."
+                    : interactionModal.mode === "whatsapp"
+                    ? "Send WhatsApp"
+                    : "Save Call"}
+                </Button>
+              </div>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {leadModal.open && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <form
+            onSubmit={handleLeadSubmit}
+            className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-xl"
+          >
+            <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 rounded-t-2xl flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">Add MGCP Lead</h2>
+                {leadBelt ? (
+                  <p className="text-xs text-slate-500">Belt: {leadBelt.name}</p>
+                ) : (
+                  <p className="text-xs text-slate-500">Random lead entry</p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={closeLeadModal}
+                className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-full"
+              >
+                X
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              {leadError && (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                  {leadError}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Input
+                  label="Guardian Name"
+                  value={leadForm.name}
+                  onChange={updateLeadField("name")}
+                  placeholder="e.g. Abdul Rahman"
+                />
+                <Input
+                  label="WhatsApp Number"
+                  value={leadForm.whatsapp}
+                  onChange={updateLeadField("whatsapp")}
+                  placeholder="+91 XXXXX XXXXX"
+                />
+                <Input
+                  label="Location"
+                  value={leadForm.location}
+                  onChange={updateLeadField("location")}
+                  placeholder="Village / Area"
+                />
+                <label className="block">
+                  <span className="block text-sm font-medium text-gray-700 mb-1">Notes</span>
+                  <textarea
+                    value={leadForm.notes}
+                    onChange={updateLeadField("notes")}
+                    className="w-full rounded-lg border border-gray-300 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                    placeholder="Short context or concern"
+                    rows={2}
+                  />
+                </label>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Select
+                  label="Islamic Education"
+                  value={leadForm.islamic_education_priority}
+                  onChange={updateLeadField("islamic_education_priority")}
+                >
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                </Select>
+                <Select
+                  label="Academic Priority"
+                  value={leadForm.academic_excellence_priority}
+                  onChange={updateLeadField("academic_excellence_priority")}
+                >
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                </Select>
+                <Select
+                  label="Boarding Interest"
+                  value={leadForm.boarding_interest}
+                  onChange={updateLeadField("boarding_interest")}
+                >
+                  <option value="yes">Yes</option>
+                  <option value="maybe">Maybe</option>
+                  <option value="no">No</option>
+                </Select>
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-slate-700">Children</h3>
+                  <Button type="button" variant="ghost" onClick={addLeadChildRow}>
+                    Add Child
+                  </Button>
+                </div>
+                <div className="space-y-3">
+                  {leadForm.children.map((child, index) => (
+                    <div
+                      key={index}
+                      className="grid grid-cols-1 md:grid-cols-4 gap-3 bg-slate-50 border border-slate-200 rounded-xl p-4"
+                    >
+                      <div className="md:col-span-2">
+                        <label className="block text-xs font-medium text-slate-600 mb-1">Name</label>
+                        <input
+                          type="text"
+                          value={child.name}
+                          onChange={updateLeadChildField(index, "name")}
+                          className="w-full rounded-lg border border-slate-200 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                          placeholder="Child name"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">Age</label>
+                        <input
+                          type="number"
+                          value={child.age}
+                          onChange={updateLeadChildField(index, "age")}
+                          className="w-full rounded-lg border border-slate-200 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                          placeholder="Age"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">Current School</label>
+                        <input
+                          type="text"
+                          value={child.currentSchool}
+                          onChange={updateLeadChildField(index, "currentSchool")}
+                          className="w-full rounded-lg border border-slate-200 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                          placeholder="School name"
+                        />
+                      </div>
+                      {leadForm.children.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeLeadChildRow(index)}
+                          className="text-xs text-rose-600 hover:text-rose-700"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+                <Button type="button" variant="light" onClick={closeLeadModal} disabled={leadSaving}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={leadSaving}>
+                  {leadSaving ? "Saving..." : "Save MGCP Lead"}
+                </Button>
+              </div>
+            </div>
+          </form>
         </div>
       )}
 
@@ -2692,7 +3559,9 @@ const GuardianRelationshipManager = () => {
             className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-xl"
           >
             <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 rounded-t-2xl flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-slate-900">Add Probable King</h2>
+              <h2 className="text-lg font-semibold text-slate-900">
+                {isEditingGuardian ? "Edit Probable King" : "Add Probable King"}
+              </h2>
               <button
                 type="button"
                 onClick={closeAddModal}
@@ -2832,7 +3701,7 @@ const GuardianRelationshipManager = () => {
                   Cancel
                 </Button>
                 <Button type="submit" disabled={addSaving}>
-                  {addSaving ? "Saving..." : "Save Probable King"}
+                  {addSaving ? "Saving..." : isEditingGuardian ? "Save Changes" : "Save Probable King"}
                 </Button>
               </div>
             </div>
@@ -2856,6 +3725,9 @@ const GuardianRelationshipManager = () => {
               setSelectedGuardian(null);
               setSelectedGuardianGroup(null);
             }}
+            onWhatsApp={(guardian) => openInteractionModal(guardian, "whatsapp")}
+            onCall={(guardian) => openInteractionModal(guardian, "call")}
+            onEdit={(guardian) => openEditModal(guardian)}
           />
         ))}
     </div>

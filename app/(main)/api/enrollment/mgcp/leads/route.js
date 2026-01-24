@@ -46,6 +46,7 @@ export async function POST(request) {
   }
 
   const beltId = body?.beltId ? Number(body.beltId) : null;
+  const guardianId = body?.guardianId ? Number(body.guardianId) : null;
   const name = typeof body?.name === "string" ? body.name.trim() : "";
   const phone = typeof body?.phone === "string" ? body.phone.trim() : "";
   const whatsapp = typeof body?.whatsapp === "string" ? body.whatsapp.trim() : "";
@@ -64,6 +65,7 @@ export async function POST(request) {
       .insert(mgcpLeads)
       .values({
         beltId: Number.isFinite(beltId) ? beltId : null,
+        guardianId: Number.isFinite(guardianId) ? guardianId : null,
         name,
         phone: phone || null,
         whatsapp: whatsapp || null,
@@ -109,6 +111,10 @@ export async function PATCH(request) {
   if (typeof body?.notes === "string") updates.notes = body.notes.trim();
   if (typeof body?.category === "string") updates.category = body.category.trim();
   if (typeof body?.status === "string") updates.status = body.status.trim();
+  if (typeof body?.guardianId !== "undefined") {
+    const nextGuardianId = Number(body.guardianId);
+    updates.guardianId = Number.isFinite(nextGuardianId) ? nextGuardianId : null;
+  }
 
   try {
     const [lead] = await db.update(mgcpLeads).set(updates).where(eq(mgcpLeads.id, id)).returning();

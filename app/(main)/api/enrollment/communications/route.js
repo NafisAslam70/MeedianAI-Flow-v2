@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import {
   enrollmentGuardians,
   enrollmentGuardianInteractions,
+  enrollmentGuardianChildren,
   enrollmentCommunicationTemplates,
 } from "@/lib/schema";
 import { desc, eq, inArray, sql } from "drizzle-orm";
@@ -103,6 +104,10 @@ export async function POST(request) {
       return await createTemplate(body, session);
     }
 
+    if (action === "log-interaction") {
+      return await logInteraction(body, session);
+    }
+
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });
   } catch (error) {
     console.error("Error in communications:", error);
@@ -118,6 +123,12 @@ async function sendWhatsAppMessage(body, session) {
   const message = typeof body?.message === "string" ? body.message.trim() : "";
   const templateId = body?.templateId ? Number(body.templateId) : null;
   const variables = body?.variables || null;
+  const directTemplateSid =
+    typeof body?.templateSid === "string" ? body.templateSid.trim() : "";
+  const directVariables =
+    body?.templateVariables && typeof body.templateVariables === "object"
+      ? body.templateVariables
+      : null;
 
   if (!Number.isFinite(guardianId)) {
     return NextResponse.json({ error: "Guardian ID required" }, { status: 400 });
@@ -134,12 +145,20 @@ async function sendWhatsAppMessage(body, session) {
   }
 
   const guardianData = guardiansResult[0];
+  const childrenRows = await db
+    .select()
+    .from(enrollmentGuardianChildren)
+    .where(eq(enrollmentGuardianChildren.guardianId, guardianId));
+  const childrenNames = childrenRows.map((child) => child.name).filter(Boolean).join(", ");
+
   if (!guardianData.whatsapp) {
     return NextResponse.json({ error: "Guardian WhatsApp number is missing" }, { status: 400 });
   }
   let messageContent = message;
+  let templateSid = directTemplateSid || null;
+  let contentVariables = directVariables || {};
 
-  if (templateId) {
+  if (!templateSid && templateId) {
     const templates = await db
       .select()
       .from(enrollmentCommunicationTemplates)
@@ -147,16 +166,44 @@ async function sendWhatsAppMessage(body, session) {
       .limit(1);
 
     if (templates.length) {
-      messageContent = templates[0].contentHindi || templates[0].contentEnglish || "";
-      if (variables) {
-        Object.keys(variables).forEach((key) => {
-          messageContent = messageContent.replace(new RegExp(`{{${key}}}`, "g"), variables[key]);
-        });
-      }
+      const template = templates[0];
+      messageContent = template.contentHindi || template.contentEnglish || "";
+      templateSid = template.whatsappTemplateId || null;
+
+      const standardVars = {
+        guardian_name: guardianData.name,
+        children_names: childrenNames,
+        location: guardianData.location,
+        school_name: "MEED Public School",
+      };
+
+      const mergedVars = { ...standardVars, ...(variables || {}) };
+      contentVariables = {
+        "1": mergedVars.guardian_name || "",
+        "2": mergedVars.children_names || "",
+        "3": mergedVars.location || "",
+        "4": mergedVars.school_name || "",
+      };
+
+      Object.keys(mergedVars).forEach((key) => {
+        contentVariables[key] = mergedVars[key];
+      });
+
+      Object.keys(mergedVars).forEach((key) => {
+        if (mergedVars[key] === undefined || mergedVars[key] === null) return;
+        messageContent = messageContent.replace(new RegExp(`{{${key}}}`, "g"), mergedVars[key]);
+      });
     }
   }
 
-  if (!messageContent) {
+  if (templateId && !templateSid) {
+    return NextResponse.json(
+      { error: "Selected template is not linked to an approved WhatsApp template." },
+      { status: 400 }
+    );
+  }
+
+  if (!messageContent && !templateSid) {
     return NextResponse.json({ error: "Message content required" }, { status: 400 });
   }
 
@@ -164,11 +211,24 @@ async function sendWhatsAppMessage(body, session) {
     const actorId = Number(session.user.id);
     const conductedBy = Number.isFinite(actorId) ? actorId : null;
 
-    const whatsappMessage = await twilioClient.messages.create({
-      body: messageContent,
+    const messageParams = {
       from: `whatsapp:${whatsappNumber}`,
       to: `whatsapp:${guardianData.whatsapp}`,
-    });
+    };
+
+    if (templateSid) {
+      messageParams.contentSid = templateSid;
+      const safeVariables = {};
+      Object.keys(contentVariables || {}).forEach((key) => {
+        const value = contentVariables[key];
+        safeVariables[key] = value === undefined || value === null ? "" : String(value);
+      });
+      messageParams.contentVariables = JSON.stringify(safeVariables);
+    } else {
+      messageParams.body = messageContent;
+    }
+
+    const whatsappMessage = await twilioClient.messages.create(messageParams);
 
     const [interaction] = await db
       .insert(enrollmentGuardianInteractions)
@@ -349,6 +409,55 @@ async function sendBulkMessages(body, session) {
     results,
     totalProcessed: guardiansList.length,
   });
+}
+
+async function logInteraction(body, session) {
+  const guardianId = Number(body?.guardianId);
+  const type = typeof body?.type === "string" ? body.type.trim() : "";
+  const method = typeof body?.method === "string" ? body.method.trim() : null;
+  const content = typeof body?.content === "string" ? body.content.trim() : null;
+  const duration = typeof body?.duration === "string" ? body.duration.trim() : null;
+  const outcome = typeof body?.outcome === "string" ? body.outcome.trim() : null;
+  const followUpRequired = Boolean(body?.followUpRequired);
+  const followUpDate = body?.followUpDate ? new Date(body.followUpDate) : null;
+  const followUpNotes = typeof body?.followUpNotes === "string" ? body.followUpNotes.trim() : null;
+
+  if (!Number.isFinite(guardianId)) {
+    return NextResponse.json({ error: "Guardian ID required" }, { status: 400 });
+  }
+  if (!type) {
+    return NextResponse.json({ error: "Interaction type required" }, { status: 400 });
+  }
+
+  const actorId = Number(session.user.id);
+  const conductedBy = Number.isFinite(actorId) ? actorId : null;
+
+  const [interaction] = await db
+    .insert(enrollmentGuardianInteractions)
+    .values({
+      guardianId,
+      type,
+      method,
+      content,
+      duration,
+      outcome,
+      followUpRequired,
+      followUpDate,
+      followUpNotes,
+      conductedBy,
+      createdAt: new Date(),
+    })
+    .returning();
+
+  await db
+    .update(enrollmentGuardians)
+    .set({
+      lastContact: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(enrollmentGuardians.id, guardianId));
+
+  return NextResponse.json({ interaction }, { status: 201 });
 }
 
 async function createTemplate(body, session) {
