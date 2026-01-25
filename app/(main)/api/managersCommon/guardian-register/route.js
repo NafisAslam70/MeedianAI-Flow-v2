@@ -32,6 +32,7 @@ const mapEntry = (row) => ({
   studentName: row.studentName,
   className: row.className,
   purpose: row.purpose,
+  purposeNote: row.purposeNote ?? null,
   tokenNumber: row.tokenNumber ?? null,
   queueStatus: row.queueStatus ?? null,
   calledAt: row.calledAt instanceof Date ? row.calledAt.toISOString() : row.calledAt ?? null,
@@ -61,6 +62,11 @@ const isMissingColumnError = (error) => {
   return message.includes("does not exist");
 };
 
+const isSatisfactionColumnError = (error) => {
+  const message = String(error?.cause?.message || error?.message || "");
+  return message.includes("satisfaction_islamic") || message.includes("satisfaction_academic");
+};
+
 const isQueueColumnError = (error) => {
   const message = String(error?.cause?.message || error?.message || "");
   return (
@@ -71,13 +77,19 @@ const isQueueColumnError = (error) => {
   );
 };
 
-const buildGuardianLogSelection = ({ withSatisfaction, withQueue }) => ({
+const isPurposeNoteColumnError = (error) => {
+  const message = String(error?.cause?.message || error?.message || "");
+  return message.includes("purpose_note");
+};
+
+const buildGuardianLogSelection = ({ withSatisfaction, withQueue, withPurposeNote }) => ({
   id: guardianGateLogs.id,
   visitDate: guardianGateLogs.visitDate,
   guardianName: guardianGateLogs.guardianName,
   studentName: guardianGateLogs.studentName,
   className: guardianGateLogs.className,
   purpose: guardianGateLogs.purpose,
+  ...(withPurposeNote ? { purposeNote: guardianGateLogs.purposeNote } : {}),
   ...(withQueue
     ? {
         tokenNumber: guardianGateLogs.tokenNumber,
@@ -103,16 +115,22 @@ const buildGuardianLogSelection = ({ withSatisfaction, withQueue }) => ({
 });
 
 const selectGuardianLogs = async (queryBuilder) => {
+  const desired = { withSatisfaction: true, withQueue: true, withPurposeNote: true };
   try {
-    return await queryBuilder({ withSatisfaction: true, withQueue: true });
+    return await queryBuilder(desired);
   } catch (error) {
     if (!isMissingColumnError(error)) throw error;
+    const fallback = {
+      withSatisfaction: !isSatisfactionColumnError(error),
+      withQueue: !isQueueColumnError(error),
+      withPurposeNote: !isPurposeNoteColumnError(error),
+    };
     try {
-      return await queryBuilder({ withSatisfaction: true, withQueue: false });
-    } catch (queueError) {
-      if (!isMissingColumnError(queueError)) throw queueError;
+      return await queryBuilder(fallback);
+    } catch (fallbackError) {
+      if (!isMissingColumnError(fallbackError)) throw fallbackError;
     }
-    const rows = await queryBuilder({ withSatisfaction: false, withQueue: false });
+    const rows = await queryBuilder({ withSatisfaction: false, withQueue: false, withPurposeNote: false });
     return rows.map((row) => ({
       ...row,
       satisfactionIslamic: null,
@@ -344,6 +362,7 @@ export async function POST(req) {
   const studentName = typeof body?.studentName === "string" ? body.studentName.trim() : "";
   const className = typeof body?.className === "string" ? body.className.trim() : "";
   const purpose = typeof body?.purpose === "string" ? body.purpose.trim() : "";
+  const purposeNote = typeof body?.purposeNote === "string" ? body.purposeNote.trim() : "";
   const signature = typeof body?.signature === "string" ? body.signature.trim() : "";
   const satisfactionIslamicRaw = Number(body?.satisfactionIslamic);
   const satisfactionAcademicRaw = Number(body?.satisfactionAcademic);
@@ -364,6 +383,9 @@ export async function POST(req) {
   if (!guardianName || !studentName || !className || !purpose) {
     return NextResponse.json({ error: "guardianName, studentName, className, and purpose are required" }, { status: 400 });
   }
+  if (purpose === "Other" && !purposeNote) {
+    return NextResponse.json({ error: "Purpose note is required when purpose is Other." }, { status: 400 });
+  }
 
   const inAt = parseTime(body?.inTime, visitDateRaw, visitDate);
   const outAt = parseTime(body?.outTime, visitDateRaw, visitDate);
@@ -380,10 +402,11 @@ export async function POST(req) {
   let queueStatus = null;
   if (assignToken) {
     try {
-      const [{ max }] = await db.execute(
+      const result = await db.execute(
         sql`SELECT COALESCE(MAX(token_number), 0)::int as max FROM ${guardianGateLogs} WHERE ${guardianGateLogs.visitDate} = ${visitDateRaw}`
       );
-      tokenNumber = Number(max) + 1;
+      const maxValue = result?.rows?.[0]?.max ?? result?.[0]?.max ?? 0;
+      tokenNumber = Number(maxValue) + 1;
       queueStatus = QUEUE_STATUS.WAITING;
     } catch (error) {
       if (isMissingColumnError(error)) {
@@ -402,6 +425,7 @@ export async function POST(req) {
     studentName,
     className,
     purpose,
+    purposeNote: purposeNote || null,
     ...(assignToken
       ? {
           tokenNumber,
@@ -427,11 +451,14 @@ export async function POST(req) {
       const fallbackInsert = { ...baseInsert };
       delete fallbackInsert.tokenNumber;
       delete fallbackInsert.queueStatus;
+      delete fallbackInsert.purposeNote;
       await db.insert(guardianGateLogs).values(fallbackInsert);
       tokenNumber = null;
       queueStatus = null;
     } else {
-      await db.insert(guardianGateLogs).values(baseInsert);
+      const fallbackInsert = { ...baseInsert };
+      delete fallbackInsert.purposeNote;
+      await db.insert(guardianGateLogs).values(fallbackInsert);
     }
   }
 

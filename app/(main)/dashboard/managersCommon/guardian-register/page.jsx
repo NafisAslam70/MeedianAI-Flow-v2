@@ -53,6 +53,7 @@ const initialForm = {
   studentName: "",
   className: "",
   purpose: "",
+  purposeNote: "",
   assignToken: true,
   feesSubmitted: false,
   satisfactionIslamic: "",
@@ -161,6 +162,15 @@ export default function GuardianRegisterPage() {
     });
   };
 
+  const handlePurposeChange = (event) => {
+    const value = event.target.value;
+    setForm((prev) => ({
+      ...prev,
+      purpose: value,
+      purposeNote: value === "Other" ? prev.purposeNote : "",
+    }));
+  };
+
   const resetForm = () => setForm(initialForm);
 
   const handleSubmit = async (event) => {
@@ -170,6 +180,10 @@ export default function GuardianRegisterPage() {
 
     if (!form.guardianName.trim() || !form.studentName.trim() || !form.className.trim() || !form.purpose.trim()) {
       setMessage("Guardian, student, class, and purpose are required.");
+      return;
+    }
+    if (form.purpose === "Other" && !form.purposeNote.trim()) {
+      setMessage("Add a note for Other purpose.");
       return;
     }
 
@@ -419,7 +433,7 @@ export default function GuardianRegisterPage() {
                 id="purpose"
                 className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm"
                 value={form.purpose}
-                onChange={updateFormField("purpose")}
+                onChange={handlePurposeChange}
               >
                 <option value="">Select reason</option>
                 {purposeOptions.map((option) => (
@@ -429,6 +443,21 @@ export default function GuardianRegisterPage() {
               ))}
               </select>
             </div>
+            {form.purpose === "Other" && (
+              <div className="min-w-[240px] flex-[2]">
+                <label htmlFor="purpose-note" className="block text-sm font-medium text-gray-700">
+                  Other purpose note
+                </label>
+                <input
+                  id="purpose-note"
+                  type="text"
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
+                  value={form.purposeNote}
+                  onChange={updateFormField("purposeNote")}
+                  placeholder="Add a short note"
+                />
+              </div>
+            )}
             <div className="min-w-[160px]">
               <span className="block text-sm font-medium text-gray-700">Queue token</span>
               <label className="mt-2 inline-flex items-center gap-2 text-sm text-gray-700" htmlFor="assign-token">
@@ -594,7 +623,16 @@ export default function GuardianRegisterPage() {
                       <td className="px-3 py-2 text-sm font-medium text-gray-900">{entry.guardianName}</td>
                       <td className="px-3 py-2 text-sm text-gray-600">{entry.studentName}</td>
                       <td className="px-3 py-2 text-sm text-gray-600">{entry.className || "—"}</td>
-                      <td className="px-3 py-2 text-sm text-gray-600">{entry.purpose || "—"}</td>
+                      <td className="px-3 py-2 text-sm text-gray-600">
+                        {entry.purpose === "Other" && entry.purposeNote ? (
+                          <div>
+                            <div className="text-sm text-gray-700">Other</div>
+                            <div className="text-xs text-gray-400">{entry.purposeNote}</div>
+                          </div>
+                        ) : (
+                          entry.purpose || "—"
+                        )}
+                      </td>
                       <td className="px-3 py-2 text-sm text-gray-900">{formatToken(entry.tokenNumber)}</td>
                       <td className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
                         {entry.queueStatus || "—"}
