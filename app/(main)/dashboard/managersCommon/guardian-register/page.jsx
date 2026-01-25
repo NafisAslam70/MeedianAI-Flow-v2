@@ -33,6 +33,11 @@ const formatTime = (value) => {
   return dt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 };
 
+const formatToken = (value) => {
+  if (!value || Number.isNaN(Number(value))) return "—";
+  return `G-${String(value).padStart(3, "0")}`;
+};
+
 const purposeOptions = [
   "Sat/Sun meet student",
   "Random day meet",
@@ -48,6 +53,7 @@ const initialForm = {
   studentName: "",
   className: "",
   purpose: "",
+  assignToken: true,
   feesSubmitted: false,
   satisfactionIslamic: "",
   satisfactionAcademic: "",
@@ -60,15 +66,24 @@ export default function GuardianRegisterPage() {
   const [form, setForm] = useState(initialForm);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [queueMessage, setQueueMessage] = useState("");
+  const [callingNext, setCallingNext] = useState(false);
 
   const key = selectedDate ? `/api/managersCommon/guardian-register?date=${selectedDate}` : null;
   const { data, error, isLoading, mutate } = useSWR(key, fetcher, { dedupingInterval: 15000 });
+  const queueKey = selectedDate ? `/api/managersCommon/guardian-register?section=queue&date=${selectedDate}` : null;
+  const { data: queueData, error: queueError, mutate: mutateQueue, isLoading: queueLoading } = useSWR(queueKey, fetcher, {
+    refreshInterval: 5000,
+    dedupingInterval: 1500,
+  });
   const { data: optionsData } = useSWR("/api/managersCommon/guardian-register?section=options", fetcher, {
     dedupingInterval: 60000,
   });
 
   const entries = useMemo(() => data?.entries || [], [data?.entries]);
   const students = useMemo(() => optionsData?.students || [], [optionsData?.students]);
+  const nowServing = queueData?.nowServing || null;
+  const nextUp = queueData?.nextUp || [];
 
   const studentLookup = useMemo(() => {
     const map = new Map();
@@ -170,15 +185,41 @@ export default function GuardianRegisterPage() {
       });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(payload?.error || `HTTP ${res.status}`);
-      setMessage("Entry saved.");
+      const tokenLabel = payload?.tokenNumber ? formatToken(payload.tokenNumber) : null;
+      setMessage(tokenLabel ? `Entry saved. Token ${tokenLabel}.` : "Entry saved.");
       resetForm();
       await mutate();
+      await mutateQueue();
     } catch (err) {
       console.error(err);
       setMessage(err.message || "Failed to save entry.");
     } finally {
       setSaving(false);
       setTimeout(() => setMessage(""), 2500);
+    }
+  };
+
+  const handleCallNext = async () => {
+    if (callingNext) return;
+    setQueueMessage("");
+    setCallingNext(true);
+    try {
+      const res = await fetch("/api/managersCommon/guardian-register?section=call-next", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visitDate: selectedDate }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.error || `HTTP ${res.status}`);
+      const tokenLabel = payload?.called?.tokenNumber ? formatToken(payload.called.tokenNumber) : "—";
+      setQueueMessage(`Now serving ${tokenLabel}.`);
+      await mutateQueue();
+    } catch (err) {
+      console.error(err);
+      setQueueMessage(err.message || "Unable to call next token.");
+    } finally {
+      setCallingNext(false);
+      setTimeout(() => setQueueMessage(""), 2500);
     }
   };
 
@@ -195,6 +236,7 @@ export default function GuardianRegisterPage() {
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(payload?.error || `HTTP ${res.status}`);
       await mutate();
+      await mutateQueue();
     } catch (err) {
       console.error(err);
       alert(err.message || "Failed to delete entry");
@@ -226,6 +268,81 @@ export default function GuardianRegisterPage() {
           Record guardian or visitor entries digitally. Choose the date, add entries, and maintain a clear ledger for audits.
         </p>
       </header>
+
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-gray-900">Token desk</h2>
+              <p className="text-sm text-gray-600">
+                Issue tokens and call the next guardian from the queue display.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="light" size="sm" onClick={() => mutateQueue()} disabled={queueLoading}>
+                <RefreshCw className="mr-2 h-4 w-4" /> Refresh
+              </Button>
+              <Button
+                variant="light"
+                size="sm"
+                onClick={() => {
+                  if (typeof window !== "undefined") {
+                    window.open("/dashboard/managersCommon/guardian-register/display", "_blank", "noopener,noreferrer");
+                  }
+                }}
+              >
+                Open TV display
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardBody>
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-5">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Now serving</p>
+              <div className="mt-2 text-4xl font-bold text-gray-900">
+                {formatToken(nowServing?.tokenNumber)}
+              </div>
+              <p className="mt-1 text-xs text-gray-500">
+                {nowServing?.guardianName ? `${nowServing.guardianName}` : "Waiting for next call"}
+              </p>
+            </div>
+            <div className="md:col-span-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Next up</p>
+                <p className="text-xs text-gray-500">
+                  {queueData?.waitingCount ? `${queueData.waitingCount} waiting` : "No waiting tokens"}
+                </p>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-3">
+                {nextUp.length === 0 ? (
+                  <span className="rounded-full border border-dashed border-gray-300 px-3 py-1 text-xs text-gray-500">
+                    Queue is clear
+                  </span>
+                ) : (
+                  nextUp.map((entry) => (
+                    <span
+                      key={entry.id}
+                      className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-gray-700 shadow-sm ring-1 ring-gray-200"
+                    >
+                      {formatToken(entry.tokenNumber)}
+                    </span>
+                  ))
+                )}
+              </div>
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <Button onClick={handleCallNext} disabled={callingNext || queueLoading}>
+                  {callingNext ? "Calling…" : "Call next"}
+                </Button>
+                {queueMessage && <span className="text-sm text-indigo-600">{queueMessage}</span>}
+                {queueError && !queueMessage && (
+                  <span className="text-sm text-rose-600">{queueError.message || "Queue unavailable."}</span>
+                )}
+              </div>
+            </div>
+          </div>
+        </CardBody>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -311,6 +428,19 @@ export default function GuardianRegisterPage() {
                 </option>
               ))}
               </select>
+            </div>
+            <div className="min-w-[160px]">
+              <span className="block text-sm font-medium text-gray-700">Queue token</span>
+              <label className="mt-2 inline-flex items-center gap-2 text-sm text-gray-700" htmlFor="assign-token">
+                <input
+                  id="assign-token"
+                  type="checkbox"
+                  className="h-4 w-4 rounded border border-gray-300"
+                  checked={form.assignToken}
+                  onChange={updateFormField("assignToken")}
+                />
+                Issue token
+              </label>
             </div>
             <div className="min-w-[160px]">
               <span className="block text-sm font-medium text-gray-700">Fees submitted</span>
@@ -435,6 +565,8 @@ export default function GuardianRegisterPage() {
                   <th className="px-3 py-2 text-left font-semibold text-gray-700">Student</th>
                   <th className="px-3 py-2 text-left font-semibold text-gray-700">Class</th>
                   <th className="px-3 py-2 text-left font-semibold text-gray-700">Purpose</th>
+                  <th className="px-3 py-2 text-left font-semibold text-gray-700">Token</th>
+                  <th className="px-3 py-2 text-left font-semibold text-gray-700">Queue</th>
                   <th className="px-3 py-2 text-left font-semibold text-gray-700">Fees submitted</th>
                   <th className="px-3 py-2 text-left font-semibold text-gray-700">Islamic</th>
                   <th className="px-3 py-2 text-left font-semibold text-gray-700">Academic</th>
@@ -446,13 +578,13 @@ export default function GuardianRegisterPage() {
               <tbody className="divide-y divide-gray-100">
                 {isLoading ? (
                   <tr>
-                    <td colSpan={10} className="px-3 py-4 text-center text-sm text-gray-500">
+                    <td colSpan={12} className="px-3 py-4 text-center text-sm text-gray-500">
                       Loading entries…
                     </td>
                   </tr>
                 ) : entries.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="px-3 py-4 text-center text-sm text-gray-500">
+                    <td colSpan={12} className="px-3 py-4 text-center text-sm text-gray-500">
                       No entries captured for this date yet.
                     </td>
                   </tr>
@@ -463,6 +595,10 @@ export default function GuardianRegisterPage() {
                       <td className="px-3 py-2 text-sm text-gray-600">{entry.studentName}</td>
                       <td className="px-3 py-2 text-sm text-gray-600">{entry.className || "—"}</td>
                       <td className="px-3 py-2 text-sm text-gray-600">{entry.purpose || "—"}</td>
+                      <td className="px-3 py-2 text-sm text-gray-900">{formatToken(entry.tokenNumber)}</td>
+                      <td className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        {entry.queueStatus || "—"}
+                      </td>
                       <td className="px-3 py-2 text-sm text-gray-600">{entry.feesSubmitted ? "Yes" : "No"}</td>
                       <td className="px-3 py-2 text-sm text-gray-600">
                         {entry.satisfactionIslamic ?? "—"}

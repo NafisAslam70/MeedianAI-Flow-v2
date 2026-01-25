@@ -2,11 +2,17 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { Classes, guardianGateLogs, managerSectionGrants, Students, users } from "@/lib/schema";
-import { and, asc, desc, eq, gte, ilike, lte, or } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, lte, or, sql } from "drizzle-orm";
 
 const todayKey = () => {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+};
+
+const QUEUE_STATUS = {
+  WAITING: "WAITING",
+  CALLED: "CALLED",
+  SERVED: "SERVED",
 };
 
 const hasGuardianAccess = async (user) => {
@@ -26,6 +32,10 @@ const mapEntry = (row) => ({
   studentName: row.studentName,
   className: row.className,
   purpose: row.purpose,
+  tokenNumber: row.tokenNumber ?? null,
+  queueStatus: row.queueStatus ?? null,
+  calledAt: row.calledAt instanceof Date ? row.calledAt.toISOString() : row.calledAt ?? null,
+  servedAt: row.servedAt instanceof Date ? row.servedAt.toISOString() : row.servedAt ?? null,
   feesSubmitted: Boolean(row.feesSubmitted),
   satisfactionIslamic:
     row.satisfactionIslamic === null || row.satisfactionIslamic === undefined
@@ -51,13 +61,31 @@ const isMissingColumnError = (error) => {
   return message.includes("does not exist");
 };
 
-const buildGuardianLogSelection = (withSatisfaction) => ({
+const isQueueColumnError = (error) => {
+  const message = String(error?.cause?.message || error?.message || "");
+  return (
+    message.includes("token_number") ||
+    message.includes("queue_status") ||
+    message.includes("called_at") ||
+    message.includes("served_at")
+  );
+};
+
+const buildGuardianLogSelection = ({ withSatisfaction, withQueue }) => ({
   id: guardianGateLogs.id,
   visitDate: guardianGateLogs.visitDate,
   guardianName: guardianGateLogs.guardianName,
   studentName: guardianGateLogs.studentName,
   className: guardianGateLogs.className,
   purpose: guardianGateLogs.purpose,
+  ...(withQueue
+    ? {
+        tokenNumber: guardianGateLogs.tokenNumber,
+        queueStatus: guardianGateLogs.queueStatus,
+        calledAt: guardianGateLogs.calledAt,
+        servedAt: guardianGateLogs.servedAt,
+      }
+    : {}),
   feesSubmitted: guardianGateLogs.feesSubmitted,
   ...(withSatisfaction
     ? {
@@ -76,10 +104,15 @@ const buildGuardianLogSelection = (withSatisfaction) => ({
 
 const selectGuardianLogs = async (queryBuilder) => {
   try {
-    return await queryBuilder(true);
+    return await queryBuilder({ withSatisfaction: true, withQueue: true });
   } catch (error) {
     if (!isMissingColumnError(error)) throw error;
-    const rows = await queryBuilder(false);
+    try {
+      return await queryBuilder({ withSatisfaction: true, withQueue: false });
+    } catch (queueError) {
+      if (!isMissingColumnError(queueError)) throw queueError;
+    }
+    const rows = await queryBuilder({ withSatisfaction: false, withQueue: false });
     return rows.map((row) => ({
       ...row,
       satisfactionIslamic: null,
@@ -174,9 +207,9 @@ export async function GET(req) {
       return NextResponse.json({ error: "guardianName or studentName is required" }, { status: 400 });
     }
 
-    const rows = await selectGuardianLogs((withSatisfaction) =>
+    const rows = await selectGuardianLogs((options) =>
       db
-        .select(buildGuardianLogSelection(withSatisfaction))
+        .select(buildGuardianLogSelection(options))
         .from(guardianGateLogs)
         .leftJoin(users, eq(users.id, guardianGateLogs.createdBy))
         .where(
@@ -193,6 +226,62 @@ export async function GET(req) {
     return NextResponse.json({ entries: rows.map(mapEntry) }, { status: 200 });
   }
 
+  if (section === "queue") {
+    const dateParam = searchParams.get("date") || todayKey();
+    const targetDate = new Date(dateParam);
+    if (Number.isNaN(targetDate.getTime())) {
+      return NextResponse.json({ error: "Invalid date" }, { status: 400 });
+    }
+    const dayKey = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, "0")}-${String(targetDate.getDate()).padStart(2, "0")}`;
+
+    let rows;
+    try {
+      rows = await db
+        .select({
+          id: guardianGateLogs.id,
+          tokenNumber: guardianGateLogs.tokenNumber,
+          queueStatus: guardianGateLogs.queueStatus,
+          calledAt: guardianGateLogs.calledAt,
+          guardianName: guardianGateLogs.guardianName,
+          studentName: guardianGateLogs.studentName,
+        })
+        .from(guardianGateLogs)
+        .where(and(eq(guardianGateLogs.visitDate, dayKey), sql`${guardianGateLogs.tokenNumber} is not null`))
+        .orderBy(asc(guardianGateLogs.tokenNumber));
+    } catch (error) {
+      if (isMissingColumnError(error)) {
+        return NextResponse.json(
+          { error: "Queue columns unavailable. Run the latest guardian queue migration." },
+          { status: 409 }
+        );
+      }
+      throw error;
+    }
+
+    const normalized = rows.map((row) => ({
+      ...row,
+      queueStatus: row.queueStatus || QUEUE_STATUS.WAITING,
+    }));
+    const waiting = normalized.filter((row) => row.queueStatus === QUEUE_STATUS.WAITING);
+    const called = normalized.filter((row) => row.queueStatus === QUEUE_STATUS.CALLED);
+    const nowServing = called.sort((a, b) => {
+      const aTime = a.calledAt ? new Date(a.calledAt).getTime() : 0;
+      const bTime = b.calledAt ? new Date(b.calledAt).getTime() : 0;
+      return bTime - aTime;
+    })[0] || null;
+    const nextUp = waiting.slice(0, 5);
+
+    return NextResponse.json(
+      {
+        date: dayKey,
+        nowServing,
+        nextUp,
+        waitingCount: waiting.length,
+      },
+      { status: 200 }
+    );
+  }
+
   const dateParam = searchParams.get("date");
   const targetDate = dateParam ? new Date(dateParam) : new Date();
   if (Number.isNaN(targetDate.getTime())) {
@@ -200,9 +289,9 @@ export async function GET(req) {
   }
   const dayKey = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, "0")}-${String(targetDate.getDate()).padStart(2, "0")}`;
 
-  const rows = await selectGuardianLogs((withSatisfaction) =>
+  const rows = await selectGuardianLogs((options) =>
     db
-      .select(buildGuardianLogSelection(withSatisfaction))
+      .select(buildGuardianLogSelection(options))
       .from(guardianGateLogs)
       .leftJoin(users, eq(users.id, guardianGateLogs.createdBy))
       .where(eq(guardianGateLogs.visitDate, dayKey))
@@ -263,6 +352,7 @@ export async function POST(req) {
     body?.feesSubmitted === "true" ||
     body?.feesSubmitted === 1 ||
     body?.feesSubmitted === "1";
+  const assignToken = body?.assignToken !== false;
 
   if (!visitDateRaw) {
     return NextResponse.json({ error: "visitDate is required" }, { status: 400 });
@@ -286,12 +376,38 @@ export async function POST(req) {
       ? Math.round(satisfactionAcademicRaw)
       : null;
 
+  let tokenNumber = null;
+  let queueStatus = null;
+  if (assignToken) {
+    try {
+      const [{ max }] = await db.execute(
+        sql`SELECT COALESCE(MAX(token_number), 0)::int as max FROM ${guardianGateLogs} WHERE ${guardianGateLogs.visitDate} = ${visitDateRaw}`
+      );
+      tokenNumber = Number(max) + 1;
+      queueStatus = QUEUE_STATUS.WAITING;
+    } catch (error) {
+      if (isMissingColumnError(error)) {
+        return NextResponse.json(
+          { error: "Queue columns unavailable. Run the latest guardian queue migration." },
+          { status: 409 }
+        );
+      }
+      throw error;
+    }
+  }
+
   const baseInsert = {
     visitDate,
     guardianName,
     studentName,
     className,
     purpose,
+    ...(assignToken
+      ? {
+          tokenNumber,
+          queueStatus,
+        }
+      : {}),
     feesSubmitted,
     inAt: inAt || null,
     outAt: outAt || null,
@@ -307,10 +423,106 @@ export async function POST(req) {
     });
   } catch (error) {
     if (!isMissingColumnError(error)) throw error;
-    await db.insert(guardianGateLogs).values(baseInsert);
+    if (assignToken && isQueueColumnError(error)) {
+      const fallbackInsert = { ...baseInsert };
+      delete fallbackInsert.tokenNumber;
+      delete fallbackInsert.queueStatus;
+      await db.insert(guardianGateLogs).values(fallbackInsert);
+      tokenNumber = null;
+      queueStatus = null;
+    } else {
+      await db.insert(guardianGateLogs).values(baseInsert);
+    }
   }
 
-  return NextResponse.json({ ok: true }, { status: 200 });
+  return NextResponse.json({ ok: true, tokenNumber, queueStatus }, { status: 200 });
+}
+
+export async function PATCH(req) {
+  const session = await auth();
+  if (!session || !session.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const allowed = await hasGuardianAccess(session.user);
+  if (!allowed) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { searchParams } = new URL(req.url);
+  const section = searchParams.get("section") || "";
+
+  let body;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  if (section === "call-next") {
+    const visitDateRaw = typeof body?.visitDate === "string" ? body.visitDate.trim() : todayKey();
+    const visitDate = new Date(visitDateRaw);
+    if (Number.isNaN(visitDate.getTime())) {
+      return NextResponse.json({ error: "Invalid visitDate" }, { status: 400 });
+    }
+    const now = new Date();
+
+    try {
+      const called = await db.transaction(async (tx) => {
+        const [next] = await tx
+          .select({
+            id: guardianGateLogs.id,
+            tokenNumber: guardianGateLogs.tokenNumber,
+            guardianName: guardianGateLogs.guardianName,
+            studentName: guardianGateLogs.studentName,
+          })
+          .from(guardianGateLogs)
+          .where(
+            and(
+              eq(guardianGateLogs.visitDate, visitDateRaw),
+              or(
+                eq(guardianGateLogs.queueStatus, QUEUE_STATUS.WAITING),
+                sql`${guardianGateLogs.queueStatus} is null`
+              ),
+              sql`${guardianGateLogs.tokenNumber} is not null`
+            )
+          )
+          .orderBy(asc(guardianGateLogs.tokenNumber))
+          .limit(1);
+
+        if (!next) return null;
+
+        await tx
+          .update(guardianGateLogs)
+          .set({ queueStatus: QUEUE_STATUS.SERVED, servedAt: now })
+          .where(
+            and(eq(guardianGateLogs.visitDate, visitDateRaw), eq(guardianGateLogs.queueStatus, QUEUE_STATUS.CALLED))
+          );
+
+        await tx
+          .update(guardianGateLogs)
+          .set({ queueStatus: QUEUE_STATUS.CALLED, calledAt: now })
+          .where(eq(guardianGateLogs.id, next.id));
+
+        return next;
+      });
+
+      if (!called) {
+        return NextResponse.json({ error: "No waiting tokens." }, { status: 400 });
+      }
+
+      return NextResponse.json({ called }, { status: 200 });
+    } catch (error) {
+      if (isMissingColumnError(error)) {
+        return NextResponse.json(
+          { error: "Queue columns unavailable. Run the latest guardian queue migration." },
+          { status: 409 }
+        );
+      }
+      throw error;
+    }
+  }
+
+  return NextResponse.json({ error: "Invalid section" }, { status: 400 });
 }
 
 export async function DELETE(req) {
