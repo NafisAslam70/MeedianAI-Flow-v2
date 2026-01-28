@@ -22,6 +22,7 @@ import {
   classParentTeachers,
   Classes,
   mspCodes,
+  mspCodeFamilies,
   mspCodeAssignments,
   mriFamilies,
   mriPrograms,
@@ -101,9 +102,11 @@ export async function GET(req) {
   "randomsLab",
   "campusGateStaff",
   "guardianGateLogs",
-  "guardianGateAssignments",
-  "adminClub",
-]);
+    "guardianGateAssignments",
+    "adminClub",
+    "recruitmentPro",
+    "mspCodeFamilies",
+  ]);
   if (memberReadable.has(section)) {
     if (!session || !["admin", "team_manager", "member"].includes(session.user?.role)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -164,6 +167,11 @@ export async function GET(req) {
         .where(eq(managerSectionGrants.section, "guardianGateLogs"));
       const grantedIds = grants.map((row) => Number(row.userId)).filter((id) => Number.isFinite(id));
       return NextResponse.json({ managers: teamManagers, granted: grantedIds }, { status: 200 });
+    }
+
+    if (section === "mspCodeFamilies") {
+      const rows = await db.select().from(mspCodeFamilies).orderBy(mspCodeFamilies.key);
+      return NextResponse.json({ families: rows }, { status: 200 });
     }
     if (section === "adTrackerAssignments") {
       if (!session || session.user?.role !== "admin") {
@@ -1930,6 +1938,24 @@ export async function POST(req) {
       return NextResponse.json({ assignment: row, message: "Assignment created" }, { status: 201 });
     }
 
+    if (section === "mspCodeFamilies") {
+      const { key, name, active = true } = body || {};
+      const normalizedKey = String(key || "").trim();
+      const normalizedName = String(name || "").trim();
+      if (!normalizedKey || !normalizedName) {
+        return NextResponse.json({ error: "key and name required" }, { status: 400 });
+      }
+      const existing = await db.select().from(mspCodeFamilies).where(eq(mspCodeFamilies.key, normalizedKey));
+      if (existing.length) {
+        return NextResponse.json({ family: existing[0], message: "Family already exists" }, { status: 200 });
+      }
+      const [row] = await db
+        .insert(mspCodeFamilies)
+        .values({ key: normalizedKey, name: normalizedName, active: !!active })
+        .returning();
+      return NextResponse.json({ family: row, message: "Family created" }, { status: 201 });
+    }
+
     // Create MRI Family (used by mri-families admin UI)
     if (section === "metaFamilies") {
       const { key, name, active = true } = body || {};
@@ -2750,6 +2776,23 @@ export async function PATCH(req) {
       }
       return NextResponse.json({ updated }, { status: 200 });
     }
+
+    if (section === "mspCodeFamilies") {
+      const updates = Array.isArray(body.updates) ? body.updates : [];
+      if (!updates.length) return NextResponse.json({ error: "updates[] required" }, { status: 400 });
+      let updated = 0;
+      for (const u of updates) {
+        const id = Number(u.id);
+        if (!id) continue;
+        const setObj = {};
+        if (u.name !== undefined) setObj.name = String(u.name);
+        if (u.active !== undefined) setObj.active = !!u.active;
+        if (Object.keys(setObj).length === 0) continue;
+        await db.update(mspCodeFamilies).set(setObj).where(eq(mspCodeFamilies.id, id));
+        updated += 1;
+      }
+      return NextResponse.json({ updated }, { status: 200 });
+    }
     return NextResponse.json({ error: "Invalid section for PATCH" }, { status: 400 });
   } catch (error) {
     console.error(`Error in PATCH handler:`, error);
@@ -2771,7 +2814,7 @@ export async function DELETE(req) {
     // Team manager write-gating across admin sections
     if (session.user?.role === 'team_manager') {
       const allowedWrite = new Set([
-        "slots","mspCodes","mspCodeAssignments","metaFamilies","metaPrograms","mriReportAssignments","guardianGateLogs",
+        "slots","mspCodes","mspCodeAssignments","mspCodeFamilies","metaFamilies","metaPrograms","mriReportAssignments","guardianGateLogs",
       ]);
       if (!allowedWrite.has(section)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
       const wr = await db
@@ -2796,6 +2839,50 @@ export async function DELETE(req) {
         return NextResponse.json({ error: "Program not found" }, { status: 404 });
       }
       return NextResponse.json({ deleted: 1 }, { status: 200 });
+    }
+
+    if (section === "mspCodes") {
+      const id = Number(body.id);
+      if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+      const deleted = await db.delete(mspCodes).where(eq(mspCodes.id, id)).returning({ id: mspCodes.id });
+      if (!deleted.length) {
+        return NextResponse.json({ error: "MSP code not found" }, { status: 404 });
+      }
+      return NextResponse.json({ deleted: 1 }, { status: 200 });
+    }
+
+    if (section === "mspCodeFamilies") {
+      const id = Number(body.id);
+      const rawKey = typeof body.key === "string" ? body.key.trim() : "";
+      let familyKey = "";
+      let familyId = null;
+
+      if (id) {
+        const [family] = await db.select({ id: mspCodeFamilies.id, key: mspCodeFamilies.key }).from(mspCodeFamilies).where(eq(mspCodeFamilies.id, id));
+        if (!family) return NextResponse.json({ error: "Family not found" }, { status: 404 });
+        familyKey = family.key;
+        familyId = family.id;
+      } else if (rawKey) {
+        familyKey = rawKey;
+        const [family] = await db.select({ id: mspCodeFamilies.id }).from(mspCodeFamilies).where(eq(mspCodeFamilies.key, rawKey));
+        if (family) familyId = family.id;
+      } else {
+        return NextResponse.json({ error: "id or key required" }, { status: 400 });
+      }
+
+      const codes = await db
+        .select({ id: mspCodes.id })
+        .from(mspCodes)
+        .where(eq(mspCodes.familyKey, familyKey));
+      const codeIds = codes.map((c) => c.id);
+      if (codeIds.length) {
+        await db.delete(mspCodeAssignments).where(inArray(mspCodeAssignments.mspCodeId, codeIds));
+        await db.delete(mspCodes).where(inArray(mspCodes.id, codeIds));
+      }
+      if (familyId) {
+        await db.delete(mspCodeFamilies).where(eq(mspCodeFamilies.id, familyId));
+      }
+      return NextResponse.json({ deleted: 1, codesDeleted: codeIds.length }, { status: 200 });
     }
 
     if (section === "metaRoleDefs") {

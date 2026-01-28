@@ -47,11 +47,10 @@ const CLUB_TOOLS = [
     href: "/dashboard/managersCommon/reports",
   },
   {
-    key: "recruit",
-    label: "Recruit",
+    key: "recruitment-pro",
+    label: "Meed Recruitment",
     icon: UserPlus,
-    href: "https://meed-recruitment.onrender.com/login",
-    external: true,
+    href: "/dashboard/managersCommon/recruitment-pro",
   },
   {
     key: "resources",

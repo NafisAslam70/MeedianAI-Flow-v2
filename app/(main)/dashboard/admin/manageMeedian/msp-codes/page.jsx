@@ -12,7 +12,7 @@ export default function MSPCodesPage() {
   const { data: codeData, error: codeErr } = useSWR("/api/admin/manageMeedian?section=mspCodes", fetcher, { dedupingInterval: 30000 });
   const { data: asgData, error: asgErr } = useSWR("/api/admin/manageMeedian?section=mspCodeAssignments", fetcher, { dedupingInterval: 30000 });
   const { data: teamData } = useSWR("/api/admin/manageMeedian?section=team", fetcher, { dedupingInterval: 30000 });
-  const { data: famData } = useSWR("/api/admin/manageMeedian?section=metaFamilies", fetcher, { dedupingInterval: 30000 });
+  const { data: famData } = useSWR("/api/admin/manageMeedian?section=mspCodeFamilies", fetcher, { dedupingInterval: 30000 });
   const [codes, setCodes] = useState([]);
   const [assignments, setAssignments] = useState([]);
   const users = (teamData?.users || []).filter((u) => u.role === "member" || u.role === "team_manager");
@@ -82,6 +82,34 @@ export default function MSPCodesPage() {
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
 
+  const deleteCode = async (codeRow) => {
+    if (!confirm(`Delete MSP code ${codeRow.code}? This will remove its assignments.`)) return;
+    setBusy(true); setErr("");
+    try {
+      const res = await fetch("/api/admin/manageMeedian?section=mspCodes", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: codeRow.id }) });
+      const j = await res.json(); if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+      mutate("/api/admin/manageMeedian?section=mspCodes");
+      mutate("/api/admin/manageMeedian?section=mspCodeAssignments");
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+
+  const quickCreateFamily = async (familyKey, familyName = "") => {
+    const name = familyName || prompt("Family name", familyKey) || "";
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setBusy(true); setErr(""); setMsg("");
+    try {
+      const res = await fetch("/api/admin/manageMeedian?section=mspCodeFamilies", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: familyKey, name: trimmed, active: true }),
+      });
+      const j = await res.json(); if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+      setMsg("Family created");
+      mutate("/api/admin/manageMeedian?section=mspCodeFamilies");
+    } catch (e) { setErr(e.message); } finally { setBusy(false); setTimeout(() => setMsg(""), 2000); }
+  };
+
   const openEditCode = (codeRow) => {
     setForm({
       code: codeRow.code || "",
@@ -147,7 +175,11 @@ export default function MSPCodesPage() {
   };
 
   // family dashboard
-  const families = useMemo(() => Array.from(new Set(codes.map((c) => c.familyKey))).sort(), [codes]);
+  const families = useMemo(() => {
+    const codeFamilies = codes.map((c) => c.familyKey).filter(Boolean);
+    const metaFamilies = (famData?.families || []).map((f) => f.key).filter(Boolean);
+    return Array.from(new Set([...codeFamilies, ...metaFamilies])).sort();
+  }, [codes, famData]);
   const countsByFamily = useMemo(() => {
     const out = new Map();
     for (const fam of families) {
@@ -161,6 +193,11 @@ export default function MSPCodesPage() {
     }
     return out;
   }, [families, codes, activeAssignees]);
+  const famMap = useMemo(() => {
+    const map = new Map();
+    (famData?.families || []).forEach((f) => map.set(f.key, f));
+    return map;
+  }, [famData]);
 
   return (
     <div className="space-y-4">
@@ -183,6 +220,13 @@ export default function MSPCodesPage() {
               <a href={`/dashboard/admin/manageMeedian/programs/${mspProgram.id}?track=pre_primary#schedule`}><Button variant="light">Open MSP-R (Pre)</Button></a>
             </>
           )}
+          <Button variant="light" onClick={async () => {
+            const key = (prompt("Family key (e.g. EMS)", "") || "").trim().toUpperCase();
+            if (!key) return;
+            const name = (prompt("Family name", key) || "").trim();
+            if (!name) return;
+            await quickCreateFamily(key, name);
+          }}>Add Family</Button>
           <Button variant="light" onClick={() => { setModalType("create"); setModalFamily(""); setModalOpen(true); }}>Create MSP Code</Button>
           <Button onClick={() => { setModalType("assign"); setModalFamily(""); setModalOpen(true); }}>Assign MSP Code</Button>
         </div>
@@ -220,7 +264,7 @@ export default function MSPCodesPage() {
         </div>
       </div>
       {err && <p className="text-sm text-red-600">{err}</p>}
-      {msg && <p className="text-sm text-emerald-600">{msg}</p>}
+        {msg && <p className="text-sm text-emerald-600">{msg}</p>}
 
       <Card>
           <CardHeader><h2 className="font-semibold text-gray-900">Codes & Current Assignees (by Family)</h2></CardHeader>
@@ -228,14 +272,13 @@ export default function MSPCodesPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
               {families.map((fam) => {
                 const ct = countsByFamily.get(fam) || { total: 0, assigned: 0, unassigned: 0 };
-                // find the full family row (id/name) if available
-                const famRow = (famData?.families || []).find((r) => r.key === fam);
+                const famRow = famMap.get(fam);
                 return (
                   <div key={fam} className="rounded-xl border border-gray-200 bg-white p-4">
                     <div className="flex items-center justify-between">
                       <div>
                         <div className="text-xs text-gray-500">Family</div>
-                        <div className="text-base font-semibold text-gray-900">{fam}</div>
+                        <div className="text-base font-semibold text-gray-900">{fam} {famRow?.name ? <span className="text-xs text-gray-500">({famRow.name})</span> : null}</div>
                       </div>
                       <div className="text-right">
                         <div className="text-xs text-gray-500">Assigned / Total</div>
@@ -245,19 +288,20 @@ export default function MSPCodesPage() {
                     <div className="mt-3 flex gap-2">
                       <Button variant="light" size="sm" onClick={() => { setModalType("assign"); setModalFamily(fam); setModalOpen(true); }}>Assign</Button>
                       <Button variant="light" size="sm" onClick={() => { setModalType("create"); setModalFamily(fam); setModalOpen(true); }}>Create</Button>
-                      {famRow?.id && (
-                        <Button variant="ghost" size="sm" onClick={async () => {
-                          if (!confirm(`Delete family ${famRow.name}?`)) return;
-                          setBusy(true); setErr("");
-                          try {
-                            const res = await fetch("/api/admin/manageMeedian?section=metaFamilies", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: famRow.id }) });
-                            const j = await res.json(); if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
-                            setMsg("Family deleted");
-                            mutate("/api/admin/manageMeedian?section=metaFamilies");
-                            mutate("/api/admin/manageMeedian?section=mspCodes");
-                          } catch (e) { setErr(e.message); } finally { setBusy(false); setTimeout(() => setMsg(""), 2000); }
-                        }}>Delete</Button>
-                      )}
+                      <Button variant="ghost" size="sm" onClick={async () => {
+                        const famLabel = famRow?.name ? `${famRow.name} (${fam})` : fam;
+                        if (!confirm(`Remove family ${famLabel}? This will delete all codes and assignments in ${fam}.`)) return;
+                        setBusy(true); setErr("");
+                        try {
+                          const payload = famRow?.id ? { id: famRow.id } : { key: fam };
+                          const res = await fetch("/api/admin/manageMeedian?section=mspCodeFamilies", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+                          const j = await res.json(); if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+                          setMsg("Family removed");
+                          mutate("/api/admin/manageMeedian?section=mspCodeFamilies");
+                          mutate("/api/admin/manageMeedian?section=mspCodes");
+                          mutate("/api/admin/manageMeedian?section=mspCodeAssignments");
+                        } catch (e) { setErr(e.message); } finally { setBusy(false); setTimeout(() => setMsg(""), 2000); }
+                      }} disabled={busy}>Remove Family</Button>
                     </div>
                   </div>
                 );
@@ -318,6 +362,7 @@ export default function MSPCodesPage() {
                             <td className="py-2 pr-4 flex gap-2">
                               <Button variant="light" size="sm" onClick={() => openEditCode(r)} disabled={busy}>Edit</Button>
                               <Button variant="ghost" size="sm" onClick={() => toggleActive(r)} disabled={busy}>{r.active ? "Deactivate" : "Activate"}</Button>
+                              <Button variant="ghost" size="sm" onClick={() => deleteCode(r)} disabled={busy}>Delete</Button>
                             </td>
                           </tr>
                         ))}
@@ -342,6 +387,7 @@ export default function MSPCodesPage() {
                             <div className="flex flex-col gap-1">
                               <Button variant="light" size="sm" onClick={() => openEditCode(r)} disabled={busy}>Edit</Button>
                               <Button variant="ghost" size="sm" onClick={() => toggleActive(r)} disabled={busy}>{r.active ? "Deactivate" : "Activate"}</Button>
+                              <Button variant="ghost" size="sm" onClick={() => deleteCode(r)} disabled={busy}>Delete</Button>
                             </div>
                           </div>
                           <div className="mt-3">

@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { Classes, guardianGateLogs, managerSectionGrants, Students, users } from "@/lib/schema";
+import {
+  Classes,
+  guardianGateLogs,
+  managerSectionGrants,
+  Students,
+  users,
+  visitorGateLogs,
+} from "@/lib/schema";
 import { and, asc, desc, eq, gte, ilike, lte, or, sql } from "drizzle-orm";
 
 const todayKey = () => {
@@ -29,6 +36,9 @@ const mapEntry = (row) => ({
   id: row.id,
   visitDate: row.visitDate instanceof Date ? row.visitDate.toISOString().slice(0, 10) : row.visitDate,
   guardianName: row.guardianName,
+  isProxy: Boolean(row.isProxy),
+  proxyName: row.proxyName ?? null,
+  proxyRelation: row.proxyRelation ?? null,
   studentName: row.studentName,
   className: row.className,
   purpose: row.purpose,
@@ -82,10 +92,22 @@ const isPurposeNoteColumnError = (error) => {
   return message.includes("purpose_note");
 };
 
-const buildGuardianLogSelection = ({ withSatisfaction, withQueue, withPurposeNote }) => ({
+const isProxyColumnError = (error) => {
+  const message = String(error?.cause?.message || error?.message || "");
+  return message.includes("proxy_name") || message.includes("proxy_relation") || message.includes("is_proxy");
+};
+
+const buildGuardianLogSelection = ({ withSatisfaction, withQueue, withPurposeNote, withProxy }) => ({
   id: guardianGateLogs.id,
   visitDate: guardianGateLogs.visitDate,
   guardianName: guardianGateLogs.guardianName,
+  ...(withProxy
+    ? {
+        isProxy: guardianGateLogs.isProxy,
+        proxyName: guardianGateLogs.proxyName,
+        proxyRelation: guardianGateLogs.proxyRelation,
+      }
+    : {}),
   studentName: guardianGateLogs.studentName,
   className: guardianGateLogs.className,
   purpose: guardianGateLogs.purpose,
@@ -115,7 +137,7 @@ const buildGuardianLogSelection = ({ withSatisfaction, withQueue, withPurposeNot
 });
 
 const selectGuardianLogs = async (queryBuilder) => {
-  const desired = { withSatisfaction: true, withQueue: true, withPurposeNote: true };
+  const desired = { withSatisfaction: true, withQueue: true, withPurposeNote: true, withProxy: true };
   try {
     return await queryBuilder(desired);
   } catch (error) {
@@ -124,13 +146,19 @@ const selectGuardianLogs = async (queryBuilder) => {
       withSatisfaction: !isSatisfactionColumnError(error),
       withQueue: !isQueueColumnError(error),
       withPurposeNote: !isPurposeNoteColumnError(error),
+      withProxy: !isProxyColumnError(error),
     };
     try {
       return await queryBuilder(fallback);
     } catch (fallbackError) {
       if (!isMissingColumnError(fallbackError)) throw fallbackError;
     }
-    const rows = await queryBuilder({ withSatisfaction: false, withQueue: false, withPurposeNote: false });
+    const rows = await queryBuilder({
+      withSatisfaction: false,
+      withQueue: false,
+      withPurposeNote: false,
+      withProxy: false,
+    });
     return rows.map((row) => ({
       ...row,
       satisfactionIslamic: null,
@@ -138,6 +166,20 @@ const selectGuardianLogs = async (queryBuilder) => {
     }));
   }
 };
+
+const mapVisitorEntry = (row) => ({
+  id: row.id,
+  visitDate: row.visitDate instanceof Date ? row.visitDate.toISOString().slice(0, 10) : row.visitDate,
+  visitorName: row.visitorName,
+  visitorPhone: row.visitorPhone ?? null,
+  visitingReason: row.visitingReason,
+  inAt: row.inAt instanceof Date ? row.inAt.toISOString() : row.inAt,
+  outAt: row.outAt instanceof Date ? row.outAt.toISOString() : row.outAt,
+  createdBy: row.createdBy,
+  createdByName: row.createdByName,
+  createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : row.createdAt,
+  updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : row.updatedAt,
+});
 
 export async function GET(req) {
   const session = await auth();
@@ -300,6 +342,36 @@ export async function GET(req) {
     );
   }
 
+  if (section === "visitors") {
+    const dateParam = searchParams.get("date");
+    const targetDate = dateParam ? new Date(dateParam) : new Date();
+    if (Number.isNaN(targetDate.getTime())) {
+      return NextResponse.json({ error: "Invalid date" }, { status: 400 });
+    }
+    const dayKey = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, "0")}-${String(targetDate.getDate()).padStart(2, "0")}`;
+
+    const rows = await db
+      .select({
+        id: visitorGateLogs.id,
+        visitDate: visitorGateLogs.visitDate,
+        visitorName: visitorGateLogs.visitorName,
+        visitorPhone: visitorGateLogs.visitorPhone,
+        visitingReason: visitorGateLogs.visitingReason,
+        inAt: visitorGateLogs.inAt,
+        outAt: visitorGateLogs.outAt,
+        createdBy: visitorGateLogs.createdBy,
+        createdAt: visitorGateLogs.createdAt,
+        updatedAt: visitorGateLogs.updatedAt,
+        createdByName: users.name,
+      })
+      .from(visitorGateLogs)
+      .leftJoin(users, eq(users.id, visitorGateLogs.createdBy))
+      .where(eq(visitorGateLogs.visitDate, dayKey))
+      .orderBy(desc(visitorGateLogs.createdAt));
+
+    return NextResponse.json({ entries: rows.map(mapVisitorEntry) }, { status: 200 });
+  }
+
   const dateParam = searchParams.get("date");
   const targetDate = dateParam ? new Date(dateParam) : new Date();
   if (Number.isNaN(targetDate.getTime())) {
@@ -357,8 +429,52 @@ export async function POST(req) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
+  const entryType = typeof body?.entryType === "string" ? body.entryType.trim() : "guardian";
   const visitDateRaw = typeof body?.visitDate === "string" ? body.visitDate.trim() : "";
+
+  if (entryType === "visitor") {
+    const visitorName = typeof body?.visitorName === "string" ? body.visitorName.trim() : "";
+    const visitorPhone = typeof body?.visitorPhone === "string" ? body.visitorPhone.trim() : "";
+    const visitingReason = typeof body?.visitingReason === "string" ? body.visitingReason.trim() : "";
+    const inTimeRaw = typeof body?.inTime === "string" ? body.inTime.trim() : "";
+
+    if (!visitDateRaw) {
+      return NextResponse.json({ error: "visitDate is required" }, { status: 400 });
+    }
+    const visitDate = new Date(visitDateRaw);
+    if (Number.isNaN(visitDate.getTime())) {
+      return NextResponse.json({ error: "Invalid visitDate" }, { status: 400 });
+    }
+    if (!visitorName || !visitingReason || !inTimeRaw) {
+      return NextResponse.json(
+        { error: "visitorName, visitingReason, and inTime are required" },
+        { status: 400 }
+      );
+    }
+
+    const inAt = parseTime(inTimeRaw, visitDateRaw, visitDate);
+    const outAt = parseTime(body?.outTime, visitDateRaw, visitDate);
+    if (!inAt) {
+      return NextResponse.json({ error: "Invalid inTime" }, { status: 400 });
+    }
+
+    await db.insert(visitorGateLogs).values({
+      visitDate,
+      visitorName,
+      visitorPhone: visitorPhone || null,
+      visitingReason,
+      inAt: inAt || null,
+      outAt: outAt || null,
+      createdBy: session.user.id,
+    });
+
+    return NextResponse.json({ ok: true }, { status: 200 });
+  }
   const guardianName = typeof body?.guardianName === "string" ? body.guardianName.trim() : "";
+  const inTimeRaw = typeof body?.inTime === "string" ? body.inTime.trim() : "";
+  const isProxy = body?.isProxy === true || body?.isProxy === "true" || body?.isProxy === 1 || body?.isProxy === "1";
+  const proxyName = typeof body?.proxyName === "string" ? body.proxyName.trim() : "";
+  const proxyRelation = typeof body?.proxyRelation === "string" ? body.proxyRelation.trim() : "";
   const studentName = typeof body?.studentName === "string" ? body.studentName.trim() : "";
   const className = typeof body?.className === "string" ? body.className.trim() : "";
   const purpose = typeof body?.purpose === "string" ? body.purpose.trim() : "";
@@ -380,15 +496,24 @@ export async function POST(req) {
   if (Number.isNaN(visitDate.getTime())) {
     return NextResponse.json({ error: "Invalid visitDate" }, { status: 400 });
   }
-  if (!guardianName || !studentName || !className || !purpose) {
-    return NextResponse.json({ error: "guardianName, studentName, className, and purpose are required" }, { status: 400 });
+  if (!guardianName || !studentName || !className || !purpose || !inTimeRaw) {
+    return NextResponse.json(
+      { error: "guardianName, studentName, className, purpose, and inTime are required" },
+      { status: 400 }
+    );
   }
   if (purpose === "Other" && !purposeNote) {
     return NextResponse.json({ error: "Purpose note is required when purpose is Other." }, { status: 400 });
   }
+  if (isProxy && (!proxyName || !proxyRelation)) {
+    return NextResponse.json({ error: "Proxy name and relation are required when someone else visits." }, { status: 400 });
+  }
 
-  const inAt = parseTime(body?.inTime, visitDateRaw, visitDate);
+  const inAt = parseTime(inTimeRaw, visitDateRaw, visitDate);
   const outAt = parseTime(body?.outTime, visitDateRaw, visitDate);
+  if (!inAt) {
+    return NextResponse.json({ error: "Invalid inTime" }, { status: 400 });
+  }
   const satisfactionIslamic =
     Number.isFinite(satisfactionIslamicRaw) && satisfactionIslamicRaw >= 1 && satisfactionIslamicRaw <= 5
       ? Math.round(satisfactionIslamicRaw)
@@ -422,6 +547,9 @@ export async function POST(req) {
   const baseInsert = {
     visitDate,
     guardianName,
+    isProxy,
+    proxyName: isProxy ? proxyName : null,
+    proxyRelation: isProxy ? proxyRelation : null,
     studentName,
     className,
     purpose,
@@ -549,6 +677,61 @@ export async function PATCH(req) {
     }
   }
 
+  if (section === "update-entry") {
+    const entryType = typeof body?.entryType === "string" ? body.entryType.trim() : "guardian";
+    const id = Number(body?.id);
+    if (!Number.isFinite(id)) {
+      return NextResponse.json({ error: "Invalid id" }, { status: 400 });
+    }
+
+    const inTimeRaw = typeof body?.inTime === "string" ? body.inTime.trim() : "";
+    const outTimeRaw = typeof body?.outTime === "string" ? body.outTime.trim() : "";
+
+    const getVisitDate = async () => {
+      if (typeof body?.visitDate === "string" && body.visitDate.trim()) {
+        return body.visitDate.trim();
+      }
+      if (entryType === "visitor") {
+        const [row] = await db
+          .select({ visitDate: visitorGateLogs.visitDate })
+          .from(visitorGateLogs)
+          .where(eq(visitorGateLogs.id, id));
+        return row?.visitDate instanceof Date ? row.visitDate.toISOString().slice(0, 10) : row?.visitDate;
+      }
+      const [row] = await db
+        .select({ visitDate: guardianGateLogs.visitDate })
+        .from(guardianGateLogs)
+        .where(eq(guardianGateLogs.id, id));
+      return row?.visitDate instanceof Date ? row.visitDate.toISOString().slice(0, 10) : row?.visitDate;
+    };
+
+    const visitDateRaw = await getVisitDate();
+    if (!visitDateRaw) {
+      return NextResponse.json({ error: "visitDate not found" }, { status: 400 });
+    }
+    const visitDate = new Date(visitDateRaw);
+    if (Number.isNaN(visitDate.getTime())) {
+      return NextResponse.json({ error: "Invalid visitDate" }, { status: 400 });
+    }
+
+    const inAt = parseTime(inTimeRaw, visitDateRaw, visitDate);
+    const outAt = parseTime(outTimeRaw, visitDateRaw, visitDate);
+
+    if (entryType === "visitor") {
+      await db
+        .update(visitorGateLogs)
+        .set({ inAt: inAt || null, outAt: outAt || null, updatedAt: new Date() })
+        .where(eq(visitorGateLogs.id, id));
+    } else {
+      await db
+        .update(guardianGateLogs)
+        .set({ inAt: inAt || null, outAt: outAt || null, updatedAt: new Date() })
+        .where(eq(guardianGateLogs.id, id));
+    }
+
+    return NextResponse.json({ ok: true }, { status: 200 });
+  }
+
   return NextResponse.json({ error: "Invalid section" }, { status: 400 });
 }
 
@@ -568,12 +751,17 @@ export async function DELETE(req) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
+  const entryType = typeof body?.entryType === "string" ? body.entryType.trim() : "guardian";
   const id = Number(body?.id);
   if (!Number.isFinite(id) || id <= 0) {
     return NextResponse.json({ error: "Invalid id" }, { status: 400 });
   }
 
-  await db.delete(guardianGateLogs).where(eq(guardianGateLogs.id, id));
+  if (entryType === "visitor") {
+    await db.delete(visitorGateLogs).where(eq(visitorGateLogs.id, id));
+  } else {
+    await db.delete(guardianGateLogs).where(eq(guardianGateLogs.id, id));
+  }
 
   return NextResponse.json({ ok: true }, { status: 200 });
 }

@@ -157,6 +157,13 @@ export default function ControlsSharePage() {
       doables: ['View student directory'],
       description: 'Student directory and details.'
     },
+    {
+      key: 'recruitmentPro',
+      label: 'Meed Recruitment',
+      sections: ['recruitmentPro'],
+      doables: ['Manage recruitment pipeline', 'View dashboards', 'Update communication logs'],
+      description: 'Teacher recruitment tracker with pipeline stages and metrics.',
+    },
   ]), []);
 
   const isItemGranted = (uid, item) => item.sections.every(sec => draft[`${uid}|${sec}`] || grantSet.has(`${uid}|${sec}`));

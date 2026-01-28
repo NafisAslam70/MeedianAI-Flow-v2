@@ -1554,7 +1554,7 @@ const GuardianRelationshipManager = () => {
       loaded: false,
       error: "",
       byClassId: {},
-      rangeDays: 30,
+      rangeMode: "30",
     });
 
     useEffect(() => {
@@ -1720,7 +1720,11 @@ const GuardianRelationshipManager = () => {
       }
 
       const endDate = new Date();
-      const startDate = new Date(Date.now() - cddState.rangeDays * 24 * 60 * 60 * 1000);
+      const rangeMode = cddState.rangeMode || "30";
+      const startDate =
+        rangeMode === "all"
+          ? new Date("2000-01-01T00:00:00Z")
+          : new Date(Date.now() - Number(rangeMode) * 24 * 60 * 60 * 1000);
       const formatKey = (date) => date.toISOString().slice(0, 10);
       const startKey = formatKey(startDate);
       const endKey = formatKey(endDate);
@@ -1923,14 +1927,32 @@ const GuardianRelationshipManager = () => {
                             <h3 className="text-sm font-semibold text-slate-700">Ward Files</h3>
                             <p className="text-xs text-slate-500">Student register details with CDD flags.</p>
                           </div>
-                          <Button
-                            type="button"
-                            variant="light"
-                            onClick={handleLoadCdd}
-                            disabled={cddState.loading}
-                          >
-                            {cddState.loading ? "Loading CDD..." : "Load CDD Signals"}
-                          </Button>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Select
+                              value={cddState.rangeMode}
+                              onChange={(event) =>
+                                setCddState((prev) => ({
+                                  ...prev,
+                                  rangeMode: event.target.value,
+                                  loaded: false,
+                                  error: "",
+                                }))
+                              }
+                            >
+                              <option value="30">Last 30 days</option>
+                              <option value="90">Last 90 days</option>
+                              <option value="180">Last 180 days</option>
+                              <option value="all">Entire session</option>
+                            </Select>
+                            <Button
+                              type="button"
+                              variant="light"
+                              onClick={handleLoadCdd}
+                              disabled={cddState.loading}
+                            >
+                              {cddState.loading ? "Loading CDD..." : "Load CDD Signals"}
+                            </Button>
+                          </div>
                         </div>
                         {cddState.error && <p className="text-xs text-rose-600 mt-2">{cddState.error}</p>}
                         {profileState.loading && (
@@ -2001,7 +2023,10 @@ const GuardianRelationshipManager = () => {
 
                                 <div className="mt-4 rounded-lg bg-slate-50 border border-slate-200 p-3">
                                   <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                                    CDD signals (last {cddState.rangeDays} days)
+                                    CDD signals{" "}
+                                    {cddState.rangeMode === "all"
+                                      ? "(entire session)"
+                                      : `(last ${cddState.rangeMode} days)`}
                                   </p>
                                   {!cddState.loaded ? (
                                     <p className="text-sm text-slate-500 mt-2">

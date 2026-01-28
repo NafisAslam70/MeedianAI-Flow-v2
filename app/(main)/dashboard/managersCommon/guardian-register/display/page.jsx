@@ -72,7 +72,10 @@ export default function GuardianQueueDisplay() {
     const voices = voicesRef.current || [];
     if (!voices.length) return false;
     const utter = new SpeechSynthesisUtterance(text);
-    const preferred = voices.find((voice) => voice.lang?.toLowerCase().startsWith("en")) || voices[0];
+    const preferred =
+      voices.find((voice) => voice.lang?.toLowerCase().startsWith("hi")) ||
+      voices.find((voice) => voice.lang?.toLowerCase().startsWith("en")) ||
+      voices[0];
     if (preferred) utter.voice = preferred;
     utter.rate = 0.95;
     utter.pitch = 1;
@@ -108,7 +111,7 @@ export default function GuardianQueueDisplay() {
     lastCallRef.current = callKey;
     const tokenLabel = formatToken(nowServing.tokenNumber);
     playChime().then(() => {
-      speakText(`Please come, token ${tokenLabel}`);
+      speakText(`कृपया टोकन ${tokenLabel} वाले अभिभावक आगे आएं`);
     });
   }, [data?.nowServing, soundEnabled]);
 
@@ -141,7 +144,7 @@ export default function GuardianQueueDisplay() {
               const next = !soundEnabled;
               setSoundEnabled(next);
               if (next) {
-                const spoke = speakText("Sound enabled.");
+                const spoke = speakText("ध्वनि चालू हो गई है।");
                 if (!spoke) setVoiceAvailable(false);
               }
             }}
@@ -157,7 +160,7 @@ export default function GuardianQueueDisplay() {
             type="button"
             onClick={async () => {
               await playChime();
-              speakText("Please come, token G-001");
+              speakText("कृपया टोकन G-001 वाले अभिभावक आगे आएं");
             }}
             className="rounded-full border border-slate-700 bg-slate-900 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-300 transition hover:border-slate-500"
           >
