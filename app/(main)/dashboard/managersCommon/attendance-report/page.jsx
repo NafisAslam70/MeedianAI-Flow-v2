@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import jsPDF from "jspdf";
-import { CalendarDays, Download, Filter, Search, UserCheck, UserX, Users } from "lucide-react";
+import { CalendarDays, Clock3, Download, Filter, Search, UserCheck, UserX, Users } from "lucide-react";
 
 const fetcher = (u) => fetch(u).then((r) => r.json());
 
@@ -173,7 +173,7 @@ export default function AttendanceReportPage() {
   };
 
   const deduped = useMemo(() => {
-    if (!data) return { presents: [], absentees: [], totals: null };
+    if (!data) return { presentRows: [], lateRows: [], absentees: [], totals: null };
 
     const keepEarliest = (prev, next) => {
       if (!prev?.at) return next;
@@ -197,41 +197,66 @@ export default function AttendanceReportPage() {
       return [...map.values(), ...leftovers];
     };
 
-    const presents = dedupe(data.presents, keepEarliest)
-      .slice()
-      .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-    const presentSet = new Set(
-      presents
+    const lateIds = new Set(
+      (Array.isArray(data.latecomers) ? data.latecomers : [])
         .map((p) => (Number.isFinite(p?.userId) ? Number(p.userId) : null))
         .filter((id) => id !== null)
     );
+
+    const allPresents = dedupe(data.presents, keepEarliest)
+      .map((p) => {
+        const uid = Number.isFinite(p?.userId) ? Number(p.userId) : null;
+        const forceLate = uid !== null && lateIds.has(uid);
+        return { ...p, isLate: forceLate || p?.isLate === true };
+      })
+      .slice()
+      .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+
+    const presentSet = new Set(
+      allPresents
+        .map((p) => (Number.isFinite(p?.userId) ? Number(p.userId) : null))
+        .filter((id) => id !== null)
+    );
+
     const absentees = dedupe(data.absentees)
       .filter((a) => (Number.isFinite(a?.userId) ? !presentSet.has(Number(a.userId)) : true))
       .slice()
       .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 
+    const lateRows = allPresents.filter((p) => p.isLate === true);
+    const presentRows = allPresents.filter((p) => p.isLate !== true);
+
     const totals = {
-      present: presents.length,
+      present: presentRows.length,
+      late: lateRows.length,
       absent: absentees.length,
-      presentTeachers: presents.filter((p) => p.isTeacher === true).length,
-      presentNonTeachers: presents.filter((p) => p.isTeacher !== true).length,
+      presentTeachers: presentRows.filter((p) => p.isTeacher === true).length,
+      presentNonTeachers: presentRows.filter((p) => p.isTeacher !== true).length,
+      lateTeachers: lateRows.filter((p) => p.isTeacher === true).length,
+      lateNonTeachers: lateRows.filter((p) => p.isTeacher !== true).length,
       absentTeachers: absentees.filter((p) => p.isTeacher === true).length,
       absentNonTeachers: absentees.filter((p) => p.isTeacher !== true).length,
     };
 
-    return { presents, absentees, totals };
+    return { presentRows, lateRows, absentees, totals };
   }, [data]);
 
-  const presentRows = deduped.presents || [];
+  const presentRows = deduped.presentRows || [];
+  const lateRows = deduped.lateRows || [];
   const absentRows = deduped.absentees || [];
   const totals = deduped.totals || {
-    present: data?.totals?.present ?? 0,
+    present: data?.totals?.onTime ?? data?.totals?.present ?? 0,
+    late: data?.totals?.late ?? 0,
     absent: data?.totals?.absent ?? 0,
     presentTeachers: data?.totals?.presentTeachers ?? 0,
     presentNonTeachers: data?.totals?.presentNonTeachers ?? 0,
+    lateTeachers: data?.totals?.lateTeachers ?? 0,
+    lateNonTeachers: data?.totals?.lateNonTeachers ?? 0,
     absentTeachers: data?.totals?.absentTeachers ?? 0,
     absentNonTeachers: data?.totals?.absentNonTeachers ?? 0,
   };
+  const totalMarked = totals.present + totals.late;
+  const overallTotal = totalMarked + totals.absent;
 
   const selectableIds = useMemo(() => {
     return absentRows
@@ -277,12 +302,15 @@ export default function AttendanceReportPage() {
   const filteredRows = useMemo(() => {
     const baseList = view === "present"
       ? presentRows.map((row) => ({ ...row, status: "present" }))
-      : view === "absent"
-        ? absentRows.map((row) => ({ ...row, status: "absent" }))
-        : [
-            ...presentRows.map((row) => ({ ...row, status: "present" })),
-            ...absentRows.map((row) => ({ ...row, status: "absent" })),
-          ];
+      : view === "late"
+        ? lateRows.map((row) => ({ ...row, status: "late" }))
+        : view === "absent"
+          ? absentRows.map((row) => ({ ...row, status: "absent" }))
+          : [
+              ...presentRows.map((row) => ({ ...row, status: "present" })),
+              ...lateRows.map((row) => ({ ...row, status: "late" })),
+              ...absentRows.map((row) => ({ ...row, status: "absent" })),
+            ];
 
     const query = search.trim().toLowerCase();
 
@@ -299,24 +327,33 @@ export default function AttendanceReportPage() {
 
       return matchesRole && matchesQuery;
     });
-  }, [view, roleFilter, search, presentRows, absentRows]);
+  }, [view, roleFilter, search, presentRows, lateRows, absentRows]);
 
   const noMatches = data && !isLoading && filteredRows.length === 0;
   const summaryCards = [
     {
-      label: "Total Marked",
-      value: totals.present + totals.absent,
+      label: "Total Headcount",
+      value: overallTotal,
+      sub: `Marked ${totalMarked} • Absent ${totals.absent}`,
       icon: Users,
       accent: "from-cyan-400/20 via-white to-transparent",
       tint: "text-cyan-500",
     },
     {
-      label: "Present",
+      label: "On-time",
       value: totals.present,
       sub: `${totals.presentTeachers} teachers • ${totals.presentNonTeachers} members`,
       icon: UserCheck,
       accent: "from-emerald-400/20 via-white to-transparent",
       tint: "text-emerald-500",
+    },
+    {
+      label: "Late",
+      value: totals.late,
+      sub: `${totals.lateTeachers || 0} teachers • ${totals.lateNonTeachers || 0} members`,
+      icon: Clock3,
+      accent: "from-amber-300/25 via-white to-transparent",
+      tint: "text-amber-600",
     },
     {
       label: "Absent",
@@ -336,10 +373,14 @@ export default function AttendanceReportPage() {
     doc.text(`Daily Attendance — ${data.date}${data.programKey ? ` (${data.programKey}${data.track?'/'+data.track:''})` : ''}`, 10, y); y += 8;
     doc.setFontSize(11);
     const t = totals;
-    doc.text(`Present: ${t.present} (Teachers: ${t.presentTeachers}, Non-Teachers: ${t.presentNonTeachers})`, 10, y); y += 6;
+    doc.text(`On-time: ${t.present} (Teachers: ${t.presentTeachers}, Non-Teachers: ${t.presentNonTeachers})`, 10, y); y += 6;
+    doc.text(`Late:    ${t.late} (Teachers: ${t.lateTeachers || 0}, Non-Teachers: ${t.lateNonTeachers || 0})`, 10, y); y += 6;
     doc.text(`Absent:  ${t.absent} (Teachers: ${t.absentTeachers}, Non-Teachers: ${t.absentNonTeachers})`, 10, y); y += 8;
-    doc.setFontSize(12); doc.text('Presents', 10, y); y += 6; doc.setFontSize(10);
+    doc.setFontSize(12); doc.text('On-time', 10, y); y += 6; doc.setFontSize(10);
     presentRows.forEach((p) => { if (y > 280) { doc.addPage(); y = 10;} doc.text(`- ${p.name || ('User #'+p.userId)}  at ${p.at ? new Date(p.at).toLocaleTimeString() : '-'}`, 12, y); y += 5; });
+    y += 4; if (y > 280) { doc.addPage(); y = 10; }
+    doc.setFontSize(12); doc.text('Late comers', 10, y); y += 6; doc.setFontSize(10);
+    lateRows.forEach((p) => { if (y > 280) { doc.addPage(); y = 10;} doc.text(`- ${p.name || ('User #'+p.userId)}  at ${p.at ? new Date(p.at).toLocaleTimeString() : '-'}`, 12, y); y += 5; });
     y += 4; if (y > 280) { doc.addPage(); y = 10; }
     doc.setFontSize(12); doc.text('Absentees', 10, y); y += 6; doc.setFontSize(10);
     absentRows.forEach((p) => { if (y > 280) { doc.addPage(); y = 10;} doc.text(`- ${p.name || ('User #'+p.userId)}`, 12, y); y += 5; });
@@ -489,7 +530,8 @@ export default function AttendanceReportPage() {
             <div className="flex flex-wrap items-center gap-2">
               {[
                 { key: "all", label: "Everyone" },
-                { key: "present", label: "Present" },
+                { key: "present", label: "On-time" },
+                { key: "late", label: "Late" },
                 { key: "absent", label: "Absent" },
               ].map((option) => (
                 <button
@@ -713,7 +755,11 @@ export default function AttendanceReportPage() {
                         <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-500">#{row.userId}</span>
                         {row.status === "present" ? (
                           <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-600">
-                            <UserCheck size={12} /> Present · {formatTime(row.at)}
+                            <UserCheck size={12} /> On-time · {formatTime(row.at)}
+                          </span>
+                        ) : row.status === "late" ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-amber-700">
+                            <Clock3 size={12} /> Late · {formatTime(row.at)}
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/10 px-2 py-0.5 text-rose-600">
@@ -731,7 +777,7 @@ export default function AttendanceReportPage() {
                         )}
                       </div>
                     </div>
-                    <span className="text-xs text-slate-500">{view === "absent" ? "" : formatTime(row.at)}</span>
+                    <span className="text-xs text-slate-500">{row.status === "absent" ? "" : formatTime(row.at)}</span>
                   </div>
                 ))
               )}

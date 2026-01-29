@@ -14,6 +14,9 @@ import {
   recruitmentProgramRequirements,
   mspCodes,
   mspCodeAssignments,
+  mriPrograms,
+  recruitmentBench,
+  recruitmentBenchPushes,
 } from "@/lib/schema";
 import { and, desc, eq, gte, inArray, isNull, ne, or, sql } from "drizzle-orm";
 
@@ -52,6 +55,14 @@ const formatFullPhone = (countryCode, phoneNumber) => {
   return `${code}${phone}`;
 };
 
+const splitName = (fullName) => {
+  const parts = String(fullName || "").trim().split(/\s+/);
+  if (!parts.length) return { first: "", last: "" };
+  const first = parts.shift();
+  const last = parts.join(" ") || null;
+  return { first, last };
+};
+
 const isVacantMspCode = async (mspCodeId) => {
   if (!mspCodeId) return true;
   const isoDate = new Date().toISOString().slice(0, 10);
@@ -87,6 +98,36 @@ const isCodeTakenByCandidate = async (mspCodeId, excludeCandidateId = null) => {
     .from(recruitmentCandidates)
     .where(condition);
   return rows.length > 0;
+};
+
+const ensureGlobalLocation = async () => {
+  const name = "All Locations";
+  const [existing] = await db
+    .select({ id: recruitmentMetaLocations.id })
+    .from(recruitmentMetaLocations)
+    .where(eq(recruitmentMetaLocations.locationName, name));
+  if (existing?.id) return existing.id;
+  const [inserted] = await db
+    .insert(recruitmentMetaLocations)
+    .values({
+      locationName: name,
+      city: "All",
+      state: "All",
+      country: "NA",
+      isActive: true,
+    })
+    .returning({ id: recruitmentMetaLocations.id });
+  return inserted.id;
+};
+
+const getDefaultCountryCodeId = async () => {
+  const [row] = await db
+    .select({ id: recruitmentMetaCountryCodes.id })
+    .from(recruitmentMetaCountryCodes)
+    .where(eq(recruitmentMetaCountryCodes.isDefault, true));
+  if (row?.id) return row.id;
+  const [first] = await db.select({ id: recruitmentMetaCountryCodes.id }).from(recruitmentMetaCountryCodes).limit(1);
+  return first?.id || null;
 };
 
 const requireRecruitmentAccess = async (session, write = false) => {
@@ -130,10 +171,35 @@ export async function GET(req) {
   }
 
   if (section === "metaPrograms") {
+    // Sync programs from Program Design (mriPrograms) into recruitment meta
+    const designPrograms = await db
+      .select({
+        programKey: mriPrograms.programKey,
+        name: mriPrograms.name,
+        id: mriPrograms.id,
+      })
+      .from(mriPrograms);
+
+    const existing = await db.select().from(recruitmentMetaPrograms);
+    const existingByCode = new Map(existing.map((p) => [p.programCode, p]));
+
+    const toInsert = designPrograms
+      .filter((p) => p.programKey && !existingByCode.has(p.programKey))
+      .map((p) => ({
+        programCode: p.programKey,
+        programName: p.name || p.programKey,
+        description: "Synced from Program Design",
+        isActive: true,
+      }));
+
+    if (toInsert.length) {
+      await db.insert(recruitmentMetaPrograms).values(toInsert);
+    }
+
     let query = db.select().from(recruitmentMetaPrograms);
     if (activeOnly) query = query.where(eq(recruitmentMetaPrograms.isActive, true));
     const programs = await query.orderBy(recruitmentMetaPrograms.programCode);
-    return NextResponse.json({ programs }, { status: 200 });
+    return NextResponse.json({ programs }, { status: 200, from: "programDesign" });
   }
 
   if (section === "metaStages") {
@@ -378,6 +444,7 @@ export async function GET(req) {
         programName: recruitmentMetaPrograms.programName,
         locationId: recruitmentProgramRequirements.locationId,
         locationName: recruitmentMetaLocations.locationName,
+        requirementName: recruitmentProgramRequirements.requirementName,
         requiredCount: recruitmentProgramRequirements.requiredCount,
         filledCount: recruitmentProgramRequirements.filledCount,
         notes: recruitmentProgramRequirements.notes,
@@ -388,6 +455,29 @@ export async function GET(req) {
       .orderBy(recruitmentMetaPrograms.programCode, recruitmentMetaLocations.locationName);
 
     return NextResponse.json({ requirements: rows }, { status: 200 });
+  }
+
+  if (section === "bench") {
+    const q = db
+      .select({
+        id: recruitmentBench.id,
+        fullName: recruitmentBench.fullName,
+        phone: recruitmentBench.phone,
+        location: recruitmentBench.location,
+        appliedFor: recruitmentBench.appliedFor,
+        appliedDate: recruitmentBench.appliedDate,
+        linkUrl: recruitmentBench.linkUrl,
+        notes: recruitmentBench.notes,
+        source: recruitmentBench.source,
+        createdAt: recruitmentBench.createdAt,
+        updatedAt: recruitmentBench.updatedAt,
+        pushCount: sql`(SELECT count(*) FROM recruitment_bench_pushes pb WHERE pb.bench_id = ${recruitmentBench.id})`,
+        lastPushedAt: sql`(SELECT max(pb.pushed_at) FROM recruitment_bench_pushes pb WHERE pb.bench_id = ${recruitmentBench.id})`,
+      })
+      .from(recruitmentBench)
+      .orderBy(desc(recruitmentBench.createdAt));
+    const rows = await q;
+    return NextResponse.json({ bench: rows }, { status: 200 });
   }
 
   if (section === "vacantMspCodes") {
@@ -769,26 +859,113 @@ export async function POST(req) {
     return NextResponse.json({ entry: row }, { status: 201 });
   }
 
-  if (section === "programRequirements") {
-    const programId = Number(body?.programId);
-    const locationId = Number(body?.locationId);
-    const requiredCount = Number(body?.requiredCount);
-    const filledCount = Number.isFinite(Number(body?.filledCount)) ? Number(body.filledCount) : 0;
+  if (section === "bench") {
+    const fullName = String(body?.fullName || "").trim();
+    const phone = String(body?.phone || "").trim();
+    if (!fullName || !phone) {
+      return NextResponse.json({ error: "fullName and phone required" }, { status: 400 });
+    }
+    const location = String(body?.location || "").trim() || null;
+    const appliedFor = String(body?.appliedFor || "").trim() || null;
+    const appliedDate = toDateOnly(body?.appliedDate);
+    const linkUrl = String(body?.linkUrl || "").trim() || null;
     const notes = String(body?.notes || "").trim() || null;
+    const source = String(body?.source || "").trim() || null;
 
-    if (!programId || !locationId || !Number.isFinite(requiredCount)) {
-      return NextResponse.json({ error: "programId, locationId, requiredCount required" }, { status: 400 });
+    const [row] = await db
+      .insert(recruitmentBench)
+      .values({ fullName, phone, location, appliedFor, appliedDate, linkUrl, notes, source })
+      .returning();
+
+    return NextResponse.json({ bench: row }, { status: 201 });
+  }
+
+  if (section === "benchPush") {
+    const benchIds = Array.isArray(body?.benchIds) ? body.benchIds.map(Number).filter(Boolean) : [];
+    const programId = Number(body?.programId);
+    const locationId = body?.locationId ? Number(body.locationId) : await ensureGlobalLocation();
+    const countryCodeId = Number(body?.countryCodeId) || (await getDefaultCountryCodeId());
+    const candidateStatus = String(body?.candidateStatus || "Active").trim();
+    const mspCodeId = body?.mspCodeId ? Number(body.mspCodeId) : null;
+    const appliedYear = Number.isFinite(Number(body?.appliedYear)) ? Number(body.appliedYear) : null;
+    const emailOverride = String(body?.email || "").trim();
+
+    if (!benchIds.length || !programId || !countryCodeId || !locationId) {
+      return NextResponse.json({ error: "benchIds, programId, countryCodeId, locationId required" }, { status: 400 });
     }
 
-    await db
-      .insert(recruitmentProgramRequirements)
-      .values({ programId, locationId, requiredCount, filledCount, notes })
-      .onConflictDoUpdate({
-        target: [recruitmentProgramRequirements.programId, recruitmentProgramRequirements.locationId],
-        set: { requiredCount, filledCount, notes, updatedAt: new Date() },
-      });
+    const inserted = [];
+    for (const benchId of benchIds) {
+      const [bench] = await db.select().from(recruitmentBench).where(eq(recruitmentBench.id, benchId));
+      if (!bench) continue;
+      const { first, last } = splitName(bench.fullName);
+      const phoneNumber = bench.phone;
+      const email = emailOverride || `${phoneNumber.replace(/\\D/g, "") || benchId}@bench.local`;
 
-    return NextResponse.json({ ok: true }, { status: 200 });
+      const [codeRow] = await db
+        .select({ countryCode: recruitmentMetaCountryCodes.countryCode })
+        .from(recruitmentMetaCountryCodes)
+        .where(eq(recruitmentMetaCountryCodes.id, countryCodeId));
+      const fullPhone = formatFullPhone(codeRow?.countryCode, phoneNumber);
+
+      const [candidate] = await db
+        .insert(recruitmentCandidates)
+        .values({
+          srNo: null,
+          firstName: first || bench.fullName,
+          lastName: last,
+          email,
+          countryCodeId,
+          phoneNumber,
+          fullPhone,
+          programId,
+          mspCodeId,
+          locationId,
+          appliedYear,
+          resumeUrl: bench.linkUrl || null,
+          candidateStatus,
+        })
+        .returning();
+
+      await db
+        .insert(recruitmentBenchPushes)
+        .values({
+          benchId,
+          candidateId: candidate.id,
+          programId,
+          mspCodeId,
+          locationId,
+          pushedBy: session.user.id,
+        });
+
+      inserted.push(candidate);
+    }
+
+    return NextResponse.json({ created: inserted.length, candidates: inserted }, { status: 200 });
+  }
+
+  if (section === "programRequirements") {
+    const programId = Number(body?.programId);
+    let locationId = body?.locationId ? Number(body.locationId) : null;
+    const requiredCount = Number(body?.requiredCount);
+    const filledCount = Number.isFinite(Number(body?.filledCount)) ? Number(body.filledCount) : 0;
+    const requirementName = String(body?.requirementName || "").trim() || null;
+    const notes = String(body?.notes || "").trim() || null;
+
+    if (!programId || !Number.isFinite(requiredCount)) {
+      return NextResponse.json({ error: "programId, requiredCount required" }, { status: 400 });
+    }
+
+    if (!locationId) {
+      locationId = await ensureGlobalLocation();
+    }
+
+    const [row] = await db
+      .insert(recruitmentProgramRequirements)
+      .values({ programId, locationId, requiredCount, filledCount, notes, requirementName })
+      .returning();
+
+    return NextResponse.json({ requirement: row }, { status: 200 });
   }
 
   return NextResponse.json({ error: "Unknown section" }, { status: 400 });
@@ -944,6 +1121,28 @@ export async function PUT(req) {
     return NextResponse.json({ candidate: row }, { status: 200 });
   }
 
+  if (section === "bench") {
+    const fullName = String(body?.fullName || "").trim();
+    const phone = String(body?.phone || "").trim();
+    if (!fullName || !phone) {
+      return NextResponse.json({ error: "fullName and phone required" }, { status: 400 });
+    }
+    const location = String(body?.location || "").trim() || null;
+    const appliedFor = String(body?.appliedFor || "").trim() || null;
+    const appliedDate = toDateOnly(body?.appliedDate);
+    const linkUrl = String(body?.linkUrl || "").trim() || null;
+    const notes = String(body?.notes || "").trim() || null;
+    const source = String(body?.source || "").trim() || null;
+
+    const [row] = await db
+      .update(recruitmentBench)
+      .set({ fullName, phone, location, appliedFor, appliedDate, linkUrl, notes, source, updatedAt: new Date() })
+      .where(eq(recruitmentBench.id, id))
+      .returning();
+
+    return NextResponse.json({ bench: row }, { status: 200 });
+  }
+
   if (section === "communicationLog") {
     const candidateId = Number(body?.candidateId);
     const stageId = Number(body?.stageId);
@@ -971,6 +1170,36 @@ export async function PUT(req) {
       .returning();
 
     return NextResponse.json({ entry: row }, { status: 200 });
+  }
+
+  if (section === "programRequirements") {
+    const requirementId = id;
+    const requiredCount = Number(body?.requiredCount);
+    const filledCount = Number.isFinite(Number(body?.filledCount)) ? Number(body.filledCount) : 0;
+    const requirementName = String(body?.requirementName || "").trim() || null;
+    const notes = String(body?.notes || "").trim() || null;
+    const locationId = body?.locationId ? Number(body.locationId) : null;
+    const programId = body?.programId ? Number(body.programId) : null;
+
+    if (!requirementId || !Number.isFinite(requiredCount)) {
+      return NextResponse.json({ error: "id and requiredCount required" }, { status: 400 });
+    }
+
+    const [row] = await db
+      .update(recruitmentProgramRequirements)
+      .set({
+        requiredCount,
+        filledCount,
+        requirementName,
+        notes,
+        ...(locationId ? { locationId } : {}),
+        ...(programId ? { programId } : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(recruitmentProgramRequirements.id, requirementId))
+      .returning();
+
+    return NextResponse.json({ requirement: row }, { status: 200 });
   }
 
   return NextResponse.json({ error: "Unknown section" }, { status: 400 });
@@ -1028,6 +1257,11 @@ export async function DELETE(req) {
 
   if (section === "candidates") {
     await db.delete(recruitmentCandidates).where(eq(recruitmentCandidates.id, id));
+    return NextResponse.json({ ok: true }, { status: 200 });
+  }
+
+  if (section === "bench") {
+    await db.delete(recruitmentBench).where(eq(recruitmentBench.id, id));
     return NextResponse.json({ ok: true }, { status: 200 });
   }
 

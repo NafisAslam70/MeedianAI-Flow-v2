@@ -56,6 +56,19 @@ import {
   ensureHostelDailyDueTemplate,
 } from "@/lib/mriReports";
 
+const normalizeTimeValue = (value) => {
+  if (value === undefined || value === null || value === "") return null;
+  const str = String(value).trim();
+  const match = str.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (!match) return null;
+  const h = Number(match[1]);
+  const m = Number(match[2]);
+  const s = match[3] !== undefined ? Number(match[3]) : 0;
+  if (![h, m, s].every(Number.isFinite)) return null;
+  if (h < 0 || h > 23 || m < 0 || m > 59 || s < 0 || s > 59) return null;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+};
+
 /* ============================== GET ============================== */
 export async function GET(req) {
   const session = await auth();
@@ -1977,6 +1990,7 @@ export async function POST(req) {
       const rawScope = typeof body?.scope === "string" ? body.scope.trim().toLowerCase() : "both";
       const aimsValue = body?.aims;
       const sopValue = body?.sop;
+      const capTime = normalizeTimeValue(body?.attendanceCapTime);
       const active = body?.active === false ? false : true;
 
       if (!Number.isInteger(familyId) || familyId <= 0) {
@@ -1987,6 +2001,9 @@ export async function POST(req) {
       }
       if (!rawName) {
         return NextResponse.json({ error: "name is required" }, { status: 400 });
+      }
+      if (body?.attendanceCapTime !== undefined && body?.attendanceCapTime !== null && body?.attendanceCapTime !== "" && capTime === null) {
+        return NextResponse.json({ error: "attendanceCapTime must be HH:MM or HH:MM:SS" }, { status: 400 });
       }
 
       const allowedScopes = new Set(["pre_primary", "elementary", "both"]);
@@ -2026,6 +2043,7 @@ export async function POST(req) {
             programKey: rawProgramKey.toUpperCase(),
             name: rawName,
             scope,
+            attendanceCapTime: capTime,
             aims,
             sop,
             active,
@@ -2539,6 +2557,14 @@ export async function PATCH(req) {
 
         if (u.active !== undefined) {
           setObj.active = !!u.active;
+        }
+
+        if (u.attendanceCapTime !== undefined) {
+          const cap = normalizeTimeValue(u.attendanceCapTime);
+          if (u.attendanceCapTime !== null && u.attendanceCapTime !== "" && cap === null) {
+            return NextResponse.json({ error: `attendanceCapTime must be HH:MM or HH:MM:SS for program ${id}` }, { status: 400 });
+          }
+          setObj.attendanceCapTime = cap;
         }
 
         if (Object.keys(setObj).length === 0) continue;

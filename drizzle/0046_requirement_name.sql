@@ -1,0 +1,1 @@
+-- Add requirement_name to recruitment_program_requirements\nALTER TABLE recruitment_program_requirements ADD COLUMN IF NOT EXISTS requirement_name text;\n

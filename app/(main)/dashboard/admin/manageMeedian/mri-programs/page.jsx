@@ -42,7 +42,13 @@ export default function MRIProgramsPage() {
   const [editingProgram, setEditingProgram] = useState(null); // row being edited or managed
 
   // Forms
-  const [form, setForm] = useState({ familyId: "", programKey: "", name: "", scope: "both", aims: "", sop: "", active: true });
+  const timeToInput = (value) => {
+    if (!value) return "";
+    const [h = "00", m = "00"] = String(value).split(":");
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  };
+
+  const [form, setForm] = useState({ familyId: "", programKey: "", name: "", scope: "both", attendanceCapTime: "", aims: "", sop: "", active: true });
   const [roleForm, setRoleForm] = useState({ action: "open", roleKey: "" });
 
   const activeFamilies = useMemo(() => families.filter((f) => f.active), [families]);
@@ -57,7 +63,7 @@ export default function MRIProgramsPage() {
   }, [programRoles]);
 
   const openCreate = () => {
-    setForm({ familyId: activeFamilies[0]?.id || "", programKey: "", name: "", scope: "both", aims: "", sop: "", active: true });
+    setForm({ familyId: activeFamilies[0]?.id || "", programKey: "", name: "", scope: "both", attendanceCapTime: "", aims: "", sop: "", active: true });
     setModal("create");
   };
 
@@ -68,6 +74,7 @@ export default function MRIProgramsPage() {
       programKey: prog.programKey,
       name: prog.name,
       scope: prog.scope || "both",
+      attendanceCapTime: timeToInput(prog.attendanceCapTime),
       aims: prog.aims || "",
       sop: prog.sop ? JSON.stringify(prog.sop, null, 2) : "",
       active: !!prog.active,
@@ -94,6 +101,7 @@ export default function MRIProgramsPage() {
         programKey: String(form.programKey || "").trim().toUpperCase(),
         name: form.name,
         scope: form.scope,
+        attendanceCapTime: form.attendanceCapTime || null,
         aims: form.aims || null,
         sop: sopJson,
         active: !!form.active,
@@ -122,6 +130,7 @@ export default function MRIProgramsPage() {
         programKey: String(form.programKey || "").trim().toUpperCase(),
         name: form.name,
         scope: form.scope,
+        attendanceCapTime: form.attendanceCapTime || null,
         aims: form.aims ?? null,
         sop: sopJson,
         active: !!form.active,
@@ -199,6 +208,7 @@ export default function MRIProgramsPage() {
                   <th className="py-2 pr-4">Name</th>
                   <th className="py-2 pr-4">Family</th>
                   <th className="py-2 pr-4">Scope</th>
+                  <th className="py-2 pr-4">Attendance Cap</th>
                   <th className="py-2 pr-4">Active</th>
                   <th className="py-2 pr-4">Actions</th>
                 </tr>
@@ -212,6 +222,7 @@ export default function MRIProgramsPage() {
                       <td className="py-2 pr-4">{p.name}</td>
                       <td className="py-2 pr-4">{fam ? `${fam.name} (${fam.key})` : p.familyId}</td>
                       <td className="py-2 pr-4">{p.scope}</td>
+                      <td className="py-2 pr-4">{p.attendanceCapTime ? timeToInput(p.attendanceCapTime) : "—"}</td>
                       <td className="py-2 pr-4">{p.active ? "Yes" : "No"}</td>
                       <td className="py-2 pr-4 flex gap-2">
                         <Button variant="light" size="sm" onClick={() => openEdit(p)} disabled={busy}>Edit</Button>
@@ -249,6 +260,14 @@ export default function MRIProgramsPage() {
                 <option value="pre_primary">Pre-Primary</option>
                 <option value="elementary">Elementary</option>
               </Select>
+              <Input
+                label="Attendance Cap"
+                type="time"
+                helper="Cut-off time after which scans are marked late"
+                value={form.attendanceCapTime}
+                onChange={(e) => setForm({ ...form, attendanceCapTime: e.target.value })}
+                className="md:col-span-2"
+              />
               <div className="md:col-span-6">
                 <Input label="Aims (text)" value={form.aims} onChange={(e) => setForm({ ...form, aims: e.target.value })} />
               </div>

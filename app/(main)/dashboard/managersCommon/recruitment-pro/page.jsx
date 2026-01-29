@@ -43,8 +43,21 @@ const TAB_LIST = [
   { key: "pipeline", label: "Pipeline Tracker" },
   { key: "dashboard", label: "Dashboard" },
   { key: "programTracking", label: "Program Tracking" },
+  { key: "bench", label: "Talent Bench" },
   { key: "howto", label: "How To" },
 ];
+
+const SectionCard = ({ title, subtitle, children, className = "" }) => (
+  <div className={`rounded-2xl border border-slate-200/70 bg-white/80 shadow-sm backdrop-blur ${className}`}>
+    {(title || subtitle) && (
+      <div className="border-b border-slate-100 px-5 py-4">
+        {title && <h2 className="text-base font-semibold text-slate-900">{title}</h2>}
+        {subtitle && <p className="text-xs text-slate-500 mt-1">{subtitle}</p>}
+      </div>
+    )}
+    <div className="p-5">{children}</div>
+  </div>
+);
 
 export default function RecruitmentProPage() {
   const [activeTab, setActiveTab] = React.useState("meta");
@@ -63,13 +76,21 @@ export default function RecruitmentProPage() {
   const candidatesSwr = useSWR(activeTab === "candidates" || activeTab === "pipeline" ? "/api/managersCommon/recruitment-pro?section=candidates" : null, fetcher);
   const pipelineSwr = useSWR(activeTab === "pipeline" || activeTab === "programTracking" ? "/api/managersCommon/recruitment-pro?section=pipeline" : null, fetcher);
   const dashboardSwr = useSWR(activeTab === "dashboard" ? "/api/managersCommon/recruitment-pro?section=dashboard" : null, fetcher);
-  const requirementsSwr = useSWR(activeTab === "programTracking" ? "/api/managersCommon/recruitment-pro?section=programRequirements" : null, fetcher);
+  const requirementsSwr = useSWR(
+    activeTab === "programTracking" || activeTab === "meta"
+      ? "/api/managersCommon/recruitment-pro?section=programRequirements"
+      : null,
+    fetcher
+  );
+  const benchSwr = useSWR(activeTab === "bench" ? "/api/managersCommon/recruitment-pro?section=bench" : null, fetcher);
 
   const programs = programsSwr.data?.programs || [];
+  const activePrograms = React.useMemo(() => programs.filter((p) => p.isActive !== false), [programs]);
   const stages = stagesSwr.data?.stages || [];
   const countryCodes = countrySwr.data?.codes || [];
   const locations = locationsSwr.data?.locations || [];
   const vacantCodes = vacantCodesSwr.data?.vacantCodes || [];
+  const [vacantProgramFilter, setVacantProgramFilter] = React.useState("");
 
   const [programDrafts, setProgramDrafts] = React.useState({});
   const [stageDrafts, setStageDrafts] = React.useState({});
@@ -77,6 +98,7 @@ export default function RecruitmentProPage() {
   const [locationDrafts, setLocationDrafts] = React.useState({});
 
   const [newProgram, setNewProgram] = React.useState({ programCode: "", programName: "", description: "", isActive: true });
+  const [reqGenerator, setReqGenerator] = React.useState({ programId: "", codeIds: [], requirementName: "" });
   const [newStage, setNewStage] = React.useState({ stageCode: "", stageName: "", description: "", stageOrder: "", isActive: true });
   const [newCountry, setNewCountry] = React.useState({ countryName: "", countryCode: "", isActive: true, isDefault: false });
   const [newLocation, setNewLocation] = React.useState({ locationName: "", city: "", state: "", country: "India", isActive: true });
@@ -150,17 +172,45 @@ export default function RecruitmentProPage() {
 
   const [newRequirement, setNewRequirement] = React.useState({ programId: "", locationId: "", requiredCount: "", filledCount: "" });
   const [requirementDrafts, setRequirementDrafts] = React.useState({});
+  const [editingRequirementId, setEditingRequirementId] = React.useState(null);
   React.useEffect(() => {
     const next = {};
     (requirementsSwr.data?.requirements || []).forEach((req) => (next[req.id] = { ...req }));
     setRequirementDrafts(next);
   }, [requirementsSwr.data]);
 
+  const [benchDrafts, setBenchDrafts] = React.useState({});
+  const [selectedBench, setSelectedBench] = React.useState(new Set());
+  const [newBench, setNewBench] = React.useState({
+    fullName: "",
+    phone: "",
+    location: "",
+    appliedFor: "",
+    appliedDate: "",
+    linkUrl: "",
+    notes: "",
+    source: "",
+  });
+  React.useEffect(() => {
+    const next = {};
+    (benchSwr.data?.bench || []).forEach((b) => (next[b.id] = { ...b }));
+    setBenchDrafts(next);
+    setSelectedBench(new Set());
+  }, [benchSwr.data]);
+
   const programCodeById = React.useMemo(() => {
     const map = new Map();
-    programs.forEach((p) => map.set(p.id, p.programCode));
+    activePrograms.forEach((p) => map.set(p.id, p.programCode));
+    return map;
+  }, [activePrograms]);
+
+  const programNameByCode = React.useMemo(() => {
+    const map = new Map();
+    programs.forEach((p) => map.set(p.programCode, p.programName || p.programCode));
     return map;
   }, [programs]);
+
+  const programLabel = (p) => `${p.programName || p.programCode} (${p.programCode})`;
 
   const getVacantCodesForProgram = (programId) => {
     const programCode = programCodeById.get(Number(programId));
@@ -170,8 +220,16 @@ export default function RecruitmentProPage() {
     );
   };
 
+  const filteredVacantCodes = React.useMemo(() => {
+    if (!vacantProgramFilter) return vacantCodes;
+    const code = programCodeById.get(Number(vacantProgramFilter));
+    if (!code) return [];
+    return vacantCodes.filter((c) => String(c.program).toUpperCase() === String(code).toUpperCase());
+  }, [vacantProgramFilter, vacantCodes, programCodeById]);
+
   const stageOptions = pipelineSwr.data?.stageOptions || [];
   const finalStatusOptions = pipelineSwr.data?.finalStatusOptions || [];
+  const candidateStatusOptionsLocal = candidatesSwr.data?.candidateStatusOptions || ["Active", "Inactive", "Withdrawn"];
 
   const handleSaveMeta = async (section, draft, mutate) => {
     await apiCall(section, "PUT", draft);
@@ -249,9 +307,18 @@ export default function RecruitmentProPage() {
     await pipelineSwr.mutate();
   };
 
-  const addStageComm = async (candidateId, stageId) => {
+  const addStageComm = async (candidateId, stageOrder) => {
+    const row = pipelineSwr.data?.rows?.find((r) => r.id === candidateId);
+    const draft = pipelineDrafts[candidateId] || {};
+    const stageId =
+      (stageOrder === 1 && (draft.stage1Id || row?.stage1?.stageId)) ||
+      (stageOrder === 2 && (draft.stage2Id || row?.stage2?.stageId)) ||
+      (stageOrder === 3 && (draft.stage3Id || row?.stage3?.stageId)) ||
+      (stageOrder === 4 && (draft.stage4Id || row?.stage4?.stageId)) ||
+      null;
+
     if (!stageId) {
-      alert("Select a stage before logging communication.");
+      alert("Select a stage in this row before logging communication.");
       return;
     }
     const communicationDate = prompt("Communication date (YYYY-MM-DD)", new Date().toISOString().slice(0, 10)) || "";
@@ -281,9 +348,9 @@ export default function RecruitmentProPage() {
   const handleRequirementSave = async (draft) => {
     await apiCall("programRequirements", "POST", {
       programId: draft.programId,
-      locationId: draft.locationId,
       requiredCount: Number(draft.requiredCount),
       filledCount: Number(draft.filledCount || 0),
+      requirementName: draft.requirementName || "",
       notes: draft.notes || "",
     });
     await requirementsSwr.mutate();
@@ -292,121 +359,364 @@ export default function RecruitmentProPage() {
   const handleRequirementCreate = async () => {
     await apiCall("programRequirements", "POST", {
       programId: Number(newRequirement.programId),
-      locationId: Number(newRequirement.locationId),
       requiredCount: Number(newRequirement.requiredCount),
       filledCount: Number(newRequirement.filledCount || 0),
+      requirementName: newRequirement.requirementName || "",
       notes: "",
     });
     setNewRequirement({ programId: "", locationId: "", requiredCount: "", filledCount: "" });
     await requirementsSwr.mutate();
   };
 
-  return (
-    <div className="space-y-6 p-4 md:p-6">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-semibold text-slate-900">Meed Recruitment</h1>
-        <p className="text-sm text-slate-600">Teacher recruitment tracker with meta controls, pipeline, and dashboards.</p>
-      </header>
+  const handleRequirementUpdate = async (reqId) => {
+    const draft = requirementDrafts[reqId];
+    if (!draft) return;
+    await apiCall("programRequirements", "PUT", {
+      id: reqId,
+      requiredCount: Number(draft.requiredCount),
+      filledCount: Number(draft.filledCount || 0),
+      requirementName: draft.requirementName || "",
+      notes: draft.notes || "",
+      locationId: draft.locationId,
+      programId: draft.programId,
+    });
+    await requirementsSwr.mutate();
+    setEditingRequirementId(null);
+  };
 
-      <div className="flex flex-wrap gap-2">
-        {TAB_LIST.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={`px-3 py-1.5 rounded-full text-sm border ${activeTab === tab.key ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"}`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+  const handleRequirementDelete = async (reqId) => {
+    const draft = requirementDrafts[reqId] || {};
+    const name = draft.requirementName || draft.programCode || "this requirement";
+    if (!window.confirm(`Delete ${name}? This cannot be undone.`)) return;
+    await apiCall("programRequirements", "DELETE", { id: reqId });
+    await requirementsSwr.mutate();
+  };
+
+  const [benchPush, setBenchPush] = React.useState({
+    programId: "",
+    locationId: "",
+    countryCodeId: "",
+    mspCodeId: "",
+    candidateStatus: "Active",
+    appliedYear: "",
+    email: "",
+  });
+
+  const handleBenchCreate = async () => {
+    await apiCall("bench", "POST", newBench);
+    setNewBench({ fullName: "", phone: "", location: "", appliedFor: "", appliedDate: "", linkUrl: "", notes: "", source: "" });
+    await benchSwr.mutate();
+  };
+
+  const handleBenchSave = async (benchId) => {
+    await apiCall("bench", "PUT", { id: benchId, ...benchDrafts[benchId] });
+    await benchSwr.mutate();
+  };
+
+  const handleBenchDelete = async (benchId) => {
+    const draft = benchDrafts[benchId] || {};
+    if (!window.confirm(`Delete ${draft.fullName || "this lead"}?`)) return;
+    await apiCall("bench", "DELETE", { id: benchId });
+    await benchSwr.mutate();
+  };
+
+  const handleBenchPush = async () => {
+    const benchIds = Array.from(selectedBench);
+    if (!benchIds.length) {
+      alert("Select at least one lead");
+      return;
+    }
+    if (!benchPush.programId) {
+      alert("Choose a program");
+      return;
+    }
+    if (!benchPush.countryCodeId) {
+      alert("Choose country code");
+      return;
+    }
+    const payload = {
+      benchIds,
+      programId: Number(benchPush.programId),
+      locationId: benchPush.locationId ? Number(benchPush.locationId) : null,
+      countryCodeId: Number(benchPush.countryCodeId),
+      mspCodeId: benchPush.mspCodeId ? Number(benchPush.mspCodeId) : null,
+      candidateStatus: benchPush.candidateStatus,
+      appliedYear: benchPush.appliedYear ? Number(benchPush.appliedYear) : null,
+      email: benchPush.email,
+    };
+    await apiCall("benchPush", "POST", payload);
+    await candidatesSwr.mutate();
+    await pipelineSwr.mutate();
+    await benchSwr.mutate();
+    setSelectedBench(new Set());
+  };
+
+  return (
+    <div
+      className="min-h-screen bg-gradient-to-br from-emerald-50 via-amber-50 to-slate-100 p-4 md:p-6"
+      style={{ fontFamily: "'Space Grotesk','Manrope',ui-sans-serif" }}
+    >
+      <div className="absolute inset-0 pointer-events-none opacity-60" style={{ backgroundImage: "radial-gradient(circle at 20% 20%, rgba(16,185,129,0.08), transparent 45%), radial-gradient(circle at 80% 10%, rgba(245,158,11,0.08), transparent 40%), radial-gradient(circle at 40% 90%, rgba(15,118,110,0.08), transparent 45%)" }} />
+      <div className="relative space-y-6">
+        <header className="rounded-2xl border border-slate-200/70 bg-white/70 px-6 py-5 shadow-sm backdrop-blur">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-xs uppercase tracking-[0.3em] text-emerald-600">Recruitment Suite</p>
+              <h1 className="text-2xl md:text-3xl font-semibold text-slate-900 mt-1">Meed Recruitment</h1>
+              <p className="text-sm text-slate-600 mt-1">All hiring signals in one flow — setup, track, and decide in minutes.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {TAB_LIST.map((tab) => (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key)}
+                  className={`px-4 py-2 rounded-full text-sm border transition ${activeTab === tab.key ? "bg-slate-900 text-white border-slate-900 shadow" : "bg-white/70 text-slate-700 border-slate-200 hover:bg-white"}`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </header>
 
       {activeTab === "meta" && (
         <div className="space-y-6">
-          <div className="rounded-xl border bg-white p-4 space-y-3">
-            <h2 className="text-sm font-semibold text-slate-900">Programs</h2>
+          <SectionCard title="Generate Requirement" subtitle="Pick program + available codes to spin up a hiring requirement in one go.">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-              <input className="border rounded px-2 py-1 text-sm" placeholder="Code" value={newProgram.programCode} onChange={(e) => setNewProgram({ ...newProgram, programCode: e.target.value })} />
-              <input className="border rounded px-2 py-1 text-sm" placeholder="Name" value={newProgram.programName} onChange={(e) => setNewProgram({ ...newProgram, programName: e.target.value })} />
-              <input className="border rounded px-2 py-1 text-sm" placeholder="Description" value={newProgram.description} onChange={(e) => setNewProgram({ ...newProgram, description: e.target.value })} />
-              <button className="px-3 py-1.5 rounded bg-teal-600 text-white text-sm" onClick={() => handleCreate("metaPrograms", newProgram, () => setNewProgram({ programCode: "", programName: "", description: "", isActive: true }), programsSwr.mutate)}>Add</button>
+              <input
+                className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm"
+                placeholder="Requirement name (optional)"
+                value={reqGenerator.requirementName}
+                onChange={(e) => setReqGenerator({ ...reqGenerator, requirementName: e.target.value })}
+              />
+              <select
+                className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm"
+                value={reqGenerator.programId}
+                onChange={(e) => setReqGenerator({ ...reqGenerator, programId: e.target.value, codeIds: [] })}
+              >
+                <option value="">Select program</option>
+                {activePrograms.map((p) => (
+                  <option key={p.id} value={p.id}>{programLabel(p)}</option>
+                ))}
+              </select>
+              <select
+                multiple
+                className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm h-24"
+                value={reqGenerator.codeIds}
+                onChange={(e) => {
+                  const opts = Array.from(e.target.selectedOptions).map((o) => o.value);
+                  setReqGenerator({ ...reqGenerator, codeIds: opts });
+                }}
+                disabled={!reqGenerator.programId}
+              >
+                {getVacantCodesForProgram(reqGenerator.programId).map((code) => (
+                  <option key={code.id} value={code.id}>{code.code}{code.title ? ` — ${code.title}` : ""}</option>
+                ))}
+              </select>
+              <button
+                className="rounded-xl bg-emerald-600 px-3 py-2 text-sm text-white shadow hover:bg-emerald-700"
+                onClick={async () => {
+                  if (!reqGenerator.programId || reqGenerator.codeIds.length === 0) {
+                    alert("Pick a program and at least one code.");
+                    return;
+                  }
+                  const selectedCodes = getVacantCodesForProgram(reqGenerator.programId)
+                    .filter((c) => reqGenerator.codeIds.includes(String(c.id)))
+                    .map((c) => c.code);
+                  await apiCall("programRequirements", "POST", {
+                    programId: Number(reqGenerator.programId),
+                    requiredCount: reqGenerator.codeIds.length,
+                    filledCount: 0,
+                    requirementName: reqGenerator.requirementName,
+                    notes: selectedCodes.length ? `Codes: ${selectedCodes.join(", ")}` : `Codes: ${reqGenerator.codeIds.join(",")}`,
+                  });
+                  setReqGenerator({ programId: "", codeIds: [], requirementName: "" });
+                  await requirementsSwr.mutate();
+                }}
+              >
+                Create requirement
+              </button>
             </div>
-            <div className="overflow-auto">
-              <table className="min-w-full text-sm border">
-                <thead className="bg-slate-50">
-                  <tr>
-                    <th className="p-2 text-left">Code</th>
-                    <th className="p-2 text-left">Name</th>
-                    <th className="p-2 text-left">Description</th>
-                    <th className="p-2 text-left">Active</th>
-                    <th className="p-2 text-left">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {programs.map((p) => (
-                    <tr key={p.id} className="border-t">
-                      <td className="p-2"><input className="border rounded px-2 py-1 text-xs" value={programDrafts[p.id]?.programCode || ""} onChange={(e) => setProgramDrafts((prev) => ({ ...prev, [p.id]: { ...prev[p.id], programCode: e.target.value } }))} /></td>
-                      <td className="p-2"><input className="border rounded px-2 py-1 text-xs" value={programDrafts[p.id]?.programName || ""} onChange={(e) => setProgramDrafts((prev) => ({ ...prev, [p.id]: { ...prev[p.id], programName: e.target.value } }))} /></td>
-                      <td className="p-2"><input className="border rounded px-2 py-1 text-xs" value={programDrafts[p.id]?.description || ""} onChange={(e) => setProgramDrafts((prev) => ({ ...prev, [p.id]: { ...prev[p.id], description: e.target.value } }))} /></td>
-                      <td className="p-2"><input type="checkbox" checked={!!programDrafts[p.id]?.isActive} onChange={(e) => setProgramDrafts((prev) => ({ ...prev, [p.id]: { ...prev[p.id], isActive: e.target.checked } }))} /></td>
-                      <td className="p-2 flex gap-2">
-                        <button className="px-2 py-1 rounded bg-slate-900 text-white text-xs" onClick={() => handleSaveMeta("metaPrograms", programDrafts[p.id], programsSwr.mutate)}>Save</button>
-                        <button className="px-2 py-1 rounded bg-rose-100 text-rose-700 text-xs" onClick={() => handleSoftDelete("metaPrograms", p.id, programsSwr.mutate)}>Deactivate</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+            <p className="text-xs text-slate-500 mt-2">Select multiple codes (Cmd/Ctrl + click) — one requirement can cover several codes simultaneously.</p>
+          </SectionCard>
 
-          <div className="rounded-xl border bg-white p-4 space-y-3">
-            <h2 className="text-sm font-semibold text-slate-900">MSP Codes (Vacant)</h2>
-            <p className="text-xs text-slate-500">Auto-pulled from Manage Meedian → MSP Codes. These codes have no active assignment.</p>
-            <div className="overflow-auto">
-              <table className="min-w-full text-xs border">
-                <thead className="bg-slate-50">
+          <SectionCard title="Current Requirements" subtitle="What’s already opened. Open = Required - Filled. Edit inline or delete.">
+            <div className="overflow-auto rounded-xl border border-slate-200 bg-white">
+              <table className="min-w-full text-xs">
+                <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
                   <tr>
-                    <th className="p-2 text-left">Code</th>
-                    <th className="p-2 text-left">Title</th>
-                    <th className="p-2 text-left">Program</th>
-                    <th className="p-2 text-left">Family</th>
-                    <th className="p-2 text-left">Track</th>
-                    <th className="p-2 text-left">Slice</th>
+                    <th className="p-3 text-left">Name</th>
+                    <th className="p-3 text-left">Program</th>
+                    <th className="p-3 text-left">Code</th>
+                    <th className="p-3 text-left">Required</th>
+                    <th className="p-3 text-left">Filled</th>
+                    <th className="p-3 text-left">Open</th>
+                    <th className="p-3 text-left">MSP Codes</th>
+                    <th className="p-3 text-left">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {(vacantCodesSwr.data?.vacantCodes || []).map((c) => (
-                    <tr key={c.id} className="border-t">
-                      <td className="p-2">{c.code}</td>
-                      <td className="p-2">{c.title}</td>
-                      <td className="p-2">{c.program}</td>
-                      <td className="p-2">{c.familyKey}</td>
-                      <td className="p-2">{c.track}</td>
-                      <td className="p-2">{c.parentSlice || "—"}</td>
-                    </tr>
-                  ))}
-                  {!vacantCodesSwr.data?.vacantCodes?.length && (
+                  {(requirementsSwr.data?.requirements || []).map((req) => {
+                    const open = Number(req.requiredCount || 0) - Number(req.filledCount || 0);
+                    const mspCodes = (req.notes || "")
+                      .replace(/^Codes:\s*/i, "")
+                      .trim();
+                    const draft = requirementDrafts[req.id] || req;
+                    const isEditing = editingRequirementId === req.id;
+                    return (
+                      <tr key={req.id} className="border-t">
+                        <td className="p-3">
+                          {isEditing ? (
+                            <input className="w-40 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.requirementName || ""} onChange={(e) => setRequirementDrafts((prev) => ({ ...prev, [req.id]: { ...prev[req.id], requirementName: e.target.value } }))} placeholder="Requirement name" />
+                          ) : (
+                            <span className="font-medium text-slate-900">{req.requirementName || "—"}</span>
+                          )}
+                        </td>
+                        <td className="p-3">{programLabel({ programName: req.programName, programCode: req.programCode })}</td>
+                        <td className="p-3 font-semibold text-slate-800">{req.programCode}</td>
+                        <td className="p-3">
+                          {isEditing ? (
+                            <input className="w-16 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.requiredCount || ""} onChange={(e) => setRequirementDrafts((prev) => ({ ...prev, [req.id]: { ...prev[req.id], requiredCount: e.target.value } }))} />
+                          ) : (
+                            <span>{req.requiredCount}</span>
+                          )}
+                        </td>
+                        <td className="p-3">
+                          {isEditing ? (
+                            <input className="w-16 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.filledCount || ""} onChange={(e) => setRequirementDrafts((prev) => ({ ...prev, [req.id]: { ...prev[req.id], filledCount: e.target.value } }))} />
+                          ) : (
+                            <span>{req.filledCount}</span>
+                          )}
+                        </td>
+                        <td className="p-3">{open}</td>
+                        <td className="p-3">
+                          {isEditing ? (
+                            <input className="w-28 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.notes || ""} onChange={(e) => setRequirementDrafts((prev) => ({ ...prev, [req.id]: { ...prev[req.id], notes: e.target.value } }))} placeholder="Codes: MSP01, MSP02" />
+                          ) : (
+                            <span>{mspCodes || "—"}</span>
+                          )}
+                        </td>
+                        <td className="p-3 flex gap-2">
+                          {isEditing ? (
+                            <>
+                              <button className="rounded-lg bg-slate-900 px-2 py-1 text-xs text-white" title="Save changes" onClick={() => handleRequirementUpdate(req.id)}>💾</button>
+                              <button className="rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-700" title="Cancel" onClick={() => setEditingRequirementId(null)}>✖️</button>
+                            </>
+                          ) : (
+                            <>
+                              <button className="rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-700" title="Edit" onClick={() => { setRequirementDrafts((prev) => ({ ...prev, [req.id]: { ...req } })); setEditingRequirementId(req.id); }}>✏️</button>
+                              <button className="rounded-lg bg-rose-100 px-2 py-1 text-xs text-rose-700" title="Delete requirement" onClick={() => handleRequirementDelete(req.id)}>🗑️</button>
+                            </>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {!(requirementsSwr.data?.requirements || []).length && (
                     <tr className="border-t">
-                      <td className="p-2 text-slate-500" colSpan={6}>No vacant MSP codes right now.</td>
+                      <td className="p-3 text-slate-500" colSpan={5}>No requirements yet.</td>
                     </tr>
                   )}
                 </tbody>
               </table>
             </div>
-          </div>
+          </SectionCard>
 
-          <div className="rounded-xl border bg-white p-4 space-y-3">
-            <h2 className="text-sm font-semibold text-slate-900">Stages</h2>
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
-              <input className="border rounded px-2 py-1 text-sm" placeholder="Code" value={newStage.stageCode} onChange={(e) => setNewStage({ ...newStage, stageCode: e.target.value })} />
-              <input className="border rounded px-2 py-1 text-sm" placeholder="Name" value={newStage.stageName} onChange={(e) => setNewStage({ ...newStage, stageName: e.target.value })} />
-              <input className="border rounded px-2 py-1 text-sm" placeholder="Description" value={newStage.description} onChange={(e) => setNewStage({ ...newStage, description: e.target.value })} />
-              <input className="border rounded px-2 py-1 text-sm" placeholder="Order" value={newStage.stageOrder} onChange={(e) => setNewStage({ ...newStage, stageOrder: e.target.value })} />
-              <button className="px-3 py-1.5 rounded bg-teal-600 text-white text-sm" onClick={() => handleCreate("metaStages", { ...newStage, stageOrder: Number(newStage.stageOrder) }, () => setNewStage({ stageCode: "", stageName: "", description: "", stageOrder: "", isActive: true }), stagesSwr.mutate)}>Add</button>
+          <SectionCard title="MSP Codes (Vacant)" subtitle="Auto-pulled from Manage Meedian → MSP Codes. These codes have no active assignment.">
+            <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div className="text-xs text-slate-600">Pick a program to see its free codes, then assign on Candidates tab.</div>
+              <select
+                className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm md:w-64"
+                value={vacantProgramFilter}
+                onChange={(e) => setVacantProgramFilter(e.target.value)}
+              >
+                <option value="">All programs</option>
+                        {activePrograms.map((p) => (
+                          <option key={p.id} value={p.id}>{programLabel(p)}</option>
+                        ))}
+                      </select>
             </div>
-            <div className="overflow-auto">
-              <table className="min-w-full text-sm border">
-                <thead className="bg-slate-50">
+            <div className="overflow-auto rounded-xl border border-slate-200 bg-white">
+              <table className="min-w-full text-xs">
+                <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="p-3 text-left">Code</th>
+                    <th className="p-3 text-left">Title</th>
+                    <th className="p-3 text-left">Program</th>
+                    <th className="p-3 text-left">Family</th>
+                    <th className="p-3 text-left">Track</th>
+                    <th className="p-3 text-left">Slice</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(filteredVacantCodes || []).map((c) => (
+                    <tr key={c.id} className="border-t">
+                      <td className="p-3 font-semibold text-slate-800">{c.code}</td>
+                      <td className="p-3">{c.title}</td>
+                      <td className="p-3">{c.program}</td>
+                      <td className="p-3">{c.familyKey}</td>
+                      <td className="p-3">{c.track}</td>
+                      <td className="p-3">{c.parentSlice || "—"}</td>
+                    </tr>
+                  ))}
+                  {!filteredVacantCodes?.length && (
+                    <tr className="border-t">
+                      <td className="p-3 text-slate-500" colSpan={6}>No vacant MSP codes right now.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </SectionCard>
+
+          <SectionCard title="Program Registry" subtitle="Programs are synced from Program Design. Deactivate any stray entries you created earlier.">
+            <div className="overflow-auto rounded-xl border border-slate-200 bg-white">
+              <table className="min-w-full text-xs">
+                <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="p-3 text-left">Program</th>
+                    <th className="p-3 text-left">Code</th>
+                    <th className="p-3 text-left">Active</th>
+                    <th className="p-3 text-left">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {programs.map((p) => (
+                    <tr key={p.id} className="border-t">
+                      <td className="p-3">{p.programName || p.programCode}</td>
+                      <td className="p-3 font-semibold text-slate-800">{p.programCode}</td>
+                      <td className="p-3">{p.isActive ? "Yes" : "No"}</td>
+                      <td className="p-3">
+                        <button
+                          className="rounded-lg bg-rose-100 px-2 py-1 text-xs text-rose-700"
+                          onClick={() => handleSoftDelete("metaPrograms", p.id, programsSwr.mutate)}
+                        >
+                          Deactivate
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {!programs.length && (
+                    <tr className="border-t">
+                      <td className="p-3 text-slate-500" colSpan={4}>No programs found.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </SectionCard>
+
+          <SectionCard title="Stages" subtitle="Manage interview stages and ordering.">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
+              <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm" placeholder="Code" value={newStage.stageCode} onChange={(e) => setNewStage({ ...newStage, stageCode: e.target.value })} />
+              <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm" placeholder="Name" value={newStage.stageName} onChange={(e) => setNewStage({ ...newStage, stageName: e.target.value })} />
+              <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm" placeholder="Description" value={newStage.description} onChange={(e) => setNewStage({ ...newStage, description: e.target.value })} />
+              <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm" placeholder="Order" value={newStage.stageOrder} onChange={(e) => setNewStage({ ...newStage, stageOrder: e.target.value })} />
+              <button className="rounded-xl bg-emerald-600 px-3 py-2 text-sm text-white shadow hover:bg-emerald-700" onClick={() => handleCreate("metaStages", { ...newStage, stageOrder: Number(newStage.stageOrder) }, () => setNewStage({ stageCode: "", stageName: "", description: "", stageOrder: "", isActive: true }), stagesSwr.mutate)}>Add</button>
+            </div>
+            <div className="mt-4 overflow-auto rounded-xl border border-slate-200 bg-white">
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                   <tr>
                     <th className="p-2 text-left">Code</th>
                     <th className="p-2 text-left">Name</th>
@@ -419,33 +729,32 @@ export default function RecruitmentProPage() {
                 <tbody>
                   {stages.map((s) => (
                     <tr key={s.id} className="border-t">
-                      <td className="p-2"><input className="border rounded px-2 py-1 text-xs" value={stageDrafts[s.id]?.stageCode || ""} onChange={(e) => setStageDrafts((prev) => ({ ...prev, [s.id]: { ...prev[s.id], stageCode: e.target.value } }))} /></td>
-                      <td className="p-2"><input className="border rounded px-2 py-1 text-xs" value={stageDrafts[s.id]?.stageName || ""} onChange={(e) => setStageDrafts((prev) => ({ ...prev, [s.id]: { ...prev[s.id], stageName: e.target.value } }))} /></td>
-                      <td className="p-2"><input className="border rounded px-2 py-1 text-xs" value={stageDrafts[s.id]?.description || ""} onChange={(e) => setStageDrafts((prev) => ({ ...prev, [s.id]: { ...prev[s.id], description: e.target.value } }))} /></td>
-                      <td className="p-2"><input className="border rounded px-2 py-1 text-xs" value={stageDrafts[s.id]?.stageOrder || ""} onChange={(e) => setStageDrafts((prev) => ({ ...prev, [s.id]: { ...prev[s.id], stageOrder: Number(e.target.value) } }))} /></td>
+                      <td className="p-2"><input className="rounded-lg border border-slate-200 px-2 py-1 text-xs" value={stageDrafts[s.id]?.stageCode || ""} onChange={(e) => setStageDrafts((prev) => ({ ...prev, [s.id]: { ...prev[s.id], stageCode: e.target.value } }))} /></td>
+                      <td className="p-2"><input className="rounded-lg border border-slate-200 px-2 py-1 text-xs" value={stageDrafts[s.id]?.stageName || ""} onChange={(e) => setStageDrafts((prev) => ({ ...prev, [s.id]: { ...prev[s.id], stageName: e.target.value } }))} /></td>
+                      <td className="p-2"><input className="rounded-lg border border-slate-200 px-2 py-1 text-xs" value={stageDrafts[s.id]?.description || ""} onChange={(e) => setStageDrafts((prev) => ({ ...prev, [s.id]: { ...prev[s.id], description: e.target.value } }))} /></td>
+                      <td className="p-2"><input className="rounded-lg border border-slate-200 px-2 py-1 text-xs" value={stageDrafts[s.id]?.stageOrder || ""} onChange={(e) => setStageDrafts((prev) => ({ ...prev, [s.id]: { ...prev[s.id], stageOrder: Number(e.target.value) } }))} /></td>
                       <td className="p-2"><input type="checkbox" checked={!!stageDrafts[s.id]?.isActive} onChange={(e) => setStageDrafts((prev) => ({ ...prev, [s.id]: { ...prev[s.id], isActive: e.target.checked } }))} /></td>
                       <td className="p-2 flex gap-2">
-                        <button className="px-2 py-1 rounded bg-slate-900 text-white text-xs" onClick={() => handleSaveMeta("metaStages", stageDrafts[s.id], stagesSwr.mutate)}>Save</button>
-                        <button className="px-2 py-1 rounded bg-rose-100 text-rose-700 text-xs" onClick={() => handleSoftDelete("metaStages", s.id, stagesSwr.mutate)}>Deactivate</button>
+                        <button className="rounded-lg bg-slate-900 px-2 py-1 text-xs text-white" onClick={() => handleSaveMeta("metaStages", stageDrafts[s.id], stagesSwr.mutate)}>Save</button>
+                        <button className="rounded-lg bg-rose-100 px-2 py-1 text-xs text-rose-700" onClick={() => handleSoftDelete("metaStages", s.id, stagesSwr.mutate)}>Deactivate</button>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          </div>
+          </SectionCard>
 
-          <div className="rounded-xl border bg-white p-4 space-y-3">
-            <h2 className="text-sm font-semibold text-slate-900">Country Codes</h2>
+          <SectionCard title="Country Codes" subtitle="Phone prefixes available for candidates.">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-              <input className="border rounded px-2 py-1 text-sm" placeholder="Country" value={newCountry.countryName} onChange={(e) => setNewCountry({ ...newCountry, countryName: e.target.value })} />
-              <input className="border rounded px-2 py-1 text-sm" placeholder="+91" value={newCountry.countryCode} onChange={(e) => setNewCountry({ ...newCountry, countryCode: e.target.value })} />
+              <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm" placeholder="Country" value={newCountry.countryName} onChange={(e) => setNewCountry({ ...newCountry, countryName: e.target.value })} />
+              <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm" placeholder="+91" value={newCountry.countryCode} onChange={(e) => setNewCountry({ ...newCountry, countryCode: e.target.value })} />
               <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={newCountry.isDefault} onChange={(e) => setNewCountry({ ...newCountry, isDefault: e.target.checked })} /> Default</label>
-              <button className="px-3 py-1.5 rounded bg-teal-600 text-white text-sm" onClick={() => handleCreate("metaCountryCodes", newCountry, () => setNewCountry({ countryName: "", countryCode: "", isActive: true, isDefault: false }), countrySwr.mutate)}>Add</button>
+              <button className="rounded-xl bg-emerald-600 px-3 py-2 text-sm text-white shadow hover:bg-emerald-700" onClick={() => handleCreate("metaCountryCodes", newCountry, () => setNewCountry({ countryName: "", countryCode: "", isActive: true, isDefault: false }), countrySwr.mutate)}>Add</button>
             </div>
-            <div className="overflow-auto">
-              <table className="min-w-full text-sm border">
-                <thead className="bg-slate-50">
+            <div className="mt-4 overflow-auto rounded-xl border border-slate-200 bg-white">
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                   <tr>
                     <th className="p-2 text-left">Country</th>
                     <th className="p-2 text-left">Code</th>
@@ -457,33 +766,32 @@ export default function RecruitmentProPage() {
                 <tbody>
                   {countryCodes.map((c) => (
                     <tr key={c.id} className="border-t">
-                      <td className="p-2"><input className="border rounded px-2 py-1 text-xs" value={countryDrafts[c.id]?.countryName || ""} onChange={(e) => setCountryDrafts((prev) => ({ ...prev, [c.id]: { ...prev[c.id], countryName: e.target.value } }))} /></td>
-                      <td className="p-2"><input className="border rounded px-2 py-1 text-xs" value={countryDrafts[c.id]?.countryCode || ""} onChange={(e) => setCountryDrafts((prev) => ({ ...prev, [c.id]: { ...prev[c.id], countryCode: e.target.value } }))} /></td>
+                      <td className="p-2"><input className="rounded-lg border border-slate-200 px-2 py-1 text-xs" value={countryDrafts[c.id]?.countryName || ""} onChange={(e) => setCountryDrafts((prev) => ({ ...prev, [c.id]: { ...prev[c.id], countryName: e.target.value } }))} /></td>
+                      <td className="p-2"><input className="rounded-lg border border-slate-200 px-2 py-1 text-xs" value={countryDrafts[c.id]?.countryCode || ""} onChange={(e) => setCountryDrafts((prev) => ({ ...prev, [c.id]: { ...prev[c.id], countryCode: e.target.value } }))} /></td>
                       <td className="p-2"><input type="checkbox" checked={!!countryDrafts[c.id]?.isActive} onChange={(e) => setCountryDrafts((prev) => ({ ...prev, [c.id]: { ...prev[c.id], isActive: e.target.checked } }))} /></td>
                       <td className="p-2"><input type="checkbox" checked={!!countryDrafts[c.id]?.isDefault} onChange={(e) => setCountryDrafts((prev) => ({ ...prev, [c.id]: { ...prev[c.id], isDefault: e.target.checked } }))} /></td>
                       <td className="p-2 flex gap-2">
-                        <button className="px-2 py-1 rounded bg-slate-900 text-white text-xs" onClick={() => handleSaveMeta("metaCountryCodes", countryDrafts[c.id], countrySwr.mutate)}>Save</button>
-                        <button className="px-2 py-1 rounded bg-rose-100 text-rose-700 text-xs" onClick={() => handleSoftDelete("metaCountryCodes", c.id, countrySwr.mutate)}>Deactivate</button>
+                        <button className="rounded-lg bg-slate-900 px-2 py-1 text-xs text-white" onClick={() => handleSaveMeta("metaCountryCodes", countryDrafts[c.id], countrySwr.mutate)}>Save</button>
+                        <button className="rounded-lg bg-rose-100 px-2 py-1 text-xs text-rose-700" onClick={() => handleSoftDelete("metaCountryCodes", c.id, countrySwr.mutate)}>Deactivate</button>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          </div>
+          </SectionCard>
 
-          <div className="rounded-xl border bg-white p-4 space-y-3">
-            <h2 className="text-sm font-semibold text-slate-900">Locations</h2>
+          <SectionCard title="Locations" subtitle="Office hubs for recruitment.">
             <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
-              <input className="border rounded px-2 py-1 text-sm" placeholder="Location" value={newLocation.locationName} onChange={(e) => setNewLocation({ ...newLocation, locationName: e.target.value })} />
-              <input className="border rounded px-2 py-1 text-sm" placeholder="City" value={newLocation.city} onChange={(e) => setNewLocation({ ...newLocation, city: e.target.value })} />
-              <input className="border rounded px-2 py-1 text-sm" placeholder="State" value={newLocation.state} onChange={(e) => setNewLocation({ ...newLocation, state: e.target.value })} />
-              <input className="border rounded px-2 py-1 text-sm" placeholder="Country" value={newLocation.country} onChange={(e) => setNewLocation({ ...newLocation, country: e.target.value })} />
-              <button className="px-3 py-1.5 rounded bg-teal-600 text-white text-sm" onClick={() => handleCreate("metaLocations", newLocation, () => setNewLocation({ locationName: "", city: "", state: "", country: "India", isActive: true }), locationsSwr.mutate)}>Add</button>
+              <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm" placeholder="Location" value={newLocation.locationName} onChange={(e) => setNewLocation({ ...newLocation, locationName: e.target.value })} />
+              <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm" placeholder="City" value={newLocation.city} onChange={(e) => setNewLocation({ ...newLocation, city: e.target.value })} />
+              <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm" placeholder="State" value={newLocation.state} onChange={(e) => setNewLocation({ ...newLocation, state: e.target.value })} />
+              <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm" placeholder="Country" value={newLocation.country} onChange={(e) => setNewLocation({ ...newLocation, country: e.target.value })} />
+              <button className="rounded-xl bg-emerald-600 px-3 py-2 text-sm text-white shadow hover:bg-emerald-700" onClick={() => handleCreate("metaLocations", newLocation, () => setNewLocation({ locationName: "", city: "", state: "", country: "India", isActive: true }), locationsSwr.mutate)}>Add</button>
             </div>
-            <div className="overflow-auto">
-              <table className="min-w-full text-sm border">
-                <thead className="bg-slate-50">
+            <div className="mt-4 overflow-auto rounded-xl border border-slate-200 bg-white">
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                   <tr>
                     <th className="p-2 text-left">Location</th>
                     <th className="p-2 text-left">City</th>
@@ -496,51 +804,50 @@ export default function RecruitmentProPage() {
                 <tbody>
                   {locations.map((l) => (
                     <tr key={l.id} className="border-t">
-                      <td className="p-2"><input className="border rounded px-2 py-1 text-xs" value={locationDrafts[l.id]?.locationName || ""} onChange={(e) => setLocationDrafts((prev) => ({ ...prev, [l.id]: { ...prev[l.id], locationName: e.target.value } }))} /></td>
-                      <td className="p-2"><input className="border rounded px-2 py-1 text-xs" value={locationDrafts[l.id]?.city || ""} onChange={(e) => setLocationDrafts((prev) => ({ ...prev, [l.id]: { ...prev[l.id], city: e.target.value } }))} /></td>
-                      <td className="p-2"><input className="border rounded px-2 py-1 text-xs" value={locationDrafts[l.id]?.state || ""} onChange={(e) => setLocationDrafts((prev) => ({ ...prev, [l.id]: { ...prev[l.id], state: e.target.value } }))} /></td>
-                      <td className="p-2"><input className="border rounded px-2 py-1 text-xs" value={locationDrafts[l.id]?.country || ""} onChange={(e) => setLocationDrafts((prev) => ({ ...prev, [l.id]: { ...prev[l.id], country: e.target.value } }))} /></td>
+                      <td className="p-2"><input className="rounded-lg border border-slate-200 px-2 py-1 text-xs" value={locationDrafts[l.id]?.locationName || ""} onChange={(e) => setLocationDrafts((prev) => ({ ...prev, [l.id]: { ...prev[l.id], locationName: e.target.value } }))} /></td>
+                      <td className="p-2"><input className="rounded-lg border border-slate-200 px-2 py-1 text-xs" value={locationDrafts[l.id]?.city || ""} onChange={(e) => setLocationDrafts((prev) => ({ ...prev, [l.id]: { ...prev[l.id], city: e.target.value } }))} /></td>
+                      <td className="p-2"><input className="rounded-lg border border-slate-200 px-2 py-1 text-xs" value={locationDrafts[l.id]?.state || ""} onChange={(e) => setLocationDrafts((prev) => ({ ...prev, [l.id]: { ...prev[l.id], state: e.target.value } }))} /></td>
+                      <td className="p-2"><input className="rounded-lg border border-slate-200 px-2 py-1 text-xs" value={locationDrafts[l.id]?.country || ""} onChange={(e) => setLocationDrafts((prev) => ({ ...prev, [l.id]: { ...prev[l.id], country: e.target.value } }))} /></td>
                       <td className="p-2"><input type="checkbox" checked={!!locationDrafts[l.id]?.isActive} onChange={(e) => setLocationDrafts((prev) => ({ ...prev, [l.id]: { ...prev[l.id], isActive: e.target.checked } }))} /></td>
                       <td className="p-2 flex gap-2">
-                        <button className="px-2 py-1 rounded bg-slate-900 text-white text-xs" onClick={() => handleSaveMeta("metaLocations", locationDrafts[l.id], locationsSwr.mutate)}>Save</button>
-                        <button className="px-2 py-1 rounded bg-rose-100 text-rose-700 text-xs" onClick={() => handleSoftDelete("metaLocations", l.id, locationsSwr.mutate)}>Deactivate</button>
+                        <button className="rounded-lg bg-slate-900 px-2 py-1 text-xs text-white" onClick={() => handleSaveMeta("metaLocations", locationDrafts[l.id], locationsSwr.mutate)}>Save</button>
+                        <button className="rounded-lg bg-rose-100 px-2 py-1 text-xs text-rose-700" onClick={() => handleSoftDelete("metaLocations", l.id, locationsSwr.mutate)}>Deactivate</button>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          </div>
+          </SectionCard>
         </div>
       )}
 
       {activeTab === "candidates" && (
         <div className="space-y-6">
-          <div className="rounded-xl border bg-white p-4 space-y-3">
-            <h2 className="text-sm font-semibold text-slate-900">Add Candidate</h2>
+          <SectionCard title="Add Candidate" subtitle="Add a candidate once and let the pipeline auto-fill.">
             <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
-              <input className="border rounded px-2 py-1 text-sm" placeholder="First name" value={newCandidate.firstName} onChange={(e) => setNewCandidate({ ...newCandidate, firstName: e.target.value })} />
-              <input className="border rounded px-2 py-1 text-sm" placeholder="Last name" value={newCandidate.lastName} onChange={(e) => setNewCandidate({ ...newCandidate, lastName: e.target.value })} />
-              <input className="border rounded px-2 py-1 text-sm" placeholder="Email" value={newCandidate.email} onChange={(e) => setNewCandidate({ ...newCandidate, email: e.target.value })} />
-              <select className="border rounded px-2 py-1 text-sm" value={newCandidate.countryCodeId} onChange={(e) => setNewCandidate({ ...newCandidate, countryCodeId: e.target.value })}>
+              <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm" placeholder="First name" value={newCandidate.firstName} onChange={(e) => setNewCandidate({ ...newCandidate, firstName: e.target.value })} />
+              <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm" placeholder="Last name" value={newCandidate.lastName} onChange={(e) => setNewCandidate({ ...newCandidate, lastName: e.target.value })} />
+              <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm" placeholder="Email" value={newCandidate.email} onChange={(e) => setNewCandidate({ ...newCandidate, email: e.target.value })} />
+              <select className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm" value={newCandidate.countryCodeId} onChange={(e) => setNewCandidate({ ...newCandidate, countryCodeId: e.target.value })}>
                 <option value="">Country Code</option>
                 {countryCodes.map((c) => (
                   <option key={c.id} value={c.id}>{c.countryCode}</option>
                 ))}
               </select>
-              <input className="border rounded px-2 py-1 text-sm" placeholder="Phone" value={newCandidate.phoneNumber} onChange={(e) => setNewCandidate({ ...newCandidate, phoneNumber: e.target.value })} />
+              <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm" placeholder="Phone" value={newCandidate.phoneNumber} onChange={(e) => setNewCandidate({ ...newCandidate, phoneNumber: e.target.value })} />
               <select
-                className="border rounded px-2 py-1 text-sm"
+                className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm"
                 value={newCandidate.programId}
                 onChange={(e) => setNewCandidate({ ...newCandidate, programId: e.target.value, mspCodeId: "" })}
               >
                 <option value="">Program</option>
-                {programs.map((p) => (
-                  <option key={p.id} value={p.id}>{p.programCode}</option>
+                {activePrograms.map((p) => (
+                  <option key={p.id} value={p.id}>{programLabel(p)}</option>
                 ))}
               </select>
               <select
-                className="border rounded px-2 py-1 text-sm"
+                className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm"
                 value={newCandidate.mspCodeId}
                 onChange={(e) => setNewCandidate({ ...newCandidate, mspCodeId: e.target.value })}
                 disabled={!newCandidate.programId}
@@ -550,28 +857,27 @@ export default function RecruitmentProPage() {
                   <option key={code.id} value={code.id}>{code.code}{code.title ? ` — ${code.title}` : ""}</option>
                 ))}
               </select>
-              <select className="border rounded px-2 py-1 text-sm" value={newCandidate.locationId} onChange={(e) => setNewCandidate({ ...newCandidate, locationId: e.target.value })}>
+              <select className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm" value={newCandidate.locationId} onChange={(e) => setNewCandidate({ ...newCandidate, locationId: e.target.value })}>
                 <option value="">Location</option>
                 {locations.map((l) => (
                   <option key={l.id} value={l.id}>{l.locationName}</option>
                 ))}
               </select>
-              <input className="border rounded px-2 py-1 text-sm" placeholder="Year" value={newCandidate.appliedYear} onChange={(e) => setNewCandidate({ ...newCandidate, appliedYear: e.target.value })} />
-              <input className="border rounded px-2 py-1 text-sm" placeholder="Resume URL" value={newCandidate.resumeUrl} onChange={(e) => setNewCandidate({ ...newCandidate, resumeUrl: e.target.value })} />
-              <select className="border rounded px-2 py-1 text-sm" value={newCandidate.candidateStatus} onChange={(e) => setNewCandidate({ ...newCandidate, candidateStatus: e.target.value })}>
+              <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm" placeholder="Year" value={newCandidate.appliedYear} onChange={(e) => setNewCandidate({ ...newCandidate, appliedYear: e.target.value })} />
+              <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm" placeholder="Resume URL" value={newCandidate.resumeUrl} onChange={(e) => setNewCandidate({ ...newCandidate, resumeUrl: e.target.value })} />
+              <select className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm" value={newCandidate.candidateStatus} onChange={(e) => setNewCandidate({ ...newCandidate, candidateStatus: e.target.value })}>
                 {candidatesSwr.data?.candidateStatusOptions?.map((s) => (
                   <option key={s} value={s}>{s}</option>
                 ))}
               </select>
-              <button className="px-3 py-1.5 rounded bg-teal-600 text-white text-sm" onClick={handleCandidateCreate}>Add</button>
+              <button className="rounded-xl bg-slate-900 px-3 py-2 text-sm text-white shadow hover:bg-slate-800" onClick={handleCandidateCreate}>Add</button>
             </div>
-          </div>
+          </SectionCard>
 
-          <div className="rounded-xl border bg-white p-4 space-y-3">
-            <h2 className="text-sm font-semibold text-slate-900">Candidate Pool</h2>
-            <div className="overflow-auto">
-              <table className="min-w-full text-xs border">
-                <thead className="bg-slate-50">
+          <SectionCard title="Candidate Pool" subtitle="Live master database. Edit inline and save.">
+            <div className="overflow-auto rounded-xl border border-slate-200 bg-white">
+              <table className="min-w-full text-xs">
+                <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
                   <tr>
                     <th className="p-2 text-left">Sr</th>
                     <th className="p-2 text-left">Name</th>
@@ -600,34 +906,34 @@ export default function RecruitmentProPage() {
                       <td className="p-2">{c.srNo}</td>
                       <td className="p-2">
                         <div className="flex gap-1">
-                          <input className="border rounded px-1 py-0.5 w-20" value={candidateDrafts[c.id]?.firstName || ""} onChange={(e) => setCandidateDrafts((prev) => ({ ...prev, [c.id]: { ...prev[c.id], firstName: e.target.value } }))} />
-                          <input className="border rounded px-1 py-0.5 w-20" value={candidateDrafts[c.id]?.lastName || ""} onChange={(e) => setCandidateDrafts((prev) => ({ ...prev, [c.id]: { ...prev[c.id], lastName: e.target.value } }))} />
+                          <input className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs w-24" value={candidateDrafts[c.id]?.firstName || ""} onChange={(e) => setCandidateDrafts((prev) => ({ ...prev, [c.id]: { ...prev[c.id], firstName: e.target.value } }))} />
+                          <input className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs w-24" value={candidateDrafts[c.id]?.lastName || ""} onChange={(e) => setCandidateDrafts((prev) => ({ ...prev, [c.id]: { ...prev[c.id], lastName: e.target.value } }))} />
                         </div>
                       </td>
-                      <td className="p-2"><input className="border rounded px-1 py-0.5" value={candidateDrafts[c.id]?.email || ""} onChange={(e) => setCandidateDrafts((prev) => ({ ...prev, [c.id]: { ...prev[c.id], email: e.target.value } }))} /></td>
+                      <td className="p-2"><input className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs" value={candidateDrafts[c.id]?.email || ""} onChange={(e) => setCandidateDrafts((prev) => ({ ...prev, [c.id]: { ...prev[c.id], email: e.target.value } }))} /></td>
                       <td className="p-2">
-                        <select className="border rounded px-1 py-0.5" value={candidateDrafts[c.id]?.countryCodeId || ""} onChange={(e) => setCandidateDrafts((prev) => ({ ...prev, [c.id]: { ...prev[c.id], countryCodeId: Number(e.target.value) } }))}>
+                        <select className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs" value={candidateDrafts[c.id]?.countryCodeId || ""} onChange={(e) => setCandidateDrafts((prev) => ({ ...prev, [c.id]: { ...prev[c.id], countryCodeId: Number(e.target.value) } }))}>
                           <option value="">Code</option>
                           {countryCodes.map((cc) => (
                             <option key={cc.id} value={cc.id}>{cc.countryCode}</option>
                           ))}
                         </select>
                       </td>
-                      <td className="p-2"><input className="border rounded px-1 py-0.5" value={candidateDrafts[c.id]?.phoneNumber || ""} onChange={(e) => setCandidateDrafts((prev) => ({ ...prev, [c.id]: { ...prev[c.id], phoneNumber: e.target.value } }))} /></td>
+                      <td className="p-2"><input className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs" value={candidateDrafts[c.id]?.phoneNumber || ""} onChange={(e) => setCandidateDrafts((prev) => ({ ...prev, [c.id]: { ...prev[c.id], phoneNumber: e.target.value } }))} /></td>
                       <td className="p-2">
                         <select
-                          className="border rounded px-1 py-0.5"
+                          className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs"
                           value={candidateDrafts[c.id]?.programId || ""}
                           onChange={(e) => setCandidateDrafts((prev) => ({ ...prev, [c.id]: { ...prev[c.id], programId: Number(e.target.value), mspCodeId: "" } }))}
                         >
                           {programs.map((p) => (
-                            <option key={p.id} value={p.id}>{p.programCode}</option>
+                            <option key={p.id} value={p.id}>{programLabel(p)}</option>
                           ))}
                         </select>
                       </td>
                       <td className="p-2">
                         <select
-                          className="border rounded px-1 py-0.5"
+                          className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs"
                           value={candidateDrafts[c.id]?.mspCodeId || ""}
                           onChange={(e) => setCandidateDrafts((prev) => ({ ...prev, [c.id]: { ...prev[c.id], mspCodeId: Number(e.target.value) } }))}
                           disabled={!rowProgramId}
@@ -639,15 +945,15 @@ export default function RecruitmentProPage() {
                         </select>
                       </td>
                       <td className="p-2">
-                        <select className="border rounded px-1 py-0.5" value={candidateDrafts[c.id]?.locationId || ""} onChange={(e) => setCandidateDrafts((prev) => ({ ...prev, [c.id]: { ...prev[c.id], locationId: Number(e.target.value) } }))}>
+                        <select className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs" value={candidateDrafts[c.id]?.locationId || ""} onChange={(e) => setCandidateDrafts((prev) => ({ ...prev, [c.id]: { ...prev[c.id], locationId: Number(e.target.value) } }))}>
                           {locations.map((l) => (
                             <option key={l.id} value={l.id}>{l.locationName}</option>
                           ))}
                         </select>
                       </td>
-                      <td className="p-2"><input className="border rounded px-1 py-0.5 w-20" value={candidateDrafts[c.id]?.appliedYear || ""} onChange={(e) => setCandidateDrafts((prev) => ({ ...prev, [c.id]: { ...prev[c.id], appliedYear: e.target.value } }))} /></td>
+                      <td className="p-2"><input className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs w-20" value={candidateDrafts[c.id]?.appliedYear || ""} onChange={(e) => setCandidateDrafts((prev) => ({ ...prev, [c.id]: { ...prev[c.id], appliedYear: e.target.value } }))} /></td>
                       <td className="p-2">
-                        <select className="border rounded px-1 py-0.5" value={candidateDrafts[c.id]?.candidateStatus || "Active"} onChange={(e) => setCandidateDrafts((prev) => ({ ...prev, [c.id]: { ...prev[c.id], candidateStatus: e.target.value } }))}>
+                        <select className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs" value={candidateDrafts[c.id]?.candidateStatus || "Active"} onChange={(e) => setCandidateDrafts((prev) => ({ ...prev, [c.id]: { ...prev[c.id], candidateStatus: e.target.value } }))}>
                           {candidatesSwr.data?.candidateStatusOptions?.map((s) => (
                             <option key={s} value={s}>{s}</option>
                           ))}
@@ -661,17 +967,16 @@ export default function RecruitmentProPage() {
                 </tbody>
               </table>
             </div>
-          </div>
+          </SectionCard>
         </div>
       )}
 
       {activeTab === "pipeline" && (
         <div className="space-y-6">
-          <div className="rounded-xl border bg-white p-4 space-y-3">
-            <h2 className="text-sm font-semibold text-slate-900">Pipeline Tracker</h2>
-            <div className="overflow-auto">
-              <table className="min-w-full text-xs border">
-                <thead className="bg-slate-50">
+          <SectionCard title="Pipeline Tracker" subtitle="Update stages and log communication per stage.">
+            <div className="overflow-auto rounded-xl border border-slate-200 bg-white">
+              <table className="min-w-full text-xs">
+                <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
                   <tr>
                     <th className="p-2 text-left">Sr</th>
                     <th className="p-2 text-left">Name</th>
@@ -694,12 +999,16 @@ export default function RecruitmentProPage() {
                 <tbody>
                   {(pipelineSwr.data?.rows || []).map((row) => {
                     const draft = pipelineDrafts[row.id] || {};
+                    const comm1 = row.comm?.stage1;
+                    const comm2 = row.comm?.stage2;
+                    const comm3 = row.comm?.stage3;
+                    const comm4 = row.comm?.stage4;
                     return (
                       <tr key={row.id} className="border-t">
                         <td className="p-2">{row.srNo}</td>
                         <td className="p-2">{row.firstName} {row.lastName || ""}</td>
                         <td className="p-2">{row.fullPhone || ""}</td>
-                        <td className="p-2">{row.programCode}</td>
+                        <td className="p-2">{programNameByCode.get(row.programCode) ? `${programNameByCode.get(row.programCode)} (${row.programCode})` : row.programCode}</td>
                         <td className="p-2">
                           <select className="border rounded px-1 py-0.5" value={draft.stage1Id || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], stage1Id: Number(e.target.value) } }))}>
                             <option value="">--</option>
@@ -708,7 +1017,11 @@ export default function RecruitmentProPage() {
                             ))}
                           </select>
                         </td>
-                        <td className="p-2"><input type="date" className="border rounded px-1 py-0.5" value={draft.stage1Date || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], stage1Date: e.target.value } }))} /></td>
+                        <td className="p-2">
+                          <input type="date" className="border rounded px-1 py-0.5" value={draft.stage1Date || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], stage1Date: e.target.value } }))} />
+                          <div className="text-[10px] text-slate-500 mt-1">{comm1 ? `${comm1.communicationMethod} · ${comm1.outcome}` : "No comm yet"}</div>
+                          <button className="text-[10px] text-teal-600" onClick={() => addStageComm(row.id, 1)}>Log comm</button>
+                        </td>
                         <td className="p-2">
                           <select className="border rounded px-1 py-0.5" value={draft.stage2Id || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], stage2Id: Number(e.target.value) } }))}>
                             <option value="">--</option>
@@ -717,7 +1030,11 @@ export default function RecruitmentProPage() {
                             ))}
                           </select>
                         </td>
-                        <td className="p-2"><input type="date" className="border rounded px-1 py-0.5" value={draft.stage2Date || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], stage2Date: e.target.value } }))} /></td>
+                        <td className="p-2">
+                          <input type="date" className="border rounded px-1 py-0.5" value={draft.stage2Date || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], stage2Date: e.target.value } }))} />
+                          <div className="text-[10px] text-slate-500 mt-1">{comm2 ? `${comm2.communicationMethod} · ${comm2.outcome}` : "No comm yet"}</div>
+                          <button className="text-[10px] text-teal-600" onClick={() => addStageComm(row.id, 2)}>Log comm</button>
+                        </td>
                         <td className="p-2">
                           <select className="border rounded px-1 py-0.5" value={draft.stage3Id || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], stage3Id: Number(e.target.value) } }))}>
                             <option value="">--</option>
@@ -726,7 +1043,11 @@ export default function RecruitmentProPage() {
                             ))}
                           </select>
                         </td>
-                        <td className="p-2"><input type="date" className="border rounded px-1 py-0.5" value={draft.stage3Date || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], stage3Date: e.target.value } }))} /></td>
+                        <td className="p-2">
+                          <input type="date" className="border rounded px-1 py-0.5" value={draft.stage3Date || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], stage3Date: e.target.value } }))} />
+                          <div className="text-[10px] text-slate-500 mt-1">{comm3 ? `${comm3.communicationMethod} · ${comm3.outcome}` : "No comm yet"}</div>
+                          <button className="text-[10px] text-teal-600" onClick={() => addStageComm(row.id, 3)}>Log comm</button>
+                        </td>
                         <td className="p-2">
                           <select className="border rounded px-1 py-0.5" value={draft.stage4Id || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], stage4Id: Number(e.target.value) } }))}>
                             <option value="">--</option>
@@ -735,7 +1056,11 @@ export default function RecruitmentProPage() {
                             ))}
                           </select>
                         </td>
-                        <td className="p-2"><input type="date" className="border rounded px-1 py-0.5" value={draft.stage4Date || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], stage4Date: e.target.value } }))} /></td>
+                        <td className="p-2">
+                          <input type="date" className="border rounded px-1 py-0.5" value={draft.stage4Date || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], stage4Date: e.target.value } }))} />
+                          <div className="text-[10px] text-slate-500 mt-1">{comm4 ? `${comm4.communicationMethod} · ${comm4.outcome}` : "No comm yet"}</div>
+                          <button className="text-[10px] text-teal-600" onClick={() => addStageComm(row.id, 4)}>Log comm</button>
+                        </td>
                         <td className="p-2">
                           <select className="border rounded px-1 py-0.5" value={draft.finalStatus || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], finalStatus: e.target.value } }))}>
                             <option value="">--</option>
@@ -746,74 +1071,78 @@ export default function RecruitmentProPage() {
                         </td>
                         <td className="p-2"><input type="date" className="border rounded px-1 py-0.5" value={draft.finalDate || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], finalDate: e.target.value } }))} /></td>
                         <td className="p-2"><input type="date" className="border rounded px-1 py-0.5" value={draft.joiningDate || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], joiningDate: e.target.value } }))} /></td>
-                        <td className="p-2"><button className="px-2 py-1 text-xs rounded bg-slate-900 text-white" onClick={() => handlePipelineSave(row.id)}>Save</button></td>
+                        <td className="p-2"><button className="rounded-lg bg-slate-900 px-2 py-1 text-xs text-white" onClick={() => handlePipelineSave(row.id)}>Save</button></td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
             </div>
-          </div>
+          </SectionCard>
         </div>
       )}
 
       {activeTab === "dashboard" && (
-        <div className="rounded-xl border bg-white p-4 space-y-4">
-          <h2 className="text-sm font-semibold text-slate-900">Meed Recruitment Dashboard</h2>
+        <SectionCard title="Meed Recruitment Dashboard" subtitle="Live metrics and conversion snapshots.">
           {!dashboardSwr.data && <p className="text-sm text-slate-500">Loading metrics…</p>}
           {dashboardSwr.data && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <div className="text-xs text-slate-500">Total Candidates</div>
-                <div className="text-2xl font-semibold text-slate-900">{dashboardSwr.data.totalCandidates}</div>
-                <div className="text-xs text-slate-500">Stage 1: {dashboardSwr.data.stageCounts.stage1}</div>
-                <div className="text-xs text-slate-500">Stage 2: {dashboardSwr.data.stageCounts.stage2}</div>
-                <div className="text-xs text-slate-500">Stage 3: {dashboardSwr.data.stageCounts.stage3}</div>
-                <div className="text-xs text-slate-500">Stage 4: {dashboardSwr.data.stageCounts.stage4}</div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="text-xs uppercase tracking-wide text-slate-500">Total Candidates</div>
+                <div className="text-3xl font-semibold text-slate-900 mt-2">{dashboardSwr.data.totalCandidates}</div>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-500">
+                  <div>Stage 1: <span className="text-slate-800 font-semibold">{dashboardSwr.data.stageCounts.stage1}</span></div>
+                  <div>Stage 2: <span className="text-slate-800 font-semibold">{dashboardSwr.data.stageCounts.stage2}</span></div>
+                  <div>Stage 3: <span className="text-slate-800 font-semibold">{dashboardSwr.data.stageCounts.stage3}</span></div>
+                  <div>Stage 4: <span className="text-slate-800 font-semibold">{dashboardSwr.data.stageCounts.stage4}</span></div>
+                </div>
               </div>
-              <div className="space-y-2">
-                <div className="text-xs text-slate-500">Final Outcomes</div>
-                {Object.entries(dashboardSwr.data.finalCounts).map(([key, value]) => (
-                  <div key={key} className="text-xs text-slate-600">{key}: {value}</div>
-                ))}
-                <div className="text-xs text-slate-500 mt-2">Conversion Rates</div>
-                <div className="text-xs text-slate-600">S1 → S2: {dashboardSwr.data.conversionRates.s1ToS2}%</div>
-                <div className="text-xs text-slate-600">S2 → S3: {dashboardSwr.data.conversionRates.s2ToS3}%</div>
-                <div className="text-xs text-slate-600">S3 → S4: {dashboardSwr.data.conversionRates.s3ToS4}%</div>
-                <div className="text-xs text-slate-600">Overall Success: {dashboardSwr.data.conversionRates.overallSuccess}%</div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="text-xs uppercase tracking-wide text-slate-500">Final Outcomes</div>
+                <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-600">
+                  {Object.entries(dashboardSwr.data.finalCounts).map(([key, value]) => (
+                    <div key={key}>{key}: <span className="text-slate-900 font-semibold">{value}</span></div>
+                  ))}
+                </div>
+                <div className="text-xs uppercase tracking-wide text-slate-500 mt-4">Conversion Rates</div>
+                <div className="mt-2 text-xs text-slate-600 space-y-1">
+                  <div>S1 → S2: <span className="text-slate-900 font-semibold">{dashboardSwr.data.conversionRates.s1ToS2}%</span></div>
+                  <div>S2 → S3: <span className="text-slate-900 font-semibold">{dashboardSwr.data.conversionRates.s2ToS3}%</span></div>
+                  <div>S3 → S4: <span className="text-slate-900 font-semibold">{dashboardSwr.data.conversionRates.s3ToS4}%</span></div>
+                  <div>Overall Success: <span className="text-slate-900 font-semibold">{dashboardSwr.data.conversionRates.overallSuccess}%</span></div>
+                </div>
               </div>
             </div>
           )}
-        </div>
+        </SectionCard>
       )}
 
       {activeTab === "programTracking" && (
         <div className="space-y-6">
-          <div className="rounded-xl border bg-white p-4 space-y-3">
-            <h2 className="text-sm font-semibold text-slate-900">Program Requirements</h2>
+          <SectionCard title="Program Requirements" subtitle="Set hiring targets per program and location.">
             <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
-              <select className="border rounded px-2 py-1 text-sm" value={newRequirement.programId} onChange={(e) => setNewRequirement({ ...newRequirement, programId: e.target.value })}>
+              <select className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm" value={newRequirement.programId} onChange={(e) => setNewRequirement({ ...newRequirement, programId: e.target.value })}>
                 <option value="">Program</option>
                 {programs.map((p) => (
-                  <option key={p.id} value={p.id}>{p.programCode}</option>
+                  <option key={p.id} value={p.id}>{programLabel(p)}</option>
                 ))}
               </select>
-              <select className="border rounded px-2 py-1 text-sm" value={newRequirement.locationId} onChange={(e) => setNewRequirement({ ...newRequirement, locationId: e.target.value })}>
+              <select className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm" value={newRequirement.locationId} onChange={(e) => setNewRequirement({ ...newRequirement, locationId: e.target.value })}>
                 <option value="">Location</option>
                 {locations.map((l) => (
                   <option key={l.id} value={l.id}>{l.locationName}</option>
                 ))}
               </select>
-              <input className="border rounded px-2 py-1 text-sm" placeholder="Required" value={newRequirement.requiredCount} onChange={(e) => setNewRequirement({ ...newRequirement, requiredCount: e.target.value })} />
-              <input className="border rounded px-2 py-1 text-sm" placeholder="Filled" value={newRequirement.filledCount} onChange={(e) => setNewRequirement({ ...newRequirement, filledCount: e.target.value })} />
-              <button className="px-3 py-1.5 rounded bg-teal-600 text-white text-sm" onClick={handleRequirementCreate}>Add</button>
+              <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm" placeholder="Required" value={newRequirement.requiredCount} onChange={(e) => setNewRequirement({ ...newRequirement, requiredCount: e.target.value })} />
+              <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm" placeholder="Filled" value={newRequirement.filledCount} onChange={(e) => setNewRequirement({ ...newRequirement, filledCount: e.target.value })} />
+              <button className="rounded-xl bg-emerald-600 px-3 py-2 text-sm text-white shadow hover:bg-emerald-700" onClick={handleRequirementCreate}>Add</button>
             </div>
-          </div>
+          </SectionCard>
 
-          <div className="rounded-xl border bg-white p-4 space-y-3">
-            <div className="overflow-auto">
-              <table className="min-w-full text-xs border">
-                <thead className="bg-slate-50">
+          <SectionCard title="Program Tracking" subtitle="Pipeline distribution and status by program.">
+            <div className="overflow-auto rounded-xl border border-slate-200 bg-white">
+              <table className="min-w-full text-xs">
+                <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
                   <tr>
                     <th className="p-2 text-left">Program</th>
                     <th className="p-2 text-left">Location</th>
@@ -843,10 +1172,10 @@ export default function RecruitmentProPage() {
 
                     return (
                       <tr key={req.id} className="border-t">
-                        <td className="p-2">{req.programCode}</td>
+                        <td className="p-2">{programNameByCode.get(req.programCode) ? `${programNameByCode.get(req.programCode)} (${req.programCode})` : req.programCode}</td>
                         <td className="p-2">{req.locationName}</td>
-                        <td className="p-2"><input className="border rounded px-1 py-0.5 w-16" value={draft.requiredCount || ""} onChange={(e) => setRequirementDrafts((prev) => ({ ...prev, [req.id]: { ...prev[req.id], requiredCount: e.target.value } }))} /></td>
-                        <td className="p-2"><input className="border rounded px-1 py-0.5 w-16" value={draft.filledCount || ""} onChange={(e) => setRequirementDrafts((prev) => ({ ...prev, [req.id]: { ...prev[req.id], filledCount: e.target.value } }))} /></td>
+                        <td className="p-2"><input className="rounded-lg border border-slate-200 px-2 py-1 text-xs w-16" value={draft.requiredCount || ""} onChange={(e) => setRequirementDrafts((prev) => ({ ...prev, [req.id]: { ...prev[req.id], requiredCount: e.target.value } }))} /></td>
+                        <td className="p-2"><input className="rounded-lg border border-slate-200 px-2 py-1 text-xs w-16" value={draft.filledCount || ""} onChange={(e) => setRequirementDrafts((prev) => ({ ...prev, [req.id]: { ...prev[req.id], filledCount: e.target.value } }))} /></td>
                         <td className="p-2">{openCount}</td>
                         <td className="p-2">{statusBadge(openCount)}</td>
                         <td className="p-2">{inPipeline}</td>
@@ -854,30 +1183,150 @@ export default function RecruitmentProPage() {
                         <td className="p-2">{stage2}</td>
                         <td className="p-2">{stage3}</td>
                         <td className="p-2">{stage4}</td>
-                        <td className="p-2"><button className="px-2 py-1 text-xs rounded bg-slate-900 text-white" onClick={() => handleRequirementSave({ ...draft, id: req.id })}>Save</button></td>
+                        <td className="p-2"><button className="rounded-lg bg-slate-900 px-2 py-1 text-xs text-white" onClick={() => handleRequirementSave({ ...draft, id: req.id })}>Save</button></td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
             </div>
-          </div>
+          </SectionCard>
+        </div>
+      )}
+
+      {activeTab === "bench" && (
+        <div className="space-y-6">
+          <SectionCard title="Talent Bench" subtitle="Lightweight lead vault. Add once, search anytime, push to pipeline when needed.">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+              <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" placeholder="Full name" value={newBench.fullName} onChange={(e) => setNewBench({ ...newBench, fullName: e.target.value })} />
+              <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" placeholder="Phone" value={newBench.phone} onChange={(e) => setNewBench({ ...newBench, phone: e.target.value })} />
+              <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" placeholder="Location" value={newBench.location} onChange={(e) => setNewBench({ ...newBench, location: e.target.value })} />
+              <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" placeholder="Applied for" value={newBench.appliedFor} onChange={(e) => setNewBench({ ...newBench, appliedFor: e.target.value })} />
+              <input type="date" className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" value={newBench.appliedDate} onChange={(e) => setNewBench({ ...newBench, appliedDate: e.target.value })} />
+              <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" placeholder="Link (resume/portfolio)" value={newBench.linkUrl} onChange={(e) => setNewBench({ ...newBench, linkUrl: e.target.value })} />
+              <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" placeholder="Source" value={newBench.source} onChange={(e) => setNewBench({ ...newBench, source: e.target.value })} />
+              <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm md:col-span-2" placeholder="Notes" value={newBench.notes} onChange={(e) => setNewBench({ ...newBench, notes: e.target.value })} />
+              <button className="rounded-xl bg-emerald-600 px-3 py-2 text-sm text-white shadow hover:bg-emerald-700" onClick={handleBenchCreate}>Add to bench</button>
+            </div>
+          </SectionCard>
+
+          <SectionCard title="Push to Pipeline" subtitle="Select leads below, then push into the active pipeline.">
+            <div className="grid grid-cols-1 md:grid-cols-6 gap-2">
+              <select className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" value={benchPush.programId} onChange={(e) => setBenchPush({ ...benchPush, programId: e.target.value, mspCodeId: "" })}>
+                <option value="">Program</option>
+                {activePrograms.map((p) => (
+                  <option key={p.id} value={p.id}>{programLabel(p)}</option>
+                ))}
+              </select>
+              <select className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" value={benchPush.locationId} onChange={(e) => setBenchPush({ ...benchPush, locationId: e.target.value })}>
+                <option value="">Location (optional)</option>
+                {locations.map((l) => (
+                  <option key={l.id} value={l.id}>{l.locationName}</option>
+                ))}
+              </select>
+              <select className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" value={benchPush.countryCodeId} onChange={(e) => setBenchPush({ ...benchPush, countryCodeId: e.target.value })}>
+                <option value="">Country code</option>
+                {countryCodes.map((c) => (
+                  <option key={c.id} value={c.id}>{c.countryCode}</option>
+                ))}
+              </select>
+              <select className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" value={benchPush.mspCodeId} onChange={(e) => setBenchPush({ ...benchPush, mspCodeId: e.target.value })} disabled={!benchPush.programId}>
+                <option value="">MSP code (optional)</option>
+                {getVacantCodesForProgram(benchPush.programId).map((code) => (
+                  <option key={code.id} value={code.id}>{code.code}{code.title ? ` — ${code.title}` : ""}</option>
+                ))}
+              </select>
+              <select className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" value={benchPush.candidateStatus} onChange={(e) => setBenchPush({ ...benchPush, candidateStatus: e.target.value })}>
+                {candidateStatusOptionsLocal.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+              <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" placeholder="Email (optional)" value={benchPush.email} onChange={(e) => setBenchPush({ ...benchPush, email: e.target.value })} />
+              <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" placeholder="Applied year" value={benchPush.appliedYear} onChange={(e) => setBenchPush({ ...benchPush, appliedYear: e.target.value })} />
+            </div>
+            <div className="mt-3">
+              <button className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white shadow hover:bg-slate-800 disabled:opacity-60" disabled={!selectedBench.size} onClick={handleBenchPush}>
+                Push {selectedBench.size || 0} lead(s) to pipeline
+              </button>
+            </div>
+          </SectionCard>
+
+          <SectionCard title="Bench List" subtitle="Select rows to push. Click ✏️ to edit, 🗑️ to delete.">
+            <div className="overflow-auto rounded-xl border border-slate-200 bg-white">
+              <table className="min-w-full text-xs">
+                <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="p-3"><input type="checkbox" checked={benchSwr.data?.bench?.length && selectedBench.size === (benchSwr.data?.bench?.length || 0)} onChange={(e) => {
+                      if (e.target.checked) setSelectedBench(new Set((benchSwr.data?.bench || []).map((b) => b.id)));
+                      else setSelectedBench(new Set());
+                    }} /></th>
+                    <th className="p-3 text-left">Name</th>
+                    <th className="p-3 text-left">Phone</th>
+                    <th className="p-3 text-left">Location</th>
+                    <th className="p-3 text-left">Applied For</th>
+                    <th className="p-3 text-left">Date</th>
+                    <th className="p-3 text-left">Link</th>
+                    <th className="p-3 text-left">Source</th>
+                    <th className="p-3 text-left">Notes</th>
+                    <th className="p-3 text-left">Pushes</th>
+                    <th className="p-3 text-left">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(benchSwr.data?.bench || []).map((b) => {
+                    const draft = benchDrafts[b.id] || b;
+                    const checked = selectedBench.has(b.id);
+                    const isEditing = checked && false; // table edits allowed always via inline inputs
+                    return (
+                      <tr key={b.id} className="border-t">
+                        <td className="p-3"><input type="checkbox" checked={checked} onChange={(e) => {
+                          const next = new Set(selectedBench);
+                          if (e.target.checked) next.add(b.id); else next.delete(b.id);
+                          setSelectedBench(next);
+                        }} /></td>
+                        <td className="p-3"><input className="w-32 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.fullName || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], fullName: e.target.value } }))} /></td>
+                        <td className="p-3"><input className="w-28 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.phone || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], phone: e.target.value } }))} /></td>
+                        <td className="p-3"><input className="w-24 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.location || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], location: e.target.value } }))} /></td>
+                        <td className="p-3"><input className="w-28 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.appliedFor || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], appliedFor: e.target.value } }))} /></td>
+                        <td className="p-3"><input type="date" className="rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.appliedDate || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], appliedDate: e.target.value } }))} /></td>
+                        <td className="p-3">
+                          <input className="w-32 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.linkUrl || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], linkUrl: e.target.value } }))} />
+                        </td>
+                        <td className="p-3"><input className="w-24 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.source || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], source: e.target.value } }))} /></td>
+                        <td className="p-3"><input className="w-32 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.notes || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], notes: e.target.value } }))} /></td>
+                        <td className="p-3 text-slate-600">{Number(b.pushCount) || 0}{b.lastPushedAt ? ` • ${String(b.lastPushedAt).slice(0,10)}` : ""}</td>
+                        <td className="p-3 flex gap-2">
+                          <button className="rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-700" title="Save lead" onClick={() => handleBenchSave(b.id)}>💾</button>
+                          <button className="rounded-lg bg-rose-100 px-2 py-1 text-xs text-rose-700" title="Delete lead" onClick={() => handleBenchDelete(b.id)}>🗑️</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {!(benchSwr.data?.bench || []).length && (
+                    <tr className="border-t">
+                      <td className="p-3 text-slate-500" colSpan={11}>No leads yet.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </SectionCard>
         </div>
       )}
 
       {activeTab === "howto" && (
-        <div className="rounded-xl border bg-white p-4 space-y-3 text-sm text-slate-700">
-          <h2 className="text-sm font-semibold text-slate-900">How To Use</h2>
-          <ol className="list-decimal ml-5 space-y-2">
+        <SectionCard title="How To Use" subtitle="Quick onboarding for recruiters and managers.">
+          <ol className="list-decimal ml-5 space-y-2 text-sm text-slate-700">
             <li>Start with Meta Controls: add programs, stages, country codes, and locations.</li>
             <li>Add candidates in Master Database. Sr No and full phone auto-generate.</li>
             <li>Update Pipeline Tracker stages and dates as interviews progress.</li>
             <li>Use Dashboard for real-time metrics and conversion rates.</li>
             <li>Maintain Program Tracking requirements to see open positions.</li>
-            <li>Log every call/email in Comm Log for follow-ups.</li>
+            <li>Log communication under each stage in Pipeline Tracker.</li>
           </ol>
-        </div>
+        </SectionCard>
       )}
+      </div>
     </div>
   );
 }

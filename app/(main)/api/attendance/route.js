@@ -76,7 +76,13 @@ export async function GET(req) {
 
       // Fetch presents
       const presents = await db
-        .select({ userId: finalDailyAttendance.userId, name: finalDailyAttendance.name, at: finalDailyAttendance.at, isTeacher: users.isTeacher })
+        .select({
+          userId: finalDailyAttendance.userId,
+          name: finalDailyAttendance.name,
+          at: finalDailyAttendance.at,
+          isLate: finalDailyAttendance.isLate,
+          isTeacher: users.isTeacher,
+        })
         .from(finalDailyAttendance)
         .leftJoin(users, eq(users.id, finalDailyAttendance.userId))
         .where(and(...filters));
@@ -98,8 +104,12 @@ export async function GET(req) {
       abs.sort((a,b)=> (a.name||'').localeCompare(b.name||''));
 
       // Partition by isTeacher
+      const latecomers = presents.filter((p) => p.isLate === true);
+      const onTime = presents.filter((p) => p.isLate !== true);
       const presTeachers = presents.filter(p => p.isTeacher === true);
       const presNonTeachers = presents.filter(p => p.isTeacher !== true);
+      const lateTeachers = latecomers.filter((p) => p.isTeacher === true);
+      const lateNonTeachers = latecomers.filter((p) => p.isTeacher !== true);
       const absTeachers = abs.filter(p => p.isTeacher === true);
       const absNonTeachers = abs.filter(p => p.isTeacher !== true);
 
@@ -110,13 +120,18 @@ export async function GET(req) {
         track: track || null,
         totals: {
           present: presents.length,
+          onTime: onTime.length,
+          late: latecomers.length,
           absent: abs.length,
           presentTeachers: presTeachers.length,
           presentNonTeachers: presNonTeachers.length,
+          lateTeachers: lateTeachers.length,
+          lateNonTeachers: lateNonTeachers.length,
           absentTeachers: absTeachers.length,
           absentNonTeachers: absNonTeachers.length,
         },
         presents,
+        latecomers,
         absentees: abs,
       }, { status: 200 });
     }
@@ -422,11 +437,40 @@ export async function POST(req) {
       const effectiveProgramId = overrideProgramId !== null ? overrideProgramId : (Number.isFinite(Number(sess.programId)) ? Number(sess.programId) : null);
       const effectiveTrack = overrideTrack || (sess.track ? String(sess.track).trim().toLowerCase() : null);
       const effectiveTarget = overrideTarget || (sess.target ? String(sess.target).trim().toLowerCase() : null);
+      // Resolve attendance cap for this program (if configured)
+      let attendanceCapTime = null;
+      try {
+        const whereCap = effectiveProgramId !== null
+          ? eq(mriPrograms.id, effectiveProgramId)
+          : effectiveProgramKey
+          ? eq(mriPrograms.programKey, effectiveProgramKey)
+          : null;
+        if (whereCap) {
+          const [progCap] = await db
+            .select({ attendanceCapTime: mriPrograms.attendanceCapTime })
+            .from(mriPrograms)
+            .where(whereCap)
+            .limit(1);
+          attendanceCapTime = progCap?.attendanceCapTime || null;
+        }
+      } catch {}
+      const computeIsLate = (atVal) => {
+        if (!attendanceCapTime || !atVal) return false;
+        const atDate = new Date(atVal);
+        if (Number.isNaN(atDate.getTime())) return false;
+        const [hStr = "0", mStr = "0", sStr = "0"] = String(attendanceCapTime).split(":");
+        const h = Number(hStr); const m = Number(mStr); const s = Number(sStr);
+        if (!Number.isFinite(h) || !Number.isFinite(m)) return false;
+        const cap = new Date(atDate);
+        cap.setHours(h, Number.isFinite(m) ? m : 0, Number.isFinite(s) ? s : 0, 0);
+        return atDate > cap;
+      };
       const evs = await db
         .select({ userId: attendanceEvents.userId, at: attendanceEvents.at, name: users.name })
         .from(attendanceEvents)
         .leftJoin(users, eq(users.id, attendanceEvents.userId))
         .where(eq(attendanceEvents.sessionId, sessionId));
+      evs.sort((a, b) => new Date(a.at) - new Date(b.at));
       const presentIds = Array.from(new Set(evs.map((e) => Number(e.userId)).filter((id) => Number.isFinite(id))));
       const presentSet = new Set(presentIds);
       const today = new Date();
@@ -454,6 +498,7 @@ export async function POST(req) {
             userId: e.userId,
             name: e.name || null,
             at: e.at,
+            isLate: computeIsLate(e.at),
             date: dateOnly,
             programKey: effectiveProgramKey,
             programId: effectiveProgramId,
