@@ -14,6 +14,7 @@ export default function MRIProgramsPage() {
   const { data: roleData } = useSWR("/api/admin/manageMeedian?section=metaProgramRoles", fetcher, { dedupingInterval: 30000 });
   const { data: roleDefsData } = useSWR("/api/admin/manageMeedian?section=metaRoleDefs", fetcher, { dedupingInterval: 30000 });
   const { data: builtinRolesData } = useSWR("/api/admin/manageMeedian?section=mriRoles", fetcher, { dedupingInterval: 30000 });
+  const { data: teamData } = useSWR("/api/admin/manageMeedian?section=team", fetcher, { dedupingInterval: 30000 });
 
   const families = famData?.families || [];
   const programs = progData?.programs || [];
@@ -48,8 +49,29 @@ export default function MRIProgramsPage() {
     return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
   };
 
-  const [form, setForm] = useState({ familyId: "", programKey: "", name: "", scope: "both", attendanceCapTime: "", attendanceMemberIds: "", aims: "", sop: "", active: true });
+  const [form, setForm] = useState({ familyId: "", programKey: "", name: "","scope": "both", attendanceCapTime: "", aims: "", sop: "", active: true });
+  const [selectedMemberIds, setSelectedMemberIds] = useState([]);
+  const [memberSearch, setMemberSearch] = useState("");
   const [roleForm, setRoleForm] = useState({ action: "open", roleKey: "" });
+  const memberOptions = useMemo(() => {
+    const rows = Array.isArray(teamData?.users)
+      ? teamData.users
+      : Array.isArray(teamData?.team)
+      ? teamData.team
+      : [];
+    const q = memberSearch.trim().toLowerCase();
+    return rows
+      .filter((m) => {
+        if (!q) return true;
+        return (
+          String(m.id || "").includes(q) ||
+          String(m.name || "").toLowerCase().includes(q) ||
+          String(m.email || "").toLowerCase().includes(q)
+        );
+      })
+      .slice()
+      .sort((a, b) => (a.name || "").localeCompare(b.name || "") || a.id - b.id);
+  }, [teamData, memberSearch]);
 
   const activeFamilies = useMemo(() => families.filter((f) => f.active), [families]);
 
@@ -63,7 +85,8 @@ export default function MRIProgramsPage() {
   }, [programRoles]);
 
   const openCreate = () => {
-    setForm({ familyId: activeFamilies[0]?.id || "", programKey: "", name: "", scope: "both", attendanceCapTime: "", attendanceMemberIds: "", aims: "", sop: "", active: true });
+    setForm({ familyId: activeFamilies[0]?.id || "", programKey: "", name: "", scope: "both", attendanceCapTime: "", aims: "", sop: "", active: true });
+    setSelectedMemberIds([]);
     setModal("create");
   };
 
@@ -75,11 +98,11 @@ export default function MRIProgramsPage() {
       name: prog.name,
       scope: prog.scope || "both",
       attendanceCapTime: timeToInput(prog.attendanceCapTime),
-      attendanceMemberIds: Array.isArray(prog.attendanceMemberIds) ? prog.attendanceMemberIds.join(", ") : "",
       aims: prog.aims || "",
       sop: prog.sop ? JSON.stringify(prog.sop, null, 2) : "",
       active: !!prog.active,
     });
+    setSelectedMemberIds(Array.isArray(prog.attendanceMemberIds) ? prog.attendanceMemberIds.map(Number).filter((n)=>Number.isInteger(n)) : []);
     setModal("edit");
   };
 
@@ -103,7 +126,7 @@ export default function MRIProgramsPage() {
         name: form.name,
         scope: form.scope,
         attendanceCapTime: form.attendanceCapTime || null,
-        attendanceMemberIds: form.attendanceMemberIds,
+        attendanceMemberIds: selectedMemberIds,
         aims: form.aims || null,
         sop: sopJson,
         active: !!form.active,
@@ -133,7 +156,7 @@ export default function MRIProgramsPage() {
         name: form.name,
         scope: form.scope,
         attendanceCapTime: form.attendanceCapTime || null,
-        attendanceMemberIds: form.attendanceMemberIds,
+        attendanceMemberIds: selectedMemberIds,
         aims: form.aims ?? null,
         sop: sopJson,
         active: !!form.active,
@@ -273,16 +296,84 @@ export default function MRIProgramsPage() {
                 onChange={(e) => setForm({ ...form, attendanceCapTime: e.target.value })}
                 className="md:col-span-2"
               />
-              <label className="md:col-span-6 block">
-                <span className="block text-sm font-medium text-gray-700 mb-1">Attendance Members (IDs)</span>
-                <textarea
-                  className="w-full rounded-lg border text-sm px-3 py-2 bg-white border-gray-300 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 font-mono"
-                  placeholder="e.g. 101,102,205"
-                  value={form.attendanceMemberIds}
-                  onChange={(e) => setForm({ ...form, attendanceMemberIds: e.target.value })}
-                />
-                <span className="text-xs text-gray-500 mt-1 block">Only these user IDs will be counted for presence/absence in this program.</span>
-              </label>
+              <div className="md:col-span-6 border border-gray-200 rounded-xl p-3 bg-white">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium text-gray-800">Attendance Roster (pick individuals)</span>
+                  <span className="text-xs text-gray-500">{selectedMemberIds.length} selected</span>
+                </div>
+                <div className="mt-2 flex gap-2">
+                  <input
+                    value={memberSearch}
+                    onChange={(e) => setMemberSearch(e.target.value)}
+                    placeholder="Search by name or ID"
+                    className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                  />
+                  <button
+                    type="button"
+                    className="px-3 py-2 rounded-lg bg-gray-100 text-xs text-gray-700"
+                    onClick={() => { setMemberSearch(""); }}
+                  >
+                    Clear
+                  </button>
+                  <button
+                    type="button"
+                    className="px-3 py-2 rounded-lg bg-teal-600 text-white text-xs"
+                    onClick={() => setSelectedMemberIds(memberOptions.map((m) => m.id))}
+                    disabled={!memberOptions.length}
+                  >
+                    Select filtered
+                  </button>
+                  <button
+                    type="button"
+                    className="px-3 py-2 rounded-lg bg-gray-200 text-xs text-gray-700"
+                    onClick={() => setSelectedMemberIds([])}
+                  >
+                    Clear all
+                  </button>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {selectedMemberIds.map((id) => {
+                    const row = memberOptions.find((m) => m.id === id);
+                    return (
+                      <span key={id} className="px-2 py-1 rounded-full bg-teal-100 text-teal-800 text-xs flex items-center gap-1">
+                        {row?.name ? `${row.name} (#${id})` : `#${id}`}
+                        <button
+                          type="button"
+                          className="text-[10px] leading-none px-1"
+                          onClick={() => setSelectedMemberIds((prev) => prev.filter((x) => x !== id))}
+                        >
+                          ✕
+                        </button>
+                      </span>
+                    );
+                  })}
+                  {selectedMemberIds.length === 0 && (
+                    <span className="text-xs text-gray-500">No members selected yet.</span>
+                  )}
+                </div>
+                <div className="mt-2">
+                  <select
+                    multiple
+                    size={10}
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-white"
+                    value={selectedMemberIds.map(String)}
+                    onChange={(e) => {
+                      const options = Array.from(e.target.selectedOptions).map((opt) => Number(opt.value)).filter((n)=>Number.isInteger(n));
+                      setSelectedMemberIds(options);
+                    }}
+                  >
+                    {memberOptions.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name ? `${m.name} (#${m.id})` : `User #${m.id}`} {m.isTeacher ? "• Teacher" : ""}
+                      </option>
+                    ))}
+                  </select>
+                  {memberOptions.length === 0 && (
+                    <div className="px-3 py-2 text-xs text-gray-500">No team data loaded.</div>
+                  )}
+                </div>
+                <p className="mt-2 text-xs text-gray-500">Roster overrides apply to this program’s attendance — only selected people (or the chosen group) are counted.</p>
+              </div>
               <div className="md:col-span-6">
                 <Input label="Aims (text)" value={form.aims} onChange={(e) => setForm({ ...form, aims: e.target.value })} />
               </div>
