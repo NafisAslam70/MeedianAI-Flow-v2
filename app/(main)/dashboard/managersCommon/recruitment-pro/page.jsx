@@ -230,6 +230,13 @@ export default function RecruitmentProPage() {
   const stageOptions = pipelineSwr.data?.stageOptions || [];
   const finalStatusOptions = pipelineSwr.data?.finalStatusOptions || [];
   const candidateStatusOptionsLocal = candidatesSwr.data?.candidateStatusOptions || ["Active", "Inactive", "Withdrawn"];
+  const stageByOrder = React.useMemo(() => {
+    const map = new Map();
+    stageOptions.forEach((s) => {
+      if (s.stageOrder) map.set(Number(s.stageOrder), s);
+    });
+    return map;
+  }, [stageOptions]);
 
   const handleSaveMeta = async (section, draft, mutate) => {
     await apiCall(section, "PUT", draft);
@@ -275,10 +282,10 @@ export default function RecruitmentProPage() {
     if (!draft) return;
 
     const stagesToSave = [
-      { order: 1, id: draft.stage1Id, date: draft.stage1Date },
-      { order: 2, id: draft.stage2Id, date: draft.stage2Date },
-      { order: 3, id: draft.stage3Id, date: draft.stage3Date },
-      { order: 4, id: draft.stage4Id, date: draft.stage4Date },
+      { order: 1, id: stageByOrder.get(1)?.id, date: draft.stage1Date },
+      { order: 2, id: stageByOrder.get(2)?.id, date: draft.stage2Date },
+      { order: 3, id: stageByOrder.get(3)?.id, date: draft.stage3Date },
+      { order: 4, id: stageByOrder.get(4)?.id, date: draft.stage4Date },
     ];
 
     for (const stage of stagesToSave) {
@@ -310,12 +317,18 @@ export default function RecruitmentProPage() {
   const addStageComm = async (candidateId, stageOrder) => {
     const row = pipelineSwr.data?.rows?.find((r) => r.id === candidateId);
     const draft = pipelineDrafts[candidateId] || {};
-    const stageId =
+    let stageId =
       (stageOrder === 1 && (draft.stage1Id || row?.stage1?.stageId)) ||
       (stageOrder === 2 && (draft.stage2Id || row?.stage2?.stageId)) ||
       (stageOrder === 3 && (draft.stage3Id || row?.stage3?.stageId)) ||
       (stageOrder === 4 && (draft.stage4Id || row?.stage4?.stageId)) ||
       null;
+
+    // fallback: auto-pick by stage order from options if no stage chosen yet
+    if (!stageId) {
+      const guess = stageByOrder.get(stageOrder) || stageOptions[0];
+      stageId = guess?.id || null;
+    }
 
     if (!stageId) {
       alert("Select a stage in this row before logging communication.");
@@ -1100,12 +1113,7 @@ export default function RecruitmentProPage() {
                         <td className="p-2">{row.fullPhone || ""}</td>
                         <td className="p-2">{programNameByCode.get(row.programCode) ? `${programNameByCode.get(row.programCode)} (${row.programCode})` : row.programCode}</td>
                         <td className="p-2">
-                          <select className="border rounded px-1 py-0.5" value={draft.stage1Id || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], stage1Id: Number(e.target.value) } }))}>
-                            <option value="">--</option>
-                            {stageOptions.map((s) => (
-                              <option key={s.id} value={s.id}>{s.stageName}</option>
-                            ))}
-                          </select>
+                          <div className="text-xs font-semibold text-slate-800">{stageByOrder.get(1)?.stageName || "Stage 1"}</div>
                         </td>
                         <td className="p-2">
                           <input type="date" className="border rounded px-1 py-0.5" value={draft.stage1Date || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], stage1Date: e.target.value } }))} />
@@ -1113,12 +1121,7 @@ export default function RecruitmentProPage() {
                           <button className="text-[10px] text-teal-600" onClick={() => addStageComm(row.id, 1)}>Log comm</button>
                         </td>
                         <td className="p-2">
-                          <select className="border rounded px-1 py-0.5" value={draft.stage2Id || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], stage2Id: Number(e.target.value) } }))}>
-                            <option value="">--</option>
-                            {stageOptions.map((s) => (
-                              <option key={s.id} value={s.id}>{s.stageName}</option>
-                            ))}
-                          </select>
+                          <div className="text-xs font-semibold text-slate-800">{stageByOrder.get(2)?.stageName || "Stage 2"}</div>
                         </td>
                         <td className="p-2">
                           <input type="date" className="border rounded px-1 py-0.5" value={draft.stage2Date || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], stage2Date: e.target.value } }))} />
@@ -1126,12 +1129,7 @@ export default function RecruitmentProPage() {
                           <button className="text-[10px] text-teal-600" onClick={() => addStageComm(row.id, 2)}>Log comm</button>
                         </td>
                         <td className="p-2">
-                          <select className="border rounded px-1 py-0.5" value={draft.stage3Id || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], stage3Id: Number(e.target.value) } }))}>
-                            <option value="">--</option>
-                            {stageOptions.map((s) => (
-                              <option key={s.id} value={s.id}>{s.stageName}</option>
-                            ))}
-                          </select>
+                          <div className="text-xs font-semibold text-slate-800">{stageByOrder.get(3)?.stageName || "Stage 3"}</div>
                         </td>
                         <td className="p-2">
                           <input type="date" className="border rounded px-1 py-0.5" value={draft.stage3Date || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], stage3Date: e.target.value } }))} />
@@ -1139,12 +1137,7 @@ export default function RecruitmentProPage() {
                           <button className="text-[10px] text-teal-600" onClick={() => addStageComm(row.id, 3)}>Log comm</button>
                         </td>
                         <td className="p-2">
-                          <select className="border rounded px-1 py-0.5" value={draft.stage4Id || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], stage4Id: Number(e.target.value) } }))}>
-                            <option value="">--</option>
-                            {stageOptions.map((s) => (
-                              <option key={s.id} value={s.id}>{s.stageName}</option>
-                            ))}
-                          </select>
+                          <div className="text-xs font-semibold text-slate-800">{stageByOrder.get(4)?.stageName || "Stage 4"}</div>
                         </td>
                         <td className="p-2">
                           <input type="date" className="border rounded px-1 py-0.5" value={draft.stage4Date || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], stage4Date: e.target.value } }))} />
