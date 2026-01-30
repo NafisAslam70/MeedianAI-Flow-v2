@@ -889,9 +889,10 @@ export async function POST(req) {
     const mspCodeId = body?.mspCodeId ? Number(body.mspCodeId) : null;
     const appliedYear = Number.isFinite(Number(body?.appliedYear)) ? Number(body.appliedYear) : null;
     const emailOverride = String(body?.email || "").trim();
+    const requirementId = body?.requirementId ? Number(body.requirementId) : null;
 
-    if (!benchIds.length || !programId || !countryCodeId || !locationId) {
-      return NextResponse.json({ error: "benchIds, programId, countryCodeId, locationId required" }, { status: 400 });
+    if (!benchIds.length || !programId || !countryCodeId || !locationId || !requirementId) {
+      return NextResponse.json({ error: "benchIds, requirementId, programId, countryCodeId, locationId required" }, { status: 400 });
     }
 
     const inserted = [];
@@ -935,6 +936,7 @@ export async function POST(req) {
           programId,
           mspCodeId,
           locationId,
+          requirementId,
           pushedBy: session.user.id,
         });
 

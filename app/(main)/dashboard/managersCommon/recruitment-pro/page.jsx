@@ -43,8 +43,6 @@ const TAB_LIST = [
   { key: "pipeline", label: "Pipeline Tracker" },
   { key: "dashboard", label: "Dashboard" },
   { key: "programTracking", label: "Program Tracking" },
-  { key: "bench", label: "Talent Bench" },
-  { key: "howto", label: "How To" },
 ];
 
 const SectionCard = ({ title, subtitle, children, className = "" }) => (
@@ -60,7 +58,7 @@ const SectionCard = ({ title, subtitle, children, className = "" }) => (
 );
 
 export default function RecruitmentProPage() {
-  const [activeTab, setActiveTab] = React.useState("meta");
+  const [activeTab, setActiveTab] = React.useState("home");
 
   const programsSwr = useSWR("/api/managersCommon/recruitment-pro?section=metaPrograms", fetcher);
   const stagesSwr = useSWR("/api/managersCommon/recruitment-pro?section=metaStages", fetcher);
@@ -77,7 +75,7 @@ export default function RecruitmentProPage() {
   const pipelineSwr = useSWR(activeTab === "pipeline" || activeTab === "programTracking" ? "/api/managersCommon/recruitment-pro?section=pipeline" : null, fetcher);
   const dashboardSwr = useSWR(activeTab === "dashboard" ? "/api/managersCommon/recruitment-pro?section=dashboard" : null, fetcher);
   const requirementsSwr = useSWR(
-    activeTab === "programTracking" || activeTab === "meta"
+    activeTab === "programTracking" || activeTab === "meta" || activeTab === "bench"
       ? "/api/managersCommon/recruitment-pro?section=programRequirements"
       : null,
     fetcher
@@ -181,6 +179,7 @@ export default function RecruitmentProPage() {
 
   const [benchDrafts, setBenchDrafts] = React.useState({});
   const [selectedBench, setSelectedBench] = React.useState(new Set());
+  const [benchEditingId, setBenchEditingId] = React.useState(null);
   const [newBench, setNewBench] = React.useState({
     fullName: "",
     phone: "",
@@ -196,6 +195,7 @@ export default function RecruitmentProPage() {
     (benchSwr.data?.bench || []).forEach((b) => (next[b.id] = { ...b }));
     setBenchDrafts(next);
     setSelectedBench(new Set());
+    setBenchEditingId(null);
   }, [benchSwr.data]);
 
   const programCodeById = React.useMemo(() => {
@@ -400,7 +400,9 @@ export default function RecruitmentProPage() {
     candidateStatus: "Active",
     appliedYear: "",
     email: "",
+    requirementId: "",
   });
+  const [benchRowPush, setBenchRowPush] = React.useState({});
 
   const handleBenchCreate = async () => {
     await apiCall("bench", "POST", newBench);
@@ -411,6 +413,7 @@ export default function RecruitmentProPage() {
   const handleBenchSave = async (benchId) => {
     await apiCall("bench", "PUT", { id: benchId, ...benchDrafts[benchId] });
     await benchSwr.mutate();
+    setBenchEditingId(null);
   };
 
   const handleBenchDelete = async (benchId) => {
@@ -426,8 +429,12 @@ export default function RecruitmentProPage() {
       alert("Select at least one lead");
       return;
     }
+    if (!benchPush.requirementId) {
+      alert("Choose a requirement");
+      return;
+    }
     if (!benchPush.programId) {
-      alert("Choose a program");
+      alert("Requirement missing program");
       return;
     }
     if (!benchPush.countryCodeId) {
@@ -443,12 +450,46 @@ export default function RecruitmentProPage() {
       candidateStatus: benchPush.candidateStatus,
       appliedYear: benchPush.appliedYear ? Number(benchPush.appliedYear) : null,
       email: benchPush.email,
+      requirementId: Number(benchPush.requirementId),
     };
     await apiCall("benchPush", "POST", payload);
     await candidatesSwr.mutate();
     await pipelineSwr.mutate();
     await benchSwr.mutate();
     setSelectedBench(new Set());
+  };
+
+  const handleBenchRowPush = async (benchId) => {
+    const sel = benchRowPush[benchId];
+    if (!sel?.requirementId) {
+      alert("Choose a requirement for this lead.");
+      return;
+    }
+    const req = (requirementsSwr.data?.requirements || []).find((r) => String(r.id) === String(sel.requirementId));
+    if (!req) {
+      alert("Requirement not found");
+      return;
+    }
+    const countryId = benchPush.countryCodeId || countryCodes[0]?.id || null;
+    if (!countryId) {
+      alert("Set a country code in the push bar first.");
+      return;
+    }
+    const payload = {
+      benchIds: [benchId],
+      requirementId: Number(sel.requirementId),
+      programId: req.programId,
+      locationId: req.locationId || null,
+      countryCodeId: Number(countryId),
+      mspCodeId: sel.mspCodeId ? Number(sel.mspCodeId) : null,
+      candidateStatus: benchPush.candidateStatus,
+      appliedYear: benchPush.appliedYear ? Number(benchPush.appliedYear) : null,
+      email: benchPush.email,
+    };
+    await apiCall("benchPush", "POST", payload);
+    await candidatesSwr.mutate();
+    await pipelineSwr.mutate();
+    await benchSwr.mutate();
   };
 
   return (
@@ -460,24 +501,73 @@ export default function RecruitmentProPage() {
       <div className="relative space-y-6">
         <header className="rounded-2xl border border-slate-200/70 bg-white/70 px-6 py-5 shadow-sm backdrop-blur">
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-emerald-600">Recruitment Suite</p>
-              <h1 className="text-2xl md:text-3xl font-semibold text-slate-900 mt-1">Meed Recruitment</h1>
-              <p className="text-sm text-slate-600 mt-1">All hiring signals in one flow — setup, track, and decide in minutes.</p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {TAB_LIST.map((tab) => (
+            <div className="flex items-center gap-3">
+              {activeTab !== "home" && (
                 <button
-                  key={tab.key}
-                  onClick={() => setActiveTab(tab.key)}
-                  className={`px-4 py-2 rounded-full text-sm border transition ${activeTab === tab.key ? "bg-slate-900 text-white border-slate-900 shadow" : "bg-white/70 text-slate-700 border-slate-200 hover:bg-white"}`}
+                  className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+                  onClick={() => setActiveTab("home")}
                 >
-                  {tab.label}
+                  ← Back to Overview
                 </button>
-              ))}
+              )}
+              <div>
+                <p className="text-xs uppercase tracking-[0.3em] text-emerald-600">Recruitment Suite</p>
+                <h1 className="text-2xl md:text-3xl font-semibold text-slate-900 mt-1">Meed Recruitment</h1>
+                <p className="text-sm text-slate-600 mt-1">All hiring signals in one flow — setup, track, and decide in minutes.</p>
+              </div>
             </div>
+            {activeTab !== "home" && activeTab !== "bench" && activeTab !== "appointments" && (
+              <div className="flex flex-wrap gap-2">
+                {TAB_LIST.map((tab) => (
+                  <button
+                    key={tab.key}
+                    onClick={() => setActiveTab(tab.key)}
+                    className={`px-4 py-2 rounded-full text-sm border transition ${activeTab === tab.key ? "bg-slate-900 text-white border-slate-900 shadow" : "bg-white/70 text-slate-700 border-slate-200 hover:bg-white"}`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </header>
+
+        {activeTab === "home" && (
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 shadow-sm backdrop-blur">
+              <p className="text-xs uppercase tracking-[0.2em] text-emerald-600">Talent Bench</p>
+              <h3 className="mt-1 text-lg font-semibold text-slate-900">Quickly stash leads</h3>
+              <p className="mt-1 text-sm text-slate-600">Drop raw leads here, then push matching profiles into the active pipeline when a requirement opens.</p>
+              <button className="mt-3 rounded-lg bg-emerald-600 px-3 py-2 text-sm text-white shadow hover:bg-emerald-700" onClick={() => setActiveTab("bench")}>
+                Go to Talent Bench
+              </button>
+            </div>
+            <div className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 shadow-sm backdrop-blur">
+              <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Active Recruitment</p>
+              <h3 className="mt-1 text-lg font-semibold text-slate-900">Run current hiring</h3>
+              <p className="mt-1 text-sm text-slate-600">Meta controls, candidates, pipeline, dashboards, and program tracking—everything live.</p>
+              <div className="mt-3 flex gap-2">
+                <button className="rounded-lg bg-slate-900 px-3 py-2 text-sm text-white shadow hover:bg-slate-800" onClick={() => setActiveTab("meta")}>
+                  Open Suite
+                </button>
+                <button className="rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-700 hover:bg-white" onClick={() => setActiveTab("pipeline")}>
+                  Pipeline
+                </button>
+                <button className="rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-700 hover:bg-white" onClick={() => setActiveTab("candidates")}>
+                  Master DB
+                </button>
+              </div>
+            </div>
+            <div className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 shadow-sm backdrop-blur">
+              <p className="text-xs uppercase tracking-[0.2em] text-amber-600">Appointments</p>
+              <h3 className="mt-1 text-lg font-semibold text-slate-900">Post-selection steps</h3>
+              <p className="mt-1 text-sm text-slate-600">Offer letters, appointment letters, and joining checklist—coming soon.</p>
+              <button className="mt-3 rounded-lg bg-amber-500 px-3 py-2 text-sm text-white shadow hover:bg-amber-600" onClick={() => setActiveTab("appointments")}>
+                Open Appointments
+              </button>
+            </div>
+          </div>
+        )}
 
       {activeTab === "meta" && (
         <div className="space-y-6">
@@ -1200,8 +1290,18 @@ export default function RecruitmentProPage() {
             <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
               <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" placeholder="Full name" value={newBench.fullName} onChange={(e) => setNewBench({ ...newBench, fullName: e.target.value })} />
               <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" placeholder="Phone" value={newBench.phone} onChange={(e) => setNewBench({ ...newBench, phone: e.target.value })} />
-              <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" placeholder="Location" value={newBench.location} onChange={(e) => setNewBench({ ...newBench, location: e.target.value })} />
-              <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" placeholder="Applied for" value={newBench.appliedFor} onChange={(e) => setNewBench({ ...newBench, appliedFor: e.target.value })} />
+              <select className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" value={newBench.location} onChange={(e) => setNewBench({ ...newBench, location: e.target.value })}>
+                <option value="">Location</option>
+                {locations.map((l) => (
+                  <option key={l.id} value={l.locationName}>{l.locationName}</option>
+                ))}
+              </select>
+              <select className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" value={newBench.appliedFor} onChange={(e) => setNewBench({ ...newBench, appliedFor: e.target.value })}>
+                <option value="">Applied for</option>
+                {["English/SST/Science", "Maths", "Jr Eng", "Jr All", "Computer/Arts", "Admin/Principal/Vice Principal", "Office"].map((opt) => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
+              </select>
               <input type="date" className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" value={newBench.appliedDate} onChange={(e) => setNewBench({ ...newBench, appliedDate: e.target.value })} />
               <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" placeholder="Link (resume/portfolio)" value={newBench.linkUrl} onChange={(e) => setNewBench({ ...newBench, linkUrl: e.target.value })} />
               <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" placeholder="Source" value={newBench.source} onChange={(e) => setNewBench({ ...newBench, source: e.target.value })} />
@@ -1210,48 +1310,58 @@ export default function RecruitmentProPage() {
             </div>
           </SectionCard>
 
-          <SectionCard title="Push to Pipeline" subtitle="Select leads below, then push into the active pipeline.">
-            <div className="grid grid-cols-1 md:grid-cols-6 gap-2">
-              <select className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" value={benchPush.programId} onChange={(e) => setBenchPush({ ...benchPush, programId: e.target.value, mspCodeId: "" })}>
-                <option value="">Program</option>
-                {activePrograms.map((p) => (
-                  <option key={p.id} value={p.id}>{programLabel(p)}</option>
-                ))}
-              </select>
-              <select className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" value={benchPush.locationId} onChange={(e) => setBenchPush({ ...benchPush, locationId: e.target.value })}>
-                <option value="">Location (optional)</option>
-                {locations.map((l) => (
-                  <option key={l.id} value={l.id}>{l.locationName}</option>
-                ))}
-              </select>
-              <select className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" value={benchPush.countryCodeId} onChange={(e) => setBenchPush({ ...benchPush, countryCodeId: e.target.value })}>
-                <option value="">Country code</option>
-                {countryCodes.map((c) => (
-                  <option key={c.id} value={c.id}>{c.countryCode}</option>
-                ))}
-              </select>
-              <select className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" value={benchPush.mspCodeId} onChange={(e) => setBenchPush({ ...benchPush, mspCodeId: e.target.value })} disabled={!benchPush.programId}>
-                <option value="">MSP code (optional)</option>
-                {getVacantCodesForProgram(benchPush.programId).map((code) => (
-                  <option key={code.id} value={code.id}>{code.code}{code.title ? ` — ${code.title}` : ""}</option>
-                ))}
-              </select>
-              <select className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" value={benchPush.candidateStatus} onChange={(e) => setBenchPush({ ...benchPush, candidateStatus: e.target.value })}>
-                {candidateStatusOptionsLocal.map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-              <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" placeholder="Email (optional)" value={benchPush.email} onChange={(e) => setBenchPush({ ...benchPush, email: e.target.value })} />
-              <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" placeholder="Applied year" value={benchPush.appliedYear} onChange={(e) => setBenchPush({ ...benchPush, appliedYear: e.target.value })} />
+          <SectionCard
+            title="Bench List"
+            subtitle="Select rows to push. Click ✏️ to edit, 🗑️ to delete."
+            className="space-y-3"
+          >
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between px-1">
+              <div className="text-xs text-slate-600">Push selected leads to a requirement → pipeline</div>
+              <div className="flex flex-wrap gap-2">
+                <select
+                  className="rounded-lg border border-slate-200 bg-white/90 px-3 py-1.5 text-sm"
+                  value={benchPush.requirementId}
+                  onChange={(e) => {
+                    const reqId = e.target.value;
+                    const req = (requirementsSwr.data?.requirements || []).find((r) => String(r.id) === reqId);
+                    setBenchPush({
+                      ...benchPush,
+                      requirementId: reqId,
+                      programId: req ? req.programId : "",
+                      mspCodeId: "",
+                    });
+                  }}
+                >
+                  <option value="">Requirement</option>
+                  {(requirementsSwr.data?.requirements || []).map((req) => (
+                    <option key={req.id} value={req.id}>
+                      {(req.requirementName || "Req") + " — " + (req.programCode || "") + (req.notes ? ` (${req.notes})` : "")}
+                    </option>
+                  ))}
+                </select>
+                <select className="rounded-lg border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" value={benchPush.countryCodeId} onChange={(e) => setBenchPush({ ...benchPush, countryCodeId: e.target.value })}>
+                  <option value="">Country code</option>
+                  {countryCodes.map((c) => (
+                    <option key={c.id} value={c.id}>{c.countryCode}</option>
+                  ))}
+                </select>
+                <select className="rounded-lg border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" value={benchPush.mspCodeId} onChange={(e) => setBenchPush({ ...benchPush, mspCodeId: e.target.value })} disabled={!benchPush.programId}>
+                  <option value="">MSP code (optional)</option>
+                  {getVacantCodesForProgram(benchPush.programId).map((code) => (
+                    <option key={code.id} value={code.id}>{code.code}{code.title ? ` — ${code.title}` : ""}</option>
+                  ))}
+                </select>
+                <select className="rounded-lg border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" value={benchPush.candidateStatus} onChange={(e) => setBenchPush({ ...benchPush, candidateStatus: e.target.value })}>
+                  {candidateStatusOptionsLocal.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+                <input className="rounded-lg border border-slate-200 bg-white/90 px-3 py-1.5 text-sm w-32" placeholder="Email (optional)" value={benchPush.email} onChange={(e) => setBenchPush({ ...benchPush, email: e.target.value })} />
+                <button className="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white shadow hover:bg-slate-800 disabled:opacity-60" disabled={!selectedBench.size} onClick={handleBenchPush}>
+                  Push {selectedBench.size || 0}
+                </button>
+              </div>
             </div>
-            <div className="mt-3">
-              <button className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white shadow hover:bg-slate-800 disabled:opacity-60" disabled={!selectedBench.size} onClick={handleBenchPush}>
-                Push {selectedBench.size || 0} lead(s) to pipeline
-              </button>
-            </div>
-          </SectionCard>
-
-          <SectionCard title="Bench List" subtitle="Select rows to push. Click ✏️ to edit, 🗑️ to delete.">
             <div className="overflow-auto rounded-xl border border-slate-200 bg-white">
               <table className="min-w-full text-xs">
                 <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
@@ -1287,7 +1397,14 @@ export default function RecruitmentProPage() {
                         <td className="p-3"><input className="w-32 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.fullName || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], fullName: e.target.value } }))} /></td>
                         <td className="p-3"><input className="w-28 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.phone || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], phone: e.target.value } }))} /></td>
                         <td className="p-3"><input className="w-24 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.location || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], location: e.target.value } }))} /></td>
-                        <td className="p-3"><input className="w-28 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.appliedFor || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], appliedFor: e.target.value } }))} /></td>
+                        <td className="p-3">
+                          <select className="w-32 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.appliedFor || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], appliedFor: e.target.value } }))}>
+                            <option value="">—</option>
+                            {["English/SST/Science", "Maths", "Jr Eng", "Jr All", "Computer/Arts", "Admin/Principal/Vice Principal", "Office"].map((opt) => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                        </td>
                         <td className="p-3"><input type="date" className="rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.appliedDate || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], appliedDate: e.target.value } }))} /></td>
                         <td className="p-3">
                           <input className="w-32 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.linkUrl || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], linkUrl: e.target.value } }))} />
@@ -1314,17 +1431,12 @@ export default function RecruitmentProPage() {
         </div>
       )}
 
-      {activeTab === "howto" && (
-        <SectionCard title="How To Use" subtitle="Quick onboarding for recruiters and managers.">
-          <ol className="list-decimal ml-5 space-y-2 text-sm text-slate-700">
-            <li>Start with Meta Controls: add programs, stages, country codes, and locations.</li>
-            <li>Add candidates in Master Database. Sr No and full phone auto-generate.</li>
-            <li>Update Pipeline Tracker stages and dates as interviews progress.</li>
-            <li>Use Dashboard for real-time metrics and conversion rates.</li>
-            <li>Maintain Program Tracking requirements to see open positions.</li>
-            <li>Log communication under each stage in Pipeline Tracker.</li>
-          </ol>
-        </SectionCard>
+      {activeTab === "appointments" && (
+        <div className="space-y-4">
+          <SectionCard title="Appointments" subtitle="Post-selection tasks will land here.">
+            <p className="text-sm text-slate-700">Offer letters, appointment letters, and joining checklists coming soon.</p>
+          </SectionCard>
+        </div>
       )}
       </div>
     </div>
