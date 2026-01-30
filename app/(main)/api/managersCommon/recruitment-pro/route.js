@@ -473,6 +473,8 @@ export async function GET(req) {
         updatedAt: recruitmentBench.updatedAt,
         pushCount: sql`(SELECT count(*) FROM recruitment_bench_pushes pb WHERE pb.bench_id = ${recruitmentBench.id})`,
         lastPushedAt: sql`(SELECT max(pb.pushed_at) FROM recruitment_bench_pushes pb WHERE pb.bench_id = ${recruitmentBench.id})`,
+        lastRequirementName: sql`(SELECT rpr.requirement_name FROM recruitment_bench_pushes pb JOIN recruitment_program_requirements rpr ON pb.requirement_id = rpr.id WHERE pb.bench_id = ${recruitmentBench.id} ORDER BY pb.pushed_at DESC NULLS LAST LIMIT 1)`,
+        lastRequirementId: sql`(SELECT pb.requirement_id FROM recruitment_bench_pushes pb WHERE pb.bench_id = ${recruitmentBench.id} ORDER BY pb.pushed_at DESC NULLS LAST LIMIT 1)`,
       })
       .from(recruitmentBench)
       .orderBy(desc(recruitmentBench.createdAt));

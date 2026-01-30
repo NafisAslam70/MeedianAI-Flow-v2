@@ -131,12 +131,37 @@ export async function GET(req) {
         .leftJoin(users, eq(users.id, finalDailyAbsentees.userId))
         .where(and(...filtersAbs));
 
+      // Apply roster filter (only roster-listed counted)
+      let rosterIds = [];
+      try {
+        const whereProg = programId
+          ? eq(mriPrograms.id, programId)
+          : programKey
+          ? eq(mriPrograms.programKey, programKey)
+          : null;
+        if (whereProg) {
+          const [row] = await db
+            .select({ attendanceMemberIds: mriPrograms.attendanceMemberIds })
+            .from(mriPrograms)
+            .where(whereProg)
+            .limit(1);
+          if (Array.isArray(row?.attendanceMemberIds)) {
+            rosterIds = row.attendanceMemberIds.map((n) => Number(n)).filter((n) => Number.isInteger(n));
+          }
+        }
+      } catch {}
+      rosterIds = Array.from(new Set(rosterIds));
+      const applyRoster = (list) => (rosterIds.length ? list.filter((i) => rosterIds.includes(Number(i.userId))) : list);
+
+      const filteredPresents = applyRoster(presents);
+      const filteredAbs = applyRoster(abs);
+
       // Sort for readability
-      presents.sort((a,b)=> (a.name||'').localeCompare(b.name||''));
-      abs.sort((a,b)=> (a.name||'').localeCompare(b.name||''));
+      filteredPresents.sort((a,b)=> (a.name||'').localeCompare(b.name||''));
+      filteredAbs.sort((a,b)=> (a.name||'').localeCompare(b.name||''));
 
       // Partition by isTeacher
-      const normalizedPresents = presents.map((p) => {
+      const normalizedPresents = filteredPresents.map((p) => {
         const derivedLate = computeIsLate(p.at);
         return { ...p, isLate: p.isLate === true || derivedLate === true };
       });
@@ -146,19 +171,20 @@ export async function GET(req) {
       const presNonTeachers = normalizedPresents.filter(p => p.isTeacher !== true && p.isLate !== true);
       const lateTeachers = latecomers.filter((p) => p.isTeacher === true);
       const lateNonTeachers = latecomers.filter((p) => p.isTeacher !== true);
-      const absTeachers = abs.filter(p => p.isTeacher === true);
-      const absNonTeachers = abs.filter(p => p.isTeacher !== true);
+      const absTeachers = filteredAbs.filter(p => p.isTeacher === true);
+      const absNonTeachers = filteredAbs.filter(p => p.isTeacher !== true);
 
       return NextResponse.json({
         date: dateStr,
         programKey: programKey || null,
         programId: programId || null,
         track: track || null,
+        rosterCount: rosterIds.length || null,
         totals: {
           present: onTime.length,
           onTime: onTime.length,
           late: latecomers.length,
-          absent: abs.length,
+          absent: filteredAbs.length,
           presentTeachers: presTeachers.length,
           presentNonTeachers: presNonTeachers.length,
           lateTeachers: lateTeachers.length,
@@ -168,7 +194,7 @@ export async function GET(req) {
         },
         presents: normalizedPresents,
         latecomers,
-        absentees: abs,
+        absentees: filteredAbs,
       }, { status: 200 });
     }
     return NextResponse.json({ error: "Invalid section" }, { status: 400 });

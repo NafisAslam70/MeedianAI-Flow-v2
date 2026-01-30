@@ -1411,7 +1411,11 @@ export default function RecruitmentProPage() {
                         </td>
                         <td className="p-3"><input className="w-24 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.source || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], source: e.target.value } }))} /></td>
                         <td className="p-3"><input className="w-32 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.notes || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], notes: e.target.value } }))} /></td>
-                        <td className="p-3 text-slate-600">{Number(b.pushCount) || 0}{b.lastPushedAt ? ` • ${String(b.lastPushedAt).slice(0,10)}` : ""}</td>
+                        <td className="p-3 text-slate-600">
+                          {Number(b.pushCount) || 0}
+                          {b.lastRequirementName ? ` • ${b.lastRequirementName}` : ""}
+                          {b.lastPushedAt ? ` • ${String(b.lastPushedAt).slice(0,10)}` : ""}
+                        </td>
                         <td className="p-3 flex gap-2">
                           <button className="rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-700" title="Save lead" onClick={() => handleBenchSave(b.id)}>💾</button>
                           <button className="rounded-lg bg-rose-100 px-2 py-1 text-xs text-rose-700" title="Delete lead" onClick={() => handleBenchDelete(b.id)}>🗑️</button>

@@ -76,6 +76,7 @@ export default function AttendanceReportPage() {
   const [messageDirty, setMessageDirty] = useState(false);
   const [sendingReminder, setSendingReminder] = useState(false);
   const [banner, setBanner] = useState(null);
+  const [showReminderPanel, setShowReminderPanel] = useState(true);
   const [showSendConfirm, setShowSendConfirm] = useState(false);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const { data: programsData } = useSWR(
@@ -597,132 +598,149 @@ export default function AttendanceReportPage() {
           )}
 
           <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-5">
-            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-semibold text-slate-900">WhatsApp Reminder</h3>
                 <p className="text-xs text-slate-500">Send a quick WhatsApp nudge to everyone still marked absent for {date}.</p>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  onClick={() => {
-                    setMessageDirty(false);
-                    setReminderMessage(defaultReminder);
-                  }}
-                  className="rounded-full border border-slate-300 px-3 py-1.5 text-sm text-slate-600 transition hover:border-slate-400 hover:text-slate-700"
-                  type="button"
-                >
-                  Reset message
-                </button>
-                {reminderTemplates.map((template) => (
-                  <button
-                    key={template.key}
-                    onClick={() => applyReminderTemplate(template.key)}
-                    className="rounded-full border border-slate-300 px-3 py-1.5 text-sm text-slate-600 transition hover:border-slate-400 hover:text-slate-700"
-                    type="button"
-                  >
-                    {template.label}
-                  </button>
-                ))}
-                <button
-                  onClick={handleNotifyAbsentees}
-                  disabled={sendingReminder || !selectedCount}
-                  className="inline-flex items-center gap-2 rounded-full bg-cyan-500 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
-                  type="button"
-                >
-                  {sendingReminder ? "Sending…" : `Notify ${selectedCount}`}
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => setShowReminderPanel((prev) => !prev)}
+                className="text-xs rounded-full border border-slate-300 px-3 py-1 text-slate-600 hover:border-slate-400 hover:text-slate-800"
+              >
+                {showReminderPanel ? "Hide" : "Show"}
+              </button>
             </div>
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Subject</label>
-                <input
-                  value={reminderSubject}
-                  onChange={(e) => setReminderSubject(e.target.value)}
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/20"
-                />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Recipients</label>
-                <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
-                  {selectedCount} of {absenteesCount} member{absenteesCount === 1 ? "" : "s"} selected
+            {showReminderPanel && (
+              <div className="space-y-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-900 sr-only">WhatsApp Reminder</h3>
+                    <p className="text-xs text-slate-500 sr-only">Send a quick WhatsApp nudge to everyone still marked absent.</p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setMessageDirty(false);
+                        setReminderMessage(defaultReminder);
+                      }}
+                      className="rounded-full border border-slate-300 px-3 py-1.5 text-sm text-slate-600 transition hover:border-slate-400 hover:text-slate-700"
+                      type="button"
+                    >
+                      Reset message
+                    </button>
+                    {reminderTemplates.map((template) => (
+                      <button
+                        key={template.key}
+                        onClick={() => applyReminderTemplate(template.key)}
+                        className="rounded-full border border-slate-300 px-3 py-1.5 text-sm text-slate-600 transition hover:border-slate-400 hover:text-slate-700"
+                        type="button"
+                      >
+                        {template.label}
+                      </button>
+                    ))}
+                    <button
+                      onClick={handleNotifyAbsentees}
+                      disabled={sendingReminder || !selectedCount}
+                      className="inline-flex items-center gap-2 rounded-full bg-cyan-500 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+                      type="button"
+                    >
+                      {sendingReminder ? "Sending…" : `Notify ${selectedCount}`}
+                    </button>
+                  </div>
                 </div>
-              </div>
-            </div>
-            <div className="mt-3 flex flex-col gap-1">
-              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Message</label>
-              <textarea
-                value={reminderMessage}
-                onChange={(e) => {
-                  setReminderMessage(e.target.value);
-                  setMessageDirty(true);
-                }}
-                rows={4}
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/20"
-              />
-              <p className="text-xs text-slate-400">The default text updates when you change the date. Customise it before sending if needed.</p>
-            </div>
-            <div className="mt-4 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-white">
-              {absentRows.length === 0 ? (
-                <div className="p-4 text-sm text-slate-500">Everyone is present—no reminders needed.</div>
-              ) : (
-                <>
-                  <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-slate-100 bg-white px-4 py-2 text-xs text-slate-500">
-                    <span>{selectedCount} selected</span>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={selectAll}
-                        className="rounded-full border border-slate-200 px-2.5 py-1 text-xs text-slate-600 transition hover:border-slate-300 hover:text-slate-700"
-                        type="button"
-                      >
-                        Select all
-                      </button>
-                      <button
-                        onClick={clearAll}
-                        className="rounded-full border border-slate-200 px-2.5 py-1 text-xs text-slate-600 transition hover:border-slate-300 hover:text-slate-700"
-                        type="button"
-                      >
-                        Unselect all
-                      </button>
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Subject</label>
+                    <input
+                      value={reminderSubject}
+                      onChange={(e) => setReminderSubject(e.target.value)}
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/20"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Recipients</label>
+                    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+                      {selectedCount} of {absenteesCount} member{absenteesCount === 1 ? "" : "s"} selected
                     </div>
                   </div>
-                  {absentRows.map((row, idx) => {
-                  const idValue = Number(row.userId);
-                  const numericId = Number.isFinite(idValue) ? idValue : null;
-                  const hasWhatsapp = typeof row.whatsapp === "string" && row.whatsapp.trim() !== "";
-                  const whatsappDisabled = row.whatsappEnabled === false;
-                  const checked = numericId !== null && selectedIds.has(numericId);
-                  const disabled = numericId === null || !hasWhatsapp || whatsappDisabled;
-                  return (
-                    <label
-                      key={numericId !== null ? `absent_${numericId}` : `absent_unknown_${idx}`}
-                      className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 text-sm last:border-b-0"
-                    >
-                      <span className="flex flex-col">
-                        <span className="font-medium text-slate-900">{row.name || (numericId !== null ? `User #${numericId}` : "Unknown member")}</span>
-                        <span className="mt-0.5 text-xs text-slate-500">
-                          {numericId !== null ? `#${numericId}` : "No linked user"}
-                          {row.isTeacher ? " • Teacher" : " • Member"}
-                        </span>
-                        {(!hasWhatsapp || whatsappDisabled) && (
-                          <span className="mt-0.5 text-xs text-rose-500">
-                            {!hasWhatsapp ? "No WhatsApp number on file" : "WhatsApp disabled"}
-                          </span>
-                        )}
-                      </span>
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 accent-cyan-500"
-                        checked={checked}
-                        onChange={() => numericId !== null && toggleRecipient(numericId)}
-                        disabled={disabled}
-                      />
-                    </label>
-                  );
-                })}
-                </>
-              )}
-            </div>
+                </div>
+                <div className="mt-3 flex flex-col gap-1">
+                  <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Message</label>
+                  <textarea
+                    value={reminderMessage}
+                    onChange={(e) => {
+                      setReminderMessage(e.target.value);
+                      setMessageDirty(true);
+                    }}
+                    rows={4}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/20"
+                  />
+                  <p className="text-xs text-slate-400">The default text updates when you change the date. Customise it before sending if needed.</p>
+                </div>
+                <div className="mt-4 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-white">
+                  {absentRows.length === 0 ? (
+                    <div className="p-4 text-sm text-slate-500">Everyone is present—no reminders needed.</div>
+                  ) : (
+                    <>
+                      <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-slate-100 bg-white px-4 py-2 text-xs text-slate-500">
+                        <span>{selectedCount} selected</span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={selectAll}
+                            className="rounded-full border border-slate-200 px-2.5 py-1 text-xs text-slate-600 transition hover:border-slate-300 hover:text-slate-700"
+                            type="button"
+                          >
+                            Select all
+                          </button>
+                          <button
+                            onClick={clearAll}
+                            className="rounded-full border border-slate-200 px-2.5 py-1 text-xs text-slate-600 transition hover:border-slate-300 hover:text-slate-700"
+                            type="button"
+                          >
+                            Unselect all
+                          </button>
+                        </div>
+                      </div>
+                      {absentRows.map((row, idx) => {
+                        const idValue = Number(row.userId);
+                        const numericId = Number.isFinite(idValue) ? idValue : null;
+                        const hasWhatsapp = typeof row.whatsapp === "string" && row.whatsapp.trim() !== "";
+                        const whatsappDisabled = row.whatsappEnabled === false;
+                        const checked = numericId !== null && selectedIds.has(numericId);
+                        const disabled = numericId === null || !hasWhatsapp || whatsappDisabled;
+                        return (
+                          <label
+                            key={numericId !== null ? `absent_${numericId}` : `absent_unknown_${idx}`}
+                            className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 text-sm last:border-b-0"
+                          >
+                            <span className="flex flex-col">
+                              <span className="font-medium text-slate-900">{row.name || (numericId !== null ? `User #${numericId}` : "Unknown member")}</span>
+                              <span className="mt-0.5 text-xs text-slate-500">
+                                {numericId !== null ? `#${numericId}` : "No linked user"}
+                                {row.isTeacher ? " • Teacher" : " • Member"}
+                              </span>
+                              {(!hasWhatsapp || whatsappDisabled) && (
+                                <span className="mt-0.5 text-xs text-rose-500">
+                                  {!hasWhatsapp ? "No WhatsApp number on file" : "WhatsApp disabled"}
+                                </span>
+                              )}
+                            </span>
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 accent-cyan-500"
+                              checked={checked}
+                              onChange={() => numericId !== null && toggleRecipient(numericId)}
+                              disabled={disabled}
+                            />
+                          </label>
+                        );
+                      })}
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {isLoading && (
