@@ -1374,7 +1374,8 @@ export default function MyMRIs() {
                     )}
                   </div>
                   {selectedExecKind === 'scanner' && scanPanel.session ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-stretch h-[60vh]">
+                    <>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-stretch h-[60vh]">
                       {/* LEFT: Task details + Session code */}
                       <div className="bg-rose-50 border border-rose-100 rounded p-2 flex flex-col min-h-0">
                         <div className="font-semibold text-rose-900 mb-1">Day Opening — Task & Session</div>
@@ -1514,6 +1515,7 @@ export default function MyMRIs() {
                         )}
                       </div>
                     )}
+                    </>
                   ) : selectedExecKind === 'scanner' ? (
                     <div className="text-xs text-gray-700">Start a session to generate a code and begin attendance.</div>
                   ) : selectedExecKind === 'ipr' ? (

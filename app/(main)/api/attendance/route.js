@@ -458,6 +458,104 @@ export async function POST(req) {
       return NextResponse.json({ sent, skipped, failed, total: rows.length }, { status: 200 });
     }
 
+    if (section === "preCapReminder") {
+      if (!["admin", "team_manager"].includes(session.user?.role)) {
+        return NextResponse.json({ error: "Not permitted" }, { status: 403 });
+      }
+      const programKey = String(body.programKey || "").trim().toUpperCase() || null;
+      const programId = Number.isFinite(Number(body.programId)) ? Number(body.programId) : null;
+      const dateStr = String(body.date || "").trim() || new Date().toISOString().slice(0,10);
+      if (!programKey && !programId) return NextResponse.json({ error: "programKey or programId required" }, { status: 400 });
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return NextResponse.json({ error: "date must be YYYY-MM-DD" }, { status: 400 });
+
+      // Load program with cap + roster
+      const whereProg = programId
+        ? eq(mriPrograms.id, programId)
+        : eq(mriPrograms.programKey, programKey);
+      const [prog] = await db
+        .select({
+          id: mriPrograms.id,
+          programKey: mriPrograms.programKey,
+          attendanceCapTime: mriPrograms.attendanceCapTime,
+          attendanceMemberIds: mriPrograms.attendanceMemberIds,
+        })
+        .from(mriPrograms)
+        .where(whereProg)
+        .limit(1);
+      if (!prog) return NextResponse.json({ error: "Program not found" }, { status: 404 });
+      if (!prog.attendanceCapTime) return NextResponse.json({ error: "Program has no attendance cap time" }, { status: 400 });
+
+      const [capH = "0", capM = "0"] = String(prog.attendanceCapTime).split(":");
+      const capDate = new Date(`${dateStr}T${capH.padStart(2,"0")}:${capM.padStart(2,"0")}:00.000Z`);
+      const now = new Date();
+      const minutesToCap = Math.round((capDate.getTime() - now.getTime()) / 60000);
+      if (![-10, -9, -8, -7, -6, -5, 5, 10].includes(Math.abs(minutesToCap))) {
+        // allow caller to schedule precisely; otherwise skip to avoid spam
+      }
+
+      // Build roster
+      let rosterIds = Array.isArray(prog.attendanceMemberIds)
+        ? prog.attendanceMemberIds.map((n) => Number(n)).filter((n) => Number.isInteger(n) && n > 0)
+        : [];
+
+      // if roster empty, fall back to all active users
+      if (!rosterIds.length) {
+        const allUsers = await db.select({ id: users.id }).from(users).where(eq(users.active, true));
+        rosterIds = allUsers.map((u) => Number(u.id));
+      }
+      rosterIds = Array.from(new Set(rosterIds));
+      if (!rosterIds.length) return NextResponse.json({ message: "No roster members found." }, { status: 200 });
+
+      // Present today for this program
+      const dayStart = new Date(`${dateStr}T00:00:00.000Z`);
+      const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+      const presentRows = await db
+        .select({ userId: attendanceEvents.userId })
+        .from(attendanceEvents)
+        .leftJoin(scannerSessions, eq(scannerSessions.id, attendanceEvents.sessionId))
+        .where(
+          and(
+            eq(scannerSessions.programKey, prog.programKey),
+            attendanceEvents.at >= dayStart,
+            attendanceEvents.at < dayEnd
+          )
+        );
+      const presentSet = new Set(presentRows.map((r) => Number(r.userId)).filter((n)=>Number.isInteger(n)));
+
+      const targetIds = rosterIds.filter((id) => !presentSet.has(id));
+      if (!targetIds.length) return NextResponse.json({ message: "All roster members already marked present." }, { status: 200 });
+
+      // Fetch contact info
+      const contacts = await db
+        .select({ id: users.id, name: users.name, whatsapp: users.whatsapp_number, whatsappEnabled: users.whatsapp_enabled })
+        .from(users)
+        .where(inArray(users.id, targetIds));
+
+      const subject = `Attendance closing soon - ${prog.programKey}`;
+      const body = `Your attendance for ${prog.programKey} is still pending. Cap time: ${capH.padStart(2,"0")}:${capM.padStart(2,"0")}. Please scan now.`;
+
+      let sent = 0, skipped = 0;
+      for (const c of contacts) {
+        if (!c.whatsapp || c.whatsappEnabled === false) { skipped += 1; continue; }
+        try {
+          await sendWhatsappMessage(c.whatsapp, {
+            recipientName: c.name || `Member #${c.id}`,
+            senderName: session.user?.name || "Attendance Bot",
+            subject,
+            message: body,
+            note: "",
+            contact: "",
+            dateTime: new Date().toLocaleString("en-GB", { hour:"2-digit", minute:"2-digit", day:"2-digit", month:"short", year:"numeric" }),
+          }, { whatsapp_enabled: c.whatsappEnabled });
+          sent += 1;
+        } catch {
+          skipped += 1;
+        }
+      }
+
+      return NextResponse.json({ sent, skipped, total: contacts.length, minutesToCap }, { status: 200 });
+    }
+
     if (section === "finalize") {
       const sessionId = Number(body.sessionId);
       const expectedUserIds = Array.isArray(body.expectedUserIds) ? body.expectedUserIds.map(Number).filter(Boolean) : null;
