@@ -1,6 +1,7 @@
 name: Attendance Reminders
 
 on:
+  workflow_dispatch:
   schedule:
     # 10 & 5 min before MSP/MOP1 cap 07:20 IST -> 01:40 / 01:45 UTC
     - cron: "40 1 * * *"
