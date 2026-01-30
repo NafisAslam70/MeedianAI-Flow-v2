@@ -204,11 +204,19 @@ export async function GET(req) {
 }
 
 export async function POST(req) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { searchParams } = new URL(req.url);
   const section = String(searchParams.get("section") || "");
   const body = await req.json().catch(() => ({}));
+  // Optional bearer token for scheduled hooks (e.g., GitHub Actions)
+  const authHeader = req.headers.get("authorization") || "";
+  const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice("Bearer ".length).trim() : null;
+  const hookToken = process.env.ATTENDANCE_REMINDER_TOKEN || null;
+
+  const session = await auth();
+  const isHookAllowed = hookToken && bearerToken === hookToken;
+  if (!session && !isHookAllowed) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   try {
     if (section === "sessionStart") {
       // Require RMRI role holder (e.g., msp_ele_moderator)
@@ -485,7 +493,7 @@ export async function POST(req) {
     }
 
     if (section === "preCapReminder") {
-      if (!["admin", "team_manager"].includes(session.user?.role)) {
+      if (!isHookAllowed && !["admin", "team_manager"].includes(session?.user?.role)) {
         return NextResponse.json({ error: "Not permitted" }, { status: 403 });
       }
       const programKey = String(body.programKey || "").trim().toUpperCase() || null;
