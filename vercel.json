@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/attendance?section=preCapReminder&programKey=MSP",
-      "schedule": "*/5 0-23 * * *"
+      "schedule": "0 2 * * *"
     }
   ]
 }
