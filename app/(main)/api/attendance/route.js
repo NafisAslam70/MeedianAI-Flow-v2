@@ -74,6 +74,38 @@ export async function GET(req) {
         filtersAbs.push(eq(finalDailyAbsentees.track, track));
       }
 
+      // Pull attendance cap (if configured) for late computation safety net
+      let attendanceCapTime = null;
+      try {
+        const capWhere = programId
+          ? eq(mriPrograms.id, programId)
+          : programKey
+          ? eq(mriPrograms.programKey, programKey)
+          : null;
+        if (capWhere) {
+          const [capRow] = await db
+            .select({ attendanceCapTime: mriPrograms.attendanceCapTime })
+            .from(mriPrograms)
+            .where(capWhere)
+            .limit(1);
+          attendanceCapTime = capRow?.attendanceCapTime || null;
+        }
+      } catch {}
+
+      const computeIsLate = (atVal) => {
+        if (!attendanceCapTime || !atVal) return false;
+        const atDate = new Date(atVal);
+        if (Number.isNaN(atDate.getTime())) return false;
+        const [hStr = "0", mStr = "0", sStr = "0"] = String(attendanceCapTime).split(":");
+        const h = Number(hStr);
+        const m = Number(mStr);
+        const s = Number(sStr);
+        if (!Number.isFinite(h) || !Number.isFinite(m)) return false;
+        const cap = new Date(atDate);
+        cap.setHours(h, Number.isFinite(m) ? m : 0, Number.isFinite(s) ? s : 0, 0);
+        return atDate > cap;
+      };
+
       // Fetch presents
       const presents = await db
         .select({
@@ -104,10 +136,14 @@ export async function GET(req) {
       abs.sort((a,b)=> (a.name||'').localeCompare(b.name||''));
 
       // Partition by isTeacher
-      const latecomers = presents.filter((p) => p.isLate === true);
-      const onTime = presents.filter((p) => p.isLate !== true);
-      const presTeachers = presents.filter(p => p.isTeacher === true);
-      const presNonTeachers = presents.filter(p => p.isTeacher !== true);
+      const normalizedPresents = presents.map((p) => {
+        const derivedLate = computeIsLate(p.at);
+        return { ...p, isLate: p.isLate === true || derivedLate === true };
+      });
+      const latecomers = normalizedPresents.filter((p) => p.isLate === true);
+      const onTime = normalizedPresents.filter((p) => p.isLate !== true);
+      const presTeachers = normalizedPresents.filter(p => p.isTeacher === true && p.isLate !== true);
+      const presNonTeachers = normalizedPresents.filter(p => p.isTeacher !== true && p.isLate !== true);
       const lateTeachers = latecomers.filter((p) => p.isTeacher === true);
       const lateNonTeachers = latecomers.filter((p) => p.isTeacher !== true);
       const absTeachers = abs.filter(p => p.isTeacher === true);
@@ -119,7 +155,7 @@ export async function GET(req) {
         programId: programId || null,
         track: track || null,
         totals: {
-          present: presents.length,
+          present: onTime.length,
           onTime: onTime.length,
           late: latecomers.length,
           absent: abs.length,
@@ -130,7 +166,7 @@ export async function GET(req) {
           absentTeachers: absTeachers.length,
           absentNonTeachers: absNonTeachers.length,
         },
-        presents,
+        presents: normalizedPresents,
         latecomers,
         absentees: abs,
       }, { status: 200 });
@@ -437,8 +473,9 @@ export async function POST(req) {
       const effectiveProgramId = overrideProgramId !== null ? overrideProgramId : (Number.isFinite(Number(sess.programId)) ? Number(sess.programId) : null);
       const effectiveTrack = overrideTrack || (sess.track ? String(sess.track).trim().toLowerCase() : null);
       const effectiveTarget = overrideTarget || (sess.target ? String(sess.target).trim().toLowerCase() : null);
-      // Resolve attendance cap for this program (if configured)
+      // Resolve attendance cap & roster for this program (if configured)
       let attendanceCapTime = null;
+      let attendanceRosterIds = [];
       try {
         const whereCap = effectiveProgramId !== null
           ? eq(mriPrograms.id, effectiveProgramId)
@@ -447,11 +484,14 @@ export async function POST(req) {
           : null;
         if (whereCap) {
           const [progCap] = await db
-            .select({ attendanceCapTime: mriPrograms.attendanceCapTime })
+            .select({ attendanceCapTime: mriPrograms.attendanceCapTime, attendanceMemberIds: mriPrograms.attendanceMemberIds })
             .from(mriPrograms)
             .where(whereCap)
             .limit(1);
           attendanceCapTime = progCap?.attendanceCapTime || null;
+          attendanceRosterIds = Array.isArray(progCap?.attendanceMemberIds)
+            ? progCap.attendanceMemberIds.map((n) => Number(n)).filter((n) => Number.isInteger(n) && n > 0)
+            : [];
         }
       } catch {}
       const computeIsLate = (atVal) => {
@@ -515,8 +555,12 @@ export async function POST(req) {
       // Compute expected list
       let expected = expectedUserIds;
       if (!expected) {
-        const rows = await db.select({ id: users.id }).from(users);
-        expected = rows.map((r) => Number(r.id));
+        if (attendanceRosterIds.length) {
+          expected = attendanceRosterIds;
+        } else {
+          const rows = await db.select({ id: users.id }).from(users);
+          expected = rows.map((r) => Number(r.id));
+        }
       }
       expected = Array.from(new Set(expected.filter((id) => Number.isFinite(id))));
 

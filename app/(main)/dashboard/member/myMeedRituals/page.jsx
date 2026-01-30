@@ -248,6 +248,7 @@ export default function MyMRIs() {
     ending: false,
     finalizing: false,
   });
+  const [finalizeReport, setFinalizeReport] = useState(null);
   const [sessionEvents, setSessionEvents] = useState([]);
   const [showSessionQR, setShowSessionQR] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState(null);
@@ -1276,6 +1277,7 @@ export default function MyMRIs() {
                           onClick={async ()=>{
                             try {
                               setScanPanel((p)=>({ ...p, finalizing: true }));
+                              setFinalizeReport(null);
                               const finalizePayload = {
                                 sessionId: scanPanel.session.id,
                               };
@@ -1299,7 +1301,23 @@ export default function MyMRIs() {
                               });
                               const j = await r.json().catch(()=>({}));
                               if(!r.ok) throw new Error(j.error||`HTTP ${r.status}`);
-                              alert(`Finalized: ${j?.finalized?.presents||0} present, ${j?.finalized?.absentees||0} absent`);
+                              const todayDate = new Date();
+                              const dateStr = todayDate.toISOString().slice(0,10);
+                              const params = new URLSearchParams({ section:'report', date: dateStr });
+                              if (finalizePayload.programKey) params.set('programKey', finalizePayload.programKey);
+                              if (finalizePayload.track) params.set('track', finalizePayload.track);
+                              if (finalizePayload.programId) params.set('programId', finalizePayload.programId);
+                              try {
+                                const repRes = await fetch(`/api/attendance?${params.toString()}`);
+                                const rep = await repRes.json().catch(()=>({}));
+                                if (repRes.ok) {
+                                  setFinalizeReport(rep);
+                                } else {
+                                  setFinalizeReport({ error: rep.error || 'Failed to load report', finalized: j?.finalized });
+                                }
+                              } catch {
+                                setFinalizeReport({ error: 'Failed to load report', finalized: j?.finalized });
+                              }
                             } catch(e){
                               alert('Failed to finalize: '+(e.message||e));
                             } finally {
@@ -1452,6 +1470,50 @@ export default function MyMRIs() {
                         </div>
                       </div>
                     </div>
+                    {finalizeReport && (
+                      <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-[12px] text-emerald-900">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="font-semibold">Finalized snapshot for {finalizeReport.date || new Date().toISOString().slice(0,10)}</div>
+                          {finalizeReport.error && <span className="text-rose-600">{finalizeReport.error}</span>}
+                        </div>
+                        {!finalizeReport.error && (
+                          <>
+                            <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2">
+                              <div className="rounded border border-emerald-100 bg-white px-2 py-1">On-time: <span className="font-semibold">{finalizeReport?.totals?.onTime ?? finalizeReport?.totals?.present ?? 0}</span></div>
+                              <div className="rounded border border-amber-100 bg-white px-2 py-1">Late: <span className="font-semibold">{finalizeReport?.totals?.late ?? 0}</span></div>
+                              <div className="rounded border border-rose-100 bg-white px-2 py-1">Absent: <span className="font-semibold">{finalizeReport?.totals?.absent ?? 0}</span></div>
+                              <div className="rounded border border-slate-100 bg-white px-2 py-1">Total: <span className="font-semibold">{(finalizeReport?.totals?.onTime ?? finalizeReport?.totals?.present ?? 0) + (finalizeReport?.totals?.late ?? 0) + (finalizeReport?.totals?.absent ?? 0)}</span></div>
+                            </div>
+                            {finalizeReport?.latecomers?.length ? (
+                              <div className="mt-2">
+                                <div className="font-semibold text-amber-700">Late</div>
+                                <div className="flex flex-wrap gap-2 mt-1">
+                                  {finalizeReport.latecomers.slice(0,8).map((p) => (
+                                    <span key={`late-${p.userId}`} className="px-2 py-1 rounded-full bg-amber-100 text-amber-800">
+                                      {p.name || `#${p.userId}`}
+                                    </span>
+                                  ))}
+                                  {finalizeReport.latecomers.length > 8 && <span className="text-amber-700">+{finalizeReport.latecomers.length - 8} more</span>}
+                                </div>
+                              </div>
+                            ) : null}
+                            {finalizeReport?.absentees?.length ? (
+                              <div className="mt-2">
+                                <div className="font-semibold text-rose-700">Absentees</div>
+                                <div className="flex flex-wrap gap-2 mt-1">
+                                  {finalizeReport.absentees.slice(0,8).map((p) => (
+                                    <span key={`abs-${p.userId}`} className="px-2 py-1 rounded-full bg-rose-100 text-rose-800">
+                                      {p.name || `#${p.userId}`}
+                                    </span>
+                                  ))}
+                                  {finalizeReport.absentees.length > 8 && <span className="text-rose-700">+{finalizeReport.absentees.length - 8} more</span>}
+                                </div>
+                              </div>
+                            ) : null}
+                          </>
+                        )}
+                      </div>
+                    )}
                   ) : selectedExecKind === 'scanner' ? (
                     <div className="text-xs text-gray-700">Start a session to generate a code and begin attendance.</div>
                   ) : selectedExecKind === 'ipr' ? (

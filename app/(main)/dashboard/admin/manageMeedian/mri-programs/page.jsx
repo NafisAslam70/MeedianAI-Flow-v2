@@ -48,7 +48,7 @@ export default function MRIProgramsPage() {
     return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
   };
 
-  const [form, setForm] = useState({ familyId: "", programKey: "", name: "", scope: "both", attendanceCapTime: "", aims: "", sop: "", active: true });
+  const [form, setForm] = useState({ familyId: "", programKey: "", name: "", scope: "both", attendanceCapTime: "", attendanceMemberIds: "", aims: "", sop: "", active: true });
   const [roleForm, setRoleForm] = useState({ action: "open", roleKey: "" });
 
   const activeFamilies = useMemo(() => families.filter((f) => f.active), [families]);
@@ -63,7 +63,7 @@ export default function MRIProgramsPage() {
   }, [programRoles]);
 
   const openCreate = () => {
-    setForm({ familyId: activeFamilies[0]?.id || "", programKey: "", name: "", scope: "both", attendanceCapTime: "", aims: "", sop: "", active: true });
+    setForm({ familyId: activeFamilies[0]?.id || "", programKey: "", name: "", scope: "both", attendanceCapTime: "", attendanceMemberIds: "", aims: "", sop: "", active: true });
     setModal("create");
   };
 
@@ -75,6 +75,7 @@ export default function MRIProgramsPage() {
       name: prog.name,
       scope: prog.scope || "both",
       attendanceCapTime: timeToInput(prog.attendanceCapTime),
+      attendanceMemberIds: Array.isArray(prog.attendanceMemberIds) ? prog.attendanceMemberIds.join(", ") : "",
       aims: prog.aims || "",
       sop: prog.sop ? JSON.stringify(prog.sop, null, 2) : "",
       active: !!prog.active,
@@ -102,6 +103,7 @@ export default function MRIProgramsPage() {
         name: form.name,
         scope: form.scope,
         attendanceCapTime: form.attendanceCapTime || null,
+        attendanceMemberIds: form.attendanceMemberIds,
         aims: form.aims || null,
         sop: sopJson,
         active: !!form.active,
@@ -131,6 +133,7 @@ export default function MRIProgramsPage() {
         name: form.name,
         scope: form.scope,
         attendanceCapTime: form.attendanceCapTime || null,
+        attendanceMemberIds: form.attendanceMemberIds,
         aims: form.aims ?? null,
         sop: sopJson,
         active: !!form.active,
@@ -209,6 +212,7 @@ export default function MRIProgramsPage() {
                   <th className="py-2 pr-4">Family</th>
                   <th className="py-2 pr-4">Scope</th>
                   <th className="py-2 pr-4">Attendance Cap</th>
+                  <th className="py-2 pr-4">Roster Size</th>
                   <th className="py-2 pr-4">Active</th>
                   <th className="py-2 pr-4">Actions</th>
                 </tr>
@@ -223,6 +227,7 @@ export default function MRIProgramsPage() {
                       <td className="py-2 pr-4">{fam ? `${fam.name} (${fam.key})` : p.familyId}</td>
                       <td className="py-2 pr-4">{p.scope}</td>
                       <td className="py-2 pr-4">{p.attendanceCapTime ? timeToInput(p.attendanceCapTime) : "—"}</td>
+                      <td className="py-2 pr-4">{Array.isArray(p.attendanceMemberIds) ? p.attendanceMemberIds.length : 0}</td>
                       <td className="py-2 pr-4">{p.active ? "Yes" : "No"}</td>
                       <td className="py-2 pr-4 flex gap-2">
                         <Button variant="light" size="sm" onClick={() => openEdit(p)} disabled={busy}>Edit</Button>
@@ -268,6 +273,16 @@ export default function MRIProgramsPage() {
                 onChange={(e) => setForm({ ...form, attendanceCapTime: e.target.value })}
                 className="md:col-span-2"
               />
+              <label className="md:col-span-6 block">
+                <span className="block text-sm font-medium text-gray-700 mb-1">Attendance Members (IDs)</span>
+                <textarea
+                  className="w-full rounded-lg border text-sm px-3 py-2 bg-white border-gray-300 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 font-mono"
+                  placeholder="e.g. 101,102,205"
+                  value={form.attendanceMemberIds}
+                  onChange={(e) => setForm({ ...form, attendanceMemberIds: e.target.value })}
+                />
+                <span className="text-xs text-gray-500 mt-1 block">Only these user IDs will be counted for presence/absence in this program.</span>
+              </label>
               <div className="md:col-span-6">
                 <Input label="Aims (text)" value={form.aims} onChange={(e) => setForm({ ...form, aims: e.target.value })} />
               </div>

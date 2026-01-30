@@ -69,6 +69,20 @@ const normalizeTimeValue = (value) => {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 };
 
+const normalizeIdArray = (value) => {
+  if (value === undefined) return undefined;
+  if (value === null || value === "") return [];
+  if (Array.isArray(value)) {
+    return Array.from(new Set(value.map((v) => Number(v)).filter((n) => Number.isInteger(n) && n > 0)));
+  }
+  const str = String(value);
+  const ids = str
+    .split(/[,\\s]+/)
+    .map((v) => Number(v))
+    .filter((n) => Number.isInteger(n) && n > 0);
+  return Array.from(new Set(ids));
+};
+
 /* ============================== GET ============================== */
 export async function GET(req) {
   const session = await auth();
@@ -1991,6 +2005,7 @@ export async function POST(req) {
       const aimsValue = body?.aims;
       const sopValue = body?.sop;
       const capTime = normalizeTimeValue(body?.attendanceCapTime);
+      const attendanceMemberIds = normalizeIdArray(body?.attendanceMemberIds);
       const active = body?.active === false ? false : true;
 
       if (!Number.isInteger(familyId) || familyId <= 0) {
@@ -2044,6 +2059,7 @@ export async function POST(req) {
             name: rawName,
             scope,
             attendanceCapTime: capTime,
+            attendanceMemberIds: attendanceMemberIds ?? [],
             aims,
             sop,
             active,
@@ -2565,6 +2581,11 @@ export async function PATCH(req) {
             return NextResponse.json({ error: `attendanceCapTime must be HH:MM or HH:MM:SS for program ${id}` }, { status: 400 });
           }
           setObj.attendanceCapTime = cap;
+        }
+
+        if (u.attendanceMemberIds !== undefined) {
+          const ids = normalizeIdArray(u.attendanceMemberIds);
+          setObj.attendanceMemberIds = ids ?? [];
         }
 
         if (Object.keys(setObj).length === 0) continue;
