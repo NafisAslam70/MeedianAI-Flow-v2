@@ -865,7 +865,6 @@ export async function POST(req) {
     const fullName = String(body?.fullName || "").trim();
     const phone = String(body?.phone || "").trim();
     const email = String(body?.email || "").trim() || null;
-    const email = String(body?.email || "").trim() || null;
     if (!fullName || !phone) {
       return NextResponse.json({ error: "fullName and phone required" }, { status: 400 });
     }
