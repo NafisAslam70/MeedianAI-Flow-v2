@@ -89,6 +89,7 @@ export default function RecruitmentProPage() {
   const locations = locationsSwr.data?.locations || [];
   const vacantCodes = vacantCodesSwr.data?.vacantCodes || [];
   const [vacantProgramFilter, setVacantProgramFilter] = React.useState("");
+  const requirementsList = requirementsSwr.data?.requirements || [];
 
   const [programDrafts, setProgramDrafts] = React.useState({});
   const [stageDrafts, setStageDrafts] = React.useState({});
@@ -134,6 +135,7 @@ export default function RecruitmentProPage() {
     phoneNumber: "",
     programId: "",
     mspCodeId: "",
+    requirementId: "",
     locationId: "",
     appliedYear: "",
     resumeUrl: "",
@@ -212,6 +214,7 @@ export default function RecruitmentProPage() {
   }, [programs]);
 
   const programLabel = (p) => `${p.programName || p.programCode} (${p.programCode})`;
+  const requirementLabel = (r) => r?.requirementName ? r.requirementName : `Req #${r?.id || ""}`;
 
   const getVacantCodesForProgram = (programId) => {
     const programCode = programCodeById.get(Number(programId));
@@ -271,6 +274,7 @@ export default function RecruitmentProPage() {
       phoneNumber: "",
       programId: "",
       mspCodeId: "",
+      requirementId: "",
       locationId: "",
       appliedYear: "",
       resumeUrl: "",
@@ -332,11 +336,32 @@ export default function RecruitmentProPage() {
       stageId = guess?.id || null;
     }
 
+    // auto-create a stage if none configured
     if (!stageId) {
-      alert("Add at least one stage in Meta Controls first.");
-      return;
+      try {
+        const created = await apiCall("metaStages", "POST", {
+          stageCode: `S${stageOrder}`,
+          stageName: `Stage ${stageOrder}`,
+          stageOrder,
+          description: "Auto-created from pipeline logging",
+          isActive: true,
+        });
+        stageId = created?.stage?.id;
+        await Promise.all([stagesSwr.mutate(), pipelineSwr.mutate()]);
+      } catch (e) {
+        alert("Add at least one stage in Meta Controls first.");
+        return;
+      }
     }
-    const communicationDate = prompt("Communication date (YYYY-MM-DD)", new Date().toISOString().slice(0, 10)) || "";
+    const stageDateDefault =
+      (stageOrder === 1 && (draft.stage1Date || row?.stage1?.completedDate)) ||
+      (stageOrder === 2 && (draft.stage2Date || row?.stage2?.completedDate)) ||
+      (stageOrder === 3 && (draft.stage3Date || row?.stage3?.completedDate)) ||
+      (stageOrder === 4 && (draft.stage4Date || row?.stage4?.completedDate)) ||
+      "";
+
+    const communicationDate =
+      prompt("Communication date (YYYY-MM-DD)", stageDateDefault || new Date().toISOString().slice(0, 10)) || "";
     if (!communicationDate) return;
     const communicationMethod = prompt(`Method (${COMM_METHOD_OPTIONS.join(", ")})`, COMM_METHOD_OPTIONS[0]) || "";
     if (!communicationMethod) return;
@@ -980,6 +1005,17 @@ export default function RecruitmentProPage() {
                   <option key={l.id} value={l.id}>{l.locationName}</option>
                 ))}
               </select>
+              <select
+                className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm"
+                value={newCandidate.requirementId}
+                onChange={(e) => setNewCandidate({ ...newCandidate, requirementId: e.target.value })}
+                disabled={!newCandidate.programId}
+              >
+                <option value="">Requirement</option>
+                {requirementsList.filter((r) => !newCandidate.programId || Number(r.programId) === Number(newCandidate.programId)).map((r) => (
+                  <option key={r.id} value={r.id}>{requirementLabel(r)}</option>
+                ))}
+              </select>
               <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm" placeholder="Year" value={newCandidate.appliedYear} onChange={(e) => setNewCandidate({ ...newCandidate, appliedYear: e.target.value })} />
               <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm" placeholder="Resume URL" value={newCandidate.resumeUrl} onChange={(e) => setNewCandidate({ ...newCandidate, resumeUrl: e.target.value })} />
               <select className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-sm" value={newCandidate.candidateStatus} onChange={(e) => setNewCandidate({ ...newCandidate, candidateStatus: e.target.value })}>
@@ -1003,6 +1039,7 @@ export default function RecruitmentProPage() {
                     <th className="p-2 text-left">Phone</th>
                     <th className="p-2 text-left">Program</th>
                     <th className="p-2 text-left">MSP Code</th>
+                    <th className="p-2 text-left">Requirement</th>
                     <th className="p-2 text-left">Location</th>
                     <th className="p-2 text-left">Year</th>
                     <th className="p-2 text-left">Status</th>
@@ -1062,6 +1099,18 @@ export default function RecruitmentProPage() {
                         </select>
                       </td>
                       <td className="p-2">
+                        <select
+                          className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs"
+                          value={candidateDrafts[c.id]?.requirementId || ""}
+                          onChange={(e) => setCandidateDrafts((prev) => ({ ...prev, [c.id]: { ...prev[c.id], requirementId: Number(e.target.value) } }))}
+                        >
+                          <option value="">--</option>
+                          {requirementsList.map((r) => (
+                            <option key={r.id} value={r.id}>{requirementLabel(r)}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="p-2">
                         <select className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs" value={candidateDrafts[c.id]?.locationId || ""} onChange={(e) => setCandidateDrafts((prev) => ({ ...prev, [c.id]: { ...prev[c.id], locationId: Number(e.target.value) } }))}>
                           {locations.map((l) => (
                             <option key={l.id} value={l.id}>{l.locationName}</option>
@@ -1090,90 +1139,104 @@ export default function RecruitmentProPage() {
 
       {activeTab === "pipeline" && (
         <div className="space-y-6">
-          <SectionCard title="Pipeline Tracker" subtitle="Update stages and log communication per stage.">
-            <div className="overflow-auto rounded-xl border border-slate-200 bg-white">
-              <table className="min-w-full text-xs">
-                <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
-                  <tr>
-                    <th className="p-2 text-left">Sr</th>
-                    <th className="p-2 text-left">Name</th>
-                    <th className="p-2 text-left">Phone</th>
-                    <th className="p-2 text-left">Program</th>
-                    <th className="p-2 text-left">Stage 1</th>
-                    <th className="p-2 text-left">Date 1</th>
-                    <th className="p-2 text-left">Stage 2</th>
-                    <th className="p-2 text-left">Date 2</th>
-                    <th className="p-2 text-left">Stage 3</th>
-                    <th className="p-2 text-left">Date 3</th>
-                    <th className="p-2 text-left">Stage 4</th>
-                    <th className="p-2 text-left">Date 4</th>
-                    <th className="p-2 text-left">Final</th>
-                    <th className="p-2 text-left">Final Date</th>
-                    <th className="p-2 text-left">Join Date</th>
-                    <th className="p-2 text-left">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(pipelineSwr.data?.rows || []).map((row) => {
-                    const draft = pipelineDrafts[row.id] || {};
-                    const comm1 = row.comm?.stage1;
-                    const comm2 = row.comm?.stage2;
-                    const comm3 = row.comm?.stage3;
-                    const comm4 = row.comm?.stage4;
-                    return (
-                      <tr key={row.id} className="border-t">
-                        <td className="p-2">{row.srNo}</td>
-                        <td className="p-2">{row.firstName} {row.lastName || ""}</td>
-                        <td className="p-2">{row.fullPhone || ""}</td>
-                        <td className="p-2">{programNameByCode.get(row.programCode) ? `${programNameByCode.get(row.programCode)} (${row.programCode})` : row.programCode}</td>
-                        <td className="p-2">
-                          <div className="text-xs font-semibold text-slate-800">{stageByOrder.get(1)?.stageName || "Stage 1"}</div>
-                        </td>
-                        <td className="p-2">
-                          <input type="date" className="border rounded px-1 py-0.5" value={draft.stage1Date || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], stage1Date: e.target.value } }))} />
-                          <div className="text-[10px] text-slate-500 mt-1">{comm1 ? `${comm1.communicationMethod} · ${comm1.outcome}` : "No comm yet"}</div>
-                          <button className="text-[10px] text-teal-600 hover:text-teal-800" onClick={() => addStageComm(row.id, 1)}>Log comm</button>
-                        </td>
-                        <td className="p-2">
-                          <div className="text-xs font-semibold text-slate-800">{stageByOrder.get(2)?.stageName || "Stage 2"}</div>
-                        </td>
-                        <td className="p-2">
-                          <input type="date" className="border rounded px-1 py-0.5" value={draft.stage2Date || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], stage2Date: e.target.value } }))} />
-                          <div className="text-[10px] text-slate-500 mt-1">{comm2 ? `${comm2.communicationMethod} · ${comm2.outcome}` : "No comm yet"}</div>
-                          <button className="text-[10px] text-teal-600 hover:text-teal-800" onClick={() => addStageComm(row.id, 2)}>Log comm</button>
-                        </td>
-                        <td className="p-2">
-                          <div className="text-xs font-semibold text-slate-800">{stageByOrder.get(3)?.stageName || "Stage 3"}</div>
-                        </td>
-                        <td className="p-2">
-                          <input type="date" className="border rounded px-1 py-0.5" value={draft.stage3Date || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], stage3Date: e.target.value } }))} />
-                          <div className="text-[10px] text-slate-500 mt-1">{comm3 ? `${comm3.communicationMethod} · ${comm3.outcome}` : "No comm yet"}</div>
-                          <button className="text-[10px] text-teal-600 hover:text-teal-800" onClick={() => addStageComm(row.id, 3)}>Log comm</button>
-                        </td>
-                        <td className="p-2">
-                          <div className="text-xs font-semibold text-slate-800">{stageByOrder.get(4)?.stageName || "Stage 4"}</div>
-                        </td>
-                        <td className="p-2">
-                          <input type="date" className="border rounded px-1 py-0.5" value={draft.stage4Date || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], stage4Date: e.target.value } }))} />
-                          <div className="text-[10px] text-slate-500 mt-1">{comm4 ? `${comm4.communicationMethod} · ${comm4.outcome}` : "No comm yet"}</div>
-                          <button className="text-[10px] text-teal-600 hover:text-teal-800" onClick={() => addStageComm(row.id, 4)}>Log comm</button>
-                        </td>
-                        <td className="p-2">
-                          <select className="border rounded px-1 py-0.5" value={draft.finalStatus || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], finalStatus: e.target.value } }))}>
-                            <option value="">--</option>
-                            {finalStatusOptions.map((s) => (
-                              <option key={s} value={s}>{s}</option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="p-2"><input type="date" className="border rounded px-1 py-0.5" value={draft.finalDate || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], finalDate: e.target.value } }))} /></td>
-                        <td className="p-2"><input type="date" className="border rounded px-1 py-0.5" value={draft.joiningDate || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], joiningDate: e.target.value } }))} /></td>
-                        <td className="p-2"><button className="rounded-lg bg-slate-900 px-2 py-1 text-xs text-white" onClick={() => handlePipelineSave(row.id)}>Save</button></td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+          <SectionCard title="Pipeline Tracker" subtitle="Slim cards with collapsible stages and comms.">
+            <div className="space-y-3">
+              {(pipelineSwr.data?.rows || []).map((row) => {
+                const draft = pipelineDrafts[row.id] || {};
+                const comm1 = row.comm?.stage1;
+                const comm2 = row.comm?.stage2;
+                const comm3 = row.comm?.stage3;
+                const comm4 = row.comm?.stage4;
+                const isOpen = pipelineDrafts[`open-${row.id}`] ?? false;
+
+                const renderStage = (stageOrder, comm, dateKey) => (
+                  <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs font-semibold text-slate-800">{stageByOrder.get(stageOrder)?.stageName || `Stage ${stageOrder}`}</div>
+                      <button className="text-[11px] text-teal-600 hover:text-teal-800" onClick={() => addStageComm(row.id, stageOrder)}>Log comm</button>
+                    </div>
+                    <div className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-2">
+                      <div>
+                        <label className="text-[10px] uppercase text-slate-500">Date</label>
+                        <input
+                          type="date"
+                          className="w-full rounded border border-slate-200 px-2 py-1 text-xs"
+                          value={draft[dateKey] || ""}
+                          onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], [dateKey]: e.target.value } }))}
+                        />
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="text-[10px] uppercase text-slate-500">Last comm</label>
+                        <div className="text-[11px] text-slate-600">
+                          {comm ? `${comm.communicationMethod} · ${comm.outcome}${comm.followUpDate ? ` · FU ${toDateInput(comm.followUpDate)}` : ""}` : "No comm yet"}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+
+                return (
+                  <div key={row.id} className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+                    <div className="flex flex-wrap items-center gap-3 px-4 py-3">
+                      <div className="text-xs font-semibold text-slate-400">#{row.srNo}</div>
+                      <div className="flex-1 min-w-[200px]">
+                        <div className="font-semibold text-slate-900 text-sm">{row.firstName} {row.lastName || ""}</div>
+                        <div className="text-xs text-slate-500">{row.fullPhone || ""}</div>
+                      </div>
+                      <div className="text-xs text-slate-600">{row.mspCode ? `${row.mspCode}${row.mspCodeTitle ? ` — ${row.mspCodeTitle}` : ""}` : "No MSP code"}</div>
+                      <div className="text-xs text-slate-600 truncate max-w-[160px]">{row.requirementName || "No requirement"}</div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-700 hover:bg-slate-50"
+                          onClick={() => setPipelineDrafts((prev) => ({ ...prev, [`open-${row.id}`]: !isOpen }))}
+                        >
+                          {isOpen ? "Hide stages" : "Show stages"}
+                        </button>
+                        <button className="rounded-full bg-slate-900 px-3 py-1 text-xs text-white" onClick={() => handlePipelineSave(row.id)}>Save</button>
+                      </div>
+                    </div>
+                    {isOpen && (
+                      <div className="border-t border-slate-100 px-4 py-3 space-y-3">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {renderStage(1, comm1, "stage1Date")}
+                          {renderStage(2, comm2, "stage2Date")}
+                          {renderStage(3, comm3, "stage3Date")}
+                          {renderStage(4, comm4, "stage4Date")}
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                          <div>
+                            <label className="text-[10px] uppercase text-slate-500">Final Status</label>
+                            <select className="w-full rounded border border-slate-200 px-2 py-1 text-sm" value={draft.finalStatus || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], finalStatus: e.target.value } }))}>
+                              <option value="">--</option>
+                              {finalStatusOptions.map((s) => (
+                                <option key={s} value={s}>{s}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-[10px] uppercase text-slate-500">Final Date</label>
+                            <input
+                              type="date"
+                              className="w-full rounded border border-slate-200 px-2 py-1 text-sm"
+                              value={draft.finalDate || ""}
+                              onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], finalDate: e.target.value } }))}
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] uppercase text-slate-500">Joining Date</label>
+                            <input
+                              type="date"
+                              className="w-full rounded border border-slate-200 px-2 py-1 text-sm"
+                              value={draft.joiningDate || ""}
+                              onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], joiningDate: e.target.value } }))}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </SectionCard>
         </div>
@@ -1375,10 +1438,16 @@ export default function RecruitmentProPage() {
                 <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
                   <tr>
                     <th className="p-3 text-left">Sr</th>
-                    <th className="p-3"><input type="checkbox" checked={benchSwr.data?.bench?.length && selectedBench.size === (benchSwr.data?.bench?.length || 0)} onChange={(e) => {
-                      if (e.target.checked) setSelectedBench(new Set((benchSwr.data?.bench || []).map((b) => b.id)));
-                      else setSelectedBench(new Set());
-                    }} /></th>
+                    <th className="p-3">
+                      <input
+                        type="checkbox"
+                        checked={(benchSwr.data?.bench?.length || 0) > 0 && selectedBench.size === (benchSwr.data?.bench?.length || 0)}
+                        onChange={(e) => {
+                          if (e.target.checked) setSelectedBench(new Set((benchSwr.data?.bench || []).map((b) => b.id)));
+                          else setSelectedBench(new Set());
+                        }}
+                      />
+                    </th>
                     <th className="p-3 text-left">Name</th>
                     <th className="p-3 text-left">Phone</th>
                     <th className="p-3 text-left">Location</th>

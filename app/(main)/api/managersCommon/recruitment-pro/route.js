@@ -241,6 +241,11 @@ export async function GET(req) {
         mspCodeId: recruitmentCandidates.mspCodeId,
         mspCode: mspCodes.code,
         mspCodeTitle: mspCodes.title,
+        mspFamily: mspCodes.familyKey,
+        mspTrack: mspCodes.track,
+        mspProgram: mspCodes.program,
+        requirementId: recruitmentCandidates.requirementId,
+        requirementName: recruitmentProgramRequirements.requirementName,
         locationId: recruitmentCandidates.locationId,
         locationName: recruitmentMetaLocations.locationName,
         appliedYear: recruitmentCandidates.appliedYear,
@@ -252,6 +257,7 @@ export async function GET(req) {
       .from(recruitmentCandidates)
       .leftJoin(recruitmentMetaPrograms, eq(recruitmentCandidates.programId, recruitmentMetaPrograms.id))
       .leftJoin(mspCodes, eq(recruitmentCandidates.mspCodeId, mspCodes.id))
+      .leftJoin(recruitmentProgramRequirements, eq(recruitmentCandidates.requirementId, recruitmentProgramRequirements.id))
       .leftJoin(recruitmentMetaLocations, eq(recruitmentCandidates.locationId, recruitmentMetaLocations.id))
       .leftJoin(recruitmentMetaCountryCodes, eq(recruitmentCandidates.countryCodeId, recruitmentMetaCountryCodes.id))
       .orderBy(desc(recruitmentCandidates.createdAt));
@@ -287,6 +293,11 @@ export async function GET(req) {
         programId: recruitmentCandidates.programId,
         programCode: recruitmentMetaPrograms.programCode,
         programName: recruitmentMetaPrograms.programName,
+        mspCodeId: recruitmentCandidates.mspCodeId,
+        mspCode: mspCodes.code,
+        mspCodeTitle: mspCodes.title,
+        requirementId: recruitmentCandidates.requirementId,
+        requirementName: recruitmentProgramRequirements.requirementName,
         locationId: recruitmentCandidates.locationId,
         locationName: recruitmentMetaLocations.locationName,
         fullPhone: recruitmentCandidates.fullPhone,
@@ -294,6 +305,8 @@ export async function GET(req) {
       })
       .from(recruitmentCandidates)
       .leftJoin(recruitmentMetaPrograms, eq(recruitmentCandidates.programId, recruitmentMetaPrograms.id))
+      .leftJoin(mspCodes, eq(recruitmentCandidates.mspCodeId, mspCodes.id))
+      .leftJoin(recruitmentProgramRequirements, eq(recruitmentCandidates.requirementId, recruitmentProgramRequirements.id))
       .leftJoin(recruitmentMetaLocations, eq(recruitmentCandidates.locationId, recruitmentMetaLocations.id))
       .orderBy(recruitmentCandidates.srNo);
 
@@ -686,11 +699,12 @@ export async function POST(req) {
     const phoneNumber = String(body?.phoneNumber || "").trim();
     const programId = Number(body?.programId);
     const mspCodeId = body?.mspCodeId ? Number(body.mspCodeId) : null;
+    const requirementId = body?.requirementId ? Number(body.requirementId) : null;
     const locationId = Number(body?.locationId);
     const appliedYear = Number.isFinite(Number(body?.appliedYear)) ? Number(body.appliedYear) : null;
     const resumeUrl = String(body?.resumeUrl || "").trim() || null;
     const candidateStatus = String(body?.candidateStatus || "Active").trim();
-    if (!firstName || !email || !countryCodeId || !phoneNumber || !programId || !locationId) {
+    if (!firstName || !email || !countryCodeId || !phoneNumber || !programId || !locationId || !requirementId) {
       return NextResponse.json({ error: "Missing required candidate fields" }, { status: 400 });
     }
 
@@ -740,6 +754,7 @@ export async function POST(req) {
         fullPhone,
         programId,
         mspCodeId,
+        requirementId,
         locationId,
         appliedYear,
         resumeUrl,
@@ -748,6 +763,22 @@ export async function POST(req) {
       .returning();
 
     return NextResponse.json({ candidate: row }, { status: 201 });
+  }
+
+  if (section === "candidates" && req.method === "PUT") {
+    const id = Number(body?.id);
+    if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+    const update = {};
+    ["firstName", "lastName", "email", "phoneNumber", "appliedYear", "resumeUrl", "candidateStatus"].forEach((key) => {
+      if (key in body) update[key] = body[key] === "" ? null : body[key];
+    });
+    if (body.countryCodeId) update.countryCodeId = Number(body.countryCodeId);
+    if (body.programId) update.programId = Number(body.programId);
+    if ("mspCodeId" in body) update.mspCodeId = body.mspCodeId ? Number(body.mspCodeId) : null;
+    if ("requirementId" in body) update.requirementId = body.requirementId ? Number(body.requirementId) : null;
+    if (body.locationId) update.locationId = Number(body.locationId);
+    await db.update(recruitmentCandidates).set(update).where(eq(recruitmentCandidates.id, id));
+    return NextResponse.json({ ok: true }, { status: 200 });
   }
 
   if (section === "pipeline") {
@@ -924,6 +955,7 @@ export async function POST(req) {
           fullPhone,
           programId,
           mspCodeId,
+          requirementId,
           locationId,
           appliedYear,
           resumeUrl: bench.linkUrl || null,

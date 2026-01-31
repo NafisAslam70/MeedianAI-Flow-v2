@@ -69,6 +69,23 @@ export async function GET(request) {
       return NextResponse.json({ messages: recentMessages });
     }
 
+    if (action === "by-guardian") {
+      const guardianId = Number(searchParams.get("guardianId"));
+      const limit = Math.min(100, Math.max(1, Number(searchParams.get("limit") || 50)));
+      if (!Number.isFinite(guardianId)) {
+        return NextResponse.json({ error: "guardianId required" }, { status: 400 });
+      }
+
+      const interactions = await db
+        .select()
+        .from(enrollmentGuardianInteractions)
+        .where(eq(enrollmentGuardianInteractions.guardianId, guardianId))
+        .orderBy(desc(enrollmentGuardianInteractions.createdAt))
+        .limit(limit);
+
+      return NextResponse.json({ interactions });
+    }
+
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });
   } catch (error) {
     console.error("Error fetching communications:", error);
@@ -412,7 +429,11 @@ async function sendBulkMessages(body, session) {
 }
 
 async function logInteraction(body, session) {
-  const guardianId = Number(body?.guardianId);
+  let guardianId = Number(body?.guardianId);
+  const guardianName = typeof body?.guardianName === "string" ? body.guardianName.trim() : "";
+  const guardianWhatsapp = typeof body?.guardianWhatsapp === "string" ? body.guardianWhatsapp.trim() : "";
+  const guardianPhone = typeof body?.guardianPhone === "string" ? body.guardianPhone.trim() : "";
+  const guardianLocation = typeof body?.guardianLocation === "string" ? body.guardianLocation.trim() : "";
   const type = typeof body?.type === "string" ? body.type.trim() : "";
   const method = typeof body?.method === "string" ? body.method.trim() : null;
   const content = typeof body?.content === "string" ? body.content.trim() : null;
@@ -423,7 +444,39 @@ async function logInteraction(body, session) {
   const followUpNotes = typeof body?.followUpNotes === "string" ? body.followUpNotes.trim() : null;
 
   if (!Number.isFinite(guardianId)) {
-    return NextResponse.json({ error: "Guardian ID required" }, { status: 400 });
+    // Try to find or create a guardian using phone/whatsapp
+    const contact = guardianWhatsapp || guardianPhone;
+    if (!contact || !guardianName) {
+      return NextResponse.json({ error: "Guardian ID required" }, { status: 400 });
+    }
+
+    // Deduplicate by whatsapp (unique)
+    const existing = await db
+      .select({ id: enrollmentGuardians.id })
+      .from(enrollmentGuardians)
+      .where(eq(enrollmentGuardians.whatsapp, contact))
+      .limit(1);
+
+    if (existing.length) {
+      guardianId = existing[0].id;
+    } else {
+      const [created] = await db
+        .insert(enrollmentGuardians)
+        .values({
+          name: guardianName,
+          whatsapp: contact,
+          location: guardianLocation || "Unknown",
+          status: "ongoing",
+          engagementScore: 0,
+          lastContact: new Date(),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          createdBy: Number(session.user.id),
+          source: "ongoing_guardian_auto",
+        })
+        .returning({ id: enrollmentGuardians.id });
+      guardianId = created.id;
+    }
   }
   if (!type) {
     return NextResponse.json({ error: "Interaction type required" }, { status: 400 });

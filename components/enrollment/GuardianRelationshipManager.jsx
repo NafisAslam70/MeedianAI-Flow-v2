@@ -219,6 +219,7 @@ const GuardianRelationshipManager = () => {
   const [leadForm, setLeadForm] = useState(() => buildAddForm());
   const [leadSaving, setLeadSaving] = useState(false);
   const [leadError, setLeadError] = useState("");
+  const [existingKingSelectedId, setExistingKingSelectedId] = useState("");
   const [mgcpLoading, setMgcpLoading] = useState(false);
   const [mgcpError, setMgcpError] = useState("");
   const [mgcpBelts, setMgcpBelts] = useState([]);
@@ -246,6 +247,14 @@ const GuardianRelationshipManager = () => {
     trusted: false,
   });
   const [headForm, setHeadForm] = useState({ userId: "" });
+
+  useEffect(() => {
+    if (!existingKingSelectedId) return;
+    const stillExists = ongoingGuardians.some(
+      (g) => String(g.id) === String(existingKingSelectedId)
+    );
+    if (!stillExists) setExistingKingSelectedId("");
+  }, [ongoingGuardians, existingKingSelectedId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -518,6 +527,9 @@ const GuardianRelationshipManager = () => {
 
   const openEditModal = (guardian) => {
     if (!guardian) return;
+    // Close any open detail drawer so the modal stays on top
+    setSelectedGuardian(null);
+    setSelectedGuardianGroup(null);
     const children = Array.isArray(guardian.children) && guardian.children.length
       ? guardian.children.map((child) => ({
           name: child.name || "",
@@ -566,6 +578,9 @@ const GuardianRelationshipManager = () => {
 
   const openInteractionModal = (guardian, mode) => {
     if (!guardian) return;
+    // Hide side drawer so interaction modal is visible
+    setSelectedGuardian(null);
+    setSelectedGuardianGroup(null);
     setInteractionError("");
     setTemplatesError("");
     setInteractionForm({
@@ -1543,6 +1558,17 @@ const GuardianRelationshipManager = () => {
       error: "",
       profiles: {},
     });
+    const [complaintsState, setComplaintsState] = useState({
+      loading: false,
+      error: "",
+      items: [],
+    });
+    const [complaintForm, setComplaintForm] = useState({
+      subject: "",
+      details: "",
+      escalate: false,
+    });
+    const [complaintSaving, setComplaintSaving] = useState(false);
     const [callLogsState, setCallLogsState] = useState({
       loading: true,
       error: "",
@@ -1560,6 +1586,29 @@ const GuardianRelationshipManager = () => {
     useEffect(() => {
       let active = true;
       const controller = new AbortController();
+
+      const loadComplaints = async () => {
+        setComplaintsState((prev) => ({ ...prev, loading: true, error: "" }));
+        try {
+          const res = await fetch(
+            `/api/enrollment/communications?action=by-guardian&guardianId=${guardian.id}&limit=50`,
+            { headers: { "Content-Type": "application/json" }, signal: controller.signal }
+          );
+          const payload = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(payload?.error || "Failed to load complaints");
+          const rows = Array.isArray(payload?.interactions) ? payload.interactions : [];
+          const onlyComplaints = rows.filter((row) => row.type === "complaint");
+          if (!active) return;
+          setComplaintsState({ loading: false, error: "", items: onlyComplaints });
+        } catch (error) {
+          if (!active || error.name === "AbortError") return;
+          setComplaintsState({
+            loading: false,
+            error: error.message || "Failed to load complaints",
+            items: [],
+          });
+        }
+      };
 
       const loadVisits = async () => {
         setVisitsState((prev) => ({ ...prev, loading: true, error: "" }));
@@ -1699,6 +1748,7 @@ const GuardianRelationshipManager = () => {
       loadVisits();
       loadProfiles();
       loadCallLogs();
+      loadComplaints();
 
       return () => {
         active = false;
@@ -1773,12 +1823,101 @@ const GuardianRelationshipManager = () => {
       }
     };
 
+    const handleComplaintSubmit = async (event) => {
+      event.preventDefault();
+      if (!complaintForm.details.trim()) {
+        setComplaintsState((prev) => ({ ...prev, error: "कृपया शिकायत लिखें।" }));
+        return;
+      }
+      const guardianId = Number(guardian?.id ?? guardian?.guardianId);
+      if (!Number.isFinite(guardianId)) {
+        setComplaintsState((prev) => ({ ...prev, error: "Guardian unavailable; कृपया फिर से प्रयास करें." }));
+        return;
+      }
+      setComplaintSaving(true);
+      setComplaintsState((prev) => ({ ...prev, error: "" }));
+      try {
+        const res = await fetch("/api/enrollment/communications", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "log-interaction",
+            guardianId,
+            guardianName: guardian?.name,
+            guardianWhatsapp: guardian?.whatsapp || guardian?.guardianWhatsappNumber,
+            guardianPhone: guardian?.guardianPhone || guardian?.phone || guardian?.mobile,
+            guardianLocation: guardian?.location,
+            type: "complaint",
+            method: "in-person",
+            content: complaintForm.details.trim(),
+            outcome: complaintForm.escalate ? "escalate" : "logged",
+            followUpRequired: complaintForm.escalate,
+            followUpNotes: complaintForm.subject?.trim() || null,
+          }),
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(payload?.error || "Failed to save complaint");
+        const newInteraction = payload?.interaction;
+        setComplaintsState((prev) => ({
+          ...prev,
+          items: newInteraction ? [newInteraction, ...(prev.items || [])] : prev.items,
+        }));
+        setComplaintForm({ subject: "", details: "", escalate: false });
+      } catch (error) {
+        setComplaintsState((prev) => ({
+          ...prev,
+          error: error.message || "Failed to save complaint",
+        }));
+      } finally {
+        setComplaintSaving(false);
+      }
+    };
+
+    const handleComplaintEscalate = async (item) => {
+      const guardianId = Number(guardian?.id ?? guardian?.guardianId);
+      if (!Number.isFinite(guardianId)) {
+        setComplaintsState((prev) => ({ ...prev, error: "Guardian unavailable; कृपया फिर से प्रयास करें." }));
+        return;
+      }
+      try {
+        const res = await fetch("/api/enrollment/communications", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "log-interaction",
+            guardianId,
+            guardianName: guardian?.name,
+            guardianWhatsapp: guardian?.whatsapp || guardian?.guardianWhatsappNumber,
+            guardianPhone: guardian?.guardianPhone || guardian?.phone || guardian?.mobile,
+            guardianLocation: guardian?.location,
+            type: "complaint",
+            method: "in-person",
+            content: item?.content || "Complaint escalation",
+            outcome: "escalate",
+            followUpRequired: true,
+            followUpNotes: item?.followUpNotes || "Escalated from complaint history",
+          }),
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(payload?.error || "Failed to escalate complaint");
+        const newInteraction = payload?.interaction;
+        setComplaintsState((prev) => ({
+          ...prev,
+          items: newInteraction ? [newInteraction, ...(prev.items || [])] : prev.items,
+          error: "",
+        }));
+      } catch (error) {
+        setComplaintsState((prev) => ({ ...prev, error: error.message || "Failed to escalate complaint" }));
+      }
+    };
+
     const visitEntries = visitsState.entries || [];
     const sectionItems = [
       { id: "overview", label: "Overview" },
       { id: "wards", label: "Ward Files" },
       { id: "calls", label: "Call Logs" },
       { id: "visits", label: "Visit History" },
+      { id: "complaints", label: "Complaints" },
     ];
 
     return (
@@ -2167,6 +2306,119 @@ const GuardianRelationshipManager = () => {
                       </CardBody>
                     </Card>
                   )}
+
+                  {activeSection === "complaints" && (
+                    <Card>
+                      <CardHeader>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h3 className="text-sm font-semibold text-slate-700">Complaints</h3>
+                            <p className="text-xs text-slate-500">Record issues and escalate when needed.</p>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardBody className="space-y-6">
+                        <form
+                          onSubmit={handleComplaintSubmit}
+                          className="grid grid-cols-1 gap-4 lg:grid-cols-[2fr_1fr]"
+                        >
+                          <div className="space-y-3">
+                            <div>
+                              <label className="block text-xs font-semibold text-slate-600 mb-1">
+                                Subject (optional)
+                              </label>
+                              <input
+                                type="text"
+                                value={complaintForm.subject}
+                                onChange={(e) =>
+                                  setComplaintForm((prev) => ({ ...prev, subject: e.target.value }))
+                                }
+                                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
+                                placeholder="Fee query, transport issue, hostel concern..."
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-semibold text-slate-600 mb-1">
+                                Complaint details <span className="text-rose-500">*</span>
+                              </label>
+                              <textarea
+                                value={complaintForm.details}
+                                onChange={(e) =>
+                                  setComplaintForm((prev) => ({ ...prev, details: e.target.value }))
+                                }
+                                rows={4}
+                                required
+                                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
+                                placeholder="Describe the issue as shared by the guardian."
+                              />
+                            </div>
+                            <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                              <input
+                                type="checkbox"
+                                checked={complaintForm.escalate}
+                                onChange={(e) =>
+                                  setComplaintForm((prev) => ({ ...prev, escalate: e.target.checked }))
+                                }
+                                className="rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                              />
+                              Escalate for manager follow-up
+                            </label>
+                            {complaintsState.error && (
+                              <p className="text-xs text-rose-600">{complaintsState.error}</p>
+                            )}
+                          </div>
+                          <div className="flex flex-col justify-between gap-3">
+                            <div className="text-sm text-slate-600">
+                              <p className="font-semibold text-slate-700">Escalation tip</p>
+                              <p>Mark escalate to add follow-up flag and track in history.</p>
+                            </div>
+                            <div className="flex gap-2 justify-end">
+                              <Button type="submit" disabled={complaintSaving}>
+                                {complaintSaving ? "Saving..." : "Log Complaint"}
+                              </Button>
+                            </div>
+                          </div>
+                        </form>
+
+                        <div className="space-y-3">
+                          <h4 className="text-sm font-semibold text-slate-700">History</h4>
+                          {complaintsState.loading ? (
+                            <p className="text-sm text-slate-500">Loading complaints…</p>
+                          ) : complaintsState.items?.length ? (
+                            <div className="space-y-3">
+                              {complaintsState.items.map((item) => (
+                                <div key={item.id} className="rounded-xl border border-slate-200 p-4">
+                                  <div className="flex items-center justify-between text-xs text-slate-500">
+                                    <span>{formatDate(item.createdAt)}</span>
+                                    <div className="flex items-center gap-2">
+                                      <Badge color={item.outcome === "escalate" ? "amber" : "teal"}>
+                                        {item.outcome === "escalate" ? "Escalated" : "Logged"}
+                                      </Badge>
+                                      {item.outcome !== "escalate" && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleComplaintEscalate(item)}
+                                          className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700 hover:bg-amber-100"
+                                        >
+                                          Escalate
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                  {item.followUpNotes && (
+                                    <p className="text-xs text-slate-600 mt-1">{item.followUpNotes}</p>
+                                  )}
+                                  <p className="text-sm text-slate-800 mt-2">{item.content || "—"}</p>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-sm text-slate-500">No complaints logged yet.</p>
+                          )}
+                        </div>
+                      </CardBody>
+                    </Card>
+                  )}
                 </main>
               </div>
             </div>
@@ -2502,12 +2754,25 @@ const GuardianRelationshipManager = () => {
       )}
       {activeTab === "mgcp" && (
         <div className="space-y-6">
-          <header className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-4 py-3 shadow-sm">
-            <div>
-              <h3 className="text-base font-semibold text-slate-900">MGCP Control Room</h3>
-              <p className="text-sm text-slate-500">
-                Manage belts, villages, trusted kings, and lead managers.
-              </p>
+          <header className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-4 py-4 shadow-sm">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h3 className="text-base font-semibold text-slate-900">MGCP Control Room</h3>
+                <p className="text-sm text-slate-500">
+                  Manage belts, villages, trusted kings, and lead managers.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setMgcpSection("head");
+                  setIsMgcpDrawerOpen(true);
+                }}
+                className="inline-flex items-center gap-2 rounded-full border border-teal-200 bg-teal-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700 hover:shadow"
+              >
+                <span>Manage MGCP</span>
+                <span className="text-xs text-teal-100">Open →</span>
+              </button>
             </div>
           </header>
 
@@ -3025,28 +3290,45 @@ const GuardianRelationshipManager = () => {
                                       <CardBody className="space-y-3">
                                         <div className="flex flex-col gap-2">
                                           <Select
-                                            label="Pick from existing guardians"
-                                            value=""
+                                            label="Pick from ongoing guardians"
+                                            value={existingKingSelectedId}
                                             onChange={(event) => {
-                                              const guardianId = Number(event.target.value);
-                                              if (!Number.isFinite(guardianId)) return;
-                                              const g = probableGuardians.find((item) => item.id === guardianId);
+                                              const guardianValue = event.target.value;
+                                              setExistingKingSelectedId(guardianValue);
+                                              const g = ongoingGuardians.find(
+                                                (item) => String(item.id) === String(guardianValue)
+                                              );
                                               if (!g) return;
+                                              const phoneFromGuardian =
+                                                g.phone ||
+                                                g.guardianPhone ||
+                                                g.whatsapp ||
+                                                g.mobile ||
+                                                "";
+                                              const whatsappFromGuardian =
+                                                g.whatsapp ||
+                                                g.phone ||
+                                                g.guardianPhone ||
+                                                g.mobile ||
+                                                "";
                                               setExistingKingForm({
                                                 name: g.name || "",
-                                                phone: g.whatsapp || "",
-                                                whatsapp: g.whatsapp || "",
+                                                phone: phoneFromGuardian,
+                                                whatsapp: whatsappFromGuardian,
                                                 notes: g.location ? `From ${g.location}` : "",
                                                 trusted: true,
                                               });
                                             }}
                                           >
                                             <option value="">Select guardian…</option>
-                                            {probableGuardians.map((g) => (
-                                              <option key={g.id} value={g.id}>
-                                                {g.name} {g.location ? `· ${g.location}` : ""}
-                                              </option>
-                                            ))}
+                                            {ongoingGuardians
+                                              .slice()
+                                              .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+                                              .map((g) => (
+                                                <option key={g.id} value={g.id}>
+                                                  {g.name} {g.location ? `· ${g.location}` : ""}
+                                                </option>
+                                              ))}
                                           </Select>
                                           <Input
                                             label="Guardian name"
@@ -3100,24 +3382,26 @@ const GuardianRelationshipManager = () => {
                                               runMgcpAction({
                                                 url: "/api/enrollment/mgcp/guardians",
                                                 method: "POST",
-                                                body: {
-                                                  beltId: selectedBelt.id,
-                                                  guardianName: existingKingForm.name,
-                                                  guardianPhone: existingKingForm.phone,
-                                                  guardianWhatsapp: existingKingForm.whatsapp,
-                                                  notes: existingKingForm.notes,
-                                                  isTrusted: existingKingForm.trusted,
-                                                },
-                                                afterSuccess: () =>
-                                                  setExistingKingForm({
-                                                    name: "",
-                                                    phone: "",
-                                                    whatsapp: "",
-                                                    notes: "",
-                                                    trusted: false,
-                                                  }),
-                                              })
-                                            }
+                                              body: {
+                                                beltId: selectedBelt.id,
+                                                guardianName: existingKingForm.name,
+                                                guardianPhone: existingKingForm.phone,
+                                                guardianWhatsapp: existingKingForm.whatsapp,
+                                                notes: existingKingForm.notes,
+                                              isTrusted: existingKingForm.trusted,
+                                              },
+                                              afterSuccess: () => {
+                                                setExistingKingForm({
+                                                  name: "",
+                                                  phone: "",
+                                                  whatsapp: "",
+                                                  notes: "",
+                                                  trusted: false,
+                                                });
+                                                setExistingKingSelectedId("");
+                                              },
+                                            })
+                                          }
                                           >
                                             Add King
                                           </Button>
