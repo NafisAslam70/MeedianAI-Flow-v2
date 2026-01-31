@@ -189,6 +189,7 @@ export default function RecruitmentProPage() {
     linkUrl: "",
     notes: "",
     source: "",
+    email: "",
   });
   React.useEffect(() => {
     const next = {};
@@ -230,6 +231,7 @@ export default function RecruitmentProPage() {
   const stageOptions = pipelineSwr.data?.stageOptions || [];
   const finalStatusOptions = pipelineSwr.data?.finalStatusOptions || [];
   const candidateStatusOptionsLocal = candidatesSwr.data?.candidateStatusOptions || ["Active", "Inactive", "Withdrawn"];
+  const hasStages = stageOptions.length > 0;
   const stageByOrder = React.useMemo(() => {
     const map = new Map();
     stageOptions.forEach((s) => {
@@ -331,7 +333,6 @@ export default function RecruitmentProPage() {
     }
 
     if (!stageId) {
-      alert("Select a stage in this row before logging communication.");
       return;
     }
     const communicationDate = prompt("Communication date (YYYY-MM-DD)", new Date().toISOString().slice(0, 10)) || "";
@@ -1130,7 +1131,7 @@ export default function RecruitmentProPage() {
                         <td className="p-2">
                           <input type="date" className="border rounded px-1 py-0.5" value={draft.stage1Date || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], stage1Date: e.target.value } }))} />
                           <div className="text-[10px] text-slate-500 mt-1">{comm1 ? `${comm1.communicationMethod} · ${comm1.outcome}` : "No comm yet"}</div>
-                          <button className="text-[10px] text-teal-600" onClick={() => addStageComm(row.id, 1)}>Log comm</button>
+                          <button className="text-[10px] text-teal-600 disabled:text-slate-400 disabled:cursor-not-allowed" disabled={!hasStages} title={!hasStages ? "Add stages in Meta Controls first" : ""} onClick={() => addStageComm(row.id, 1)}>Log comm</button>
                         </td>
                         <td className="p-2">
                           <div className="text-xs font-semibold text-slate-800">{stageByOrder.get(2)?.stageName || "Stage 2"}</div>
@@ -1138,7 +1139,7 @@ export default function RecruitmentProPage() {
                         <td className="p-2">
                           <input type="date" className="border rounded px-1 py-0.5" value={draft.stage2Date || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], stage2Date: e.target.value } }))} />
                           <div className="text-[10px] text-slate-500 mt-1">{comm2 ? `${comm2.communicationMethod} · ${comm2.outcome}` : "No comm yet"}</div>
-                          <button className="text-[10px] text-teal-600" onClick={() => addStageComm(row.id, 2)}>Log comm</button>
+                          <button className="text-[10px] text-teal-600 disabled:text-slate-400 disabled:cursor-not-allowed" disabled={!hasStages} title={!hasStages ? "Add stages in Meta Controls first" : ""} onClick={() => addStageComm(row.id, 2)}>Log comm</button>
                         </td>
                         <td className="p-2">
                           <div className="text-xs font-semibold text-slate-800">{stageByOrder.get(3)?.stageName || "Stage 3"}</div>
@@ -1146,7 +1147,7 @@ export default function RecruitmentProPage() {
                         <td className="p-2">
                           <input type="date" className="border rounded px-1 py-0.5" value={draft.stage3Date || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], stage3Date: e.target.value } }))} />
                           <div className="text-[10px] text-slate-500 mt-1">{comm3 ? `${comm3.communicationMethod} · ${comm3.outcome}` : "No comm yet"}</div>
-                          <button className="text-[10px] text-teal-600" onClick={() => addStageComm(row.id, 3)}>Log comm</button>
+                          <button className="text-[10px] text-teal-600 disabled:text-slate-400 disabled:cursor-not-allowed" disabled={!hasStages} title={!hasStages ? "Add stages in Meta Controls first" : ""} onClick={() => addStageComm(row.id, 3)}>Log comm</button>
                         </td>
                         <td className="p-2">
                           <div className="text-xs font-semibold text-slate-800">{stageByOrder.get(4)?.stageName || "Stage 4"}</div>
@@ -1154,7 +1155,7 @@ export default function RecruitmentProPage() {
                         <td className="p-2">
                           <input type="date" className="border rounded px-1 py-0.5" value={draft.stage4Date || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], stage4Date: e.target.value } }))} />
                           <div className="text-[10px] text-slate-500 mt-1">{comm4 ? `${comm4.communicationMethod} · ${comm4.outcome}` : "No comm yet"}</div>
-                          <button className="text-[10px] text-teal-600" onClick={() => addStageComm(row.id, 4)}>Log comm</button>
+                          <button className="text-[10px] text-teal-600 disabled:text-slate-400 disabled:cursor-not-allowed" disabled={!hasStages} title={!hasStages ? "Add stages in Meta Controls first" : ""} onClick={() => addStageComm(row.id, 4)}>Log comm</button>
                         </td>
                         <td className="p-2">
                           <select className="border rounded px-1 py-0.5" value={draft.finalStatus || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], finalStatus: e.target.value } }))}>
@@ -1295,6 +1296,7 @@ export default function RecruitmentProPage() {
             <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
               <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" placeholder="Full name" value={newBench.fullName} onChange={(e) => setNewBench({ ...newBench, fullName: e.target.value })} />
               <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" placeholder="Phone" value={newBench.phone} onChange={(e) => setNewBench({ ...newBench, phone: e.target.value })} />
+              <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" placeholder="Email (optional)" value={newBench.email} onChange={(e) => setNewBench({ ...newBench, email: e.target.value })} />
               <select className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" value={newBench.location} onChange={(e) => setNewBench({ ...newBench, location: e.target.value })}>
                 <option value="">Location</option>
                 {locations.map((l) => (

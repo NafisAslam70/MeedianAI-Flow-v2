@@ -3018,6 +3018,30 @@ const GuardianRelationshipManager = () => {
                                       </CardHeader>
                                       <CardBody className="space-y-3">
                                         <div className="flex flex-col gap-2">
+                                          <Select
+                                            label="Pick from existing guardians"
+                                            value=""
+                                            onChange={(event) => {
+                                              const guardianId = Number(event.target.value);
+                                              if (!Number.isFinite(guardianId)) return;
+                                              const g = probableGuardians.find((item) => item.id === guardianId);
+                                              if (!g) return;
+                                              setExistingKingForm({
+                                                name: g.name || "",
+                                                phone: g.whatsapp || "",
+                                                whatsapp: g.whatsapp || "",
+                                                notes: g.location ? `From ${g.location}` : "",
+                                                trusted: true,
+                                              });
+                                            }}
+                                          >
+                                            <option value="">Select guardian…</option>
+                                            {probableGuardians.map((g) => (
+                                              <option key={g.id} value={g.id}>
+                                                {g.name} {g.location ? `· ${g.location}` : ""}
+                                              </option>
+                                            ))}
+                                          </Select>
                                           <Input
                                             label="Guardian name"
                                             value={existingKingForm.name}
