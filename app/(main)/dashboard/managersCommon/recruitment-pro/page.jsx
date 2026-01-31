@@ -1396,7 +1396,7 @@ export default function RecruitmentProPage() {
                     const isEditing = benchEditingId === b.id;
                     return (
                       <tr key={b.id} className="border-t">
-                        <td className="p-3 text-slate-600">{idx + 1}</td>
+                        <td className="p-3 text-slate-600">{(benchSwr.data?.bench?.length || 0) - idx}</td>
                         <td className="p-3"><input type="checkbox" checked={checked} onChange={(e) => {
                           const next = new Set(selectedBench);
                           if (e.target.checked) next.add(b.id); else next.delete(b.id);
