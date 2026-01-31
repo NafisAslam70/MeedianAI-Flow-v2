@@ -1371,6 +1371,7 @@ export default function RecruitmentProPage() {
               <table className="min-w-full text-xs">
                 <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
                   <tr>
+                    <th className="p-3 text-left">Sr</th>
                     <th className="p-3"><input type="checkbox" checked={benchSwr.data?.bench?.length && selectedBench.size === (benchSwr.data?.bench?.length || 0)} onChange={(e) => {
                       if (e.target.checked) setSelectedBench(new Set((benchSwr.data?.bench || []).map((b) => b.id)));
                       else setSelectedBench(new Set());
@@ -1389,39 +1390,98 @@ export default function RecruitmentProPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(benchSwr.data?.bench || []).map((b) => {
+                  {(benchSwr.data?.bench || []).map((b, idx) => {
                     const draft = benchDrafts[b.id] || b;
                     const checked = selectedBench.has(b.id);
-                    const isEditing = checked && false; // table edits allowed always via inline inputs
+                    const isEditing = benchEditingId === b.id;
                     return (
                       <tr key={b.id} className="border-t">
+                        <td className="p-3 text-slate-600">{idx + 1}</td>
                         <td className="p-3"><input type="checkbox" checked={checked} onChange={(e) => {
                           const next = new Set(selectedBench);
                           if (e.target.checked) next.add(b.id); else next.delete(b.id);
                           setSelectedBench(next);
                         }} /></td>
-                        <td className="p-3"><input className="w-32 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.fullName || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], fullName: e.target.value } }))} /></td>
-                        <td className="p-3"><input className="w-28 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.phone || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], phone: e.target.value } }))} /></td>
-                        <td className="p-3"><input className="w-24 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.location || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], location: e.target.value } }))} /></td>
                         <td className="p-3">
-                          <select className="w-32 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.appliedFor || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], appliedFor: e.target.value } }))}>
-                            <option value="">—</option>
-                            {["English/SST/Science", "Maths", "Jr Eng", "Jr All", "Computer/Arts", "Admin/Principal/Vice Principal", "Office"].map((opt) => (
-                              <option key={opt} value={opt}>{opt}</option>
-                            ))}
-                          </select>
+                          {isEditing ? (
+                            <input className="w-32 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.fullName || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], fullName: e.target.value } }))} />
+                          ) : (
+                            <span className="font-medium text-slate-900">{b.fullName}</span>
+                          )}
                         </td>
-                        <td className="p-3"><input type="date" className="rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.appliedDate || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], appliedDate: e.target.value } }))} /></td>
                         <td className="p-3">
-                          <input className="w-32 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.linkUrl || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], linkUrl: e.target.value } }))} />
+                          {isEditing ? (
+                            <input className="w-28 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.phone || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], phone: e.target.value } }))} />
+                          ) : (
+                            <span>{b.phone}</span>
+                          )}
                         </td>
-                        <td className="p-3"><input className="w-24 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.source || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], source: e.target.value } }))} /></td>
-                        <td className="p-3"><input className="w-32 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.notes || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], notes: e.target.value } }))} /></td>
+                        <td className="p-3">
+                          {isEditing ? (
+                            <select className="w-24 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.location || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], location: e.target.value } }))}>
+                              <option value="">—</option>
+                              {locations.map((l) => (
+                                <option key={l.id} value={l.locationName}>{l.locationName}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span>{b.location || "—"}</span>
+                          )}
+                        </td>
+                        <td className="p-3">
+                          {isEditing ? (
+                            <select className="w-32 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.appliedFor || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], appliedFor: e.target.value } }))}>
+                              <option value="">—</option>
+                              {["English/SST/Science", "Maths", "Jr Eng", "Jr All", "Computer/Arts", "Admin/Principal/Vice Principal", "Office"].map((opt) => (
+                                <option key={opt} value={opt}>{opt}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span>{b.appliedFor || "—"}</span>
+                          )}
+                        </td>
+                        <td className="p-3">
+                          {isEditing ? (
+                            <input type="date" className="rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.appliedDate || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], appliedDate: e.target.value } }))} />
+                          ) : (
+                            <span>{b.appliedDate || "—"}</span>
+                          )}
+                        </td>
+                        <td className="p-3">
+                          {isEditing ? (
+                            <input className="w-32 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.linkUrl || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], linkUrl: e.target.value } }))} />
+                          ) : (
+                            <span>{b.linkUrl || "—"}</span>
+                          )}
+                        </td>
+                        <td className="p-3">
+                          {isEditing ? (
+                            <input className="w-24 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.source || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], source: e.target.value } }))} />
+                          ) : (
+                            <span>{b.source || "—"}</span>
+                          )}
+                        </td>
+                        <td className="p-3">
+                          {isEditing ? (
+                            <input className="w-32 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.notes || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], notes: e.target.value } }))} />
+                          ) : (
+                            <span>{b.notes || "—"}</span>
+                          )}
+                        </td>
                         <td className="p-3 text-slate-700">{b.lastRequirementName || "—"}</td>
                         <td className="p-3 text-slate-600">{Number(b.pushCount) || 0}{b.lastPushedAt ? ` • ${String(b.lastPushedAt).slice(0,10)}` : ""}</td>
                         <td className="p-3 flex gap-2">
-                          <button className="rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-700" title="Save lead" onClick={() => handleBenchSave(b.id)}>💾</button>
-                          <button className="rounded-lg bg-rose-100 px-2 py-1 text-xs text-rose-700" title="Delete lead" onClick={() => handleBenchDelete(b.id)}>🗑️</button>
+                          {isEditing ? (
+                            <>
+                              <button className="rounded-lg bg-slate-900 px-2 py-1 text-xs text-white" title="Save lead" onClick={() => handleBenchSave(b.id)}>💾</button>
+                              <button className="rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-700" title="Cancel" onClick={() => { setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...b } })); setBenchEditingId(null); }}>✖️</button>
+                            </>
+                          ) : (
+                            <>
+                              <button className="rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-700" title="Edit lead" onClick={() => { setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...b } })); setBenchEditingId(b.id); }}>✏️</button>
+                              <button className="rounded-lg bg-rose-100 px-2 py-1 text-xs text-rose-700" title="Delete lead" onClick={() => handleBenchDelete(b.id)}>🗑️</button>
+                            </>
+                          )}
                         </td>
                       </tr>
                     );
