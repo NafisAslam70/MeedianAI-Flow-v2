@@ -43,6 +43,15 @@ const CLUB_TOOLS = [
     isNew: true,
   },
   {
+    key: "student-enquiry",
+    label: "Student Enquiry",
+    description: "Log admission enquiry calls; auto-convert to MGCP random leads.",
+    icon: UserPlus,
+    accent: "from-emerald-500/90 via-teal-500/85 to-cyan-400/90",
+    href: "/dashboard/managersCommon/student-enquiry",
+    isNew: true,
+  },
+  {
     key: "pt-assist",
     label: "CCD / CDD Help",
     description: "Checklists, scripts, and playbooks for CCD / CDD support.",

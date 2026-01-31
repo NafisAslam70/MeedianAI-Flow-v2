@@ -39,7 +39,7 @@ const COMM_OUTCOME_OPTIONS = ["Interested", "Not Interested", "Will Call Back", 
 
 const TAB_LIST = [
   { key: "meta", label: "Meta Controls" },
-  { key: "candidates", label: "Master Database" },
+  { key: "candidates", label: "Shortlisted Candidates" },
   { key: "pipeline", label: "Pipeline Tracker" },
   { key: "dashboard", label: "Dashboard" },
   { key: "programTracking", label: "Program Tracking" },
@@ -333,6 +333,7 @@ export default function RecruitmentProPage() {
     }
 
     if (!stageId) {
+      alert("Add at least one stage in Meta Controls first.");
       return;
     }
     const communicationDate = prompt("Communication date (YYYY-MM-DD)", new Date().toISOString().slice(0, 10)) || "";
@@ -580,7 +581,7 @@ export default function RecruitmentProPage() {
                   Pipeline
                 </button>
                 <button className="rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-700 hover:bg-white" onClick={() => setActiveTab("candidates")}>
-                  Master DB
+                  Shortlisted
                 </button>
               </div>
             </div>
@@ -990,7 +991,7 @@ export default function RecruitmentProPage() {
             </div>
           </SectionCard>
 
-          <SectionCard title="Candidate Pool" subtitle="Live master database. Edit inline and save.">
+          <SectionCard title="Shortlisted Candidates" subtitle="Live shortlist database. Edit inline and save.">
             <div className="overflow-auto rounded-xl border border-slate-200 bg-white">
               <table className="min-w-full text-xs">
                 <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
@@ -1131,7 +1132,7 @@ export default function RecruitmentProPage() {
                         <td className="p-2">
                           <input type="date" className="border rounded px-1 py-0.5" value={draft.stage1Date || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], stage1Date: e.target.value } }))} />
                           <div className="text-[10px] text-slate-500 mt-1">{comm1 ? `${comm1.communicationMethod} · ${comm1.outcome}` : "No comm yet"}</div>
-                          <button className="text-[10px] text-teal-600 disabled:text-slate-400 disabled:cursor-not-allowed" disabled={!hasStages} title={!hasStages ? "Add stages in Meta Controls first" : ""} onClick={() => addStageComm(row.id, 1)}>Log comm</button>
+                          <button className="text-[10px] text-teal-600 hover:text-teal-800" onClick={() => addStageComm(row.id, 1)}>Log comm</button>
                         </td>
                         <td className="p-2">
                           <div className="text-xs font-semibold text-slate-800">{stageByOrder.get(2)?.stageName || "Stage 2"}</div>
@@ -1139,7 +1140,7 @@ export default function RecruitmentProPage() {
                         <td className="p-2">
                           <input type="date" className="border rounded px-1 py-0.5" value={draft.stage2Date || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], stage2Date: e.target.value } }))} />
                           <div className="text-[10px] text-slate-500 mt-1">{comm2 ? `${comm2.communicationMethod} · ${comm2.outcome}` : "No comm yet"}</div>
-                          <button className="text-[10px] text-teal-600 disabled:text-slate-400 disabled:cursor-not-allowed" disabled={!hasStages} title={!hasStages ? "Add stages in Meta Controls first" : ""} onClick={() => addStageComm(row.id, 2)}>Log comm</button>
+                          <button className="text-[10px] text-teal-600 hover:text-teal-800" onClick={() => addStageComm(row.id, 2)}>Log comm</button>
                         </td>
                         <td className="p-2">
                           <div className="text-xs font-semibold text-slate-800">{stageByOrder.get(3)?.stageName || "Stage 3"}</div>
@@ -1147,7 +1148,7 @@ export default function RecruitmentProPage() {
                         <td className="p-2">
                           <input type="date" className="border rounded px-1 py-0.5" value={draft.stage3Date || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], stage3Date: e.target.value } }))} />
                           <div className="text-[10px] text-slate-500 mt-1">{comm3 ? `${comm3.communicationMethod} · ${comm3.outcome}` : "No comm yet"}</div>
-                          <button className="text-[10px] text-teal-600 disabled:text-slate-400 disabled:cursor-not-allowed" disabled={!hasStages} title={!hasStages ? "Add stages in Meta Controls first" : ""} onClick={() => addStageComm(row.id, 3)}>Log comm</button>
+                          <button className="text-[10px] text-teal-600 hover:text-teal-800" onClick={() => addStageComm(row.id, 3)}>Log comm</button>
                         </td>
                         <td className="p-2">
                           <div className="text-xs font-semibold text-slate-800">{stageByOrder.get(4)?.stageName || "Stage 4"}</div>
@@ -1155,7 +1156,7 @@ export default function RecruitmentProPage() {
                         <td className="p-2">
                           <input type="date" className="border rounded px-1 py-0.5" value={draft.stage4Date || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], stage4Date: e.target.value } }))} />
                           <div className="text-[10px] text-slate-500 mt-1">{comm4 ? `${comm4.communicationMethod} · ${comm4.outcome}` : "No comm yet"}</div>
-                          <button className="text-[10px] text-teal-600 disabled:text-slate-400 disabled:cursor-not-allowed" disabled={!hasStages} title={!hasStages ? "Add stages in Meta Controls first" : ""} onClick={() => addStageComm(row.id, 4)}>Log comm</button>
+                          <button className="text-[10px] text-teal-600 hover:text-teal-800" onClick={() => addStageComm(row.id, 4)}>Log comm</button>
                         </td>
                         <td className="p-2">
                           <select className="border rounded px-1 py-0.5" value={draft.finalStatus || ""} onChange={(e) => setPipelineDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], finalStatus: e.target.value } }))}>

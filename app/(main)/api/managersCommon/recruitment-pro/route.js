@@ -864,7 +864,7 @@ export async function POST(req) {
   if (section === "bench") {
     const fullName = String(body?.fullName || "").trim();
     const phone = String(body?.phone || "").trim();
-    const email = String(body?.email || "").trim() || null;
+    const benchEmail = String(body?.email || "").trim() || null;
     if (!fullName || !phone) {
       return NextResponse.json({ error: "fullName and phone required" }, { status: 400 });
     }
@@ -877,7 +877,7 @@ export async function POST(req) {
 
     const [row] = await db
       .insert(recruitmentBench)
-      .values({ fullName, phone, location, appliedFor, appliedDate, linkUrl, notes, source, email })
+      .values({ fullName, phone, location, appliedFor, appliedDate, linkUrl, notes, source, email: benchEmail })
       .returning();
 
     return NextResponse.json({ bench: row }, { status: 201 });
