@@ -418,22 +418,34 @@ export default function RecruitmentProPage() {
   const [benchRowPush, setBenchRowPush] = React.useState({});
 
   const handleBenchCreate = async () => {
-    await apiCall("bench", "POST", newBench);
-    setNewBench({ fullName: "", phone: "", location: "", appliedFor: "", appliedDate: "", linkUrl: "", notes: "", source: "" });
-    await benchSwr.mutate();
+    try {
+      await apiCall("bench", "POST", newBench);
+      setNewBench({ fullName: "", phone: "", location: "", appliedFor: "", appliedDate: "", linkUrl: "", notes: "", source: "" });
+      await benchSwr.mutate();
+    } catch (e) {
+      alert(e.message || "Failed to add to bench");
+    }
   };
 
   const handleBenchSave = async (benchId) => {
-    await apiCall("bench", "PUT", { id: benchId, ...benchDrafts[benchId] });
-    await benchSwr.mutate();
-    setBenchEditingId(null);
+    try {
+      await apiCall("bench", "PUT", { id: benchId, ...benchDrafts[benchId] });
+      await benchSwr.mutate();
+      setBenchEditingId(null);
+    } catch (e) {
+      alert(e.message || "Failed to save lead");
+    }
   };
 
   const handleBenchDelete = async (benchId) => {
     const draft = benchDrafts[benchId] || {};
     if (!window.confirm(`Delete ${draft.fullName || "this lead"}?`)) return;
-    await apiCall("bench", "DELETE", { id: benchId });
-    await benchSwr.mutate();
+    try {
+      await apiCall("bench", "DELETE", { id: benchId });
+      await benchSwr.mutate();
+    } catch (e) {
+      alert(e.message || "Failed to delete lead");
+    }
   };
 
   const handleBenchPush = async () => {
@@ -1371,6 +1383,7 @@ export default function RecruitmentProPage() {
                     <th className="p-3 text-left">Link</th>
                     <th className="p-3 text-left">Source</th>
                     <th className="p-3 text-left">Notes</th>
+                    <th className="p-3 text-left">Last Requirement</th>
                     <th className="p-3 text-left">Pushes</th>
                     <th className="p-3 text-left">Actions</th>
                   </tr>
@@ -1404,11 +1417,8 @@ export default function RecruitmentProPage() {
                         </td>
                         <td className="p-3"><input className="w-24 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.source || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], source: e.target.value } }))} /></td>
                         <td className="p-3"><input className="w-32 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.notes || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], notes: e.target.value } }))} /></td>
-                        <td className="p-3 text-slate-600">
-                          {Number(b.pushCount) || 0}
-                          {b.lastRequirementName ? ` • ${b.lastRequirementName}` : ""}
-                          {b.lastPushedAt ? ` • ${String(b.lastPushedAt).slice(0,10)}` : ""}
-                        </td>
+                        <td className="p-3 text-slate-700">{b.lastRequirementName || "—"}</td>
+                        <td className="p-3 text-slate-600">{Number(b.pushCount) || 0}{b.lastPushedAt ? ` • ${String(b.lastPushedAt).slice(0,10)}` : ""}</td>
                         <td className="p-3 flex gap-2">
                           <button className="rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-700" title="Save lead" onClick={() => handleBenchSave(b.id)}>💾</button>
                           <button className="rounded-lg bg-rose-100 px-2 py-1 text-xs text-rose-700" title="Delete lead" onClick={() => handleBenchDelete(b.id)}>🗑️</button>

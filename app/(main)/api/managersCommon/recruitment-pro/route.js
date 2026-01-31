@@ -471,10 +471,10 @@ export async function GET(req) {
         source: recruitmentBench.source,
         createdAt: recruitmentBench.createdAt,
         updatedAt: recruitmentBench.updatedAt,
-        pushCount: sql`(SELECT count(*) FROM recruitment_bench_pushes pb WHERE pb.bench_id = ${recruitmentBench.id})`,
-        lastPushedAt: sql`(SELECT max(pb.pushed_at) FROM recruitment_bench_pushes pb WHERE pb.bench_id = ${recruitmentBench.id})`,
-        lastRequirementName: sql`(SELECT rpr.requirement_name FROM recruitment_bench_pushes pb JOIN recruitment_program_requirements rpr ON pb.requirement_id = rpr.id WHERE pb.bench_id = ${recruitmentBench.id} ORDER BY pb.pushed_at DESC NULLS LAST LIMIT 1)`,
-        lastRequirementId: sql`(SELECT pb.requirement_id FROM recruitment_bench_pushes pb WHERE pb.bench_id = ${recruitmentBench.id} ORDER BY pb.pushed_at DESC NULLS LAST LIMIT 1)`,
+        pushCount: sql`(SELECT count(*) FROM recruitment_bench_pushes pb WHERE pb.bench_id = recruitment_bench.id)`,
+        lastPushedAt: sql`(SELECT max(pb.pushed_at) FROM recruitment_bench_pushes pb WHERE pb.bench_id = recruitment_bench.id)`,
+        lastRequirementName: sql`(SELECT rpr.requirement_name FROM recruitment_bench_pushes pb JOIN recruitment_program_requirements rpr ON pb.requirement_id = rpr.id WHERE pb.bench_id = recruitment_bench.id ORDER BY pb.pushed_at DESC NULLS LAST LIMIT 1)`,
+        lastRequirementId: sql`(SELECT pb.requirement_id FROM recruitment_bench_pushes pb WHERE pb.bench_id = recruitment_bench.id ORDER BY pb.pushed_at DESC NULLS LAST LIMIT 1)`,
       })
       .from(recruitmentBench)
       .orderBy(desc(recruitmentBench.createdAt));
