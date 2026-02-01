@@ -360,29 +360,19 @@ export default function RecruitmentProPage() {
       (stageOrder === 4 && (draft.stage4Date || row?.stage4?.completedDate)) ||
       "";
 
-    const communicationDate =
-      prompt("Communication date (YYYY-MM-DD)", stageDateDefault || new Date().toISOString().slice(0, 10)) || "";
-    if (!communicationDate) return;
-    const communicationMethod = prompt(`Method (${COMM_METHOD_OPTIONS.join(", ")})`, COMM_METHOD_OPTIONS[0]) || "";
-    if (!communicationMethod) return;
-    const subject = prompt("Subject", "") || "";
-    if (!subject) return;
-    const outcome = prompt(`Outcome (${COMM_OUTCOME_OPTIONS.join(", ")})`, COMM_OUTCOME_OPTIONS[0]) || "";
-    if (!outcome) return;
-    const followUpDate = prompt("Follow-up date (YYYY-MM-DD) - optional", "") || "";
-    const notes = prompt("Notes (optional)", "") || "";
-
-    await apiCall("communicationLog", "POST", {
+    setCommModal({
+      open: true,
       candidateId,
+      stageOrder,
       stageId,
-      communicationDate,
-      communicationMethod,
-      subject,
-      outcome,
-      followUpDate: followUpDate || null,
-      notes: notes || null,
+      date: stageDateDefault || new Date().toISOString().slice(0, 10),
+      method: COMM_METHOD_OPTIONS[0],
+      subject: "",
+      outcome: COMM_OUTCOME_OPTIONS[0],
+      followUpDate: "",
+      notes: "",
+      finishStage: true,
     });
-    await pipelineSwr.mutate();
   };
 
   const handleRequirementSave = async (draft) => {
@@ -443,6 +433,18 @@ export default function RecruitmentProPage() {
     requirementId: "",
   });
   const [benchRowPush, setBenchRowPush] = React.useState({});
+  const [commModal, setCommModal] = React.useState({
+    open: false,
+    candidateId: null,
+    stageOrder: null,
+    date: "",
+    method: COMM_METHOD_OPTIONS[0],
+    subject: "",
+    outcome: COMM_OUTCOME_OPTIONS[0],
+    followUpDate: "",
+    notes: "",
+    finishStage: true,
+  });
 
   const handleBenchCreate = async () => {
     try {
@@ -513,13 +515,9 @@ export default function RecruitmentProPage() {
 
   const handleBenchRowPush = async (benchId) => {
     const sel = benchRowPush[benchId];
-    if (!sel?.requirementId) {
-      alert("Choose a requirement for this lead.");
-      return;
-    }
-    const req = (requirementsSwr.data?.requirements || []).find((r) => String(r.id) === String(sel.requirementId));
-    if (!req) {
-      alert("Requirement not found");
+    const programId = sel?.programId || benchPush.programId;
+    if (!programId) {
+      alert("Pick a program first.");
       return;
     }
     const countryId = benchPush.countryCodeId || countryCodes[0]?.id || null;
@@ -529,9 +527,8 @@ export default function RecruitmentProPage() {
     }
     const payload = {
       benchIds: [benchId],
-      requirementId: Number(sel.requirementId),
-      programId: req.programId,
-      locationId: req.locationId || null,
+      programId: Number(programId),
+      locationId: sel?.locationId ? Number(sel.locationId) : null,
       countryCodeId: Number(countryId),
       mspCodeId: sel.mspCodeId ? Number(sel.mspCodeId) : null,
       candidateStatus: benchPush.candidateStatus,
@@ -542,6 +539,59 @@ export default function RecruitmentProPage() {
     await candidatesSwr.mutate();
     await pipelineSwr.mutate();
     await benchSwr.mutate();
+  };
+
+  const submitCommModal = async () => {
+    const { candidateId, stageOrder, stageId: modalStageId, date, method, subject, outcome, followUpDate, notes, finishStage } = commModal;
+    if (!candidateId || !stageOrder || !date || !method || !subject || !outcome) {
+      alert("Date, method, subject, outcome are required");
+      return;
+    }
+    let stageId = modalStageId;
+    if (!stageId) {
+      const guess = stageByOrder.get(stageOrder) || stageOptions[0];
+      stageId = guess?.id || null;
+    }
+    if (!stageId) {
+      try {
+        const created = await apiCall("metaStages", "POST", {
+          stageCode: `S${stageOrder}`,
+          stageName: `Stage ${stageOrder}`,
+          stageOrder,
+          description: "Auto-created from comm modal",
+          isActive: true,
+        });
+        stageId = created?.stage?.id;
+        await stagesSwr.mutate();
+      } catch {
+        alert("Add a stage in Meta Controls first.");
+        return;
+      }
+    }
+
+    await apiCall("communicationLog", "POST", {
+      candidateId,
+      stageId,
+      communicationDate: date,
+      communicationMethod: method,
+      subject,
+      outcome,
+      followUpDate: followUpDate || null,
+      notes: notes || null,
+    });
+
+    if (finishStage) {
+      await apiCall("pipeline", "POST", {
+        candidateId,
+        stageOrder,
+        stageId,
+        completedDate: date,
+        notes,
+      });
+    }
+
+    setCommModal((prev) => ({ ...prev, open: false }));
+    await pipelineSwr.mutate();
   };
 
   return (
@@ -1183,8 +1233,7 @@ export default function RecruitmentProPage() {
                         <div className="font-semibold text-slate-900 text-sm">{row.firstName} {row.lastName || ""}</div>
                         <div className="text-xs text-slate-500">{row.fullPhone || ""}</div>
                       </div>
-                      <div className="text-xs text-slate-600">{row.mspCode ? `${row.mspCode}${row.mspCodeTitle ? ` — ${row.mspCodeTitle}` : ""}` : "No MSP code"}</div>
-                      <div className="text-xs text-slate-600 truncate max-w-[160px]">{row.requirementName || "No requirement"}</div>
+                      <div className="text-xs text-slate-600">{row.mspCode ? `${row.mspCode}` : "No MSP code"}</div>
                       <div className="flex items-center gap-2">
                         <button
                           className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-700 hover:bg-slate-50"

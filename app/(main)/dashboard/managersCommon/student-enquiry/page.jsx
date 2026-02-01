@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
@@ -19,10 +19,44 @@ export default function StudentEnquiryPage() {
   });
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [leads, setLeads] = useState([]);
+  const [leadsLoading, setLeadsLoading] = useState(false);
+  const [leadsError, setLeadsError] = useState("");
 
   const updateField = (field) => (event) => {
     setForm((prev) => ({ ...prev, [field]: event.target.value }));
   };
+
+  useEffect(() => {
+    let active = true;
+    const loadLeads = async () => {
+      setLeadsLoading(true);
+      setLeadsError("");
+      try {
+        const res = await fetch("/api/enrollment/mgcp/belts?include=details", {
+          headers: { "Content-Type": "application/json" },
+          cache: "no-store",
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(payload?.error || "Failed to load enquiries");
+        if (!active) return;
+        const rows = Array.isArray(payload?.randomLeads) ? payload.randomLeads : [];
+        // sort newest first
+        rows.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+        setLeads(rows.slice(0, 12));
+      } catch (error) {
+        if (!active) return;
+        setLeadsError(error.message || "Failed to load enquiries");
+        setLeads([]);
+      } finally {
+        if (active) setLeadsLoading(false);
+      }
+    };
+    loadLeads();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -55,6 +89,20 @@ export default function StudentEnquiryPage() {
       if (!res.ok) throw new Error(payload?.error || "Failed to save enquiry");
       setMessage("Enquiry saved and pushed to Random Leads.");
       setForm({ guardianName: "", studentName: "", desiredClass: "", phone: "", location: "", source: "call", notes: "" });
+      // refresh recent list
+      setLeads((prev) => [
+        {
+          id: payload?.lead?.id || Date.now(),
+          name: form.guardianName,
+          phone: form.phone,
+          whatsapp: form.phone,
+          location: form.location || null,
+          notes: [form.studentName, form.desiredClass, form.notes].filter(Boolean).join(" | "),
+          source: form.source || "enquiry",
+          createdAt: new Date().toISOString(),
+        },
+        ...prev,
+      ].slice(0, 12));
     } catch (error) {
       setMessage(error.message || "Failed to save enquiry.");
     } finally {
@@ -163,6 +211,53 @@ export default function StudentEnquiryPage() {
               )}
             </div>
           </form>
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">Recent enquiries</h2>
+              <p className="text-sm text-slate-500">Latest random leads captured from this form.</p>
+            </div>
+          </div>
+        </CardHeader>
+        <CardBody>
+          {leadsLoading ? (
+            <p className="text-sm text-slate-500">Loading…</p>
+          ) : leadsError ? (
+            <p className="text-sm text-rose-600">{leadsError}</p>
+          ) : leads.length ? (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="text-left text-slate-500">
+                    <th className="py-2 pr-4">Guardian</th>
+                    <th className="py-2 pr-4">Phone</th>
+                    <th className="py-2 pr-4">Source</th>
+                    <th className="py-2 pr-4">Notes</th>
+                    <th className="py-2 pr-4">Created</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {leads.map((lead) => (
+                    <tr key={lead.id}>
+                      <td className="py-2 pr-4 text-slate-800">{lead.name || "—"}</td>
+                      <td className="py-2 pr-4 text-slate-700">{lead.phone || lead.whatsapp || "—"}</td>
+                      <td className="py-2 pr-4 text-slate-700 capitalize">{lead.source || "—"}</td>
+                      <td className="py-2 pr-4 text-slate-600">{lead.notes || "—"}</td>
+                      <td className="py-2 pr-4 text-slate-500 text-xs">
+                        {lead.createdAt ? new Date(lead.createdAt).toLocaleDateString() : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500">No enquiries logged yet.</p>
+          )}
         </CardBody>
       </Card>
     </div>

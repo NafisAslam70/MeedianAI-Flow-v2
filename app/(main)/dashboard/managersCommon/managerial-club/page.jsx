@@ -120,21 +120,12 @@ export default function ManagerialClubPage() {
         <div className="pointer-events-none absolute -right-10 -bottom-14 h-52 w-52 rounded-full bg-emerald-400/25 blur-3xl" />
 
         <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
-          <div className="space-y-3 text-white">
+          <div className="space-y-3 text-white max-w-xl">
             <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-cyan-100 ring-1 ring-white/15">
               <Sparkles size={14} />
               Managerial Club
             </div>
             <h1 className="text-3xl font-semibold leading-tight md:text-4xl">Leadership tools, ready on one canvas</h1>
-            <p className="max-w-2xl text-sm text-slate-200/80 md:text-base">
-              Jump into the daily operating kit for managers. Everything from guardian follow-ups to recruitment and resources
-              now lives in a responsive, touch-friendly deck of cards.
-            </p>
-            <div className="flex flex-wrap gap-3 text-sm font-medium text-slate-100">
-              <span className="rounded-full bg-white/10 px-3 py-1 ring-1 ring-white/10">Responsive · Mobile first</span>
-              <span className="rounded-full bg-white/10 px-3 py-1 ring-1 ring-white/10">Lucide icons</span>
-              <span className="rounded-full bg-white/10 px-3 py-1 ring-1 ring-white/10">Hover & tap feedback</span>
-            </div>
           </div>
 
           <Link
