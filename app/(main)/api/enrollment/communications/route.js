@@ -70,16 +70,35 @@ export async function GET(request) {
     }
 
     if (action === "by-guardian") {
-      const guardianId = Number(searchParams.get("guardianId"));
+      const rawGuardianId = searchParams.get("guardianId");
+      const guardianId = Number(rawGuardianId);
       const limit = Math.min(100, Math.max(1, Number(searchParams.get("limit") || 50)));
-      if (!Number.isFinite(guardianId)) {
-        return NextResponse.json({ error: "guardianId required" }, { status: 400 });
+      let resolvedGuardianId = Number.isFinite(guardianId) ? guardianId : null;
+
+      if (!resolvedGuardianId) {
+        const guardianWhatsapp = searchParams.get("guardianWhatsapp") || "";
+        let contact = guardianWhatsapp;
+        if (!contact && typeof rawGuardianId === "string" && rawGuardianId.startsWith("ongoing_")) {
+          contact = rawGuardianId.replace("ongoing_", "");
+        }
+        if (contact) {
+          const existing = await db
+            .select({ id: enrollmentGuardians.id })
+            .from(enrollmentGuardians)
+            .where(eq(enrollmentGuardians.whatsapp, contact))
+            .limit(1);
+          if (existing.length) resolvedGuardianId = existing[0].id;
+        }
+      }
+
+      if (!resolvedGuardianId) {
+        return NextResponse.json({ interactions: [] });
       }
 
       const interactions = await db
         .select()
         .from(enrollmentGuardianInteractions)
-        .where(eq(enrollmentGuardianInteractions.guardianId, guardianId))
+        .where(eq(enrollmentGuardianInteractions.guardianId, resolvedGuardianId))
         .orderBy(desc(enrollmentGuardianInteractions.createdAt))
         .limit(limit);
 
@@ -429,6 +448,7 @@ async function sendBulkMessages(body, session) {
 }
 
 async function logInteraction(body, session) {
+  console.log("log-interaction body", body);
   let guardianId = Number(body?.guardianId);
   const guardianName = typeof body?.guardianName === "string" ? body.guardianName.trim() : "";
   const guardianWhatsapp = typeof body?.guardianWhatsapp === "string" ? body.guardianWhatsapp.trim() : "";
@@ -442,12 +462,15 @@ async function logInteraction(body, session) {
   const followUpRequired = Boolean(body?.followUpRequired);
   const followUpDate = body?.followUpDate ? new Date(body.followUpDate) : null;
   const followUpNotes = typeof body?.followUpNotes === "string" ? body.followUpNotes.trim() : null;
+  const actorId = Number(session?.user?.id);
+  const createdBy = Number.isFinite(actorId) ? actorId : null;
+  const resolvedName = guardianName || "Ongoing Guardian";
 
   if (!Number.isFinite(guardianId)) {
-    // Try to find or create a guardian using phone/whatsapp
-    const contact = guardianWhatsapp || guardianPhone;
-    if (!contact || !guardianName) {
-      return NextResponse.json({ error: "Guardian ID required" }, { status: 400 });
+    // Try to find or create a guardian using phone/whatsapp; fall back to placeholder contact
+    let contact = guardianWhatsapp || guardianPhone;
+    if (!contact) {
+      contact = `auto-${Date.now()}`; // unique placeholder to satisfy not-null/unique constraint
     }
 
     // Deduplicate by whatsapp (unique)
@@ -460,29 +483,40 @@ async function logInteraction(body, session) {
     if (existing.length) {
       guardianId = existing[0].id;
     } else {
-      const [created] = await db
-        .insert(enrollmentGuardians)
-        .values({
-          name: guardianName,
-          whatsapp: contact,
-          location: guardianLocation || "Unknown",
-          status: "ongoing",
-          engagementScore: 0,
-          lastContact: new Date(),
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          createdBy: Number(session.user.id),
-          source: "ongoing_guardian_auto",
-        })
-        .returning({ id: enrollmentGuardians.id });
-      guardianId = created.id;
+      try {
+        const [created] = await db
+          .insert(enrollmentGuardians)
+          .values({
+            name: resolvedName,
+            whatsapp: contact,
+            location: guardianLocation || "Unknown",
+            status: "ongoing",
+            engagementScore: 0,
+            lastContact: new Date(),
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            createdBy: createdBy ?? 1,
+            source: "ongoing_guardian_auto",
+          })
+          .returning({ id: enrollmentGuardians.id });
+        guardianId = created.id;
+      } catch {
+        const retried = await db
+          .select({ id: enrollmentGuardians.id })
+          .from(enrollmentGuardians)
+          .where(eq(enrollmentGuardians.whatsapp, contact))
+          .limit(1);
+        if (retried.length) guardianId = retried[0].id;
+      }
     }
+  }
+  if (!Number.isFinite(guardianId)) {
+    return NextResponse.json({ error: "Unable to resolve guardian" }, { status: 400 });
   }
   if (!type) {
     return NextResponse.json({ error: "Interaction type required" }, { status: 400 });
   }
 
-  const actorId = Number(session.user.id);
   const conductedBy = Number.isFinite(actorId) ? actorId : null;
 
   const [interaction] = await db

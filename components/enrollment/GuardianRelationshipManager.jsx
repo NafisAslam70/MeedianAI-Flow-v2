@@ -1542,6 +1542,7 @@ const GuardianRelationshipManager = () => {
             </CardBody>
           </Card>
         </div>
+
       </div>
     );
   };
@@ -1569,6 +1570,34 @@ const GuardianRelationshipManager = () => {
       escalate: false,
     });
     const [complaintSaving, setComplaintSaving] = useState(false);
+    const [ptmState, setPtmState] = useState({
+      loading: false,
+      error: "",
+      items: [],
+    });
+    const [ptmUsers, setPtmUsers] = useState([]);
+    const [ptmForm, setPtmForm] = useState({
+      date: "",
+      teacherIds: [],
+      teachersNote: "",
+      guardianAttendee: "self",
+      proxyName: "",
+      proxyRelation: "",
+      teacherNotes: "",
+      parentNotes: "",
+      adminNotes: "",
+      nextMeetingPlanned: false,
+      nextMeetingDate: "",
+    });
+    const [ptmSaving, setPtmSaving] = useState(false);
+    const [complaintEscalation, setComplaintEscalation] = useState({ open: false, item: null });
+    const [escalationForm, setEscalationForm] = useState({
+      title: "",
+      description: "",
+      l1AssigneeId: "",
+    });
+    const [escalationSaving, setEscalationSaving] = useState(false);
+    const [escalationError, setEscalationError] = useState("");
     const [callLogsState, setCallLogsState] = useState({
       loading: true,
       error: "",
@@ -1587,13 +1616,16 @@ const GuardianRelationshipManager = () => {
       let active = true;
       const controller = new AbortController();
 
-      const loadComplaints = async () => {
-        setComplaintsState((prev) => ({ ...prev, loading: true, error: "" }));
-        try {
-          const res = await fetch(
-            `/api/enrollment/communications?action=by-guardian&guardianId=${guardian.id}&limit=50`,
-            { headers: { "Content-Type": "application/json" }, signal: controller.signal }
-          );
+    const loadComplaints = async () => {
+      setComplaintsState((prev) => ({ ...prev, loading: true, error: "" }));
+      try {
+        const whatsappParam = guardian?.whatsapp
+          ? `&guardianWhatsapp=${encodeURIComponent(guardian.whatsapp)}`
+          : "";
+        const res = await fetch(
+          `/api/enrollment/communications?action=by-guardian&guardianId=${guardian.id}&limit=50${whatsappParam}`,
+          { headers: { "Content-Type": "application/json" }, signal: controller.signal }
+        );
           const payload = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(payload?.error || "Failed to load complaints");
           const rows = Array.isArray(payload?.interactions) ? payload.interactions : [];
@@ -1607,6 +1639,52 @@ const GuardianRelationshipManager = () => {
             error: error.message || "Failed to load complaints",
             items: [],
           });
+        }
+      };
+
+      const loadPtms = async () => {
+        setPtmState((prev) => ({ ...prev, loading: true, error: "" }));
+        try {
+          const whatsappParam = guardian?.whatsapp
+            ? `&guardianWhatsapp=${encodeURIComponent(guardian.whatsapp)}`
+            : "";
+          const res = await fetch(
+            `/api/enrollment/communications?action=by-guardian&guardianId=${guardian.id}&limit=50${whatsappParam}`,
+            { headers: { "Content-Type": "application/json" }, signal: controller.signal }
+          );
+          const payload = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(payload?.error || "Failed to load PTMs");
+          const rows = Array.isArray(payload?.interactions) ? payload.interactions : [];
+          const ptms = rows.filter((row) => row.type === "ptm");
+          if (!active) return;
+          setPtmState({ loading: false, error: "", items: ptms });
+        } catch (error) {
+          if (!active || error.name === "AbortError") return;
+          setPtmState({ loading: false, error: error.message || "Failed to load PTMs", items: [] });
+        }
+      };
+
+      const loadUsers = async () => {
+        try {
+          const res = await fetch("/api/member/users", {
+            headers: { "Content-Type": "application/json" },
+            signal: controller.signal,
+          });
+          const payload = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(payload?.error || "Failed to load staff");
+          const rows = Array.isArray(payload?.users) ? payload.users : [];
+          setPtmUsers(
+            rows
+              .filter((u) => ["admin", "team_manager", "member"].includes(u.role))
+              .map((u) => ({
+                id: u.id,
+                name: u.name || "User",
+                role: u.role,
+              }))
+          );
+        } catch (error) {
+          if (error.name === "AbortError") return;
+          setPtmUsers([]);
         }
       };
 
@@ -1749,6 +1827,8 @@ const GuardianRelationshipManager = () => {
       loadProfiles();
       loadCallLogs();
       loadComplaints();
+      loadPtms();
+      loadUsers();
 
       return () => {
         active = false;
@@ -1829,11 +1909,23 @@ const GuardianRelationshipManager = () => {
         setComplaintsState((prev) => ({ ...prev, error: "कृपया शिकायत लिखें।" }));
         return;
       }
-      const guardianId = Number(guardian?.id ?? guardian?.guardianId);
-      if (!Number.isFinite(guardianId)) {
-        setComplaintsState((prev) => ({ ...prev, error: "Guardian unavailable; कृपया फिर से प्रयास करें." }));
-        return;
-      }
+      const parsedGuardianId = Number(guardian?.id ?? guardian?.guardianId);
+      const guardianId = Number.isFinite(parsedGuardianId) ? parsedGuardianId : undefined;
+      const guardianName = guardian?.name || "Ongoing Guardian";
+      const guardianWhatsapp =
+        guardian?.whatsapp ||
+        guardian?.guardianWhatsappNumber ||
+        guardian?.guardianPhone ||
+        guardian?.phone ||
+        guardian?.mobile ||
+        `auto-${Date.now()}`;
+      console.log("GRM complaint submit payload:", {
+        guardianId,
+        guardianName,
+        guardianWhatsapp,
+        guardianPhone: guardian?.guardianPhone || guardian?.phone || guardian?.mobile,
+        guardianLocation: guardian?.location,
+      });
       setComplaintSaving(true);
       setComplaintsState((prev) => ({ ...prev, error: "" }));
       try {
@@ -1843,8 +1935,8 @@ const GuardianRelationshipManager = () => {
           body: JSON.stringify({
             action: "log-interaction",
             guardianId,
-            guardianName: guardian?.name,
-            guardianWhatsapp: guardian?.whatsapp || guardian?.guardianWhatsappNumber,
+            guardianName,
+            guardianWhatsapp,
             guardianPhone: guardian?.guardianPhone || guardian?.phone || guardian?.mobile,
             guardianLocation: guardian?.location,
             type: "complaint",
@@ -1874,40 +1966,174 @@ const GuardianRelationshipManager = () => {
     };
 
     const handleComplaintEscalate = async (item) => {
-      const guardianId = Number(guardian?.id ?? guardian?.guardianId);
-      if (!Number.isFinite(guardianId)) {
-        setComplaintsState((prev) => ({ ...prev, error: "Guardian unavailable; कृपया फिर से प्रयास करें." }));
+      const title = item?.followUpNotes?.trim()
+        ? `Complaint: ${item.followUpNotes.trim()}`
+        : `Guardian Complaint - ${guardian?.name || "Ongoing Guardian"}`;
+      const description = item?.content || "Complaint escalation";
+      setEscalationForm({ title, description, l1AssigneeId: "" });
+      setEscalationError("");
+      setComplaintEscalation({ open: true, item });
+    };
+
+    const submitComplaintEscalation = async () => {
+      if (!escalationForm.l1AssigneeId) {
+        setEscalationError("Select an L1 escalation owner.");
         return;
       }
+      setEscalationSaving(true);
+      setEscalationError("");
       try {
+        const res = await fetch("/api/managersCommon/escalations", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: escalationForm.title,
+            description: escalationForm.description,
+            l1AssigneeId: Number(escalationForm.l1AssigneeId),
+          }),
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(payload?.error || "Failed to create escalation");
+
+        const parsedGuardianId = Number(guardian?.id ?? guardian?.guardianId);
+        const guardianId = Number.isFinite(parsedGuardianId) ? parsedGuardianId : undefined;
+        const guardianName = guardian?.name || "Ongoing Guardian";
+        const guardianWhatsapp =
+          guardian?.whatsapp ||
+          guardian?.guardianWhatsappNumber ||
+          guardian?.guardianPhone ||
+          guardian?.phone ||
+          guardian?.mobile ||
+          `auto-${Date.now()}`;
+
+        const logRes = await fetch("/api/enrollment/communications", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "log-interaction",
+            guardianId,
+            guardianName,
+            guardianWhatsapp,
+            guardianPhone: guardian?.guardianPhone || guardian?.phone || guardian?.mobile,
+            guardianLocation: guardian?.location,
+            type: "complaint",
+            method: "in-person",
+            content: escalationForm.description,
+            outcome: "escalate",
+            followUpRequired: true,
+            followUpNotes: `Escalation #${payload?.id || "new"} - ${escalationForm.title}`,
+          }),
+        });
+        const logPayload = await logRes.json().catch(() => ({}));
+        if (logRes.ok) {
+          const newInteraction = logPayload?.interaction;
+          setComplaintsState((prev) => ({
+            ...prev,
+            items: newInteraction ? [newInteraction, ...(prev.items || [])] : prev.items,
+            error: "",
+          }));
+        }
+        setComplaintEscalation({ open: false, item: null });
+      } catch (error) {
+        setEscalationError(error.message || "Failed to create escalation");
+      } finally {
+        setEscalationSaving(false);
+      }
+    };
+
+    const handlePtmSubmit = async (event) => {
+      event.preventDefault();
+      const parsedGuardianId = Number(guardian?.id ?? guardian?.guardianId);
+      const guardianId = Number.isFinite(parsedGuardianId) ? parsedGuardianId : undefined;
+      const guardianName = guardian?.name || "Ongoing Guardian";
+      const guardianWhatsapp =
+        guardian?.whatsapp ||
+        guardian?.guardianWhatsappNumber ||
+        guardian?.guardianPhone ||
+        guardian?.phone ||
+        guardian?.mobile ||
+        `auto-${Date.now()}`;
+      console.log("GRM PTM submit payload:", {
+        guardianId,
+        guardianName,
+        guardianWhatsapp,
+        guardianPhone: guardian?.guardianPhone || guardian?.phone || guardian?.mobile,
+        guardianLocation: guardian?.location,
+      });
+      if (!ptmForm.date) {
+        setPtmState((prev) => ({ ...prev, error: "कृपया PTM तारीख चुनें।" }));
+        return;
+      }
+      setPtmSaving(true);
+      setPtmState((prev) => ({ ...prev, error: "" }));
+      try {
+        const teacherNames = ptmForm.teacherIds
+          .map((id) => ptmUsers.find((u) => String(u.id) === String(id))?.name)
+          .filter(Boolean);
+        const teacherLine = teacherNames.length
+          ? `Teachers: ${teacherNames.join(", ")}`
+          : ptmForm.teachersNote
+          ? `Teachers: ${ptmForm.teachersNote}`
+          : "Teachers: —";
+        const summary = [
+          teacherLine,
+          `Guardian attendee: ${
+            ptmForm.guardianAttendee === "self"
+              ? guardian.name || "Guardian"
+              : `${ptmForm.proxyName || "Proxy"} (${ptmForm.proxyRelation || "Relation not set"})`
+          }`,
+          ptmForm.teacherNotes ? `Teacher notes: ${ptmForm.teacherNotes}` : null,
+          ptmForm.parentNotes ? `Parent notes: ${ptmForm.parentNotes}` : null,
+          ptmForm.adminNotes ? `Admin/Principal notes: ${ptmForm.adminNotes}` : null,
+          ptmForm.nextMeetingPlanned
+            ? `Next meeting planned on ${ptmForm.nextMeetingDate || "TBD"}`
+            : "Next meeting not scheduled",
+        ]
+          .filter(Boolean)
+          .join(" | ");
+
         const res = await fetch("/api/enrollment/communications", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             action: "log-interaction",
             guardianId,
-            guardianName: guardian?.name,
-            guardianWhatsapp: guardian?.whatsapp || guardian?.guardianWhatsappNumber,
+            guardianName,
+            guardianWhatsapp,
             guardianPhone: guardian?.guardianPhone || guardian?.phone || guardian?.mobile,
             guardianLocation: guardian?.location,
-            type: "complaint",
+            type: "ptm",
             method: "in-person",
-            content: item?.content || "Complaint escalation",
-            outcome: "escalate",
-            followUpRequired: true,
-            followUpNotes: item?.followUpNotes || "Escalated from complaint history",
+            content: summary,
+            outcome: ptmForm.nextMeetingPlanned ? "follow_up" : "logged",
+            followUpRequired: ptmForm.nextMeetingPlanned,
+            followUpDate: ptmForm.nextMeetingDate || null,
+            followUpNotes: ptmForm.nextMeetingPlanned ? "PTM follow-up" : null,
           }),
         });
         const payload = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(payload?.error || "Failed to escalate complaint");
+        if (!res.ok) throw new Error(payload?.error || "Failed to save PTM");
         const newInteraction = payload?.interaction;
-        setComplaintsState((prev) => ({
+        setPtmState((prev) => ({
           ...prev,
           items: newInteraction ? [newInteraction, ...(prev.items || [])] : prev.items,
-          error: "",
         }));
+        setPtmForm({
+          date: "",
+          teachers: "",
+          guardianAttendee: "self",
+          proxyName: "",
+          proxyRelation: "",
+          teacherNotes: "",
+          parentNotes: "",
+          adminNotes: "",
+          nextMeetingPlanned: false,
+          nextMeetingDate: "",
+        });
       } catch (error) {
-        setComplaintsState((prev) => ({ ...prev, error: error.message || "Failed to escalate complaint" }));
+        setPtmState((prev) => ({ ...prev, error: error.message || "Failed to save PTM" }));
+      } finally {
+        setPtmSaving(false);
       }
     };
 
@@ -1918,6 +2144,7 @@ const GuardianRelationshipManager = () => {
       { id: "calls", label: "Call Logs" },
       { id: "visits", label: "Visit History" },
       { id: "complaints", label: "Complaints" },
+      { id: "ptm", label: "PTMs" },
     ];
 
     return (
@@ -2318,6 +2545,94 @@ const GuardianRelationshipManager = () => {
                         </div>
                       </CardHeader>
                       <CardBody className="space-y-6">
+                        {complaintEscalation.open && (
+                          <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-4 space-y-4">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <h4 className="text-sm font-semibold text-amber-900">
+                                  Escalate complaint
+                                </h4>
+                                <p className="text-xs text-amber-700">
+                                  This will create a matter in the Escalations module.
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setComplaintEscalation({ open: false, item: null })}
+                                className="text-xs font-semibold text-amber-700 hover:text-amber-900"
+                              >
+                                Close
+                              </button>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <div>
+                                <label className="block text-xs font-medium text-amber-800 mb-1">
+                                  Escalation title
+                                </label>
+                                <input
+                                  type="text"
+                                  value={escalationForm.title}
+                                  onChange={(e) =>
+                                    setEscalationForm((prev) => ({ ...prev, title: e.target.value }))
+                                  }
+                                  className="w-full rounded-lg border border-amber-200 px-3 py-2 text-sm bg-white"
+                                  required
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-amber-800 mb-1">
+                                  Assign to (L1)
+                                </label>
+                                <select
+                                  value={escalationForm.l1AssigneeId}
+                                  onChange={(e) =>
+                                    setEscalationForm((prev) => ({ ...prev, l1AssigneeId: e.target.value }))
+                                  }
+                                  className="w-full rounded-lg border border-amber-200 px-3 py-2 text-sm bg-white"
+                                  required
+                                >
+                                  <option value="">Select supervisor…</option>
+                                  {ptmUsers
+                                    .filter((user) => ["admin", "team_manager"].includes(user.role))
+                                    .map((user) => (
+                                      <option key={user.id} value={user.id}>
+                                        {user.name} ({user.role})
+                                      </option>
+                                    ))}
+                                </select>
+                              </div>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-amber-800 mb-1">
+                                Escalation description
+                              </label>
+                              <textarea
+                                rows={3}
+                                value={escalationForm.description}
+                                onChange={(e) =>
+                                  setEscalationForm((prev) => ({ ...prev, description: e.target.value }))
+                                }
+                                className="w-full rounded-lg border border-amber-200 px-3 py-2 text-sm bg-white"
+                                placeholder="Complaint details"
+                              />
+                            </div>
+                            {escalationError && (
+                              <p className="text-xs text-rose-600">{escalationError}</p>
+                            )}
+                            <div className="flex items-center justify-end gap-3">
+                              <Button
+                                variant="light"
+                                onClick={() => setComplaintEscalation({ open: false, item: null })}
+                                disabled={escalationSaving}
+                              >
+                                Cancel
+                              </Button>
+                              <Button onClick={submitComplaintEscalation} disabled={escalationSaving}>
+                                {escalationSaving ? "Escalating..." : "Create escalation"}
+                              </Button>
+                            </div>
+                          </div>
+                        )}
                         <form
                           onSubmit={handleComplaintSubmit}
                           className="grid grid-cols-1 gap-4 lg:grid-cols-[2fr_1fr]"
@@ -2419,6 +2734,210 @@ const GuardianRelationshipManager = () => {
                       </CardBody>
                     </Card>
                   )}
+
+                  {activeSection === "ptm" && (
+                    <Card>
+                      <CardHeader>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h3 className="text-sm font-semibold text-slate-700">PTMs</h3>
+                            <p className="text-xs text-slate-500">Record parent-teacher meetings and next steps.</p>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardBody className="space-y-6">
+                        <form onSubmit={handlePtmSubmit} className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                          <div className="space-y-3">
+                            <div>
+                              <label className="block text-xs font-semibold text-slate-600 mb-1">
+                                PTM date <span className="text-rose-500">*</span>
+                              </label>
+                              <input
+                                type="date"
+                                value={ptmForm.date}
+                                onChange={(e) => setPtmForm((prev) => ({ ...prev, date: e.target.value }))}
+                                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
+                                required
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-semibold text-slate-600 mb-1">
+                                Teachers present (multi-select)
+                              </label>
+                              <div className="rounded-lg border border-slate-200 p-3 space-y-2 max-h-44 overflow-y-auto bg-slate-50/50">
+                                {ptmUsers.length ? (
+                                  ptmUsers.map((user) => (
+                                    <label key={user.id} className="flex items-center gap-2 text-sm text-slate-700">
+                                      <input
+                                        type="checkbox"
+                                        checked={ptmForm.teacherIds.includes(user.id)}
+                                        onChange={(e) => {
+                                          const checked = e.target.checked;
+                                          setPtmForm((prev) => {
+                                            const current = new Set(prev.teacherIds);
+                                            if (checked) current.add(user.id);
+                                            else current.delete(user.id);
+                                            return { ...prev, teacherIds: Array.from(current) };
+                                          });
+                                        }}
+                                        className="text-teal-600"
+                                      />
+                                      <span>
+                                        {user.name} <span className="text-slate-400 text-xs">({user.role})</span>
+                                      </span>
+                                    </label>
+                                  ))
+                                ) : (
+                                  <p className="text-xs text-slate-500">No staff loaded.</p>
+                                )}
+                              </div>
+                              <input
+                                type="text"
+                                value={ptmForm.teachersNote}
+                                onChange={(e) => setPtmForm((prev) => ({ ...prev, teachersNote: e.target.value }))}
+                                className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
+                                placeholder="Add any external/other attendees"
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <p className="text-xs font-semibold text-slate-600">Guardian attendee</p>
+                              <div className="flex gap-3 text-sm text-slate-700">
+                                <label className="inline-flex items-center gap-2">
+                                  <input
+                                    type="radio"
+                                    name="ptm-guardian-attendee"
+                                    checked={ptmForm.guardianAttendee === "self"}
+                                    onChange={() =>
+                                      setPtmForm((prev) => ({ ...prev, guardianAttendee: "self", proxyName: "", proxyRelation: "" }))
+                                    }
+                                    className="text-teal-600"
+                                  />
+                                  Same guardian
+                                </label>
+                                <label className="inline-flex items-center gap-2">
+                                  <input
+                                    type="radio"
+                                    name="ptm-guardian-attendee"
+                                    checked={ptmForm.guardianAttendee === "proxy"}
+                                    onChange={() => setPtmForm((prev) => ({ ...prev, guardianAttendee: "proxy" }))}
+                                    className="text-teal-600"
+                                  />
+                                  Someone else
+                                </label>
+                              </div>
+                              {ptmForm.guardianAttendee === "proxy" && (
+                                <div className="grid gap-2 sm:grid-cols-2">
+                                  <input
+                                    type="text"
+                                    value={ptmForm.proxyName}
+                                    onChange={(e) => setPtmForm((prev) => ({ ...prev, proxyName: e.target.value }))}
+                                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
+                                    placeholder="Proxy name"
+                                  />
+                                  <input
+                                    type="text"
+                                    value={ptmForm.proxyRelation}
+                                    onChange={(e) => setPtmForm((prev) => ({ ...prev, proxyRelation: e.target.value }))}
+                                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
+                                    placeholder="Relation (brother/uncle/neighbor)"
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="space-y-3">
+                            <div className="grid gap-2">
+                              <label className="block text-xs font-semibold text-slate-600 mb-1">Teacher comments</label>
+                              <textarea
+                                value={ptmForm.teacherNotes}
+                                onChange={(e) => setPtmForm((prev) => ({ ...prev, teacherNotes: e.target.value }))}
+                                rows={2}
+                                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
+                              />
+                            </div>
+                            <div className="grid gap-2">
+                              <label className="block text-xs font-semibold text-slate-600 mb-1">Parent/Guardian comments</label>
+                              <textarea
+                                value={ptmForm.parentNotes}
+                                onChange={(e) => setPtmForm((prev) => ({ ...prev, parentNotes: e.target.value }))}
+                                rows={2}
+                                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
+                              />
+                            </div>
+                            <div className="grid gap-2">
+                              <label className="block text-xs font-semibold text-slate-600 mb-1">Admin/Principal/COD comments</label>
+                              <textarea
+                                value={ptmForm.adminNotes}
+                                onChange={(e) => setPtmForm((prev) => ({ ...prev, adminNotes: e.target.value }))}
+                                rows={2}
+                                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
+                              />
+                            </div>
+                            <div className="space-y-2 rounded-lg border border-slate-200 p-3">
+                              <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  checked={ptmForm.nextMeetingPlanned}
+                                  onChange={(e) =>
+                                    setPtmForm((prev) => ({
+                                      ...prev,
+                                      nextMeetingPlanned: e.target.checked,
+                                      nextMeetingDate: e.target.checked ? prev.nextMeetingDate : "",
+                                    }))
+                                  }
+                                  className="rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                                />
+                                Next meeting scheduled?
+                              </label>
+                              {ptmForm.nextMeetingPlanned && (
+                                <input
+                                  type="date"
+                                  value={ptmForm.nextMeetingDate}
+                                  onChange={(e) => setPtmForm((prev) => ({ ...prev, nextMeetingDate: e.target.value }))}
+                                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
+                                />
+                              )}
+                            </div>
+                            {ptmState.error && <p className="text-xs text-rose-600">{ptmState.error}</p>}
+                            <div className="flex justify-end">
+                              <Button type="submit" disabled={ptmSaving}>
+                                {ptmSaving ? "Saving…" : "Log PTM"}
+                              </Button>
+                            </div>
+                          </div>
+                        </form>
+
+                        <div className="space-y-3">
+                          <h4 className="text-sm font-semibold text-slate-700">PTM history</h4>
+                          {ptmState.loading ? (
+                            <p className="text-sm text-slate-500">Loading PTMs…</p>
+                          ) : ptmState.items?.length ? (
+                            <div className="space-y-3">
+                              {ptmState.items.map((item) => (
+                                <div key={item.id} className="rounded-xl border border-slate-200 p-4">
+                                  <div className="flex items-center justify-between text-xs text-slate-500">
+                                    <span>{formatDate(item.createdAt)}</span>
+                                    <Badge color={item.followUpRequired ? "amber" : "teal"}>
+                                      {item.followUpRequired ? "Follow-up" : "Logged"}
+                                    </Badge>
+                                  </div>
+                                  <p className="text-sm text-slate-800 mt-2">{item.content || "—"}</p>
+                                  {item.followUpDate && (
+                                    <p className="text-xs text-slate-500 mt-1">
+                                      Next meeting: {formatDate(item.followUpDate)}
+                                    </p>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-sm text-slate-500">No PTMs logged yet.</p>
+                          )}
+                        </div>
+                      </CardBody>
+                    </Card>
+                  )}
                 </main>
               </div>
             </div>
@@ -2427,6 +2946,7 @@ const GuardianRelationshipManager = () => {
       </div>
     );
   };
+
 
   const ProbableGuardianDetailView = ({ guardian, onClose, onWhatsApp, onCall, onEdit }) => {
     const [activeSection, setActiveSection] = useState("overview");

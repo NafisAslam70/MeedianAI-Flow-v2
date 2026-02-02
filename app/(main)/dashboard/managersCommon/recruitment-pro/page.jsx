@@ -81,6 +81,9 @@ export default function RecruitmentProPage() {
     fetcher
   );
   const benchSwr = useSWR(activeTab === "bench" ? "/api/managersCommon/recruitment-pro?section=bench" : null, fetcher);
+  const [benchSearch, setBenchSearch] = React.useState("");
+  const [benchFilterLocation, setBenchFilterLocation] = React.useState("");
+  const [benchFilterApplied, setBenchFilterApplied] = React.useState("");
 
   const programs = programsSwr.data?.programs || [];
   const activePrograms = React.useMemo(() => programs.filter((p) => p.isActive !== false), [programs]);
@@ -1436,29 +1439,35 @@ export default function RecruitmentProPage() {
             className="space-y-3"
           >
             <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between px-1">
-              <div className="text-xs text-slate-600">Push selected leads to a requirement → pipeline</div>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                <input
+                  className="rounded-lg border border-slate-200 bg-white/90 px-3 py-1.5 text-sm"
+                  placeholder="Search name, phone, source..."
+                  value={benchSearch}
+                  onChange={(e) => setBenchSearch(e.target.value)}
+                />
                 <select
                   className="rounded-lg border border-slate-200 bg-white/90 px-3 py-1.5 text-sm"
-                  value={benchPush.requirementId}
-                  onChange={(e) => {
-                    const reqId = e.target.value;
-                    const req = (requirementsSwr.data?.requirements || []).find((r) => String(r.id) === reqId);
-                    setBenchPush({
-                      ...benchPush,
-                      requirementId: reqId,
-                      programId: req ? req.programId : "",
-                      mspCodeId: "",
-                    });
-                  }}
+                  value={benchFilterLocation}
+                  onChange={(e) => setBenchFilterLocation(e.target.value)}
                 >
-                  <option value="">Requirement</option>
-                  {(requirementsSwr.data?.requirements || []).map((req) => (
-                    <option key={req.id} value={req.id}>
-                      {(req.requirementName || "Req") + " — " + (req.programCode || "") + (req.notes ? ` (${req.notes})` : "")}
-                    </option>
+                  <option value="">All locations</option>
+                  {locations.map((l) => (
+                    <option key={l.id} value={l.locationName}>{l.locationName}</option>
                   ))}
                 </select>
+                <select
+                  className="rounded-lg border border-slate-200 bg-white/90 px-3 py-1.5 text-sm"
+                  value={benchFilterApplied}
+                  onChange={(e) => setBenchFilterApplied(e.target.value)}
+                >
+                  <option value="">All roles</option>
+                  {["English/SST/Science", "Maths", "Jr Eng", "Jr All", "Computer/Arts", "Admin/Principal/Vice Principal", "Office"].map((opt) => (
+                    <option key={opt} value={opt}>{opt}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex flex-wrap gap-2">
                 <select className="rounded-lg border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" value={benchPush.countryCodeId} onChange={(e) => setBenchPush({ ...benchPush, countryCodeId: e.target.value })}>
                   <option value="">Country code</option>
                   {countryCodes.map((c) => (
@@ -1511,7 +1520,19 @@ export default function RecruitmentProPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(benchSwr.data?.bench || []).map((b, idx) => {
+                  {(benchSwr.data?.bench || [])
+                    .filter((b) => {
+                      const q = benchSearch.trim().toLowerCase();
+                      const matchesSearch =
+                        !q ||
+                        b.fullName?.toLowerCase().includes(q) ||
+                        b.phone?.toLowerCase().includes(q) ||
+                        b.source?.toLowerCase().includes(q);
+                      const matchesLoc = !benchFilterLocation || b.location === benchFilterLocation;
+                      const matchesApplied = !benchFilterApplied || b.appliedFor === benchFilterApplied;
+                      return matchesSearch && matchesLoc && matchesApplied;
+                    })
+                    .map((b, idx) => {
                     const draft = benchDrafts[b.id] || b;
                     const checked = selectedBench.has(b.id);
                     const isEditing = benchEditingId === b.id;
