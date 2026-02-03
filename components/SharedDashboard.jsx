@@ -1991,6 +1991,11 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
                     <span className="text-sm font-semibold text-gray-900 dark:text-white mr-2">Quick Tools:</span>
                     <PrimaryButton onClick={() => setShowRoutineTrackerModal(true)}>Open Routine Tracker</PrimaryButton>
                     <GhostButton onClick={() => router.push("/dashboard/member/notes")}>My Notes</GhostButton>
+                    {role === "member" && (
+                      <GhostButton onClick={() => router.push("/dashboard/member/member-club")}>
+                        Member Club
+                      </GhostButton>
+                    )}
                     <DangerGhostButton onClick={() => setShowCloseDayModal(true)}>Close My Day</DangerGhostButton>
                   </div>
                 </TiltCard>

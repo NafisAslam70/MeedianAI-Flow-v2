@@ -136,7 +136,7 @@ export default function RandomsPage() {
     if (isSavingRoutineLogAll) return;
     const nextValue = !routineLogRequiredAll;
     updateFlag({
-      payload: { routineLogRequiredAll: nextValue },
+      payload: { routineLogRequiredAll: nextValue, routineLogRequiredMemberIds: nextValue ? [] : undefined },
       setSaving: setIsSavingRoutineLogAll,
       successMessage: nextValue
         ? "Routine log is mandatory for everyone."
@@ -148,7 +148,7 @@ export default function RandomsPage() {
     if (isSavingRoutineLogTeachers) return;
     const nextValue = !routineLogRequiredTeachers;
     updateFlag({
-      payload: { routineLogRequiredTeachers: nextValue },
+      payload: { routineLogRequiredTeachers: nextValue, routineLogRequiredMemberIds: nextValue ? [] : undefined },
       setSaving: setIsSavingRoutineLogTeachers,
       successMessage: nextValue
         ? "Routine log is mandatory for teachers."
@@ -160,7 +160,7 @@ export default function RandomsPage() {
     if (isSavingRoutineLogNonTeachers) return;
     const nextValue = !routineLogRequiredNonTeachers;
     updateFlag({
-      payload: { routineLogRequiredNonTeachers: nextValue },
+      payload: { routineLogRequiredNonTeachers: nextValue, routineLogRequiredMemberIds: nextValue ? [] : undefined },
       setSaving: setIsSavingRoutineLogNonTeachers,
       successMessage: nextValue
         ? "Routine log is mandatory for non-teachers."
@@ -201,9 +201,21 @@ export default function RandomsPage() {
   }, [teamData, routineMemberSearch]);
 
   const handleSaveRoutineMemberIds = () => {
+    const payload = {
+      routineLogRequiredMemberIds: selectedRoutineMemberIds,
+      ...(selectedRoutineMemberIds.length
+        ? {
+            routineLogRequiredAll: false,
+            routineLogRequiredTeachers: false,
+            routineLogRequiredNonTeachers: false,
+          }
+        : {}),
+    };
     updateFlag({
-      payload: { routineLogRequiredMemberIds: selectedRoutineMemberIds },
-      successMessage: "Routine log roster updated.",
+      payload,
+      successMessage: selectedRoutineMemberIds.length
+        ? "Routine log roster updated. Group rules cleared."
+        : "Routine log roster cleared.",
     });
   };
 
@@ -754,16 +766,32 @@ export default function RandomsPage() {
             <span className="text-sm font-medium text-gray-700">Specific members</span>
             <span className="text-xs text-gray-500">{selectedRoutineMemberIds.length} selected</span>
           </div>
+          {((routineLogRequiredAll || routineLogRequiredTeachers || routineLogRequiredNonTeachers) &&
+            selectedRoutineMemberIds.length === 0) ? (
+            <p className="text-xs text-rose-500">
+              Turn off group rules above to select specific members.
+            </p>
+          ) : null}
           <div className="flex gap-2">
             <input
               value={routineMemberSearch}
               onChange={(e) => setRoutineMemberSearch(e.target.value)}
               placeholder="Search by name or ID"
-              className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500"
+              disabled={routineLogRequiredAll || routineLogRequiredTeachers || routineLogRequiredNonTeachers}
+              className={`flex-1 rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500 ${
+                routineLogRequiredAll || routineLogRequiredTeachers || routineLogRequiredNonTeachers
+                  ? "bg-gray-100 text-gray-400 cursor-not-allowed border-gray-200"
+                  : "border-gray-300"
+              }`}
             />
             <button
               type="button"
-              className="px-3 py-2 rounded-lg bg-rose-100 text-xs text-rose-700"
+              disabled={routineLogRequiredAll || routineLogRequiredTeachers || routineLogRequiredNonTeachers}
+              className={`px-3 py-2 rounded-lg text-xs ${
+                routineLogRequiredAll || routineLogRequiredTeachers || routineLogRequiredNonTeachers
+                  ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+                  : "bg-rose-100 text-rose-700"
+              }`}
               onClick={handleSaveRoutineMemberIds}
             >
               Save roster
@@ -775,10 +803,14 @@ export default function RandomsPage() {
             ) : (
               routineMemberOptions.map((m) => {
                 const checked = selectedRoutineMemberIds.includes(m.id);
+                const disabled =
+                  routineLogRequiredAll || routineLogRequiredTeachers || routineLogRequiredNonTeachers;
                 return (
                   <label
                     key={m.id}
-                    className="flex items-center justify-between gap-2 px-3 py-2 text-sm border-b border-gray-100 last:border-b-0"
+                    className={`flex items-center justify-between gap-2 px-3 py-2 text-sm border-b border-gray-100 last:border-b-0 ${
+                      disabled ? "text-gray-400" : ""
+                    }`}
                   >
                     <span className="flex flex-col">
                       <span className="font-medium text-gray-900">{m.name || `User #${m.id}`}</span>
@@ -790,6 +822,7 @@ export default function RandomsPage() {
                       type="checkbox"
                       className="h-4 w-4 accent-rose-600"
                       checked={checked}
+                      disabled={disabled}
                       onChange={() => {
                         setSelectedRoutineMemberIds((prev) =>
                           checked ? prev.filter((x) => x !== m.id) : [...prev, m.id]
@@ -801,11 +834,13 @@ export default function RandomsPage() {
               })
             )}
           </div>
-          <p className="text-xs text-gray-500">Selected members are added on top of any group rules above.</p>
+          <p className="text-xs text-gray-500">Pick either a group OR specific members.</p>
         </div>
         <div className="text-sm text-gray-500">
           Status: {isLoading
             ? "Loading…"
+            : selectedRoutineMemberIds.length
+            ? "Mandatory for selected members."
             : routineLogRequiredAll
             ? "Mandatory for everyone."
             : routineLogRequiredTeachers || routineLogRequiredNonTeachers
