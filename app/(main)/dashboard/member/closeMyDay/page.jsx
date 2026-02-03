@@ -66,6 +66,10 @@ export default function CloseMyDay() {
   const [managerRoutineReport, setManagerRoutineReport] = useState({});
   const [mobileBlockActive, setMobileBlockActive] = useState(false);
   const [isMobileDevice, setIsMobileDevice] = useState(false);
+  const [routineLogRequiredAll, setRoutineLogRequiredAll] = useState(false);
+  const [routineLogRequiredTeachers, setRoutineLogRequiredTeachers] = useState(false);
+  const [routineLogRequiredNonTeachers, setRoutineLogRequiredNonTeachers] = useState(false);
+  const [routineLogRequiredMemberIds, setRoutineLogRequiredMemberIds] = useState([]);
 
   const mobileBlockMessage =
     "Day Close on mobile is currently disabled. Please use a desktop browser to continue.";
@@ -238,6 +242,10 @@ export default function CloseMyDay() {
 
     setShowIprJourney(dayCloseStatus?.showIprJourney !== false);
     setMobileBlockActive(dayCloseStatus?.blockMobileDayClose ?? false);
+    setRoutineLogRequiredAll(dayCloseStatus?.routineLogRequiredAll ?? false);
+    setRoutineLogRequiredTeachers(dayCloseStatus?.routineLogRequiredTeachers ?? false);
+    setRoutineLogRequiredNonTeachers(dayCloseStatus?.routineLogRequiredNonTeachers ?? false);
+    setRoutineLogRequiredMemberIds(Array.isArray(dayCloseStatus?.routineLogRequiredMemberIds) ? dayCloseStatus.routineLogRequiredMemberIds : []);
 
     if (dayCloseStatus && ["pending", "approved", "rejected"].includes(dayCloseStatus.status)) {
       setRequestStatus(dayCloseStatus.status);
@@ -330,6 +338,14 @@ export default function CloseMyDay() {
     setRoutineTasksStatuses((prev) => prev.map((t) => (t.id === taskId ? { ...t, done } : t)));
   };
 
+  const isTeacher = session?.user?.isTeacher === true;
+  const isInRoutineMemberList = routineLogRequiredMemberIds.includes(Number(session?.user?.id));
+  const routineLogRequired =
+    routineLogRequiredAll ||
+    (isTeacher && routineLogRequiredTeachers) ||
+    (!isTeacher && routineLogRequiredNonTeachers) ||
+    isInRoutineMemberList;
+
   const handleManagerReportChange = useCallback(
     (taskId, updates) => {
       if (!isTeamManager) return;
@@ -358,6 +374,11 @@ export default function CloseMyDay() {
   const handleSubmitClose = async () => {
     if (isMobileBlocked) {
       setError(mobileBlockMessage);
+      setShowConfirmModal(false);
+      return;
+    }
+    if (routineLogRequired && !routineLog.trim()) {
+      setError("Routine Task Log is required. Please add what you did before submitting.");
       setShowConfirmModal(false);
       return;
     }
@@ -831,6 +852,7 @@ export default function CloseMyDay() {
                         setRoutineLog={setRoutineLog}
                         handlePrevStep={handlePrevStep}
                         handleNextStep={handleNextStep}
+                        routineLogRequired={routineLogRequired}
                         isTeamManager={isTeamManager}
                         assignedTasksData={assignedTasksData}
                         managerRoutineReport={managerRoutineReport}

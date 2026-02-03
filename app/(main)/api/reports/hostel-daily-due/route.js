@@ -1,12 +1,54 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { escalationsMatters, hostelDailyDueReports, mriReportAssignments, ticketActivities, tickets, users } from "@/lib/schema";
+import {
+  escalationsMatters,
+  hostelDailyDueReports,
+  mriReportAssignments,
+  ticketActivities,
+  tickets,
+  users,
+  memberSectionGrants,
+} from "@/lib/schema";
 import { computeTicketSla, findCategoryByKey, formatTicketNumber } from "@/lib/ticketsConfig";
 import { ensureHostelDailyDueTemplate } from "@/lib/mriReports";
 import { eq, and, desc } from "drizzle-orm";
+import { mriReportTemplates, mriReportAssignments } from "@/lib/schema";
+
+const HOSTEL_DUE_TEMPLATE_KEY = "hostel_daily_due_report";
+
+const hasHostelReportAssignment = async (session) => {
+  const uid = Number(session?.user?.id);
+  if (!Number.isFinite(uid)) return false;
+  const templateRow = await db
+    .select({ id: mriReportTemplates.id })
+    .from(mriReportTemplates)
+    .where(eq(mriReportTemplates.key, HOSTEL_DUE_TEMPLATE_KEY))
+    .limit(1);
+  if (!templateRow.length) return false;
+  const templateId = templateRow[0].id;
+  const rows = await db
+    .select({ id: mriReportAssignments.id })
+    .from(mriReportAssignments)
+    .where(and(eq(mriReportAssignments.templateId, templateId), eq(mriReportAssignments.userId, uid)));
+  return rows.length > 0;
+};
+import { auth } from "@/lib/auth";
 
 export async function GET(request) {
   try {
+    const session = await auth();
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (!["admin", "team_manager"].includes(session.user.role)) {
+      const rows = await db
+        .select({ id: memberSectionGrants.id })
+        .from(memberSectionGrants)
+        .where(and(eq(memberSectionGrants.userId, session.user.id), eq(memberSectionGrants.section, "hostelDueReport")));
+      const hasGrant = rows.length > 0;
+      const hasAssignment = await hasHostelReportAssignment(session);
+      if (!hasGrant && !hasAssignment) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     const { searchParams } = new URL(request.url);
     const limit = parseInt(searchParams.get("limit") || "10");
     const assignedTo = searchParams.get("assignedTo");
@@ -58,6 +100,16 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
+    const session = await auth();
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (!["admin", "team_manager"].includes(session.user.role)) {
+      const hasAssignment = await hasHostelReportAssignment(session);
+      if (!hasAssignment) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+    }
     const body = await request.json();
     const { reportDate, entries, hostelInchargeId, submittedBy, reportId } = body;
 

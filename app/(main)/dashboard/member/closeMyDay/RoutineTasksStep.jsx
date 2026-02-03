@@ -89,6 +89,7 @@ export default function RoutineTasksStep({
   setRoutineLog,
   handlePrevStep,
   handleNextStep,
+  routineLogRequired = false,
   showNavigation = true,
   isTeamManager = false,
   assignedTasksData,
@@ -99,6 +100,7 @@ export default function RoutineTasksStep({
   const [selectedMonth, setSelectedMonth] = useState(new Date());
   const [showRoutineLogModal, setShowRoutineLogModal] = useState(false);
   const [error, setError] = useState("");
+  const routineLogMissing = routineLogRequired && !String(routineLog || "").trim();
 
   const todayStart = startOfDay(new Date());
 
@@ -275,6 +277,11 @@ export default function RoutineTasksStep({
           >
             Add Routine Task Log
           </motion.button>
+          {routineLogRequired && (
+            <p className={`mt-2 text-xs ${routineLogMissing ? "text-rose-600" : "text-teal-600"}`}>
+              {routineLogMissing ? "Routine Task Log is required before you continue." : "Routine Task Log completed."}
+            </p>
+          )}
         </motion.div>
 
         <div className="space-y-6">
@@ -567,12 +574,20 @@ export default function RoutineTasksStep({
               Previous
             </motion.button>
             <motion.button
-              onClick={handleNextStep}
-              className="flex-1 bg-teal-600 text-white py-3 rounded-xl font-semibold hover:bg-teal-700 transition-all duration-300 shadow-md"
+              onClick={() => {
+                if (routineLogMissing) {
+                  setError("Routine Task Log is required before continuing.");
+                  setShowRoutineLogModal(true);
+                  return;
+                }
+                handleNextStep();
+              }}
+              className="flex-1 bg-teal-600 text-white py-3 rounded-xl font-semibold hover:bg-teal-700 transition-all duration-300 shadow-md disabled:opacity-60"
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               data-tooltip-id="nav-tooltip"
               data-tooltip-content="Go to next step"
+              disabled={routineLogMissing}
             >
               Next
             </motion.button>

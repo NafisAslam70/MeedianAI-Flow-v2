@@ -16,6 +16,26 @@ const MEMBER_FEATURES = [
     description: "Allow members to log and view guardian call reports.",
   },
   {
+    key: "grm",
+    label: "Guardian Relationship Manager",
+    description: "Allow members to access King's Place (GRM).",
+  },
+  {
+    key: "ptAssist",
+    label: "CCD / CDD Help",
+    description: "Allow members to open CCD/CDD help tools.",
+  },
+  {
+    key: "hostelDueReport",
+    label: "Hostel Due Report",
+    description: "Allow members to view hostel due reports (read-only).",
+  },
+  {
+    key: "studentsRead",
+    label: "Student Register (Read-only)",
+    description: "Allow members to view student register without edits.",
+  },
+  {
     key: "mgcpLeads",
     label: "Student Enquiry",
     description: "Allow members to log admission enquiries (Random Leads).",
@@ -136,4 +156,3 @@ export default function MemberClubControlsPage() {
     </div>
   );
 }
-

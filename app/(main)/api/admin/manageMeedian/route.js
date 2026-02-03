@@ -108,6 +108,10 @@ export async function GET(req) {
     "guardianGateLogs",
     "guardianCalls",
     "mgcpLeads",
+    "grm",
+    "ptAssist",
+    "hostelDueReport",
+    "studentsRead",
   ]);
   const grantableSections = new Set([
     "slots",
@@ -159,6 +163,16 @@ export async function GET(req) {
         .from(managerSectionGrants)
         .where(and(eq(managerSectionGrants.userId, session.user.id), eq(managerSectionGrants.section, section)));
       if (!has.length) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    } else if (role === 'member') {
+      const sec = section === "students" ? "studentsRead" : section;
+      if (!memberClubSections.has(sec)) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+      const grants = await db
+        .select({ id: memberSectionGrants.id })
+        .from(memberSectionGrants)
+        .where(and(eq(memberSectionGrants.userId, session.user.id), eq(memberSectionGrants.section, sec)));
+      if (!grants.length) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     } else {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }

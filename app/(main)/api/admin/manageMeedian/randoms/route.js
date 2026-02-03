@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { systemFlags, managerSectionGrants } from "@/lib/schema";
+import { systemFlags, managerSectionGrants, routineLogRequiredMembers } from "@/lib/schema";
 import { eq, and, inArray } from "drizzle-orm";
 
 const FLAG_KEYS = {
@@ -10,6 +10,9 @@ const FLAG_KEYS = {
   wait: "day_close_wait_compulsory",
   waitFullscreen: "day_close_wait_fullscreen",
   mobileBlock: "block_mobile_day_close",
+  routineLogAll: "routine_log_required_all",
+  routineLogTeachers: "routine_log_required_teachers",
+  routineLogNonTeachers: "routine_log_required_non_teachers",
   chatMuteAdmin: "chat_mute_allow_admins",
   chatMuteManager: "chat_mute_allow_managers",
   chatMuteMember: "chat_mute_allow_members",
@@ -24,6 +27,9 @@ const FLAG_DEFAULTS = {
   dayCloseWaitCompulsory: false,
   dayCloseWaitFullscreen: false,
   blockMobileDayClose: false,
+  routineLogRequiredAll: false,
+  routineLogRequiredTeachers: false,
+  routineLogRequiredNonTeachers: false,
   chatMuteAllowAdmins: true,
   chatMuteAllowManagers: true,
   chatMuteAllowMembers: true,
@@ -79,6 +85,8 @@ export async function GET() {
     .where(inArray(systemFlags.key, Object.values(FLAG_KEYS)));
 
   const map = new Map(rows.map((row) => [row.key, row.value]));
+  const requiredRows = await db.select({ userId: routineLogRequiredMembers.userId }).from(routineLogRequiredMembers);
+  const routineLogRequiredMemberIds = requiredRows.map((r) => Number(r.userId)).filter((n) => Number.isInteger(n));
 
   return NextResponse.json(
     {
@@ -89,6 +97,16 @@ export async function GET() {
       blockMobileDayClose: map.has(FLAG_KEYS.mobileBlock)
         ? !!map.get(FLAG_KEYS.mobileBlock)
         : FLAG_DEFAULTS.blockMobileDayClose,
+      routineLogRequiredAll: map.has(FLAG_KEYS.routineLogAll)
+        ? !!map.get(FLAG_KEYS.routineLogAll)
+        : FLAG_DEFAULTS.routineLogRequiredAll,
+      routineLogRequiredTeachers: map.has(FLAG_KEYS.routineLogTeachers)
+        ? !!map.get(FLAG_KEYS.routineLogTeachers)
+        : FLAG_DEFAULTS.routineLogRequiredTeachers,
+      routineLogRequiredNonTeachers: map.has(FLAG_KEYS.routineLogNonTeachers)
+        ? !!map.get(FLAG_KEYS.routineLogNonTeachers)
+        : FLAG_DEFAULTS.routineLogRequiredNonTeachers,
+      routineLogRequiredMemberIds,
       chatMuteAllowAdmins: map.has(FLAG_KEYS.chatMuteAdmin)
         ? !!map.get(FLAG_KEYS.chatMuteAdmin)
         : FLAG_DEFAULTS.chatMuteAllowAdmins,
@@ -144,6 +162,29 @@ export async function POST(req) {
   if (body.hasOwnProperty("blockMobileDayClose")) {
     updates.push({ key: FLAG_KEYS.mobileBlock, value: !!body.blockMobileDayClose });
   }
+  if (body.hasOwnProperty("routineLogRequiredAll")) {
+    updates.push({ key: FLAG_KEYS.routineLogAll, value: !!body.routineLogRequiredAll });
+  }
+  if (body.hasOwnProperty("routineLogRequiredTeachers")) {
+    updates.push({ key: FLAG_KEYS.routineLogTeachers, value: !!body.routineLogRequiredTeachers });
+  }
+  if (body.hasOwnProperty("routineLogRequiredNonTeachers")) {
+    updates.push({ key: FLAG_KEYS.routineLogNonTeachers, value: !!body.routineLogRequiredNonTeachers });
+  }
+  if (body.hasOwnProperty("routineLogRequiredMemberIds")) {
+    const ids = Array.isArray(body.routineLogRequiredMemberIds)
+      ? body.routineLogRequiredMemberIds.map((v) => Number(v)).filter((n) => Number.isInteger(n) && n > 0)
+      : [];
+    await db.transaction(async (tx) => {
+      await tx.delete(routineLogRequiredMembers);
+      if (ids.length) {
+        await tx
+          .insert(routineLogRequiredMembers)
+          .values(ids.map((userId) => ({ userId })))
+          .onConflictDoNothing();
+      }
+    });
+  }
   if (body.hasOwnProperty("chatMuteAllowAdmins")) {
     updates.push({ key: FLAG_KEYS.chatMuteAdmin, value: !!body.chatMuteAllowAdmins });
   }
@@ -163,7 +204,7 @@ export async function POST(req) {
     updates.push({ key: FLAG_KEYS.leaveNoticeOneDay, value: !!body.leaveNoticeOneDay });
   }
 
-  if (!updates.length) {
+  if (!updates.length && !body.hasOwnProperty("routineLogRequiredMemberIds")) {
     return NextResponse.json({ error: "No updates provided" }, { status: 400 });
   }
 
@@ -187,6 +228,10 @@ export async function POST(req) {
       dayCloseWaitCompulsory: updates.find((item) => item.key === FLAG_KEYS.wait)?.value ?? undefined,
       dayCloseWaitFullscreen: updates.find((item) => item.key === FLAG_KEYS.waitFullscreen)?.value ?? undefined,
       blockMobileDayClose: updates.find((item) => item.key === FLAG_KEYS.mobileBlock)?.value ?? undefined,
+      routineLogRequiredAll: updates.find((item) => item.key === FLAG_KEYS.routineLogAll)?.value ?? undefined,
+      routineLogRequiredTeachers: updates.find((item) => item.key === FLAG_KEYS.routineLogTeachers)?.value ?? undefined,
+      routineLogRequiredNonTeachers: updates.find((item) => item.key === FLAG_KEYS.routineLogNonTeachers)?.value ?? undefined,
+      routineLogRequiredMemberIds: body.routineLogRequiredMemberIds ?? undefined,
       chatMuteAllowAdmins: updates.find((item) => item.key === FLAG_KEYS.chatMuteAdmin)?.value ?? undefined,
       chatMuteAllowManagers: updates.find((item) => item.key === FLAG_KEYS.chatMuteManager)?.value ?? undefined,
       chatMuteAllowMembers: updates.find((item) => item.key === FLAG_KEYS.chatMuteMember)?.value ?? undefined,

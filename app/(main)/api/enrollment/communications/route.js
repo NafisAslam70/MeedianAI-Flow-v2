@@ -6,8 +6,9 @@ import {
   enrollmentGuardianInteractions,
   enrollmentGuardianChildren,
   enrollmentCommunicationTemplates,
+  memberSectionGrants,
 } from "@/lib/schema";
-import { desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import twilio from "twilio";
 
 const accountSid = process.env.TWILIO_ACCOUNT_SID;
@@ -16,6 +17,16 @@ const whatsappNumber = process.env.TWILIO_WHATSAPP_NUMBER;
 const twilioClient = accountSid && authToken ? twilio(accountSid, authToken) : null;
 
 const unauthorized = () => NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+const hasGrmAccess = async (session) => {
+  if (!session?.user?.role) return false;
+  if (["admin", "team_manager"].includes(session.user.role)) return true;
+  if (session.user.role !== "member") return false;
+  const rows = await db
+    .select({ id: memberSectionGrants.id })
+    .from(memberSectionGrants)
+    .where(and(eq(memberSectionGrants.userId, session.user.id), eq(memberSectionGrants.section, "grm")));
+  return rows.length > 0;
+};
 
 const ensureTwilioReady = () => {
   if (!twilioClient || !whatsappNumber) {
@@ -27,7 +38,7 @@ const ensureTwilioReady = () => {
 export async function GET(request) {
   try {
     const session = await auth();
-    if (!session?.user?.role || !["admin", "team_manager"].includes(session.user.role)) {
+    if (!(await hasGrmAccess(session))) {
       return unauthorized();
     }
 
@@ -115,9 +126,9 @@ export async function GET(request) {
 export async function POST(request) {
   try {
     const session = await auth();
-    if (!session?.user?.role || !["admin", "team_manager"].includes(session.user.role)) {
-      return unauthorized();
-    }
+    const isManager = session?.user?.role && ["admin", "team_manager"].includes(session.user.role);
+    const isMemberAllowed = await hasGrmAccess(session);
+    if (!isManager && !isMemberAllowed) return unauthorized();
 
     let body;
     try {
@@ -129,14 +140,17 @@ export async function POST(request) {
     const action = body?.action;
 
     if (action === "send-message") {
+      if (!isManager) return unauthorized();
       return await sendWhatsAppMessage(body, session);
     }
 
     if (action === "send-bulk") {
+      if (!isManager) return unauthorized();
       return await sendBulkMessages(body, session);
     }
 
     if (action === "create-template") {
+      if (!isManager) return unauthorized();
       return await createTemplate(body, session);
     }
 

@@ -1,10 +1,20 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { students, Classes } from "@/lib/schema";
+import { students, Classes, memberSectionGrants } from "@/lib/schema";
 import { and, eq } from "drizzle-orm";
 
 const unauthorized = () => NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+const hasGrmAccess = async (session) => {
+  if (!session?.user?.role) return false;
+  if (["admin", "team_manager"].includes(session.user.role)) return true;
+  if (session.user.role !== "member") return false;
+  const rows = await db
+    .select({ id: memberSectionGrants.id })
+    .from(memberSectionGrants)
+    .where(and(eq(memberSectionGrants.userId, session.user.id), eq(memberSectionGrants.section, "grm")));
+  return rows.length > 0;
+};
 
 const normalizeKey = (value, fallback) => {
   const raw = value ? String(value).trim() : "";
@@ -15,7 +25,7 @@ const normalizeKey = (value, fallback) => {
 export async function GET(request) {
   try {
     const session = await auth();
-    if (!session?.user?.role || !["admin", "team_manager"].includes(session.user.role)) {
+    if (!(await hasGrmAccess(session))) {
       return unauthorized();
     }
 

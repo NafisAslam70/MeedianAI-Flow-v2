@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import useSWR from "swr";
 import { motion } from "framer-motion";
 import { Loader2, Sparkles, Check, X, Eye, EyeOff, Lock, Smartphone, FileText } from "lucide-react";
@@ -22,6 +22,9 @@ export default function RandomsPage() {
   const [isSavingWaitFs, setIsSavingWaitFs] = useState(false);
   const [isSavingWait, setIsSavingWait] = useState(false);
   const [isSavingMobileBlock, setIsSavingMobileBlock] = useState(false);
+  const [isSavingRoutineLogAll, setIsSavingRoutineLogAll] = useState(false);
+  const [isSavingRoutineLogTeachers, setIsSavingRoutineLogTeachers] = useState(false);
+  const [isSavingRoutineLogNonTeachers, setIsSavingRoutineLogNonTeachers] = useState(false);
   const [isSavingChatMuteAdmins, setIsSavingChatMuteAdmins] = useState(false);
   const [isSavingChatMuteManagers, setIsSavingChatMuteManagers] = useState(false);
   const [isSavingChatMuteMembers, setIsSavingChatMuteMembers] = useState(false);
@@ -33,6 +36,12 @@ export default function RandomsPage() {
   const dayCloseWaitCompulsory = data?.dayCloseWaitCompulsory ?? false;
   const dayCloseWaitFullscreen = data?.dayCloseWaitFullscreen ?? false;
   const blockMobileDayClose = data?.blockMobileDayClose ?? false;
+  const routineLogRequiredAll = data?.routineLogRequiredAll ?? false;
+  const routineLogRequiredTeachers = data?.routineLogRequiredTeachers ?? false;
+  const routineLogRequiredNonTeachers = data?.routineLogRequiredNonTeachers ?? false;
+  const routineLogRequiredMemberIds = Array.isArray(data?.routineLogRequiredMemberIds)
+    ? data.routineLogRequiredMemberIds
+    : [];
   const chatMuteAllowAdmins = data?.chatMuteAllowAdmins ?? true;
   const chatMuteAllowManagers = data?.chatMuteAllowManagers ?? true;
   const chatMuteAllowMembers = data?.chatMuteAllowMembers ?? true;
@@ -120,6 +129,81 @@ export default function RandomsPage() {
       successMessage: nextValue
         ? "Members must use desktop to close their day."
         : "Mobile Day Close submissions are allowed again.",
+    });
+  };
+
+  const handleToggleRoutineLogAll = () => {
+    if (isSavingRoutineLogAll) return;
+    const nextValue = !routineLogRequiredAll;
+    updateFlag({
+      payload: { routineLogRequiredAll: nextValue },
+      setSaving: setIsSavingRoutineLogAll,
+      successMessage: nextValue
+        ? "Routine log is mandatory for everyone."
+        : "Routine log is no longer mandatory for everyone.",
+    });
+  };
+
+  const handleToggleRoutineLogTeachers = () => {
+    if (isSavingRoutineLogTeachers) return;
+    const nextValue = !routineLogRequiredTeachers;
+    updateFlag({
+      payload: { routineLogRequiredTeachers: nextValue },
+      setSaving: setIsSavingRoutineLogTeachers,
+      successMessage: nextValue
+        ? "Routine log is mandatory for teachers."
+        : "Routine log is no longer mandatory for teachers.",
+    });
+  };
+
+  const handleToggleRoutineLogNonTeachers = () => {
+    if (isSavingRoutineLogNonTeachers) return;
+    const nextValue = !routineLogRequiredNonTeachers;
+    updateFlag({
+      payload: { routineLogRequiredNonTeachers: nextValue },
+      setSaving: setIsSavingRoutineLogNonTeachers,
+      successMessage: nextValue
+        ? "Routine log is mandatory for non-teachers."
+        : "Routine log is no longer mandatory for non-teachers.",
+    });
+  };
+
+  const { data: teamData } = useSWR("/api/admin/manageMeedian?section=team", fetcher);
+  const [routineMemberSearch, setRoutineMemberSearch] = useState("");
+  const [selectedRoutineMemberIds, setSelectedRoutineMemberIds] = useState([]);
+
+  useEffect(() => {
+    const incoming = Array.isArray(routineLogRequiredMemberIds) ? routineLogRequiredMemberIds : [];
+    setSelectedRoutineMemberIds((prev) => {
+      const prevSorted = [...prev].sort((a, b) => a - b);
+      const nextSorted = [...incoming].sort((a, b) => a - b);
+      if (prevSorted.length === nextSorted.length && prevSorted.every((v, i) => v === nextSorted[i])) {
+        return prev;
+      }
+      return incoming;
+    });
+  }, [routineLogRequiredMemberIds]);
+
+  const routineMemberOptions = useMemo(() => {
+    const rows = Array.isArray(teamData?.users) ? teamData.users : [];
+    const q = routineMemberSearch.trim().toLowerCase();
+    return rows
+      .filter((m) => {
+        if (!q) return true;
+        return (
+          String(m.id || "").includes(q) ||
+          String(m.name || "").toLowerCase().includes(q) ||
+          String(m.email || "").toLowerCase().includes(q)
+        );
+      })
+      .slice()
+      .sort((a, b) => (a.name || "").localeCompare(b.name || "") || a.id - b.id);
+  }, [teamData, routineMemberSearch]);
+
+  const handleSaveRoutineMemberIds = () => {
+    updateFlag({
+      payload: { routineLogRequiredMemberIds: selectedRoutineMemberIds },
+      successMessage: "Routine log roster updated.",
     });
   };
 
@@ -598,6 +682,135 @@ export default function RandomsPage() {
         </div>
         <div className="text-sm text-gray-500">
           Status: {isLoading ? "Loading…" : blockMobileDayClose ? "Mobile submissions are blocked." : "Members can submit Day Close on mobile."}
+        </div>
+      </div>
+
+      <div className="max-w-xl rounded-2xl border border-rose-100 bg-white/90 shadow-sm p-6 space-y-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-800">Routine Log Required</h2>
+            <p className="text-sm text-gray-600">
+              Make the Routine Tasks log compulsory during Day Close. Choose who must fill it.
+            </p>
+          </div>
+          <FileText className="w-5 h-5 text-rose-500" />
+        </div>
+        <div className="space-y-3">
+          {[
+            {
+              key: "all",
+              label: "All members",
+              value: routineLogRequiredAll,
+              onToggle: handleToggleRoutineLogAll,
+              saving: isSavingRoutineLogAll,
+            },
+            {
+              key: "teachers",
+              label: "Teachers only",
+              value: routineLogRequiredTeachers,
+              onToggle: handleToggleRoutineLogTeachers,
+              saving: isSavingRoutineLogTeachers,
+            },
+            {
+              key: "non_teachers",
+              label: "Non-teachers only",
+              value: routineLogRequiredNonTeachers,
+              onToggle: handleToggleRoutineLogNonTeachers,
+              saving: isSavingRoutineLogNonTeachers,
+            },
+          ].map((row) => (
+            <div key={row.key} className="flex items-center justify-between gap-4">
+              <span className="text-sm text-gray-700">{row.label}</span>
+              <motion.button
+                type="button"
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
+                onClick={row.onToggle}
+                disabled={isLoading || row.saving}
+                className={`relative inline-flex h-9 w-16 items-center rounded-full border transition-colors duration-200 ${
+                  row.value ? "bg-rose-500 border-rose-500" : "bg-gray-200 border-gray-300"
+                } ${row.saving ? "opacity-70 cursor-not-allowed" : "cursor-pointer"}`}
+                aria-pressed={row.value}
+              >
+                <span
+                  className={`ml-1 inline-flex h-7 w-7 transform items-center justify-center rounded-full bg-white shadow transition-transform duration-200 ${
+                    row.value ? "translate-x-7" : "translate-x-0"
+                  }`}
+                >
+                  {row.saving ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-rose-600" />
+                  ) : row.value ? (
+                    <Check className="h-4 w-4 text-rose-600" />
+                  ) : (
+                    <X className="h-4 w-4 text-gray-500" />
+                  )}
+                </span>
+              </motion.button>
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 border-t border-rose-100 pt-4 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-sm font-medium text-gray-700">Specific members</span>
+            <span className="text-xs text-gray-500">{selectedRoutineMemberIds.length} selected</span>
+          </div>
+          <div className="flex gap-2">
+            <input
+              value={routineMemberSearch}
+              onChange={(e) => setRoutineMemberSearch(e.target.value)}
+              placeholder="Search by name or ID"
+              className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500"
+            />
+            <button
+              type="button"
+              className="px-3 py-2 rounded-lg bg-rose-100 text-xs text-rose-700"
+              onClick={handleSaveRoutineMemberIds}
+            >
+              Save roster
+            </button>
+          </div>
+          <div className="max-h-64 overflow-y-auto rounded-lg border border-gray-200 bg-white">
+            {routineMemberOptions.length === 0 ? (
+              <div className="text-xs text-gray-500 px-3 py-2">No team data loaded.</div>
+            ) : (
+              routineMemberOptions.map((m) => {
+                const checked = selectedRoutineMemberIds.includes(m.id);
+                return (
+                  <label
+                    key={m.id}
+                    className="flex items-center justify-between gap-2 px-3 py-2 text-sm border-b border-gray-100 last:border-b-0"
+                  >
+                    <span className="flex flex-col">
+                      <span className="font-medium text-gray-900">{m.name || `User #${m.id}`}</span>
+                      <span className="text-xs text-gray-500">
+                        #{m.id} {m.isTeacher ? "• Teacher" : ""}
+                      </span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-rose-600"
+                      checked={checked}
+                      onChange={() => {
+                        setSelectedRoutineMemberIds((prev) =>
+                          checked ? prev.filter((x) => x !== m.id) : [...prev, m.id]
+                        );
+                      }}
+                    />
+                  </label>
+                );
+              })
+            )}
+          </div>
+          <p className="text-xs text-gray-500">Selected members are added on top of any group rules above.</p>
+        </div>
+        <div className="text-sm text-gray-500">
+          Status: {isLoading
+            ? "Loading…"
+            : routineLogRequiredAll
+            ? "Mandatory for everyone."
+            : routineLogRequiredTeachers || routineLogRequiredNonTeachers
+            ? `Mandatory for ${routineLogRequiredTeachers ? "teachers" : ""}${routineLogRequiredTeachers && routineLogRequiredNonTeachers ? " and " : ""}${routineLogRequiredNonTeachers ? "non-teachers" : ""}.`
+            : "Optional for all."}
         </div>
       </div>
     </div>

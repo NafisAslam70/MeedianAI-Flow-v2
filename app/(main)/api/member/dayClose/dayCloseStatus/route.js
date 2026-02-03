@@ -9,6 +9,7 @@ import {
   escalationsMatterMembers,
   dayCloseOverrides,
   systemFlags,
+  routineLogRequiredMembers,
 } from "@/lib/schema";
 import { eq, and, gte, lte, ne, desc, inArray } from "drizzle-orm";
 import { sql } from "drizzle-orm";
@@ -71,6 +72,9 @@ export async function GET() {
       wait: "day_close_wait_compulsory",
       waitFullscreen: "day_close_wait_fullscreen",
       mobileBlock: "block_mobile_day_close",
+      routineLogAll: "routine_log_required_all",
+      routineLogTeachers: "routine_log_required_teachers",
+      routineLogNonTeachers: "routine_log_required_non_teachers",
     };
 
     const flagRows = await db
@@ -84,6 +88,11 @@ export async function GET() {
     const dayCloseWaitCompulsory = flagMap.has(FLAG_KEYS.wait) ? !!flagMap.get(FLAG_KEYS.wait) : false;
     const dayCloseWaitFullscreen = flagMap.has(FLAG_KEYS.waitFullscreen) ? !!flagMap.get(FLAG_KEYS.waitFullscreen) : false;
     const blockMobileDayClose = flagMap.has(FLAG_KEYS.mobileBlock) ? !!flagMap.get(FLAG_KEYS.mobileBlock) : false;
+    const routineLogRequiredAll = flagMap.has(FLAG_KEYS.routineLogAll) ? !!flagMap.get(FLAG_KEYS.routineLogAll) : false;
+    const routineLogRequiredTeachers = flagMap.has(FLAG_KEYS.routineLogTeachers) ? !!flagMap.get(FLAG_KEYS.routineLogTeachers) : false;
+    const routineLogRequiredNonTeachers = flagMap.has(FLAG_KEYS.routineLogNonTeachers) ? !!flagMap.get(FLAG_KEYS.routineLogNonTeachers) : false;
+    const requiredRows = await db.select({ userId: routineLogRequiredMembers.userId }).from(routineLogRequiredMembers);
+    const routineLogRequiredMemberIds = requiredRows.map((r) => Number(r.userId)).filter((n) => Number.isInteger(n));
 
     return NextResponse.json(
       {
@@ -96,6 +105,10 @@ export async function GET() {
         dayCloseWaitCompulsory,
         dayCloseWaitFullscreen,
         blockMobileDayClose,
+        routineLogRequiredAll,
+        routineLogRequiredTeachers,
+        routineLogRequiredNonTeachers,
+        routineLogRequiredMemberIds,
       },
       { status: 200 }
     );

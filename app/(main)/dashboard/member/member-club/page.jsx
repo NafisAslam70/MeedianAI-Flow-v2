@@ -20,6 +20,30 @@ const FEATURES = [
     href: "/dashboard/managersCommon/guardian-calls",
   },
   {
+    key: "grm",
+    label: "Guardian Relationship Manager",
+    description: "King's Place for guardian follow-ups.",
+    href: "/dashboard/managersCommon/guardian-relationship",
+  },
+  {
+    key: "ptAssist",
+    label: "CCD / CDD Help",
+    description: "Access CCD/CDD help scripts and checklists.",
+    href: "/dashboard/managersCommon/pt-assist",
+  },
+  {
+    key: "hostelDueReport",
+    label: "Hostel Due Report",
+    description: "View hostel due report summaries.",
+    href: "/dashboard/managersCommon/reports",
+  },
+  {
+    key: "studentsRead",
+    label: "Student Register (Read-only)",
+    description: "View student registry without edits.",
+    href: "/dashboard/member/student-register",
+  },
+  {
     key: "mgcpLeads",
     label: "Student Enquiry",
     description: "Log admission enquiries (Random Leads).",
@@ -68,4 +92,3 @@ export default function MemberClubPage() {
     </div>
   );
 }
-
