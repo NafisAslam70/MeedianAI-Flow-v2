@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
+import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
@@ -206,6 +207,7 @@ const useTeamOptions = () => {
 
 export default function AcademicHealthReportPage() {
   const { data: session } = useSession();
+  const searchParams = useSearchParams();
   const selfUserId = toNumber(session?.user?.id) || null;
   const selfRole = session?.user?.role || "member";
 
@@ -221,6 +223,7 @@ export default function AcademicHealthReportPage() {
   const [saveState, setSaveState] = useState({ saving: false, error: "", lastSavedAt: null });
   const [dirty, setDirty] = useState(false);
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
+  const [bootstrappedFromQuery, setBootstrappedFromQuery] = useState(false);
 
   const teamOptions = useTeamOptions();
 
@@ -229,6 +232,58 @@ export default function AcademicHealthReportPage() {
       setReportParams((prev) => ({ ...prev, assignedToUserId: selfUserId }));
     }
   }, [reportParams.assignedToUserId, selfUserId]);
+
+  useEffect(() => {
+    if (bootstrappedFromQuery) return;
+    const reportId = searchParams?.get("reportId");
+    if (!reportId) {
+      setBootstrappedFromQuery(true);
+      return;
+    }
+    const loadExisting = async () => {
+      setLoadingReport(true);
+      try {
+        const res = await fetch(`/api/reports/academic-health/${reportId}`);
+        const payload = await res.json();
+        if (!res.ok) throw new Error(payload?.error || `HTTP ${res.status}`);
+        const incoming = payload?.report;
+        if (incoming) {
+          const paramsFromReport = {
+            reportDate: incoming.reportDate ? String(incoming.reportDate).slice(0, 10) : todayDate(),
+            siteId: incoming.siteId || 1,
+            assignedToUserId: incoming.assignedToUserId || selfUserId || null,
+            checkMode: incoming.checkMode || "MSP",
+          };
+          setReportParams(paramsFromReport);
+          setReport({
+            ...emptyReportState,
+            ...incoming,
+            mhcp2AbsentTeacherIds: incoming.mhcp2AbsentTeacherIds || [],
+            mhcp2Substitutions: incoming.mhcp2Substitutions || [],
+            escalationsHandledIds: incoming.escalationsHandledIds || [],
+            copyChecks: initialiseCopyChecks(incoming.copyChecks),
+            classChecks: initialiseClassChecks(incoming.classChecks),
+            morningCoaching: incoming.morningCoaching || { absentees: [], state: "" },
+            escalationDetails: incoming.escalationDetails || [],
+            defaulters: incoming.defaulters || [],
+            actionsByCategory: incoming.actionsByCategory || [],
+            checkMode: incoming.checkMode || "MSP",
+          });
+          const key = JSON.stringify(paramsFromReport);
+          setLoadedParamsKey(key);
+          setSaveState({ saving: false, error: "", lastSavedAt: incoming.updatedAt || null });
+          setDirty(false);
+        }
+      } catch (error) {
+        console.error("Failed to bootstrap report from query param:", error);
+        setSaveState((prev) => ({ ...prev, error: error.message || "Failed to load report" }));
+      } finally {
+        setLoadingReport(false);
+        setBootstrappedFromQuery(true);
+      }
+    };
+    loadExisting();
+  }, [bootstrappedFromQuery, searchParams, selfUserId]);
 
   const supportingKey =
     reportParams.assignedToUserId && reportParams.reportDate

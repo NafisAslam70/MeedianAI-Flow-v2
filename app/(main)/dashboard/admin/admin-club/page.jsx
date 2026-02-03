@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import useSWR from "swr";
 import { useMemo } from "react";
-import { ShieldCheck, BarChart2 } from "lucide-react";
+import { ShieldCheck, BarChart2, Activity } from "lucide-react";
 
 const fetcher = (url) =>
   fetch(url, { headers: { "Content-Type": "application/json" } }).then((res) => res.json());
@@ -31,6 +31,15 @@ export default function AdminClubHome() {
   const accessLoading = status === "loading" || (role === "team_manager" && adminClubGrant === null);
 
   const cards = [
+    {
+      key: "academic-health",
+      title: "AHR Pulse",
+      description:
+        "Audit Academic Health Report completion, spot missing days, and scan daily health signals at a glance.",
+      href: "/dashboard/admin/admin-club/academic-health",
+      icon: Activity,
+      requiresGrant: true,
+    },
     {
       key: "analyse-team",
       title: "Analyse Meed / Team",
