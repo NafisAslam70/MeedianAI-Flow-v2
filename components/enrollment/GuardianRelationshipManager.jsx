@@ -239,6 +239,7 @@ const GuardianRelationshipManager = () => {
     whatsapp: "",
     notes: "",
   });
+  const [leadManagerNotes, setLeadManagerNotes] = useState({});
   const [existingKingForm, setExistingKingForm] = useState({
     name: "",
     phone: "",
@@ -2064,6 +2065,10 @@ const GuardianRelationshipManager = () => {
         setPtmState((prev) => ({ ...prev, error: "कृपया PTM तारीख चुनें।" }));
         return;
       }
+      if (!ptmForm.teacherIds.length && !ptmForm.teachersNote.trim()) {
+        setPtmState((prev) => ({ ...prev, error: "कृपया उपस्थित शिक्षक चुनें या लिखें।" }));
+        return;
+      }
       setPtmSaving(true);
       setPtmState((prev) => ({ ...prev, error: "" }));
       try {
@@ -2762,7 +2767,7 @@ const GuardianRelationshipManager = () => {
                             </div>
                             <div>
                               <label className="block text-xs font-semibold text-slate-600 mb-1">
-                                Teachers present (multi-select)
+                                Teachers present (multi-select) <span className="text-rose-500">*</span>
                               </label>
                               <div className="rounded-lg border border-slate-200 p-3 space-y-2 max-h-44 overflow-y-auto bg-slate-50/50">
                                 {ptmUsers.length ? (
@@ -3467,6 +3472,7 @@ const GuardianRelationshipManager = () => {
                           {[
                             { id: "head", label: "MGCP Head" },
                             { id: "kings", label: "Kings & Leads" },
+                            { id: "managers", label: "Lead Managers" },
                             { id: "random", label: "Random Leads" },
                           ].map((section) => (
                             <button
@@ -4022,6 +4028,138 @@ const GuardianRelationshipManager = () => {
                                   </div>
                                 ) : (
                                   <p className="text-sm text-slate-500">Select a belt to manage details.</p>
+                                )}
+                              </CardBody>
+                            </Card>
+                          </div>
+                        )}
+
+                        {mgcpSection === "managers" && (
+                          <div className="grid grid-cols-1 xl:grid-cols-[280px_minmax(0,1fr)] gap-5">
+                            <Card>
+                              <CardHeader>
+                                <h3 className="text-sm font-semibold text-slate-700">Belts</h3>
+                              </CardHeader>
+                              <CardBody className="space-y-2">
+                                {mgcpBelts.length ? (
+                                  mgcpBelts.map((belt) => (
+                                    <button
+                                      key={belt.id}
+                                      type="button"
+                                      onClick={() => setSelectedBeltId(String(belt.id))}
+                                      className={`w-full text-left rounded-xl border px-3 py-2 text-sm transition ${
+                                        String(belt.id) === String(selectedBeltId)
+                                          ? "border-teal-200 bg-teal-50 text-teal-700"
+                                          : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                                      }`}
+                                    >
+                                      <p className="font-semibold">{belt.name}</p>
+                                      <p className="text-xs text-slate-500">
+                                        Lead managers {belt.leadManagers?.length || 0}
+                                      </p>
+                                    </button>
+                                  ))
+                                ) : (
+                                  <p className="text-sm text-slate-500">No belts created yet.</p>
+                                )}
+                              </CardBody>
+                            </Card>
+
+                            <Card>
+                              <CardHeader>
+                                <div className="flex items-center justify-between">
+                                  <h3 className="text-sm font-semibold text-slate-700">
+                                    {selectedBelt ? selectedBelt.name : "Select a belt"}
+                                  </h3>
+                                </div>
+                              </CardHeader>
+                              <CardBody className="space-y-4">
+                                {selectedBelt ? (
+                                  <div className="space-y-4">
+                                    {(selectedBelt.leadManagers || []).length ? (
+                                      selectedBelt.leadManagers.map((manager) => (
+                                        <div
+                                          key={manager.id}
+                                          className="rounded-xl border border-slate-200 p-4 space-y-3"
+                                        >
+                                          <div className="flex flex-wrap items-center justify-between gap-2">
+                                            <div>
+                                              <p className="text-sm font-semibold text-slate-800">
+                                                {manager.name}
+                                              </p>
+                                              <p className="text-xs text-slate-500">
+                                                {manager.phone || manager.whatsapp || "No phone"}
+                                              </p>
+                                            </div>
+                                            <Button
+                                              size="sm"
+                                              variant="light"
+                                              onClick={() =>
+                                                runMgcpAction({
+                                                  url: "/api/enrollment/mgcp/lead-managers",
+                                                  method: "DELETE",
+                                                  body: { id: manager.id },
+                                                })
+                                              }
+                                            >
+                                              Remove
+                                            </Button>
+                                          </div>
+                                          <div className="text-xs text-slate-500">
+                                            Notes: {manager.notes || "No notes yet."}
+                                          </div>
+                                          <div className="flex flex-col gap-2">
+                                            <label className="text-xs font-semibold text-slate-600">
+                                              Log interaction / update
+                                            </label>
+                                            <textarea
+                                              rows={2}
+                                              value={leadManagerNotes[manager.id] || ""}
+                                              onChange={(event) =>
+                                                setLeadManagerNotes((prev) => ({
+                                                  ...prev,
+                                                  [manager.id]: event.target.value,
+                                                }))
+                                              }
+                                              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                                              placeholder="Add interaction note"
+                                            />
+                                            <div className="flex justify-end">
+                                              <Button
+                                                size="sm"
+                                                onClick={() => {
+                                                  const note = (leadManagerNotes[manager.id] || "").trim();
+                                                  if (!note) return;
+                                                  const stamped = `[${new Date().toISOString().slice(0, 10)}] ${note}`;
+                                                  runMgcpAction({
+                                                    url: "/api/enrollment/mgcp/lead-managers",
+                                                    method: "PATCH",
+                                                    body: {
+                                                      id: manager.id,
+                                                      notes: manager.notes
+                                                        ? `${manager.notes}\n${stamped}`
+                                                        : stamped,
+                                                    },
+                                                    afterSuccess: () =>
+                                                      setLeadManagerNotes((prev) => ({
+                                                        ...prev,
+                                                        [manager.id]: "",
+                                                      })),
+                                                  });
+                                                }}
+                                              >
+                                                Save note
+                                              </Button>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      ))
+                                    ) : (
+                                      <p className="text-sm text-slate-500">No lead managers yet.</p>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <p className="text-sm text-slate-500">Select a belt to view lead managers.</p>
                                 )}
                               </CardBody>
                             </Card>
