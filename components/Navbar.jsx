@@ -2155,6 +2155,7 @@ export default function Navbar() {
                   <Link href="/dashboard/member" className={`nav-item ${isActive("/dashboard/member") ? "active" : ""}`}>My Dashboard</Link>
                   <ExecuteLauncher />
                   <button type="button" onClick={() => setIsMRISheetOpen(true)} className={`nav-item mris-highlight ${isMRISheetOpen ? "active" : ""}`}>MRIs</button>
+                  <Link href="/dashboard/member/member-club" className={`nav-item ${isActive("/dashboard/member/member-club") ? "active" : ""}`}>Member Club</Link>
                   <Link href="/dashboard/member/closeMyDay" className={`nav-item ${isActive("/dashboard/member/closeMyDay") ? "active" : ""}`}>CloseMyDay</Link>
                   <Link href="/dashboard/member/meed-repo" className={`nav-item ${isActive("/dashboard/member/meed-repo") ? "active" : ""}`}>Meed Repo</Link>
                   
