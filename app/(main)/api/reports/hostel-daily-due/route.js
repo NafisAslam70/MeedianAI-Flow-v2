@@ -12,7 +12,8 @@ import {
 import { computeTicketSla, findCategoryByKey, formatTicketNumber } from "@/lib/ticketsConfig";
 import { ensureHostelDailyDueTemplate } from "@/lib/mriReports";
 import { eq, and, desc } from "drizzle-orm";
-import { mriReportTemplates, mriReportAssignments } from "@/lib/schema";
+import { mriReportTemplates } from "@/lib/schema";
+import { auth } from "@/lib/auth";
 
 const HOSTEL_DUE_TEMPLATE_KEY = "hostel_daily_due_report";
 
@@ -32,7 +33,6 @@ const hasHostelReportAssignment = async (session) => {
     .where(and(eq(mriReportAssignments.templateId, templateId), eq(mriReportAssignments.userId, uid)));
   return rows.length > 0;
 };
-import { auth } from "@/lib/auth";
 
 export async function GET(request) {
   try {
