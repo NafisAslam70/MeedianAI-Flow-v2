@@ -1,15 +1,23 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { mgcpLeads } from "@/lib/schema";
-import { asc, eq, isNull } from "drizzle-orm";
+import { mgcpLeads, memberSectionGrants } from "@/lib/schema";
+import { and, asc, eq, isNull } from "drizzle-orm";
 
-const requireManager = (session) =>
-  Boolean(session?.user) && ["admin", "team_manager"].includes(session.user.role);
+const hasLeadAccess = async (session) => {
+  if (!session?.user) return false;
+  if (["admin", "team_manager"].includes(session.user.role)) return true;
+  if (session.user.role !== "member") return false;
+  const rows = await db
+    .select({ id: memberSectionGrants.id })
+    .from(memberSectionGrants)
+    .where(and(eq(memberSectionGrants.userId, session.user.id), eq(memberSectionGrants.section, "mgcpLeads")));
+  return rows.length > 0;
+};
 
 export async function GET(request) {
   const session = await auth();
-  if (!requireManager(session)) {
+  if (!(await hasLeadAccess(session))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -34,7 +42,7 @@ export async function GET(request) {
 
 export async function POST(request) {
   const session = await auth();
-  if (!requireManager(session)) {
+  if (!(await hasLeadAccess(session))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

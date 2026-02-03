@@ -11,13 +11,22 @@ import {
   users,
   mriReportAssignments,
   mriReportTemplates,
+  memberSectionGrants,
 } from "@/lib/schema";
 import { and, asc, desc, eq, ilike, or, lte, gte, isNull } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { ensurePhoneCallTemplate } from "@/lib/mriReports";
 
-const isManager = (session) =>
-  Boolean(session?.user) && ["admin", "team_manager"].includes(session.user.role);
+const hasGuardianCallAccess = async (session) => {
+  if (!session?.user) return false;
+  if (["admin", "team_manager"].includes(session.user.role)) return true;
+  if (session.user.role !== "member") return false;
+  const rows = await db
+    .select({ id: memberSectionGrants.id })
+    .from(memberSectionGrants)
+    .where(and(eq(memberSectionGrants.userId, session.user.id), eq(memberSectionGrants.section, "guardianCalls")));
+  return rows.length > 0;
+};
 
 const parseId = (value) => {
   const num = Number(value);
@@ -115,7 +124,7 @@ const formatCampaignAssignment = (assignment, viewerId) => {
 
 export async function GET(req) {
   const session = await auth();
-  if (!isManager(session)) {
+  if (!(await hasGuardianCallAccess(session))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -417,7 +426,7 @@ export async function GET(req) {
 
 export async function POST(req) {
   const session = await auth();
-  if (!isManager(session)) {
+  if (!(await hasGuardianCallAccess(session))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -557,7 +566,7 @@ export async function POST(req) {
 
 export async function PATCH(req) {
   const session = await auth();
-  if (!isManager(session)) {
+  if (!(await hasGuardianCallAccess(session))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

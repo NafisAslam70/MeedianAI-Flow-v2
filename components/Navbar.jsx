@@ -731,6 +731,20 @@ export default function Navbar() {
             <ArrowRight size={16} className="row-go" />
           </button>
 
+          {role === 'member' && (
+            <button
+              className="action-row"
+              onClick={() => { setIsManagerialOpen(false); router.push("/dashboard/member/member-club"); }}
+            >
+              <span className="row-icon"><Sparkles size={18} /></span>
+              <span className="row-main">
+                <span className="row-title">Member Club</span>
+                <span className="row-sub">Shared tools for members</span>
+              </span>
+              <ArrowRight size={16} className="row-go" />
+            </button>
+          )}
+
           {(role === 'team_manager' || role === 'admin') && (
             <>
               <div className="my-2 border-t border-slate-700/40" />

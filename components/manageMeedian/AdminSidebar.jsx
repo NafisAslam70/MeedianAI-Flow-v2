@@ -76,6 +76,11 @@ const groups = [
 				icon: Workflow,
 			},
 			{
+				href: "/dashboard/admin/manageMeedian/member-club-controls",
+				label: "Member Club",
+				icon: Users,
+			},
+			{
 				href: "/dashboard/admin/students",
 				label: "Student Register",
 				icon: GraduationCap,

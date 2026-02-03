@@ -5,6 +5,7 @@ import {
   Classes,
   guardianGateLogs,
   managerSectionGrants,
+  memberSectionGrants,
   Students,
   users,
   visitorGateLogs,
@@ -25,11 +26,21 @@ const QUEUE_STATUS = {
 const hasGuardianAccess = async (user) => {
   if (!user) return false;
   if (user.role === "admin") return true;
-  const grants = await db
-    .select({ id: managerSectionGrants.id })
-    .from(managerSectionGrants)
-    .where(and(eq(managerSectionGrants.userId, user.id), eq(managerSectionGrants.section, "guardianGateLogs")));
-  return grants.length > 0;
+  if (user.role === "team_manager") {
+    const grants = await db
+      .select({ id: managerSectionGrants.id })
+      .from(managerSectionGrants)
+      .where(and(eq(managerSectionGrants.userId, user.id), eq(managerSectionGrants.section, "guardianGateLogs")));
+    return grants.length > 0;
+  }
+  if (user.role === "member") {
+    const grants = await db
+      .select({ id: memberSectionGrants.id })
+      .from(memberSectionGrants)
+      .where(and(eq(memberSectionGrants.userId, user.id), eq(memberSectionGrants.section, "guardianGateLogs")));
+    return grants.length > 0;
+  }
+  return false;
 };
 
 const mapEntry = (row) => ({

@@ -13,6 +13,18 @@ export default function ManagerialAdminControlsPage() {
         <Link href="/dashboard/admin/manageMeedian/controls-share" className="inline-flex px-3 py-1.5 rounded-lg border text-sm bg-white border-gray-200 text-gray-800 hover:bg-gray-50">Open Controls Share</Link>
       </div>
       <div className="rounded-xl border bg-white p-4">
+        <h2 className="text-sm font-semibold text-gray-900 mb-2">Member Club</h2>
+        <p className="text-sm text-gray-700 mb-2">
+          Choose which non-manager members can access Member Club tools.
+        </p>
+        <Link
+          href="/dashboard/admin/manageMeedian/member-club-controls"
+          className="inline-flex px-3 py-1.5 rounded-lg border text-sm bg-white border-gray-200 text-gray-800 hover:bg-gray-50"
+        >
+          Open Member Club Controls
+        </Link>
+      </div>
+      <div className="rounded-xl border bg-white p-4">
         <h2 className="text-sm font-semibold text-gray-900 mb-2">Student Registry</h2>
         <p className="text-sm text-gray-700 mb-2">
           Launch the full-screen student management workspace shared across Flow and Finance. Use this view to add, edit,

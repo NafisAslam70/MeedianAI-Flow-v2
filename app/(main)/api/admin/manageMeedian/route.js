@@ -38,6 +38,7 @@ import {
   slotWeeklyRoles,
   slotRoleAssignments,
   managerSectionGrants,
+  memberSectionGrants,
   campusGateStaffLogs,
   guardianGateLogs,
   nmriTodRoleEnum,
@@ -101,6 +102,12 @@ export async function GET(req) {
     "mspCodeAssignments",
     "slotsWeekly",
     "controlsShareSelf",
+    "memberClubShareSelf",
+  ]);
+  const memberClubSections = new Set([
+    "guardianGateLogs",
+    "guardianCalls",
+    "mgcpLeads",
   ]);
   const grantableSections = new Set([
     "slots",
@@ -168,6 +175,16 @@ export async function GET(req) {
         .where(eq(managerSectionGrants.userId, session.user.id));
       return NextResponse.json({ grants }, { status: 200 });
     }
+    if (section === 'memberClubShareSelf') {
+      if (!session || !['member', 'admin', 'team_manager'].includes(session.user?.role)) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+      const grants = await db
+        .select({ section: memberSectionGrants.section, canWrite: memberSectionGrants.canWrite })
+        .from(memberSectionGrants)
+        .where(eq(memberSectionGrants.userId, session.user.id));
+      return NextResponse.json({ grants }, { status: 200 });
+    }
     if (section === 'controlsShare') {
       if (!session || session.user?.role !== 'admin') {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -178,6 +195,20 @@ export async function GET(req) {
         .from(users)
         .where(and(eq(users.role, "team_manager"), eq(users.active, true)));
       return NextResponse.json({ managers: mgrs, grants, sections: Array.from(grantableSections), programs: await (async()=>{ const progs = await db.select({ id: mriPrograms.id, name: mriPrograms.name, programKey: mriPrograms.programKey }).from(mriPrograms); return progs; })() }, { status: 200 });
+    }
+    if (section === 'memberClubShare') {
+      if (!session || session.user?.role !== 'admin') {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+      const grants = await db.select().from(memberSectionGrants);
+      const members = await db
+        .select({ id: users.id, name: users.name, email: users.email })
+        .from(users)
+        .where(and(eq(users.role, "member"), eq(users.active, true)));
+      return NextResponse.json(
+        { members, grants, sections: Array.from(memberClubSections) },
+        { status: 200 }
+      );
     }
     if (section === "guardianGateAssignments") {
       if (!session || session.user?.role !== "admin") {
@@ -940,6 +971,33 @@ export async function POST(req) {
             } else {
               await db.update(managerSectionGrants).set({ canWrite: g?.canWrite === false ? false : true }).where(and(eq(managerSectionGrants.userId, userId), eq(managerSectionGrants.section, sec), eq(managerSectionGrants.programId, null)));
             }
+          }
+          upserts += 1;
+        }
+      }
+      return NextResponse.json({ upserts, deletes }, { status: 200 });
+    }
+    if (section === 'memberClubShare') {
+      if (session.user?.role !== 'admin') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      const items = Array.isArray(body?.grants) ? body.grants : [];
+      let upserts = 0, deletes = 0;
+      for (const g of items) {
+        const userId = Number(g?.userId);
+        const sec = String(g?.section || '').trim();
+        if (!userId || !sec) continue;
+        if (g?.remove) {
+          await db
+            .delete(memberSectionGrants)
+            .where(and(eq(memberSectionGrants.userId, userId), eq(memberSectionGrants.section, sec)));
+          deletes += 1;
+        } else {
+          try {
+            await db.insert(memberSectionGrants).values({ userId, section: sec, canWrite: g?.canWrite === false ? false : true });
+          } catch {
+            await db
+              .update(memberSectionGrants)
+              .set({ canWrite: g?.canWrite === false ? false : true })
+              .where(and(eq(memberSectionGrants.userId, userId), eq(memberSectionGrants.section, sec)));
           }
           upserts += 1;
         }
