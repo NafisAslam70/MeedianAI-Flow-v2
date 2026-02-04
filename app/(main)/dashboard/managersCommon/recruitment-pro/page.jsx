@@ -1468,6 +1468,28 @@ export default function RecruitmentProPage() {
                 </select>
               </div>
               <div className="flex flex-wrap gap-2">
+                <select
+                  className="rounded-lg border border-slate-200 bg-white/90 px-3 py-1.5 text-sm"
+                  value={benchPush.requirementId}
+                  onChange={(e) => {
+                    const reqId = e.target.value;
+                    const req = requirementsList.find((r) => String(r.id) === String(reqId));
+                    setBenchPush({
+                      ...benchPush,
+                      requirementId: reqId,
+                      programId: req ? req.programId : "",
+                      locationId: req ? req.locationId : "",
+                      mspCodeId: "",
+                    });
+                  }}
+                >
+                  <option value="">Current requirement</option>
+                  {requirementsList.map((req) => (
+                    <option key={req.id} value={req.id}>
+                      {(req.requirementName || "Requirement") + (req.programCode ? ` — ${req.programCode}` : "")}
+                    </option>
+                  ))}
+                </select>
                 <select className="rounded-lg border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" value={benchPush.countryCodeId} onChange={(e) => setBenchPush({ ...benchPush, countryCodeId: e.target.value })}>
                   <option value="">Country code</option>
                   {countryCodes.map((c) => (
