@@ -165,14 +165,23 @@ export async function GET(req) {
       if (!has.length) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     } else if (role === 'member') {
       const sec = section === "students" ? "studentsRead" : section;
-      if (!memberClubSections.has(sec)) {
+      // Members can access memberClub sections via memberSectionGrants
+      if (memberClubSections.has(sec)) {
+        const grants = await db
+          .select({ id: memberSectionGrants.id })
+          .from(memberSectionGrants)
+          .where(and(eq(memberSectionGrants.userId, session.user.id), eq(memberSectionGrants.section, sec)));
+        if (!grants.length) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      } else if (grantableSections.has(sec)) {
+        // Allow members into grantable admin sections if explicitly shared in managerSectionGrants
+        const grants = await db
+          .select({ id: managerSectionGrants.id })
+          .from(managerSectionGrants)
+          .where(and(eq(managerSectionGrants.userId, session.user.id), eq(managerSectionGrants.section, sec)));
+        if (!grants.length) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      } else {
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
       }
-      const grants = await db
-        .select({ id: memberSectionGrants.id })
-        .from(memberSectionGrants)
-        .where(and(eq(memberSectionGrants.userId, session.user.id), eq(memberSectionGrants.section, sec)));
-      if (!grants.length) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     } else {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -205,10 +214,27 @@ export async function GET(req) {
       }
       const grants = await db.select().from(managerSectionGrants);
       const mgrs = await db
-        .select({ id: users.id, name: users.name, email: users.email })
+        .select({ id: users.id, name: users.name, email: users.email, role: users.role })
         .from(users)
-        .where(and(eq(users.role, "team_manager"), eq(users.active, true)));
-      return NextResponse.json({ managers: mgrs, grants, sections: Array.from(grantableSections), programs: await (async()=>{ const progs = await db.select({ id: mriPrograms.id, name: mriPrograms.name, programKey: mriPrograms.programKey }).from(mriPrograms); return progs; })() }, { status: 200 });
+        .where(and(inArray(users.role, ["team_manager", "member"]), eq(users.active, true)));
+      const managersOnly = mgrs.filter((u) => u.role === "team_manager");
+      const membersOnly = mgrs.filter((u) => u.role === "member");
+      return NextResponse.json(
+        {
+          people: mgrs,
+          managers: managersOnly,
+          members: membersOnly,
+          grants,
+          sections: Array.from(grantableSections),
+          programs: await (async () => {
+            const progs = await db
+              .select({ id: mriPrograms.id, name: mriPrograms.name, programKey: mriPrograms.programKey })
+              .from(mriPrograms);
+            return progs;
+          })(),
+        },
+        { status: 200 }
+      );
     }
     if (section === 'memberClubShare') {
       if (!session || session.user?.role !== 'admin') {

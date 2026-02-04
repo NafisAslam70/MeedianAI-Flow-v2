@@ -7,7 +7,12 @@ const fetcher = (u) => fetch(u, { headers: { "Content-Type": "application/json" 
 export default function ControlsSharePage() {
   const { data, mutate } = useSWR("/api/admin/manageMeedian?section=controlsShare", fetcher);
   const [saving, setSaving] = React.useState(false);
-  const managers = data?.managers || [];
+  const people = data?.people || [];
+  const [audience, setAudience] = React.useState("team_manager"); // team_manager | member | all
+  const assignees = React.useMemo(() => {
+    if (audience === "all") return people;
+    return people.filter((p) => p.role === audience);
+  }, [people, audience]);
   const sections = data?.sections || [];
   const programs = data?.programs || [];
   const grants = data?.grants || [];
@@ -40,7 +45,7 @@ export default function ControlsSharePage() {
     setSaving(true);
     try {
       const items = [];
-      for (const uid of managers.map(m => m.id)) {
+      for (const uid of assignees.map(m => m.id)) {
         for (const sec of sections) {
           const key = `${uid}|${sec}`;
           const want = !!draft[key];
@@ -195,9 +200,21 @@ export default function ControlsSharePage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-bold text-gray-900">Controls Share</h1>
-          <p className="text-sm text-gray-600">Grant managers access to Admin sidebar items. Pick users under each item card.</p>
+          <p className="text-sm text-gray-600">Grant managers or members access to Admin sidebar items. Pick users under each item card.</p>
         </div>
         <button className="px-3 py-1.5 rounded-lg border text-sm bg-teal-600 text-white border-teal-600 disabled:opacity-60" disabled={saving} onClick={onSave}>{saving ? 'Saving…' : 'Save Changes'}</button>
+      </div>
+      <div className="flex items-center gap-3 text-sm">
+        <span className="text-slate-600 font-medium">Audience</span>
+        <select
+          className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm"
+          value={audience}
+          onChange={(e) => setAudience(e.target.value)}
+        >
+          <option value="team_manager">Team Managers</option>
+          <option value="member">Members</option>
+          <option value="all">Everyone</option>
+        </select>
       </div>
       <div className="rounded-xl border bg-white p-4">
         <div className="text-sm font-semibold text-gray-900 mb-2">Programs</div>
@@ -209,9 +226,9 @@ export default function ControlsSharePage() {
                 <div className="text-xs text-gray-600">Grant access to Program Design for this program.</div>
               </div>
               <div>
-                <div className="text-xs text-gray-600 mb-1">Managers with access</div>
+                <div className="text-xs text-gray-600 mb-1">People with access</div>
                 <div className="flex flex-wrap gap-2">
-                  {managers.filter(m => isProgramGranted(m.id, p.id)).map((m) => (
+                  {assignees.filter(m => isProgramGranted(m.id, p.id)).map((m) => (
                     <span key={`prog-${p.id}-${m.id}`} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 border text-xs">
                       {m.name}
                       <button className="text-red-600" title="Remove" onClick={() => setDraft(prev => ({ ...prev, [`${m.id}|metaPrograms|${p.id}`]: false }))}>×</button>
@@ -221,8 +238,8 @@ export default function ControlsSharePage() {
               </div>
               <div className="flex items-center gap-2">
                 <select className="border rounded-lg px-2 py-1 text-sm flex-1" defaultValue="" onChange={(e)=>{ const uid = Number(e.target.value); if (uid) { setDraft(prev => ({ ...prev, [`${uid}|metaPrograms|${p.id}`]: true })); e.target.value=''; } }}>
-                  <option value="" disabled>Add manager…</option>
-                  {managers.filter(m => !isProgramGranted(m.id, p.id)).map((m) => (
+                  <option value="" disabled>Add person…</option>
+                  {assignees.filter(m => !isProgramGranted(m.id, p.id)).map((m) => (
                     <option key={`prog-opt-${p.id}-${m.id}`} value={m.id}>{m.name}</option>
                   ))}
                 </select>
@@ -243,21 +260,21 @@ export default function ControlsSharePage() {
               <span className="font-medium mr-1">Doables:</span>
               {item.doables.join(' • ')}
             </div>
-            <div>
-              <div className="text-xs text-gray-600 mb-1">Managers with access</div>
-              <div className="flex flex-wrap gap-2">
-                {managers.filter(m => isItemGranted(m.id, item)).map((m) => (
-                  <span key={`${item.key}-${m.id}`} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 border text-xs">
-                    {m.name}
-                    <button className="text-red-600" title="Remove" onClick={() => removeUserFromItem(m.id, item)}>×</button>
-                  </span>
-                ))}
+              <div>
+                <div className="text-xs text-gray-600 mb-1">People with access</div>
+                <div className="flex flex-wrap gap-2">
+                  {assignees.filter(m => isItemGranted(m.id, item)).map((m) => (
+                    <span key={`${item.key}-${m.id}`} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 border text-xs">
+                      {m.name}
+                      <button className="text-red-600" title="Remove" onClick={() => removeUserFromItem(m.id, item)}>×</button>
+                    </span>
+                  ))}
+                </div>
               </div>
-            </div>
             <div className="flex items-center gap-2">
               <select className="border rounded-lg px-2 py-1 text-sm flex-1" defaultValue="" onChange={(e)=>{ const uid = Number(e.target.value); if (uid) { addUserToItem(uid, item); e.target.value=''; } }}>
-                <option value="" disabled>Add manager…</option>
-                {managers.filter(m => !isItemGranted(m.id, item)).map((m) => (
+                <option value="" disabled>Add person…</option>
+                {assignees.filter(m => !isItemGranted(m.id, item)).map((m) => (
                   <option key={`${item.key}-opt-${m.id}`} value={m.id}>{m.name}</option>
                 ))}
               </select>

@@ -29,8 +29,12 @@ export default auth((req) => {
 
   if (isGeneralDashboard) return; // everyone logged-in can view
 
-  if (role === "member" && !isMemberRoute) {
-    return NextResponse.redirect(new URL("/dashboard/member", nextUrl));
+  if (role === "member") {
+    // Allow members into manageMeedian/admin-club/students when explicitly granted (API enforces finer grants)
+    if (isManageMeedian || isAdminClubRoute || isAdminStudentsRoute) return;
+    if (!isMemberRoute) {
+      return NextResponse.redirect(new URL("/dashboard/member", nextUrl));
+    }
   }
 
   if (role === "admin") {
