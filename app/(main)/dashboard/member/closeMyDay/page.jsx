@@ -1,7 +1,7 @@
 // app/(main)/dashboard/member/closeMyDay/page.jsx (or CloseMyDay.jsx)
 "use client";
 import { useSession } from "next-auth/react";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Clock, Calendar, CheckCircle, AlertCircle, Loader2, ArrowLeft } from "lucide-react";
 import { format } from "date-fns";
