@@ -215,6 +215,14 @@ export default function MeedSchedulesPage() {
     });
   };
 
+  const updateDivision = (idx, updater) => {
+    setForm((f) => {
+      const list = [...f.divisions];
+      list[idx] = updater(list[idx] || {}, list, idx);
+      return { ...f, divisions: list };
+    });
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -361,9 +369,7 @@ export default function MeedSchedulesPage() {
                       placeholder={`Division ${idx + 1} label`}
                       value={div.label}
                       onChange={(e) => {
-                        const next = [...form.divisions];
-                        next[idx] = { ...next[idx], label: e.target.value };
-                        setForm((f) => ({ ...f, divisions: next }));
+                        updateDivision(idx, (d) => ({ ...d, label: e.target.value }));
                       }}
                     />
                     <label className="flex items-center gap-2 text-xs text-gray-700">
@@ -372,9 +378,7 @@ export default function MeedSchedulesPage() {
                         className="rounded border-gray-300"
                         checked={div.isFree}
                         onChange={(e) => {
-                          const next = [...form.divisions];
-                          next[idx] = { ...next[idx], isFree: e.target.checked };
-                          setForm((f) => ({ ...f, divisions: next }));
+                          updateDivision(idx, (d) => ({ ...d, isFree: e.target.checked }));
                         }}
                       />
                       Free / unbounded
@@ -418,9 +422,8 @@ export default function MeedSchedulesPage() {
                           className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
                           value={div.startTime}
                           onChange={(e) => {
-                            const next = [...form.divisions];
-                            next[idx] = { ...next[idx], startTime: e.target.value };
-                            setForm((f) => ({ ...f, divisions: next }));
+                            const val = e.target.value;
+                            updateDivision(idx, (d) => ({ ...d, startTime: val }));
                           }}
                         />
                       </div>
@@ -431,9 +434,20 @@ export default function MeedSchedulesPage() {
                           className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
                           value={div.endTime}
                           onChange={(e) => {
-                            const next = [...form.divisions];
-                            next[idx] = { ...next[idx], endTime: e.target.value };
-                            setForm((f) => ({ ...f, divisions: next }));
+                            const val = e.target.value;
+                            setForm((f) => {
+                              const list = [...f.divisions];
+                              list[idx] = { ...(list[idx] || {}), endTime: val };
+                              // auto-chain: if next division exists and is not free, and start is empty or same as old start, set start to this end
+                              const nextDiv = list[idx + 1];
+                              if (nextDiv && !nextDiv.isFree) {
+                                const shouldReplace = !nextDiv.startTime || nextDiv.startTime === (list[idx + 1]?.startTime || "");
+                                if (shouldReplace) {
+                                  list[idx + 1] = { ...nextDiv, startTime: val };
+                                }
+                              }
+                              return { ...f, divisions: list };
+                            });
                           }}
                         />
                       </div>
