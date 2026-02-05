@@ -100,6 +100,13 @@ export default function ControlsSharePage() {
       description: 'Design academic programs, roles and schedules.'
     },
     {
+      key: 'meedSchedules',
+      label: 'Meed Schedules',
+      sections: ['meedSchedules'],
+      doables: ['View', 'Create/Update Meed schedules', 'Manage divisions & timings'],
+      description: 'Custom / program-linked Meed schedules with divisions, timing, and checklist.',
+    },
+    {
       key: 'mriRoles',
       label: 'MRI & Roles',
       sections: ['mriRoles','metaRoleDefs','metaRoleTasks'],
