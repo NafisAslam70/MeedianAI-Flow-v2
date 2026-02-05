@@ -3,7 +3,7 @@ import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { Users, GraduationCap, Boxes, CalendarDays, Workflow, Sparkles, Megaphone, ClipboardList } from "lucide-react";
+import { Users, GraduationCap, Boxes, CalendarDays, Workflow, Sparkles, Megaphone, ClipboardList, Clock3 } from "lucide-react";
 import useSWR from "swr";
 
 const groups = [
@@ -15,6 +15,11 @@ const groups = [
 				label: "School Calendar",
 				icon: CalendarDays,
 			},
+      {
+        href: "/dashboard/admin/manageMeedian/meed-schedules",
+        label: "Meed Schedules",
+        icon: Clock3,
+      },
 		],
 	},
 	{
@@ -196,6 +201,7 @@ export default function AdminSidebar() {
 						if (h.endsWith("/mri-programs")) return "metaPrograms";
 						if (h.endsWith("/mri-reports")) return ["mriReportTemplates", "mriReportAssignments"];
 						if (h.endsWith("/msp-codes")) return "mspCodes";
+            if (h.endsWith("/meed-schedules")) return "meedSchedules";
 						if (h.endsWith("/class-teachers")) return "classTeachers";
 						if (h.endsWith("/team")) return "team";
 						if (h === "/dashboard/admin/students") return "students";

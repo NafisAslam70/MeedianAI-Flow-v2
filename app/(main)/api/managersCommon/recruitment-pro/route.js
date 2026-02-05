@@ -374,15 +374,27 @@ export async function GET(req) {
     }
 
     const commMap = new Map();
+    const commListMap = new Map();
     for (const row of commRows) {
       if (!row.stageOrder || row.stageOrder > 4) continue;
       const key = `${row.candidateId}|${row.stageOrder}`;
+      const list = commListMap.get(key) || [];
+      list.push(row);
+      commListMap.set(key, list);
       const existing = commMap.get(key);
       const rowDate = row.communicationDate ? new Date(row.communicationDate).getTime() : 0;
       const existingDate = existing?.communicationDate ? new Date(existing.communicationDate).getTime() : 0;
       if (!existing || rowDate >= existingDate) {
         commMap.set(key, row);
       }
+    }
+    for (const [key, list] of commListMap.entries()) {
+      list.sort((a, b) => {
+        const aTime = a.communicationDate ? new Date(a.communicationDate).getTime() : 0;
+        const bTime = b.communicationDate ? new Date(b.communicationDate).getTime() : 0;
+        return bTime - aTime;
+      });
+      commListMap.set(key, list);
     }
 
     const rows = candidates.map((c) => {
@@ -397,6 +409,12 @@ export async function GET(req) {
         stage3: commMap.get(`${c.id}|3`) || null,
         stage4: commMap.get(`${c.id}|4`) || null,
       };
+      const commLogs = {
+        stage1: commListMap.get(`${c.id}|1`) || [],
+        stage2: commListMap.get(`${c.id}|2`) || [],
+        stage3: commListMap.get(`${c.id}|3`) || [],
+        stage4: commListMap.get(`${c.id}|4`) || [],
+      };
       return {
         ...c,
         stage1,
@@ -405,6 +423,7 @@ export async function GET(req) {
         stage4,
         final,
         comm,
+        commLogs,
       };
     });
 

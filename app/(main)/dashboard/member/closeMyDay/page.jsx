@@ -345,6 +345,24 @@ export default function CloseMyDay() {
     (isTeacher && routineLogRequiredTeachers) ||
     (!isTeacher && routineLogRequiredNonTeachers) ||
     isInRoutineMemberList;
+  const managerReportRequired = routineLogRequired && isTeamManager;
+  const managerReportMissingCount = useMemo(() => {
+    if (!managerReportRequired) return 0;
+    const tasks = routineTasksData?.tasks || [];
+    if (!tasks.length) return 0;
+    const defaultMode = assignedTasksCount > 0 ? "assigned" : "log";
+    return tasks.filter((task) => {
+      const entry = managerRoutineReport?.[task.id] ?? {
+        mode: defaultMode,
+        assignedTaskId: null,
+        log: "",
+      };
+      if (entry.mode === "assigned") {
+        return !entry.assignedTaskId;
+      }
+      return !String(entry.log || "").trim();
+    }).length;
+  }, [managerReportRequired, routineTasksData, managerRoutineReport, assignedTasksCount]);
 
   const handleManagerReportChange = useCallback(
     (taskId, updates) => {
@@ -374,6 +392,11 @@ export default function CloseMyDay() {
   const handleSubmitClose = async () => {
     if (isMobileBlocked) {
       setError(mobileBlockMessage);
+      setShowConfirmModal(false);
+      return;
+    }
+    if (managerReportMissingCount) {
+      setError("Managerial report is required for all routine tasks before submitting.");
       setShowConfirmModal(false);
       return;
     }

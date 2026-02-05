@@ -42,6 +42,9 @@ export default function ManageMeedian() {
               <Button variant="primary">Add a new Program</Button>
             </Link>
           )}
+          <Link href="/dashboard/admin/manageMeedian/meed-schedules">
+            <Button variant="secondary">Meed Schedules</Button>
+          </Link>
         </div>
       </div>
   {/* Meta Roles management lives at /dashboard/admin/manageMeedian/meta-roles */}

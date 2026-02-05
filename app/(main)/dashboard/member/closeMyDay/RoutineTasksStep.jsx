@@ -208,6 +208,19 @@ export default function RoutineTasksStep({
     });
   };
 
+  const managerReportRequired = routineLogRequired && isTeamManager;
+  const managerReportMissingCount = useMemo(() => {
+    if (!managerReportRequired || !hasRoutineTasks) return 0;
+    const tasks = routineTasksData?.tasks || [];
+    return tasks.filter((task) => {
+      const entry = getEntry(task.id);
+      if (entry.mode === "assigned") {
+        return !entry.assignedTaskId;
+      }
+      return !String(entry.log || "").trim();
+    }).length;
+  }, [managerReportRequired, hasRoutineTasks, routineTasksData, reportEntries, hasAssignedTasks]);
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 30 }}
@@ -445,15 +458,30 @@ export default function RoutineTasksStep({
             <p className="text-sm text-gray-600">
               For each routine, either reference the assigned task that covered it or jot a quick note describing what happened.
             </p>
+            {managerReportRequired && (
+              <p className={`text-xs ${managerReportMissingCount ? "text-rose-600" : "text-emerald-600"}`}>
+                {managerReportMissingCount
+                  ? `Managerial report is required for ${managerReportMissingCount} routine${managerReportMissingCount > 1 ? "s" : ""}.`
+                  : "Managerial report completed for all routines."}
+              </p>
+            )}
 
             {hasRoutineTasks ? (
               <div className="space-y-4">
                 {(routineTasksData?.tasks || []).map((task) => {
                   const entry = getEntry(task.id);
                   const selectedAssigned = assignedTasks.find((item) => item.id === entry.assignedTaskId);
+                  const managerEntryMissing =
+                    managerReportRequired &&
+                    (entry.mode === "assigned" ? !entry.assignedTaskId : !String(entry.log || "").trim());
 
                   return (
-                    <div key={task.id} className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                    <div
+                      key={task.id}
+                      className={`rounded-2xl border bg-white p-5 shadow-sm ${
+                        managerEntryMissing ? "border-rose-300" : "border-gray-200"
+                      }`}
+                    >
                       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                         <div className="flex-1">
                           <h5 className="text-base font-semibold text-gray-800">
@@ -533,6 +561,9 @@ export default function RoutineTasksStep({
                               No assigned tasks found for today. Switch to a log note instead.
                             </p>
                           )}
+                          {managerEntryMissing && (
+                            <p className="text-xs text-rose-600">Select an assigned task or switch to Log Note.</p>
+                          )}
                         </div>
                       ) : (
                         <div className="mt-4">
@@ -546,6 +577,9 @@ export default function RoutineTasksStep({
                             className="mt-1 w-full rounded-xl border border-indigo-200 bg-indigo-50/60 p-3 text-sm text-gray-800 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-200"
                             rows={3}
                           />
+                          {managerEntryMissing && (
+                            <p className="text-xs text-rose-600 mt-1">Please write a quick note.</p>
+                          )}
                         </div>
                       )}
                     </div>
@@ -580,6 +614,10 @@ export default function RoutineTasksStep({
                   setShowRoutineLogModal(true);
                   return;
                 }
+                if (managerReportMissingCount) {
+                  setError("Managerial report is required for all routine tasks before continuing.");
+                  return;
+                }
                 handleNextStep();
               }}
               className="flex-1 bg-teal-600 text-white py-3 rounded-xl font-semibold hover:bg-teal-700 transition-all duration-300 shadow-md disabled:opacity-60"
@@ -587,7 +625,7 @@ export default function RoutineTasksStep({
               whileTap={{ scale: 0.98 }}
               data-tooltip-id="nav-tooltip"
               data-tooltip-content="Go to next step"
-              disabled={routineLogMissing}
+              disabled={routineLogMissing || managerReportMissingCount > 0}
             >
               Next
             </motion.button>

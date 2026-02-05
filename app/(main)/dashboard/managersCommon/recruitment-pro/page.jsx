@@ -1200,9 +1200,16 @@ export default function RecruitmentProPage() {
                 const comm2 = row.comm?.stage2;
                 const comm3 = row.comm?.stage3;
                 const comm4 = row.comm?.stage4;
+                const logs1 = row.commLogs?.stage1 || [];
+                const logs2 = row.commLogs?.stage2 || [];
+                const logs3 = row.commLogs?.stage3 || [];
+                const logs4 = row.commLogs?.stage4 || [];
                 const isOpen = pipelineDrafts[`open-${row.id}`] ?? false;
 
-                const renderStage = (stageOrder, comm, dateKey) => (
+                const renderStage = (stageOrder, comm, dateKey, logs) => {
+                  const commKey = `commOpen-${row.id}-${stageOrder}`;
+                  const commOpen = !!pipelineDrafts[commKey];
+                  return (
                   <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
                     <div className="flex items-center justify-between">
                       <div className="text-xs font-semibold text-slate-800">{stageByOrder.get(stageOrder)?.stageName || `Stage ${stageOrder}`}</div>
@@ -1223,10 +1230,32 @@ export default function RecruitmentProPage() {
                         <div className="text-[11px] text-slate-600">
                           {comm ? `${comm.communicationMethod} · ${comm.outcome}${comm.followUpDate ? ` · FU ${toDateInput(comm.followUpDate)}` : ""}` : "No comm yet"}
                         </div>
+                        {logs.length > 0 && (
+                          <button
+                            className="mt-1 inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-100"
+                            onClick={() => setPipelineDrafts((prev) => ({ ...prev, [commKey]: !commOpen }))}
+                          >
+                            {commOpen ? "Hide convo" : "View full convo"}
+                          </button>
+                        )}
                       </div>
                     </div>
+                    {commOpen && (
+                      <div className="mt-3 space-y-2">
+                        {logs.map((log) => (
+                          <div key={log.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                            <div className="text-[10px] text-slate-500">{toDateInput(log.communicationDate)} • {log.communicationMethod}</div>
+                            <div className="text-xs font-semibold text-slate-900 mt-1">{log.subject}</div>
+                            <div className="text-[11px] text-slate-600 mt-1">Outcome: {log.outcome}</div>
+                            {log.followUpDate && <div className="text-[11px] text-slate-600">Follow-up: {toDateInput(log.followUpDate)}</div>}
+                            {log.notes && <div className="text-[11px] text-slate-600 mt-1">{log.notes}</div>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 );
+                };
 
                 return (
                   <div key={row.id} className="rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -1250,10 +1279,10 @@ export default function RecruitmentProPage() {
                     {isOpen && (
                       <div className="border-t border-slate-100 px-4 py-3 space-y-3">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {renderStage(1, comm1, "stage1Date")}
-                          {renderStage(2, comm2, "stage2Date")}
-                          {renderStage(3, comm3, "stage3Date")}
-                          {renderStage(4, comm4, "stage4Date")}
+                          {renderStage(1, comm1, "stage1Date", logs1)}
+                          {renderStage(2, comm2, "stage2Date", logs2)}
+                          {renderStage(3, comm3, "stage3Date", logs3)}
+                          {renderStage(4, comm4, "stage4Date", logs4)}
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                           <div>
@@ -1669,6 +1698,67 @@ export default function RecruitmentProPage() {
           </SectionCard>
         </div>
       )}
+
+      {commModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-xl border border-slate-200">
+            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+              <div>
+                <div className="text-xs uppercase tracking-wide text-slate-500">Log communication</div>
+                <div className="text-sm font-semibold text-slate-900">Stage {commModal.stageOrder}</div>
+              </div>
+              <button className="text-slate-500 hover:text-slate-700" onClick={() => setCommModal((p) => ({ ...p, open: false }))}>✕</button>
+            </div>
+            <div className="space-y-3 px-4 py-3">
+              <div>
+                <label className="text-[11px] uppercase text-slate-500">Date</label>
+                <input type="date" className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" value={commModal.date} onChange={(e) => setCommModal((p) => ({ ...p, date: e.target.value }))} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[11px] uppercase text-slate-500">Method</label>
+                  <select className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" value={commModal.method} onChange={(e) => setCommModal((p) => ({ ...p, method: e.target.value }))}>
+                    {COMM_METHOD_OPTIONS.map((m) => <option key={m}>{m}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[11px] uppercase text-slate-500">Outcome</label>
+                  <select className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" value={commModal.outcome} onChange={(e) => setCommModal((p) => ({ ...p, outcome: e.target.value }))}>
+                    {COMM_OUTCOME_OPTIONS.map((m) => <option key={m}>{m}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="text-[11px] uppercase text-slate-500">Subject</label>
+                <input className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" value={commModal.subject} onChange={(e) => setCommModal((p) => ({ ...p, subject: e.target.value }))} placeholder="e.g., Screening call" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[11px] uppercase text-slate-500">Follow-up date</label>
+                  <input type="date" className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" value={commModal.followUpDate} onChange={(e) => setCommModal((p) => ({ ...p, followUpDate: e.target.value }))} />
+                </div>
+                <label className="flex items-center gap-2 text-sm text-slate-700 mt-6">
+                  <input type="checkbox" checked={commModal.finishStage} onChange={(e) => setCommModal((p) => ({ ...p, finishStage: e.target.checked }))} />
+                  Finish this stage
+                </label>
+              </div>
+              <div>
+                <label className="text-[11px] uppercase text-slate-500">Notes</label>
+                <textarea className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" rows={3} value={commModal.notes} onChange={(e) => setCommModal((p) => ({ ...p, notes: e.target.value }))} placeholder="Key points, concerns, next steps" />
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-4 py-3">
+              <button className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50" onClick={() => setCommModal((p) => ({ ...p, open: false }))}>
+                Cancel
+              </button>
+              <button className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-700" onClick={submitCommModal}>
+                Save log
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       </div>
     </div>
   );

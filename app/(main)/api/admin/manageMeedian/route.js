@@ -35,6 +35,8 @@ import {
   programPeriods,
   programScheduleCells,
   programScheduleDays,
+  meedSchedules,
+  meedScheduleDivisions,
   slotWeeklyRoles,
   slotRoleAssignments,
   managerSectionGrants,
@@ -144,6 +146,7 @@ export async function GET(req) {
     "adminClub",
     "recruitmentPro",
     "mspCodeFamilies",
+    "meedSchedules",
   ]);
   if (memberReadable.has(section)) {
     if (!session || !["admin", "team_manager", "member"].includes(session.user?.role)) {
@@ -785,6 +788,57 @@ export async function GET(req) {
       return NextResponse.json({ days: rows }, { status: 200 });
     }
 
+    // Meed Schedules (GET)
+    if (section === "meedSchedules") {
+      const programId = Number(searchParams.get("programId") || "");
+      let query = db
+        .select({
+          id: meedSchedules.id,
+          programId: meedSchedules.programId,
+          title: meedSchedules.title,
+          description: meedSchedules.description,
+          active: meedSchedules.active,
+          createdAt: meedSchedules.createdAt,
+          updatedAt: meedSchedules.updatedAt,
+          programName: mriPrograms.name,
+          programKey: mriPrograms.programKey,
+        })
+        .from(meedSchedules)
+        .leftJoin(mriPrograms, eq(mriPrograms.id, meedSchedules.programId));
+      if (programId) {
+        query = query.where(eq(meedSchedules.programId, programId));
+      }
+      const rows = await query.orderBy(desc(meedSchedules.createdAt));
+      const ids = rows.map((r) => r.id);
+      let divisions = [];
+      if (ids.length) {
+        divisions = await db
+          .select({
+            id: meedScheduleDivisions.id,
+            scheduleId: meedScheduleDivisions.scheduleId,
+            label: meedScheduleDivisions.label,
+            startTime: meedScheduleDivisions.startTime,
+            endTime: meedScheduleDivisions.endTime,
+            isFree: meedScheduleDivisions.isFree,
+            position: meedScheduleDivisions.position,
+            checklist: meedScheduleDivisions.checklist,
+          })
+          .from(meedScheduleDivisions)
+          .where(inArray(meedScheduleDivisions.scheduleId, ids))
+          .orderBy(meedScheduleDivisions.scheduleId, meedScheduleDivisions.position, meedScheduleDivisions.id);
+      }
+      const map = new Map();
+      for (const d of divisions) {
+        if (!map.has(d.scheduleId)) map.set(d.scheduleId, []);
+        map.get(d.scheduleId).push(d);
+      }
+      const schedules = rows.map((r) => ({
+        ...r,
+        divisions: map.get(r.id) || [],
+      }));
+      return NextResponse.json({ schedules }, { status: 200 });
+    }
+
     if (section === "campusGateStaff") {
       const dateParam = searchParams.get("date");
       const targetDate = dateParam ? new Date(dateParam) : new Date();
@@ -976,6 +1030,7 @@ export async function POST(req) {
         "mriReportTemplates","mriReportAssignments",
         "openCloseTimes","userOpenCloseTimes",
         "guardianGateLogs",
+        "meedSchedules",
       ]);
       if (sec !== 'upload' && sec !== 'controlsShare') {
         if (!allowedWrite.has(sec)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -1818,6 +1873,90 @@ export async function POST(req) {
       return NextResponse.json({ entry, message: "Calendar entry added successfully" }, { status: 201 });
     }
 
+    // Meed Schedules (create)
+    if (section === "meedSchedules") {
+      const { title, programId = null, description = null, active = true, divisions = [] } = body || {};
+      const normalizedProgramId = programId ? Number(programId) : null;
+      let finalTitle = String(title || "").trim();
+      if (!finalTitle && normalizedProgramId) {
+        const [prog] = await db
+          .select({ name: mriPrograms.name })
+          .from(mriPrograms)
+          .where(eq(mriPrograms.id, normalizedProgramId))
+          .limit(1);
+        if (!prog) return NextResponse.json({ error: "programId not found" }, { status: 404 });
+        finalTitle = `${prog.name} Schedule`;
+      }
+      if (!finalTitle) {
+        return NextResponse.json({ error: "Title is required when no program is selected" }, { status: 400 });
+      }
+
+      const [created] = await db
+        .insert(meedSchedules)
+        .values({
+          title: finalTitle,
+          programId: normalizedProgramId,
+          description: description ? String(description).trim() : null,
+          active: !!active,
+        })
+        .returning({
+          id: meedSchedules.id,
+          programId: meedSchedules.programId,
+          title: meedSchedules.title,
+          description: meedSchedules.description,
+          active: meedSchedules.active,
+          createdAt: meedSchedules.createdAt,
+          updatedAt: meedSchedules.updatedAt,
+        });
+
+      const divs = Array.isArray(divisions) ? divisions : [];
+      const normalizedDivs = [];
+      for (let i = 0; i < divs.length; i++) {
+        const d = divs[i] || {};
+        const isFree = !!d.isFree;
+        const startTime = isFree ? null : normalizeTimeValue(d.startTime);
+        const endTime = isFree ? null : normalizeTimeValue(d.endTime);
+        if (!isFree && (!startTime || !endTime)) {
+          return NextResponse.json({ error: `Division ${i + 1}: startTime and endTime are required unless marked free` }, { status: 400 });
+        }
+        let checklist = [];
+        if (Array.isArray(d.checklist)) {
+          checklist = d.checklist.map((c) => String(c || "").trim()).filter(Boolean);
+        } else if (typeof d.checklist === "string") {
+          checklist = d.checklist.split(/\n|,/).map((c) => c.trim()).filter(Boolean);
+        }
+        normalizedDivs.push({
+          scheduleId: created.id,
+          label: String(d.label || `Division ${i + 1}`).trim(),
+          startTime,
+          endTime,
+          isFree,
+          position: Number.isFinite(d.position) ? Number(d.position) : i,
+          checklist,
+        });
+      }
+      let inserted = [];
+      if (normalizedDivs.length) {
+        inserted = await db
+          .insert(meedScheduleDivisions)
+          .values(normalizedDivs)
+          .returning({
+            id: meedScheduleDivisions.id,
+            scheduleId: meedScheduleDivisions.scheduleId,
+            label: meedScheduleDivisions.label,
+            startTime: meedScheduleDivisions.startTime,
+            endTime: meedScheduleDivisions.endTime,
+            isFree: meedScheduleDivisions.isFree,
+            position: meedScheduleDivisions.position,
+          });
+      }
+
+      return NextResponse.json(
+        { schedule: { ...created, divisions: inserted }, message: "Meed schedule created" },
+        { status: 201 }
+      );
+    }
+
     // Program schedule days (POST)
     if (section === "programScheduleDays") {
       const { programId, track, days = [], cells = [] } = body || {};
@@ -2443,6 +2582,7 @@ export async function PATCH(req) {
         "metaFamilies","metaPrograms","metaProgramRoles","metaRoleDefs","metaRoleTasks",
         "programPeriods","programScheduleCells",
         "openCloseTimes","userOpenCloseTimes",
+        "meedSchedules",
       ]);
       if (!allowedWrite.has(section)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
       const wr = await db
@@ -2600,6 +2740,115 @@ export async function PATCH(req) {
         updated += 1;
       }
       return NextResponse.json({ updated }, { status: 200 });
+    }
+
+    // Update Meed Schedules (title/program/description/active + divisions replace)
+    if (section === "meedSchedules") {
+      const scheduleId = Number(body?.id);
+      if (!scheduleId) return NextResponse.json({ error: "id required" }, { status: 400 });
+
+      const [existing] = await db
+        .select({ id: meedSchedules.id })
+        .from(meedSchedules)
+        .where(eq(meedSchedules.id, scheduleId))
+        .limit(1);
+      if (!existing) return NextResponse.json({ error: "Schedule not found" }, { status: 404 });
+
+      const setObj = {};
+      const programId =
+        body?.programId !== undefined ? (body.programId ? Number(body.programId) : null) : undefined;
+      const effectiveProgramId = programId !== undefined ? programId : existing.programId;
+      if (programId !== undefined) {
+        if (programId) {
+          const [prog] = await db
+            .select({ id: mriPrograms.id })
+            .from(mriPrograms)
+            .where(eq(mriPrograms.id, programId))
+            .limit(1);
+          if (!prog) return NextResponse.json({ error: "programId not found" }, { status: 404 });
+        }
+        setObj.programId = programId;
+      }
+      if (body?.title !== undefined) {
+        const t = String(body.title || "").trim();
+        if (!t && !effectiveProgramId) {
+          return NextResponse.json({ error: "Title is required when no program is selected" }, { status: 400 });
+        }
+        setObj.title = t || setObj.title;
+      }
+      if (body?.description !== undefined) setObj.description = body.description ? String(body.description).trim() : null;
+      if (body?.active !== undefined) setObj.active = !!body.active;
+
+      if (Object.keys(setObj).length) {
+        // If title missing but program set, hydrate from program
+        const programForTitle = setObj.programId !== undefined ? setObj.programId : effectiveProgramId;
+        if (!setObj.title && programForTitle) {
+          const [prog] = await db
+            .select({ name: mriPrograms.name })
+            .from(mriPrograms)
+            .where(eq(mriPrograms.id, programForTitle))
+            .limit(1);
+          setObj.title = prog ? `${prog.name} Schedule` : setObj.title;
+        }
+        await db.update(meedSchedules).set(setObj).where(eq(meedSchedules.id, scheduleId));
+      }
+
+      if (body?.divisions !== undefined) {
+        const divs = Array.isArray(body.divisions) ? body.divisions : [];
+        const normalizedDivs = [];
+        for (let i = 0; i < divs.length; i++) {
+          const d = divs[i] || {};
+          const isFree = !!d.isFree;
+          const startTime = isFree ? null : normalizeTimeValue(d.startTime);
+          const endTime = isFree ? null : normalizeTimeValue(d.endTime);
+          if (!isFree && (!startTime || !endTime)) {
+            return NextResponse.json({ error: `Division ${i + 1}: startTime and endTime are required unless marked free` }, { status: 400 });
+          }
+          normalizedDivs.push({
+            scheduleId,
+            label: String(d.label || `Division ${i + 1}`).trim(),
+            startTime,
+            endTime,
+            isFree,
+            position: Number.isFinite(d.position) ? Number(d.position) : i,
+            checklist,
+          });
+        }
+        await db.delete(meedScheduleDivisions).where(eq(meedScheduleDivisions.scheduleId, scheduleId));
+        if (normalizedDivs.length) {
+          await db.insert(meedScheduleDivisions).values(normalizedDivs);
+        }
+      }
+
+      const [updatedSchedule] = await db
+        .select({
+          id: meedSchedules.id,
+          programId: meedSchedules.programId,
+          title: meedSchedules.title,
+          description: meedSchedules.description,
+          active: meedSchedules.active,
+          createdAt: meedSchedules.createdAt,
+          updatedAt: meedSchedules.updatedAt,
+        })
+        .from(meedSchedules)
+        .where(eq(meedSchedules.id, scheduleId));
+
+      const divisions = await db
+        .select({
+          id: meedScheduleDivisions.id,
+          scheduleId: meedScheduleDivisions.scheduleId,
+          label: meedScheduleDivisions.label,
+          startTime: meedScheduleDivisions.startTime,
+          endTime: meedScheduleDivisions.endTime,
+          isFree: meedScheduleDivisions.isFree,
+          position: meedScheduleDivisions.position,
+          checklist: meedScheduleDivisions.checklist,
+        })
+        .from(meedScheduleDivisions)
+        .where(eq(meedScheduleDivisions.scheduleId, scheduleId))
+        .orderBy(meedScheduleDivisions.position, meedScheduleDivisions.id);
+
+      return NextResponse.json({ schedule: { ...updatedSchedule, divisions } }, { status: 200 });
     }
 
     if (section === "metaPrograms") {
@@ -2959,7 +3208,7 @@ export async function DELETE(req) {
     // Team manager write-gating across admin sections
     if (session.user?.role === 'team_manager') {
       const allowedWrite = new Set([
-        "slots","mspCodes","mspCodeAssignments","mspCodeFamilies","metaFamilies","metaPrograms","mriReportAssignments","guardianGateLogs",
+        "slots","mspCodes","mspCodeAssignments","mspCodeFamilies","metaFamilies","metaPrograms","mriReportAssignments","guardianGateLogs","meedSchedules",
       ]);
       if (!allowedWrite.has(section)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
       const wr = await db
@@ -2982,6 +3231,16 @@ export async function DELETE(req) {
       const deleted = await db.delete(mriPrograms).where(eq(mriPrograms.id, id)).returning({ id: mriPrograms.id });
       if (!deleted.length) {
         return NextResponse.json({ error: "Program not found" }, { status: 404 });
+      }
+      return NextResponse.json({ deleted: 1 }, { status: 200 });
+    }
+
+    if (section === "meedSchedules") {
+      const id = Number(body.id);
+      if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+      const deleted = await db.delete(meedSchedules).where(eq(meedSchedules.id, id)).returning({ id: meedSchedules.id });
+      if (!deleted.length) {
+        return NextResponse.json({ error: "Schedule not found" }, { status: 404 });
       }
       return NextResponse.json({ deleted: 1 }, { status: 200 });
     }

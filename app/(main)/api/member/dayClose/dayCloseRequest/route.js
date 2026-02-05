@@ -9,6 +9,7 @@ import {
   escalationsMatterMembers,
   dayCloseOverrides,
   systemFlags,
+  routineLogRequiredMembers,
 } from "@/lib/schema";
 import { eq, and, ne, inArray } from "drizzle-orm";
 import { sql } from "drizzle-orm";
@@ -59,6 +60,9 @@ export async function POST(req) {
     const FLAG_KEYS = {
       bypass: "show_day_close_bypass",
       mobileBlock: "block_mobile_day_close",
+      routineLogAll: "routine_log_required_all",
+      routineLogTeachers: "routine_log_required_teachers",
+      routineLogNonTeachers: "routine_log_required_non_teachers",
     };
 
     const flagRows = await db
@@ -87,17 +91,68 @@ export async function POST(req) {
       }
     }
 
+    const user = await db
+      .select({ type: users.type, isTeacher: users.isTeacher })
+      .from(users)
+      .where(eq(users.id, userId))
+      .then((res) => res[0]);
+    if (!user) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+
+    const routineLogRequiredAll = !!flagMap.get(FLAG_KEYS.routineLogAll);
+    const routineLogRequiredTeachers = !!flagMap.get(FLAG_KEYS.routineLogTeachers);
+    const routineLogRequiredNonTeachers = !!flagMap.get(FLAG_KEYS.routineLogNonTeachers);
+    const requiredRows = await db
+      .select({ userId: routineLogRequiredMembers.userId })
+      .from(routineLogRequiredMembers);
+    const routineLogRequiredMemberIds = requiredRows
+      .map((r) => Number(r.userId))
+      .filter((n) => Number.isInteger(n));
+    const isTeacher = user?.isTeacher === true;
+    const routineLogRequired =
+      routineLogRequiredAll ||
+      (isTeacher && routineLogRequiredTeachers) ||
+      (!isTeacher && routineLogRequiredNonTeachers) ||
+      routineLogRequiredMemberIds.includes(userId);
+
+    if (session.user?.role === "team_manager" && routineLogRequired) {
+      for (const task of routineTasksUpdates) {
+        const source = task?.managerSource;
+        if (source === "assigned") {
+          const assignedId = Number(task?.managerAssignedTaskId);
+          if (!Number.isInteger(assignedId) || assignedId <= 0) {
+            return NextResponse.json(
+              { error: "Managerial report is required for all routine tasks. Please link assigned tasks." },
+              { status: 400 }
+            );
+          }
+        } else if (source === "log") {
+          if (!String(task?.managerLog || "").trim()) {
+            return NextResponse.json(
+              { error: "Managerial report is required for all routine tasks. Please add quick notes." },
+              { status: 400 }
+            );
+          }
+        } else {
+          return NextResponse.json(
+            { error: "Managerial report is required for all routine tasks." },
+            { status: 400 }
+          );
+        }
+      }
+    }
+
+    if (routineLogRequired && !String(routineLog || "").trim()) {
+      return NextResponse.json(
+        { error: "Routine Task Log is required. Please add what you did before submitting." },
+        { status: 400 }
+      );
+    }
+
     // TO BE REMOVED FOR PRODUCTION: Bypass closing window check
     // Validate closing window (skip if bypass is true)
     if (!useBypass) {
-      const user = await db
-        .select({ type: users.type })
-        .from(users)
-        .where(eq(users.id, userId))
-        .then((res) => res[0]);
-      if (!user) {
-        return NextResponse.json({ error: "User not found" }, { status: 404 });
-      }
       const times = await db
         .select()
         .from(openCloseTimes)
