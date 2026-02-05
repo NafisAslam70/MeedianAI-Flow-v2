@@ -1,15 +1,15 @@
 "use client";
-import React from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import useSWR from "swr";
 
 const fetcher = (u) => fetch(u, { headers: { "Content-Type": "application/json" } }).then(r => r.json());
 
 export default function ControlsSharePage() {
   const { data, mutate } = useSWR("/api/admin/manageMeedian?section=controlsShare", fetcher);
-  const [saving, setSaving] = React.useState(false);
+  const [saving, setSaving] = useState(false);
   const people = data?.people || [];
-  const [audience, setAudience] = React.useState("team_manager"); // team_manager | member | all
-  const assignees = React.useMemo(() => {
+  const [audience, setAudience] = useState("team_manager"); // team_manager | member | all
+  const assignees = useMemo(() => {
     if (audience === "all") return people;
     return people.filter((p) => p.role === audience);
   }, [people, audience]);
@@ -17,7 +17,7 @@ export default function ControlsSharePage() {
   const programs = data?.programs || [];
   const grants = data?.grants || [];
   // Build a fast lookup set for existing grants, covering both global and per-program
-  const grantSet = React.useMemo(() => {
+  const grantSet = useMemo(() => {
     const s = new Set();
     for (const g of grants) {
       s.add(`${g.userId}|${g.section}`);
@@ -25,13 +25,13 @@ export default function ControlsSharePage() {
     }
     return s;
   }, [grants]);
-  const [draft, setDraft] = React.useState({}); // supports `${userId}|${section}` and `${userId}|${section}|${programId}`
+  const [draft, setDraft] = useState({}); // supports `${userId}|${section}` and `${userId}|${section}|${programId}`
   // Initialize draft only when the grants set actually changes
-  const grantSig = React.useMemo(
+  const grantSig = useMemo(
     () => JSON.stringify(grants.map(g => [g.userId, g.section, g.programId]).sort()),
     [grants]
   );
-  React.useEffect(() => {
+  useEffect(() => {
     const init = {};
     for (const g of grants) {
       init[`${g.userId}|${g.section}`] = true;
@@ -77,7 +77,7 @@ export default function ControlsSharePage() {
   };
 
   // Mirror Admin Sidebar items as cards with doables and manager multi-selects
-  const adminItems = React.useMemo(() => ([
+  const adminItems = useMemo(() => ([
     {
       key: 'adminClub',
       label: 'Admin Club',

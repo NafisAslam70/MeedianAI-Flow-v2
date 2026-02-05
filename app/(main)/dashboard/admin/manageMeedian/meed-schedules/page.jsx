@@ -1,16 +1,29 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState, useEffect } from "react";
 import useSWR from "swr";
+import { useSession } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Save, Trash2, RefreshCw, Clock3, Link2, ArrowUp, ArrowDown } from "lucide-react";
+import {
+  Plus,
+  Save,
+  Trash2,
+  RefreshCw,
+  Clock3,
+  Link2,
+  ArrowUp,
+  ArrowDown,
+  CheckCircle2,
+  Sparkles,
+} from "lucide-react";
 import Button from "@/components/ui/Button";
 
 const fetcher = (u) => fetch(u, { headers: { "Content-Type": "application/json" } }).then((r) => r.json());
 
-const emptyDivision = () => ({ label: "", startTime: "", endTime: "", isFree: false, checklist: [] });
+const emptyDivision = (start = "") => ({ label: "", startTime: start, endTime: "", isFree: false, checklist: [] });
 
 export default function MeedSchedulesPage() {
+  const { data: session } = useSession();
   const { data: programData } = useSWR("/api/admin/manageMeedian?section=metaPrograms", fetcher, {
     dedupingInterval: 60000,
   });
@@ -31,9 +44,13 @@ export default function MeedSchedulesPage() {
     programId: "",
     title: "",
     description: "",
+    scheduleNumber: "",
+    releasedBy: "",
     active: true,
     divisions: [emptyDivision()],
   });
+  const lastDivisionRef = useRef(null);
+  const lastDivisionCountRef = useRef(form.divisions.length);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -43,6 +60,16 @@ export default function MeedSchedulesPage() {
     return p ? `${p.name} Schedule` : "Untitled Schedule";
   };
 
+  const computeScheduleNumber = (f) => {
+    if (f.scheduleNumber?.trim()) return f.scheduleNumber.trim();
+    const year = new Date().getFullYear();
+    const programKey =
+      programs.find((p) => String(p.id) === String(f.programId))?.programKey || "CUS";
+    const serialSource = f.id || Date.now();
+    const serial = String(serialSource % 10000).padStart(4, "0");
+    return `${year}-${programKey}-${serial}`;
+  };
+
   const printSchedule = (source) => {
     const divisions = (source?.divisions || []).map((d, idx) => ({
       ...d,
@@ -50,6 +77,15 @@ export default function MeedSchedulesPage() {
     })).sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
     const program = programs.find((p) => p.id === source.programId);
     const title = source.title || (program ? `${program.name} Schedule` : "Custom Schedule");
+    const releaseDate = new Date().toLocaleString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    const releasedBy = source.releasedBy?.trim() || "—";
+    const scheduleNo = (source.scheduleNumber || source.id || "").toString().trim() || "—";
     const win = window.open("", "_blank");
     if (!win) return;
     const style = `
@@ -61,8 +97,10 @@ export default function MeedSchedulesPage() {
         th, td{border:1px solid #ccc; padding:8px 10px; font-size:13px; text-align:left;}
         th{background:#f7f7f7;}
         .free{color:#c05621; font-weight:600;}
-        .seal{margin-top:48px; display:flex; justify-content:flex-end; align-items:center; gap:12px;}
-        .seal .circle{width:80px; height:80px; border:2px dashed #999; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:12px; color:#555;}
+      .seal{margin-top:48px; display:flex; justify-content:flex-end; align-items:center; gap:12px;}
+      .seal .circle{width:80px; height:80px; border:2px dashed #999; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:12px; color:#555;}
+      .meta{display:flex; flex-wrap:wrap; gap:16px; font-size:12px; color:#444; margin-top:6px;}
+      .meta span{display:inline-flex; gap:6px; align-items:center; padding:6px 10px; border:1px solid #e5e7eb; border-radius:999px; background:#f8fafc;}
       </style>
     `;
     const rows = divisions.map((d, i) => `
@@ -87,6 +125,11 @@ export default function MeedSchedulesPage() {
           ${program ? `<div style="font-size:12px; color:#555;">Program: ${program.programKey} • ${program.name}</div>` : ""}
         </div>
         <h2>${title}</h2>
+        <div class="meta">
+          <span><strong>No.</strong> ${scheduleNo}</span>
+          <span><strong>Released</strong> ${releaseDate}</span>
+          <span><strong>Released by</strong> ${releasedBy}</span>
+        </div>
         <table>
           <thead>
             <tr><th>#</th><th>Division</th><th>Time</th></tr>
@@ -105,15 +148,35 @@ export default function MeedSchedulesPage() {
     win.print();
   };
 
-  const resetForm = () =>
-    setForm({
-      id: null,
-      programId: "",
-      title: "",
-      description: "",
-      active: true,
-      divisions: [emptyDivision()],
-    });
+  // Auto-scroll to the newest division when one is added
+useEffect(() => {
+  if (form.divisions.length > lastDivisionCountRef.current) {
+    setTimeout(() => {
+      lastDivisionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+  }
+  lastDivisionCountRef.current = form.divisions.length;
+}, [form.divisions.length]);
+
+// Autofill releasedBy from current user if empty
+useEffect(() => {
+  const name = session?.user?.name;
+  if (name && !form.releasedBy) {
+    setForm((f) => ({ ...f, releasedBy: name }));
+  }
+}, [session?.user?.name]);
+
+const resetForm = () =>
+  setForm({
+    id: null,
+    programId: "",
+    title: "",
+    description: "",
+    scheduleNumber: "",
+    releasedBy: session?.user?.name || "",
+    active: true,
+    divisions: [emptyDivision()],
+  });
 
   const upsertSchedule = async (override = {}) => {
     setSaving(true);
@@ -126,6 +189,8 @@ export default function MeedSchedulesPage() {
         programId: current.programId ? Number(current.programId) : null,
         title: current.title,
         description: current.description || null,
+        scheduleNumber: computeScheduleNumber(current),
+        releasedBy: current.releasedBy?.trim() || session?.user?.name || "",
         active: current.active,
         divisions: current.divisions.map((d, idx) => ({
           ...d,
@@ -179,6 +244,8 @@ export default function MeedSchedulesPage() {
       programId: schedule.programId ? String(schedule.programId) : "",
       title: schedule.title || "",
       description: schedule.description || "",
+      scheduleNumber: schedule.scheduleNumber || "",
+      releasedBy: schedule.releasedBy || session?.user?.name || "",
       active: !!schedule.active,
       divisions:
         schedule.divisions?.length
@@ -190,6 +257,14 @@ export default function MeedSchedulesPage() {
               checklist: Array.isArray(d.checklist) ? d.checklist : [],
             }))
           : [emptyDivision()],
+    });
+  };
+
+  const addDivision = () => {
+    setForm((f) => {
+      const prev = f.divisions[f.divisions.length - 1];
+      const start = prev?.endTime || "";
+      return { ...f, divisions: [...f.divisions, emptyDivision(start)] };
     });
   };
 
@@ -225,45 +300,35 @@ export default function MeedSchedulesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
+      <div className="flex items-start justify-between gap-3 flex-wrap rounded-2xl bg-gradient-to-r from-sky-50 via-teal-50 to-emerald-50 border border-sky-100 px-4 py-3 shadow-sm">
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 rounded-full bg-white/70 p-2 shadow">
             <Clock3 className="w-5 h-5 text-teal-600" />
-            Meed Schedules
-          </h1>
-          <p className="text-sm text-gray-600">
-            Link a program or create a custom schedule, then break it into divisions with timed or free blocks plus a checklist of what must be done.
-          </p>
+          </div>
+          <div>
+            <div className="inline-flex items-center gap-2 rounded-full bg-white text-gray-800 px-3 py-1 text-[11px] font-semibold border border-gray-200 shadow-sm">
+              No. {computeScheduleNumber(form)}
+            </div>
+            <h1 className="mt-2 text-xl font-semibold text-gray-900">Meed Schedules</h1>
+            <p className="text-sm text-gray-600">
+              Link a program or create a custom schedule, then craft divisions with timing, checklist, and auto-chained starts.
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="light" onClick={() => mutate()}>
             <RefreshCw className="w-4 h-4 mr-2" />
             Refresh
           </Button>
-          <Button variant="secondary" onClick={resetForm}>
-            Clear Form
+          <Button variant="light" onClick={resetForm}>
+            Clear
           </Button>
-          <Button variant="primary" onClick={() => upsertSchedule()} disabled={saving}>
-            <Save className="w-4 h-4 mr-2" />
-            {form.id ? "Update" : "Save"} Schedule
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={() => {
-              upsertSchedule({ active: false });
-            }}
-            disabled={saving}
-          >
+          <Button variant="secondary" onClick={() => upsertSchedule({ active: false })} disabled={saving}>
             Save Draft
           </Button>
-          <Button
-            variant="light"
-            onClick={() => {
-              upsertSchedule({ active: true });
-            }}
-            disabled={saving}
-          >
-            Finalise Schedule
+          <Button variant="primary" onClick={() => upsertSchedule({ active: true })} disabled={saving}>
+            <Save className="w-4 h-4 mr-2" />
+            {form.id ? "Update" : "Save"} & Finalise
           </Button>
           <Button
             variant="light"
@@ -278,7 +343,7 @@ export default function MeedSchedulesPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-[1.1fr_1fr] gap-6">
         {/* Form */}
-        <div className="rounded-2xl bg-white border border-gray-200 shadow-sm p-4 space-y-4">
+        <div className="rounded-2xl bg-white/90 backdrop-blur border border-gray-100 shadow-lg shadow-sky-50 p-4 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="font-semibold text-gray-900">{form.id ? "Edit Schedule" : "Create New"}</h2>
             <label className="flex items-center gap-2 text-sm text-gray-700">
@@ -319,15 +384,27 @@ export default function MeedSchedulesPage() {
             </p>
           </div>
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">Schedule title</label>
-            <input
-              type="text"
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-              placeholder="e.g., MSP Evening Routine"
-              value={form.title}
-              onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-            />
+          <div className="grid md:grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">Schedule title</label>
+              <input
+                type="text"
+                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                placeholder="e.g., MSP Evening Routine"
+                value={form.title}
+                onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">Schedule number</label>
+              <input
+                type="text"
+                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                placeholder="Auto or custom (e.g., 0042)"
+                value={form.scheduleNumber}
+                onChange={(e) => setForm((f) => ({ ...f, scheduleNumber: e.target.value }))}
+              />
+            </div>
           </div>
 
           <div className="space-y-2">
@@ -341,16 +418,28 @@ export default function MeedSchedulesPage() {
             />
           </div>
 
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-gray-700">Released by</label>
+            <input
+              type="text"
+              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+              placeholder="Name / role"
+              value={form.releasedBy}
+              onChange={(e) => setForm((f) => ({ ...f, releasedBy: e.target.value }))}
+            />
+            <p className="text-xs text-gray-500">Will be printed along with the release date/time.</p>
+          </div>
+
           <div className="flex items-center justify-between mt-4">
             <h3 className="font-medium text-gray-800">Divisions</h3>
-            <Button
-              variant="light"
-              size="sm"
-              onClick={() => setForm((f) => ({ ...f, divisions: [...f.divisions, emptyDivision()] }))}
-            >
-              <Plus className="w-4 h-4 mr-1" />
-              Add division
-            </Button>
+          <Button
+            variant="light"
+            size="sm"
+            onClick={addDivision}
+          >
+            <Plus className="w-4 h-4 mr-1" />
+            Add division
+          </Button>
           </div>
 
           <div className="space-y-3">
@@ -358,10 +447,11 @@ export default function MeedSchedulesPage() {
               {form.divisions.map((div, idx) => (
                 <motion.div
                   key={`div-${idx}`}
+                  ref={idx === form.divisions.length - 1 ? lastDivisionRef : null}
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -6 }}
-                  className="rounded-xl border border-gray-200 bg-gray-50 p-3 space-y-2"
+                  className="rounded-xl border border-gray-200/70 bg-gradient-to-br from-white to-gray-50 p-3 space-y-3 shadow-sm"
                 >
                   <div className="flex items-center gap-2">
                     <input
@@ -385,20 +475,20 @@ export default function MeedSchedulesPage() {
                     </label>
                     <div className="flex items-center gap-2">
                       <button
-                        className="text-gray-500 hover:text-gray-700"
-                        onClick={() => moveDivision(idx, idx - 1)}
-                        disabled={idx === 0}
-                        title="Move up"
-                      >
-                        <ArrowUp className="w-4 h-4" />
+                          className="text-gray-500 hover:text-gray-700"
+                          onClick={() => moveDivision(idx, idx - 1)}
+                          disabled={idx === 0}
+                          title="Move up"
+                        >
+                          <ArrowUp className="w-4 h-4" />
                       </button>
                       <button
-                        className="text-gray-500 hover:text-gray-700"
-                        onClick={() => moveDivision(idx, idx + 1)}
-                        disabled={idx === form.divisions.length - 1}
-                        title="Move down"
-                      >
-                        <ArrowDown className="w-4 h-4" />
+                          className="text-gray-500 hover:text-gray-700"
+                          onClick={() => moveDivision(idx, idx + 1)}
+                          disabled={idx === form.divisions.length - 1}
+                          title="Move down"
+                        >
+                          <ArrowDown className="w-4 h-4" />
                       </button>
                       <button
                         className="text-rose-500 hover:text-rose-600"
@@ -416,10 +506,10 @@ export default function MeedSchedulesPage() {
                   {!div.isFree && (
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-gray-600">Start</label>
+                        <label className="text-xs font-semibold text-gray-700">Start</label>
                         <input
                           type="time"
-                          className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                          className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-teal-400 focus:ring-1 focus:ring-teal-200"
                           value={div.startTime}
                           onChange={(e) => {
                             const val = e.target.value;
@@ -428,20 +518,20 @@ export default function MeedSchedulesPage() {
                         />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-gray-600">End</label>
+                        <label className="text-xs font-semibold text-gray-700">End</label>
                         <input
                           type="time"
-                          className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                          className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-teal-400 focus:ring-1 focus:ring-teal-200"
                           value={div.endTime}
                           onChange={(e) => {
                             const val = e.target.value;
                             setForm((f) => {
                               const list = [...f.divisions];
                               list[idx] = { ...(list[idx] || {}), endTime: val };
-                              // auto-chain: if next division exists and is not free, and start is empty or same as old start, set start to this end
+                              // auto-chain: if next division exists and is not free, set its start to this end when empty
                               const nextDiv = list[idx + 1];
                               if (nextDiv && !nextDiv.isFree) {
-                                const shouldReplace = !nextDiv.startTime || nextDiv.startTime === (list[idx + 1]?.startTime || "");
+                                const shouldReplace = !nextDiv.startTime;
                                 if (shouldReplace) {
                                   list[idx + 1] = { ...nextDiv, startTime: val };
                                 }
@@ -526,11 +616,20 @@ export default function MeedSchedulesPage() {
                 </motion.div>
               ))}
             </AnimatePresence>
+            <Button
+              variant="light"
+              size="sm"
+              className="w-full justify-center"
+              onClick={addDivision}
+            >
+              <Plus className="w-4 h-4 mr-1" />
+              Add division
+            </Button>
           </div>
         </div>
 
         {/* List */}
-        <div className="rounded-2xl bg-white border border-gray-200 shadow-sm p-4 space-y-3">
+        <div className="rounded-2xl bg-white/90 backdrop-blur border border-gray-100 shadow-md p-4 space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="font-semibold text-gray-900">Existing schedules</h2>
             {isLoading && <span className="text-xs text-gray-500">Loading…</span>}

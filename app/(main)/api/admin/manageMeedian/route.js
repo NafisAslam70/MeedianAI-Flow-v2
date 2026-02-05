@@ -2804,6 +2804,12 @@ export async function PATCH(req) {
           if (!isFree && (!startTime || !endTime)) {
             return NextResponse.json({ error: `Division ${i + 1}: startTime and endTime are required unless marked free` }, { status: 400 });
           }
+          let checklist = [];
+          if (Array.isArray(d.checklist)) {
+            checklist = d.checklist.map((c) => String(c || "").trim()).filter(Boolean);
+          } else if (typeof d.checklist === "string") {
+            checklist = d.checklist.split(/\n|,/).map((c) => c.trim()).filter(Boolean);
+          }
           normalizedDivs.push({
             scheduleId,
             label: String(d.label || `Division ${i + 1}`).trim(),
