@@ -74,6 +74,7 @@ export default function AttendanceReportPage() {
   const [reminderSubject, setReminderSubject] = useState("Attendance Reminder");
   const [reminderMessage, setReminderMessage] = useState(defaultReminder);
   const [messageDirty, setMessageDirty] = useState(false);
+  const [reminderAudience, setReminderAudience] = useState("absent"); // absent | late | pending
   const [sendingReminder, setSendingReminder] = useState(false);
   const [banner, setBanner] = useState(null);
   const [showReminderPanel, setShowReminderPanel] = useState(true);
@@ -176,6 +177,9 @@ export default function AttendanceReportPage() {
     setReminderSubject(template.subject);
     setReminderMessage(template.message);
     setMessageDirty(true);
+    if (key === "late") setReminderAudience("late");
+    else if (key === "absent") setReminderAudience("absent");
+    else if (key === "pending") setReminderAudience("pending");
   };
 
   const deduped = useMemo(() => {
@@ -264,8 +268,14 @@ export default function AttendanceReportPage() {
   const totalMarked = totals.present + totals.late;
   const overallTotal = totalMarked + totals.absent;
 
+  const reminderRows = useMemo(() => {
+    if (reminderAudience === "late") return lateRows;
+    if (reminderAudience === "pending") return absentRows;
+    return absentRows;
+  }, [reminderAudience, lateRows, absentRows]);
+
   const selectableIds = useMemo(() => {
-    return absentRows
+    return reminderRows
       .filter((row) => {
         const number = typeof row?.whatsapp === "string" ? row.whatsapp.trim() : "";
         if (!number) return false;
@@ -276,7 +286,7 @@ export default function AttendanceReportPage() {
         return Number.isFinite(id) ? id : null;
       })
       .filter((id) => id !== null);
-  }, [absentRows]);
+  }, [reminderRows]);
 
   useEffect(() => {
     setSelectedIds(new Set(selectableIds));
@@ -393,7 +403,7 @@ export default function AttendanceReportPage() {
     doc.save(`attendance_${data.date}${data.programKey?`_${data.programKey}`:''}${data.track?`_${data.track}`:''}.pdf`);
   };
 
-  const absenteesCount = absentRows.length;
+  const reminderCount = reminderRows.length;
 
   const sendNotifyAbsentees = async () => {
     if (sendingReminder) return;
@@ -430,8 +440,8 @@ export default function AttendanceReportPage() {
 
   const handleNotifyAbsentees = () => {
     if (sendingReminder) return;
-    if (!absenteesCount) {
-      setBanner({ type: "info", text: "Everyone is already marked present for the selected filters." });
+    if (!reminderCount) {
+      setBanner({ type: "info", text: "No recipients match the current reminder filter." });
       return;
     }
     if (!selectedCount) {
@@ -508,14 +518,15 @@ export default function AttendanceReportPage() {
               </select>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-            <Clock3 size={14} className="text-cyan-500" />
-            <span>
-              Cutoff time:{" "}
-              <span className="font-semibold text-slate-700">{formattedCapTime}</span>
+          <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-900 shadow-sm">
+            <span className="inline-flex items-center gap-2 rounded-full bg-cyan-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-cyan-700">
+              <Clock3 size={14} /> Attendance Cutoff
+            </span>
+            <span className="text-base font-semibold">
+              {formattedCapTime}
             </span>
             {!programKey && (
-              <span className="text-slate-400">(varies by program)</span>
+              <span className="text-xs text-cyan-700">(varies by program)</span>
             )}
           </div>
         </header>
@@ -616,7 +627,10 @@ export default function AttendanceReportPage() {
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-semibold text-slate-900">WhatsApp Reminder</h3>
-                <p className="text-xs text-slate-500">Send a quick WhatsApp nudge to everyone still marked absent for {date}.</p>
+                <p className="text-xs text-slate-500">
+                  Send a quick WhatsApp nudge to{" "}
+                  {reminderAudience === "late" ? "latecomers" : "absentees"} for {date}.
+                </p>
               </div>
               <button
                 type="button"
@@ -676,7 +690,7 @@ export default function AttendanceReportPage() {
                   <div className="flex flex-col gap-1">
                     <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Recipients</label>
                     <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
-                      {selectedCount} of {absenteesCount} member{absenteesCount === 1 ? "" : "s"} selected
+                      {selectedCount} of {reminderCount} member{reminderCount === 1 ? "" : "s"} selected
                     </div>
                   </div>
                 </div>
@@ -694,8 +708,8 @@ export default function AttendanceReportPage() {
                   <p className="text-xs text-slate-400">The default text updates when you change the date. Customise it before sending if needed.</p>
                 </div>
                 <div className="mt-4 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-white">
-                  {absentRows.length === 0 ? (
-                    <div className="p-4 text-sm text-slate-500">Everyone is present—no reminders needed.</div>
+                  {reminderRows.length === 0 ? (
+                    <div className="p-4 text-sm text-slate-500">No recipients available.</div>
                   ) : (
                     <>
                       <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-slate-100 bg-white px-4 py-2 text-xs text-slate-500">
@@ -717,7 +731,7 @@ export default function AttendanceReportPage() {
                           </button>
                         </div>
                       </div>
-                      {absentRows.map((row, idx) => {
+                      {reminderRows.map((row, idx) => {
                         const idValue = Number(row.userId);
                         const numericId = Number.isFinite(idValue) ? idValue : null;
                         const hasWhatsapp = typeof row.whatsapp === "string" && row.whatsapp.trim() !== "";
@@ -726,7 +740,7 @@ export default function AttendanceReportPage() {
                         const disabled = numericId === null || !hasWhatsapp || whatsappDisabled;
                         return (
                           <label
-                            key={numericId !== null ? `absent_${numericId}` : `absent_unknown_${idx}`}
+                            key={numericId !== null ? `reminder_${numericId}` : `reminder_unknown_${idx}`}
                             className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 text-sm last:border-b-0"
                           >
                             <span className="flex flex-col">

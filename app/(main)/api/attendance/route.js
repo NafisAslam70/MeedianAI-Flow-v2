@@ -5,6 +5,7 @@ import { users, userMriRoles, scannerSessions, attendanceEvents, finalDailyAtten
 import { and, eq, inArray } from "drizzle-orm";
 import crypto from "crypto";
 import { sendWhatsappMessage, sendWhatsappTemplate } from "@/lib/whatsapp";
+import { toISTDate } from "@/lib/timezone";
 
 const b64u = (s) => Buffer.from(s).toString("base64").replace(/=+$/,'').replace(/\+/g,'-').replace(/\//g,'_');
 const b64uJson = (o) => b64u(JSON.stringify(o));
@@ -94,16 +95,19 @@ export async function GET(req) {
 
       const computeIsLate = (atVal) => {
         if (!attendanceCapTime || !atVal) return false;
-        const atDate = new Date(atVal);
+        const atDate = toISTDate(atVal);
         if (Number.isNaN(atDate.getTime())) return false;
         const [hStr = "0", mStr = "0", sStr = "0"] = String(attendanceCapTime).split(":");
         const h = Number(hStr);
         const m = Number(mStr);
         const s = Number(sStr);
         if (!Number.isFinite(h) || !Number.isFinite(m)) return false;
-        const cap = new Date(atDate);
-        cap.setHours(h, Number.isFinite(m) ? m : 0, Number.isFinite(s) ? s : 0, 0);
-        return atDate > cap;
+        const capH = h;
+        const capM = Number.isFinite(m) ? m : 0;
+        const atH = atDate.getHours();
+        const atM = atDate.getMinutes();
+        // Exact cutoff minute is allowed; late starts from the next minute.
+        return atH > capH || (atH === capH && atM > capM);
       };
 
       // Fetch presents
@@ -629,14 +633,17 @@ export async function POST(req) {
       } catch {}
       const computeIsLate = (atVal) => {
         if (!attendanceCapTime || !atVal) return false;
-        const atDate = new Date(atVal);
+        const atDate = toISTDate(atVal);
         if (Number.isNaN(atDate.getTime())) return false;
         const [hStr = "0", mStr = "0", sStr = "0"] = String(attendanceCapTime).split(":");
         const h = Number(hStr); const m = Number(mStr); const s = Number(sStr);
         if (!Number.isFinite(h) || !Number.isFinite(m)) return false;
-        const cap = new Date(atDate);
-        cap.setHours(h, Number.isFinite(m) ? m : 0, Number.isFinite(s) ? s : 0, 0);
-        return atDate > cap;
+        const capH = h;
+        const capM = Number.isFinite(m) ? m : 0;
+        const atH = atDate.getHours();
+        const atM = atDate.getMinutes();
+        // Exact cutoff minute is allowed; late starts from the next minute.
+        return atH > capH || (atH === capH && atM > capM);
       };
       const evs = await db
         .select({ userId: attendanceEvents.userId, at: attendanceEvents.at, name: users.name })
