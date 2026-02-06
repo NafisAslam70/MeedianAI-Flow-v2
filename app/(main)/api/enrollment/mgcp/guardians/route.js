@@ -65,6 +65,7 @@ export async function POST(request) {
         studentId: Number.isFinite(studentId) ? studentId : null,
         isTrusted,
         notes: notes || null,
+        createdBy: session.user.id,
         createdAt: new Date(),
       })
       .returning();

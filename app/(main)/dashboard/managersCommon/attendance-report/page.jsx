@@ -93,6 +93,7 @@ export default function AttendanceReportPage() {
         key: String(program.programKey || "").toUpperCase(),
         name: program.name || program.programKey || "Program",
         scope: String(program.scope || "").toLowerCase(),
+        attendanceCapTime: program.attendanceCapTime || null,
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [programsData]);
@@ -158,6 +159,10 @@ export default function AttendanceReportPage() {
   if (track) params.set('track', track);
 
   const { data, isLoading, error, mutate } = useSWR(`/api/attendance?${params.toString()}`, fetcher);
+  const attendanceCapTime = data?.attendanceCapTime ?? currentProgram?.attendanceCapTime ?? null;
+  const formattedCapTime = attendanceCapTime
+    ? String(attendanceCapTime).slice(0, 5)
+    : "—";
 
   useEffect(() => {
     if (!messageDirty) {
@@ -502,6 +507,16 @@ export default function AttendanceReportPage() {
                 ))}
               </select>
             </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+            <Clock3 size={14} className="text-cyan-500" />
+            <span>
+              Cutoff time:{" "}
+              <span className="font-semibold text-slate-700">{formattedCapTime}</span>
+            </span>
+            {!programKey && (
+              <span className="text-slate-400">(varies by program)</span>
+            )}
           </div>
         </header>
 

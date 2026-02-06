@@ -56,6 +56,7 @@ export async function POST(request) {
         beltId,
         name,
         notes: notes || null,
+        createdBy: session.user.id,
         createdAt: new Date(),
       })
       .returning();

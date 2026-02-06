@@ -82,6 +82,7 @@ export async function POST(request) {
         notes: notes || null,
         category: category || "MGCP Lead",
         status: status || "new",
+        createdBy: session.user.id,
         createdAt: new Date(),
       })
       .returning();

@@ -62,6 +62,7 @@ export async function POST(request) {
         whatsapp: whatsapp || null,
         notes: notes || null,
         createdAt: new Date(),
+        createdBy: session.user.id,
       })
       .returning();
     return NextResponse.json({ manager }, { status: 201 });

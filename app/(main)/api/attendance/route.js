@@ -179,6 +179,7 @@ export async function GET(req) {
         programKey: programKey || null,
         programId: programId || null,
         track: track || null,
+        attendanceCapTime: attendanceCapTime || null,
         rosterCount: rosterIds.length || null,
         totals: {
           present: onTime.length,

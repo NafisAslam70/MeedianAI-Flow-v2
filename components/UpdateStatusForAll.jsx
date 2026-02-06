@@ -139,13 +139,19 @@ const UpdateStatusForAll = ({
   const handleLogOnly = async () => {
     const ok = await onAddLog?.();
     if (!ok) return;
-    setShowVerifyPrompt(true);
+    // Only prompt for status after log when the actor is a doer on the task
+    if (isTaskMode && actorContext.isDoer) {
+      setShowVerifyPrompt(true);
+    } else {
+      handleCloseModal();
+    }
   };
 
   useEffect(() => {
     if (!availableOptions.length) return;
     const exists = availableOptions.some((opt) => opt.value === newStatus);
-    if (!exists) {
+    if (!exists && newStatus) {
+      // Only auto-select if user had picked something invalid; otherwise leave blank so UI matches current status
       setNewStatus(availableOptions[0].value);
     }
   }, [availableOptions, newStatus, setNewStatus]);
@@ -395,7 +401,7 @@ const UpdateStatusForAll = ({
               <motion.button
                 whileHover={{ scale: noTransitions || isUpdating ? 1 : 1.05 }}
                 whileTap={{ scale: noTransitions || isUpdating ? 1 : 0.95 }}
-                onClick={onUpdate}
+                onClick={() => onUpdate?.()}
                 disabled={!newStatus || (mode === "sprint" && !selectedSprint) || isUpdating || noTransitions}
                 className={`px-5 py-2 rounded-xl text-sm font-medium ${
                   !newStatus || (mode === "sprint" && !selectedSprint) || isUpdating || noTransitions
@@ -466,13 +472,15 @@ const UpdateStatusForAll = ({
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                     onClick={() => {
-                      setNewStatus("pending_verification");
-                      onUpdate?.();
+                      const nextStatus =
+                        currentTaskStatus === "not_started" ? "in_progress" : "pending_verification";
+                      setNewStatus(nextStatus);
+                      onUpdate?.(nextStatus);
                       setShowVerifyPrompt(false);
                     }}
                     className="px-4 py-2 rounded-lg text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700"
                   >
-                    Send for verification
+                    {currentTaskStatus === "not_started" ? "Start task" : "Send for verification"}
                   </motion.button>
                 </div>
               </motion.div>

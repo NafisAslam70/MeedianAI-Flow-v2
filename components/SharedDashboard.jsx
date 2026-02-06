@@ -796,8 +796,13 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
 
   const evaluateTaskContext = (task) => {
     const sessionUserId = Number(session?.user?.id);
-    const isManagerUser = role === "team_manager" || role === "admin";
-    const viewedMemberId = Number(viewUserId || user?.id || task?.assignees?.[0]?.id);
+    // Prefer explicit viewUserId (manager viewing a member), else first assignee, else signed-in user
+    const viewedMemberId = Number(
+      viewUserId ||
+        (Array.isArray(task?.assignees) && task.assignees[0]?.id) ||
+        user?.id ||
+        sessionUserId
+    );
     const observerIds = new Set();
     if (Array.isArray(task?.observers)) {
       task.observers.forEach((observer) => {
@@ -807,14 +812,20 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
     if (task?.observerId != null) observerIds.add(Number(task.observerId));
     if (task?.observer?.id != null) observerIds.add(Number(task.observer.id));
     const isObserver = observerIds.has(sessionUserId);
-    const isDoer = Array.isArray(task?.assignees)
-      ? task.assignees.some((assignee) => Number(assignee?.id) === viewedMemberId)
+    const hasAssigneeMatch = Array.isArray(task?.assignees)
+      ? task.assignees.some((assignee) => {
+          const assigneeId = Number(assignee?.id);
+          return assigneeId === viewedMemberId || assigneeId === sessionUserId;
+        })
       : false;
+    const fallbackMemberMatch =
+      task?.memberId && (Number(task.memberId) === sessionUserId || Number(task.memberId) === viewedMemberId);
+    const isDoer = hasAssigneeMatch || fallbackMemberMatch;
     const doerId = viewedMemberId || null;
     return {
       isObserver,
       isDoer,
-      isManager: isManagerUser,
+      isManager: role === "team_manager" || role === "admin",
       doerId,
       sessionUserId,
       viewedMemberId,
@@ -1274,18 +1285,14 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
     const availableOptions = isSprintFlow ? sprintOptions : taskOptions;
     setStatusOptions(availableOptions);
     setStatusModalMode(isSprintFlow ? "sprint" : "task");
-
-    const defaultStatus = availableOptions.find(
-      (opt) => opt.value !== (isSprintFlow ? currentSprintStatus : currentTaskStatus)
-    )?.value || availableOptions[0]?.value || (isSprintFlow ? currentSprintStatus : currentTaskStatus);
-
-    setNewStatus(defaultStatus);
+    // Do not auto-select a next status; keeps UI aligned with current status display
+    setNewStatus("");
     setSelectedTask(task);
     setSprints(task.sprints || []);
     const sprintIdValue = isSprintFlow && targetSprint?.id ? String(targetSprint.id) : "";
     setSelectedSprint(sprintIdValue);
     if (isSprintFlow && sprintIdValue) {
-      handleSprintOptionChange(sprintIdValue, task, availableOptions, defaultStatus);
+      handleSprintOptionChange(sprintIdValue, task, availableOptions, null);
     }
 
     await fetchSprints(task.id, context.doerId);
@@ -1302,9 +1309,12 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
     if (!sprintObj) return;
     const options = precomputedOptions || getSprintStatusOptions(normalizeStatus(sprintObj.status), context);
     setStatusOptions(options);
-    const defaultStatus = presetStatus
-      || (options.find((opt) => opt.value === newStatus) ? newStatus : options[0]?.value);
-    if (defaultStatus) setNewStatus(defaultStatus);
+    if (presetStatus) {
+      setNewStatus(presetStatus);
+    } else {
+      // leave blank to force an explicit choice
+      setNewStatus("");
+    }
   };
 
   const notifyAssigneesChat = async (taskId, messageContent) => {
@@ -1457,20 +1467,32 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
     }
   };
 
-  const handleStatusUpdate = async () => {
-    if (!selectedTask || !newStatus) return;
-    if (!statusOptions.some((opt) => opt.value === newStatus)) {
-      setError("This status change isn’t permitted for your role.");
-      setTimeout(() => setError(""), 3000);
-      return;
+  const handleStatusUpdate = async (overrideStatus = null) => {
+    const statusToSend = overrideStatus || newStatus;
+    if (!selectedTask || !statusToSend) return;
+    if (process.env.NODE_ENV !== "production") {
+      console.log("[StatusUpdate] attempt", {
+        taskId: selectedTask?.id,
+        statusToSend,
+        statusOptions: Array.isArray(statusOptions) ? statusOptions.map((o) => o?.value) : [],
+        actorContext,
+        selectedTaskStatus: selectedTask?.status,
+        activeMemberId,
+        viewUserId,
+      });
     }
+    // Let the API be the source of truth for permission checks
     setIsUpdating(true);
     const isSprint = statusModalMode === "sprint";
-    const memberIdForUpdate = activeMemberId || viewUserId || user?.id;
+    // Ensure memberId aligns with the acting user when they are a member (doer)
+    const memberIdForUpdate =
+      role === "member"
+        ? Number(session?.user?.id)
+        : activeMemberId || viewUserId || user?.id;
     const body = isSprint
       ? {
           sprintId: parseInt(selectedSprint),
-          status: newStatus,
+          status: statusToSend,
           taskId: selectedTask.id,
           memberId: memberIdForUpdate,
           action: "update_sprint",
@@ -1480,7 +1502,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
         }
       : {
           taskId: selectedTask.id,
-          status: newStatus,
+          status: statusToSend,
           memberId: memberIdForUpdate,
           action: "update_task",
           notifyAssignees: sendNotification,
@@ -1498,7 +1520,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
       dispatch({
         type: "UPDATE_TASK_STATUS",
         taskId: selectedTask.id,
-        status: newStatus,
+        status: statusToSend,
         sprintId: isSprint ? parseInt(selectedSprint) : undefined,
       });
 
