@@ -17,6 +17,7 @@ import {
   SunMedium,
   Undo2,
   UserCircle,
+  CheckCircle2,
 } from "lucide-react";
 
 const STATUS_META = {
@@ -179,6 +180,7 @@ export default function AssignedTasksView({
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortMode, setSortMode] = useState("recent");
   const [searchQuery, setSearchQuery] = useState("");
+  const [hideCompleted, setHideCompleted] = useState(true);
   const [showArchive, setShowArchive] = useState(false);
   const [showBasketModal, setShowBasketModal] = useState(false);
   const [showPrepareModal, setShowPrepareModal] = useState(false);
@@ -326,6 +328,7 @@ export default function AssignedTasksView({
   };
 
   const filteredCompleted = useMemo(() => {
+    if (hideCompleted) return [];
     const matches = completedTasks.filter((task) => {
       if (statusFilter === "overdue") return deadlineState(task.deadline) === "overdue";
       if (statusFilter === "due_today") return deadlineState(task.deadline) === "today";
@@ -333,7 +336,7 @@ export default function AssignedTasksView({
       return statusFilter === normalizeStatus(task.status);
     });
     return sortTasks(matches.filter((task) => matchesSearch(task, searchQuery)), sortMode);
-  }, [completedTasks, statusFilter, searchQuery, sortMode]);
+  }, [completedTasks, statusFilter, searchQuery, sortMode, hideCompleted]);
 
   const statusSummary = useMemo(() => {
     if (assignedTaskSummary) return assignedTaskSummary;
@@ -833,25 +836,26 @@ export default function AssignedTasksView({
     </div>
   );
 
-  const renderCompletedSection = () => (
-    <section className="rounded-3xl border border-emerald-100 bg-emerald-50/40 p-4">
-      <div className="mb-4 flex items-center justify-between">
-        <p className="text-sm font-semibold text-emerald-700">
-          Completed (Visible) · {filteredCompleted.length} task{filteredCompleted.length === 1 ? "" : "s"}
-        </p>
-        <span className="text-xs text-emerald-600">
-          Archive finished work to keep the main view tidy.
-        </span>
-      </div>
-      {filteredCompleted.length === 0 ? (
-        <p className="text-xs text-emerald-600">No completed tasks match the current filters.</p>
-      ) : (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {filteredCompleted.map((task) => renderTaskCard(task))}
+  const renderCompletedSection = () =>
+    hideCompleted ? null : (
+      <section className="rounded-3xl border border-emerald-100 bg-emerald-50/40 p-4">
+        <div className="mb-4 flex items-center justify-between">
+          <p className="text-sm font-semibold text-emerald-700">
+            Completed (Visible) · {filteredCompleted.length} task{filteredCompleted.length === 1 ? "" : "s"}
+          </p>
+          <span className="text-xs text-emerald-600">
+            Archive finished work to keep the main view tidy.
+          </span>
         </div>
-      )}
-    </section>
-  );
+        {filteredCompleted.length === 0 ? (
+          <p className="text-xs text-emerald-600">No completed tasks match the current filters.</p>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {filteredCompleted.map((task) => renderTaskCard(task))}
+          </div>
+        )}
+      </section>
+    );
 
   return (
     <motion.div
@@ -1045,6 +1049,18 @@ export default function AssignedTasksView({
                 className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-2 pl-10 pr-3 text-sm text-slate-700 placeholder:text-slate-400 focus:border-teal-400 focus:outline-none focus:ring-2 focus:ring-teal-100"
               />
             </div>
+            <button
+              onClick={() => setHideCompleted((prev) => !prev)}
+              className={`inline-flex items-center gap-2 rounded-2xl px-3 py-2 text-sm font-semibold transition border ${
+                hideCompleted
+                  ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                  : "bg-slate-50 border-slate-200 text-slate-600"
+              }`}
+              title="Hide tasks marked Done or Verified to declutter"
+            >
+              <CheckCircle2 className="h-4 w-4" />
+              {hideCompleted ? "Hiding completed" : "Show completed"}
+            </button>
             <select
               value={statusFilter}
               onChange={(event) => setStatusFilter(event.target.value)}

@@ -139,11 +139,7 @@ const UpdateStatusForAll = ({
   const handleLogOnly = async () => {
     const ok = await onAddLog?.();
     if (!ok) return;
-    if (isTaskMode && actorContext.isDoer && currentTaskStatus === "in_progress") {
-      setShowVerifyPrompt(true);
-    } else {
-      handleCloseModal();
-    }
+    setShowVerifyPrompt(true);
   };
 
   useEffect(() => {

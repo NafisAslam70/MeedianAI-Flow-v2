@@ -330,6 +330,7 @@ const teamDigest = useMemo(() => {
 
   const evaluateTaskContext = (task) => {
     const sessionUserId = Number(session?.user?.id);
+    const isManagerRole = ["admin", "team_manager"].includes(session?.user?.role);
     const observerIds = new Set();
     if (task?.observerId != null) observerIds.add(Number(task.observerId));
     if (Array.isArray(task?.observers)) {
@@ -338,13 +339,14 @@ const teamDigest = useMemo(() => {
       });
     }
     const assigneeList = Array.isArray(task?.assignees) ? task.assignees : [];
-    const isObserver = observerIds.has(sessionUserId);
+    const isObserver = isManagerRole || observerIds.has(sessionUserId);
     const isDoer = assigneeList.some((assignee) => Number(assignee?.id) === sessionUserId);
     const primaryAssigneeId = assigneeList.length ? Number(assigneeList[0].id) : null;
     return {
       isObserver,
       isDoer,
       isManager: true,
+      isManagerRole,
       sessionUserId,
       viewedMemberId: primaryAssigneeId,
     };
