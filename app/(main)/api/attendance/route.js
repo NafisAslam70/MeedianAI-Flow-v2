@@ -118,6 +118,8 @@ export async function GET(req) {
           at: finalDailyAttendance.at,
           isLate: finalDailyAttendance.isLate,
           isTeacher: users.isTeacher,
+          whatsapp: users.whatsapp_number,
+          whatsappEnabled: users.whatsapp_enabled,
         })
         .from(finalDailyAttendance)
         .leftJoin(users, eq(users.id, finalDailyAttendance.userId))
