@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 import jsPDF from "jspdf";
 import { CalendarDays, Clock3, Download, Filter, Search, UserCheck, UserX, Users } from "lucide-react";
@@ -75,11 +75,13 @@ export default function AttendanceReportPage() {
   const [reminderMessage, setReminderMessage] = useState(defaultReminder);
   const [messageDirty, setMessageDirty] = useState(false);
   const [reminderAudience, setReminderAudience] = useState("absent"); // absent | late | pending
+  const [includeOtherRecipients, setIncludeOtherRecipients] = useState(false);
   const [sendingReminder, setSendingReminder] = useState(false);
   const [banner, setBanner] = useState(null);
   const [showReminderPanel, setShowReminderPanel] = useState(true);
   const [showSendConfirm, setShowSendConfirm] = useState(false);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const lastAutoSelectKey = useRef("");
   const { data: programsData } = useSWR(
     "/api/admin/manageMeedian?section=metaPrograms",
     fetcher,
@@ -274,7 +276,27 @@ export default function AttendanceReportPage() {
     return absentRows;
   }, [reminderAudience, lateRows, absentRows]);
 
-  const selectableIds = useMemo(() => {
+  const allReminderRows = useMemo(() => {
+    const priority = { late: 3, absent: 2, present: 1 };
+    const map = new Map();
+    const push = (row, status) => {
+      if (!row || row.userId == null) return;
+      const id = Number(row.userId);
+      if (!Number.isFinite(id)) return;
+      const prev = map.get(id);
+      if (!prev || priority[status] > priority[prev.status]) {
+        map.set(id, { ...row, status });
+      }
+    };
+    presentRows.forEach((row) => push(row, "present"));
+    lateRows.forEach((row) => push(row, "late"));
+    absentRows.forEach((row) => push(row, "absent"));
+    return Array.from(map.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  }, [presentRows, lateRows, absentRows]);
+
+  const reminderListRows = includeOtherRecipients ? allReminderRows : reminderRows;
+
+  const autoSelectIds = useMemo(() => {
     return reminderRows
       .filter((row) => {
         const number = typeof row?.whatsapp === "string" ? row.whatsapp.trim() : "";
@@ -288,9 +310,27 @@ export default function AttendanceReportPage() {
       .filter((id) => id !== null);
   }, [reminderRows]);
 
+  const selectableIds = useMemo(() => {
+    return reminderListRows
+      .filter((row) => {
+        const number = typeof row?.whatsapp === "string" ? row.whatsapp.trim() : "";
+        if (!number) return false;
+        return row.whatsappEnabled !== false;
+      })
+      .map((row) => {
+        const id = Number(row.userId);
+        return Number.isFinite(id) ? id : null;
+      })
+      .filter((id) => id !== null);
+  }, [reminderListRows]);
+
   useEffect(() => {
-    setSelectedIds(new Set(selectableIds));
-  }, [selectableIds]);
+    const key = `${reminderAudience}:${includeOtherRecipients ? "all" : "aud"}`;
+    if (lastAutoSelectKey.current !== key) {
+      setSelectedIds(new Set(autoSelectIds));
+      lastAutoSelectKey.current = key;
+    }
+  }, [autoSelectIds, reminderAudience, includeOtherRecipients]);
 
   const selectedCount = selectedIds.size;
 
@@ -708,13 +748,22 @@ export default function AttendanceReportPage() {
                   <p className="text-xs text-slate-400">The default text updates when you change the date. Customise it before sending if needed.</p>
                 </div>
                 <div className="mt-4 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-white">
-                  {reminderRows.length === 0 ? (
+                  {reminderListRows.length === 0 ? (
                     <div className="p-4 text-sm text-slate-500">No recipients available.</div>
                   ) : (
                     <>
                       <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-slate-100 bg-white px-4 py-2 text-xs text-slate-500">
                         <span>{selectedCount} selected</span>
                         <div className="flex items-center gap-2">
+                          <label className="flex items-center gap-2 rounded-full border border-slate-200 px-2.5 py-1 text-xs text-slate-600">
+                            <input
+                              type="checkbox"
+                              className="h-3.5 w-3.5 accent-cyan-500"
+                              checked={includeOtherRecipients}
+                              onChange={(e) => setIncludeOtherRecipients(e.target.checked)}
+                            />
+                            Include others
+                          </label>
                           <button
                             onClick={selectAll}
                             className="rounded-full border border-slate-200 px-2.5 py-1 text-xs text-slate-600 transition hover:border-slate-300 hover:text-slate-700"
@@ -731,7 +780,7 @@ export default function AttendanceReportPage() {
                           </button>
                         </div>
                       </div>
-                      {reminderRows.map((row, idx) => {
+                      {reminderListRows.map((row, idx) => {
                         const idValue = Number(row.userId);
                         const numericId = Number.isFinite(idValue) ? idValue : null;
                         const hasWhatsapp = typeof row.whatsapp === "string" && row.whatsapp.trim() !== "";
@@ -748,6 +797,7 @@ export default function AttendanceReportPage() {
                               <span className="mt-0.5 text-xs text-slate-500">
                                 {numericId !== null ? `#${numericId}` : "No linked user"}
                                 {row.isTeacher ? " • Teacher" : " • Member"}
+                                {includeOtherRecipients && row.status ? ` • ${row.status}` : ""}
                               </span>
                               {(!hasWhatsapp || whatsappDisabled) && (
                                 <span className="mt-0.5 text-xs text-rose-500">
