@@ -138,6 +138,7 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
   const [deadlineFilter, setDeadlineFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState("board");
+  const [hideCompleted, setHideCompleted] = useState(true);
   const [activeUserId, setActiveUserId] = useState(null);
   const [selectedTask, setSelectedTask] = useState(null);
   const [taskLogs, setTaskLogs] = useState([]);
@@ -206,6 +207,10 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
   const filteredTasks = useMemo(() => {
     let tasks = [...allTasks];
 
+    if (hideCompleted) {
+      tasks = tasks.filter((task) => !isCompleted(task.status));
+    }
+
     if (assigneeFilter !== "all") {
       const targetId = Number(assigneeFilter);
       tasks = tasks.filter((task) => task.assignees?.some((assignee) => Number(assignee.id) === targetId));
@@ -235,7 +240,7 @@ export default function ManagersCommonDashboard({ disableUserSelect = false }) {
       const dateB = new Date(a.updatedAt || a.createdAt).getTime();
       return dateB - dateA;
     });
-  }, [allTasks, assigneeFilter, statusFilter, deadlineFilter, searchQuery]);
+  }, [allTasks, assigneeFilter, statusFilter, deadlineFilter, searchQuery, hideCompleted]);
 
   const boardColumns = useMemo(() => {
     const columns = {
@@ -936,6 +941,18 @@ const teamDigest = useMemo(() => {
             onChange={(event) => setSelectedDate(event.target.value)}
             className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
           />
+          <button
+            onClick={() => setHideCompleted((prev) => !prev)}
+            className={`inline-flex items-center gap-2 rounded-2xl px-3 py-2 text-sm font-semibold transition border ${
+              hideCompleted
+                ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                : "bg-slate-50 border-slate-200 text-slate-600"
+            }`}
+            title="Hide tasks that are Done/Verified to declutter the board"
+          >
+            <CheckCircle2 className="h-4 w-4" />
+            {hideCompleted ? "Hiding completed" : "Show completed"}
+          </button>
           <div className="ml-auto flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-1">
             <button
               onClick={() => setViewMode("board")}

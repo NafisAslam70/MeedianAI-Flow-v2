@@ -129,6 +129,23 @@ const UpdateStatusForAll = ({
   const doerGuidance = isTaskMode && actorContext.isDoer ? DOER_FLOW_GUIDANCE[currentTaskStatus] : null;
   const observerGuidance = isTaskMode && actorContext.isObserver ? OBSERVER_FLOW_GUIDANCE[currentTaskStatus] : null;
 
+  const [showVerifyPrompt, setShowVerifyPrompt] = useState(false);
+
+  const handleCloseModal = () => {
+    setShowVerifyPrompt(false);
+    onClose();
+  };
+
+  const handleLogOnly = async () => {
+    const ok = await onAddLog?.();
+    if (!ok) return;
+    if (isTaskMode && actorContext.isDoer && currentTaskStatus === "in_progress") {
+      setShowVerifyPrompt(true);
+    } else {
+      handleCloseModal();
+    }
+  };
+
   useEffect(() => {
     if (!availableOptions.length) return;
     const exists = availableOptions.some((opt) => opt.value === newStatus);
@@ -167,7 +184,7 @@ const UpdateStatusForAll = ({
         <motion.button
           whileHover={{ scale: 1.13, rotate: 90 }}
           whileTap={{ scale: 0.92 }}
-          onClick={onClose}
+          onClick={handleCloseModal}
           className="absolute top-6 right-6 z-50 p-2 bg-gray-100/80 hover:bg-gray-300/80 rounded-full shadow-lg border border-gray-200 transition-all"
           aria-label="Close"
         >
@@ -361,10 +378,23 @@ const UpdateStatusForAll = ({
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                onClick={onClose}
+                onClick={handleCloseModal}
                 className="px-5 py-2 bg-gray-500 text-white rounded-xl text-sm font-medium hover:bg-gray-600 dark:bg-gray-600 dark:hover:bg-gray-700"
               >
                 Cancel
+              </motion.button>
+              <motion.button
+                whileHover={{ scale: isUpdating ? 1 : 1.05 }}
+                whileTap={{ scale: isUpdating ? 1 : 0.95 }}
+                onClick={handleLogOnly}
+                disabled={!newLogComment || isUpdating}
+                className={`px-5 py-2 rounded-xl text-sm font-medium ${
+                  !newLogComment || isUpdating
+                    ? "bg-gray-200 text-gray-500 cursor-not-allowed"
+                    : "bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-800"
+                }`}
+              >
+                {isUpdating ? "Saving…" : "Add log only"}
               </motion.button>
               <motion.button
                 whileHover={{ scale: noTransitions || isUpdating ? 1 : 1.05 }}
@@ -409,6 +439,47 @@ const UpdateStatusForAll = ({
                 <CheckCircle className="w-4 h-4" />
                 {success}
               </motion.p>
+            )}
+
+            {showVerifyPrompt && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mt-4 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-800"
+              >
+                <div className="flex items-center gap-2 mb-2 font-semibold">
+                  <AlertTriangle className="w-4 h-4" />
+                  Send this update for verification now?
+                </div>
+                <p className="text-xs text-indigo-700 mb-3">
+                  You added a log while the task is in progress. Choose whether to keep working or ask your observer to verify.
+                </p>
+                <div className="flex gap-3">
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => {
+                      setShowVerifyPrompt(false);
+                      handleCloseModal();
+                    }}
+                    className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-200 text-gray-700 hover:bg-gray-300"
+                  >
+                    Keep in progress
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => {
+                      setNewStatus("pending_verification");
+                      onUpdate?.();
+                      setShowVerifyPrompt(false);
+                    }}
+                    className="px-4 py-2 rounded-lg text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700"
+                  >
+                    Send for verification
+                  </motion.button>
+                </div>
+              </motion.div>
             )}
           </div>
 

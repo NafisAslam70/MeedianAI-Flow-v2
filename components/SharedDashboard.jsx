@@ -1426,7 +1426,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
     if (!newLogComment) {
       setError("Comment required");
       setTimeout(() => setError(""), 3000);
-      return;
+      return false;
     }
     setIsUpdating(true);
     const body = { taskId: selectedTask.id, action: "log_added", details: newLogComment };
@@ -1447,9 +1447,11 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
       setNewLogComment("");
       setSuccess("Log added!");
       setTimeout(() => setSuccess(""), 2500);
+      return true;
     } catch (e) {
       setError(e.message || "Add log failed");
       setTimeout(() => setError(""), 3000);
+      return false;
     } finally {
       setIsUpdating(false);
     }
