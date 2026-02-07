@@ -209,7 +209,7 @@ const GuardianRelationshipManager = () => {
     followUpRequired: false,
     followUpDate: "",
     followUpNotes: "",
-      potentialLead: false,
+    potentialLead: false,
   });
   const [interactionSaving, setInteractionSaving] = useState(false);
   const [interactionError, setInteractionError] = useState("");
@@ -1010,9 +1010,9 @@ const GuardianRelationshipManager = () => {
           content: interactionForm.notes.trim() || "Call logged",
           duration: interactionForm.duration.trim() || null,
           outcome: interactionForm.outcome,
-          followUpRequired: interactionForm.followUpRequired,
+          followUpRequired: interactionForm.potentialLead || interactionForm.followUpRequired,
           followUpDate: interactionForm.followUpDate || null,
-          followUpNotes: interactionForm.followUpNotes.trim() || null,
+          followUpNotes: interactionForm.followUpNotes.trim() || (interactionForm.potentialLead ? "Potential King – follow up" : null),
         };
         const res = await fetch("/api/enrollment/communications", {
           method: "POST",
@@ -4465,10 +4465,35 @@ const GuardianRelationshipManager = () => {
                 <label className="flex items-center gap-2 text-sm text-slate-600">
                   <input
                     type="checkbox"
-                    checked={interactionForm.followUpRequired}
-                    onChange={updateInteractionField("followUpRequired")}
+                    checked={interactionForm.followUpRequired || interactionForm.potentialLead}
+                    onChange={(e) =>
+                      setInteractionForm((prev) => ({
+                        ...prev,
+                        followUpRequired: e.target.checked,
+                        // keep potentialLead as-is
+                      }))
+                    }
                   />
                   Follow-up required
+                </label>
+                <label className="flex items-center gap-2 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  <input
+                    type="checkbox"
+                    className="rounded border-amber-300 text-amber-600 focus:ring-amber-500"
+                    checked={interactionForm.potentialLead}
+                    onChange={(e) =>
+                      setInteractionForm((prev) => ({
+                        ...prev,
+                        potentialLead: e.target.checked,
+                        followUpRequired: e.target.checked || prev.followUpRequired,
+                        followUpNotes:
+                          e.target.checked && !prev.followUpNotes
+                            ? "Potential King – follow up for enrollment"
+                            : prev.followUpNotes,
+                      }))
+                    }
+                  />
+                  <span className="font-semibold">Flag as Potential King (new enrollment lead)</span>
                 </label>
                 {interactionForm.followUpRequired && (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
