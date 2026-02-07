@@ -304,6 +304,36 @@ export default function AdsPage() {
     });
   }, [entries, categoryFilter, query, dateFilter, monthFilter]);
 
+  const detailEntries = useMemo(() => {
+    if (!reportRange) return [];
+    const range = reportRange;
+    const perMember = new Map();
+    entries.forEach((entry) => {
+      const baseDate = entry.occurredAt || entry.createdAt;
+      const parsed = baseDate ? new Date(baseDate) : null;
+      if (!parsed || Number.isNaN(parsed.getTime())) return;
+      if (parsed < range.start || parsed > range.end) return;
+      if (excludedMemberIds.includes(entry.memberId)) return;
+      const key = entry.memberId || "unknown";
+      if (!perMember.has(key)) {
+        perMember.set(key, {
+          memberId: entry.memberId,
+          memberName: entry.memberName || `User #${entry.memberId}`,
+          items: [],
+        });
+      }
+      perMember.get(key).items.push({
+        when: parsed,
+        category: entry.category,
+        evidence: entry.evidence || (entry.evidenceUrl ? "Photo evidence" : "-"),
+        points: entry.points ?? POINTS_PER_AD,
+      });
+    });
+    return Array.from(perMember.values()).sort((a, b) =>
+      (a.memberName || "").localeCompare(b.memberName || "")
+    );
+  }, [entries, reportRange, excludedMemberIds]);
+
   const reportSummary = useMemo(() => {
     const range = reportRange;
     const map = new Map();
@@ -942,10 +972,10 @@ export default function AdsPage() {
                 <thead>
                   <tr className="border-b text-left text-xs uppercase tracking-wide text-gray-500">
                     <th className="px-3 py-2">Member</th>
+                    <th className="px-3 py-2">Day closes (approved)</th>
                     <th className="px-3 py-2">ADs</th>
                     <th className="px-3 py-2">Points deducted</th>
                     <th className="px-3 py-2">IPR marks</th>
-                    <th className="px-3 py-2">Day closes (approved)</th>
                     <th className="px-3 py-2">Status</th>
                   </tr>
                 </thead>
@@ -953,13 +983,13 @@ export default function AdsPage() {
                   {reportSummary.rows.map((row) => (
                     <tr key={row.memberId || row.memberName}>
                       <td className="px-3 py-2 text-gray-900">{row.memberName}</td>
+                      <td className="px-3 py-2 text-gray-700">
+                        {row.approvedDayCloses ?? "–"}
+                      </td>
                       <td className="px-3 py-2 text-gray-700">{row.ads}</td>
                       <td className="px-3 py-2 text-gray-700">-{row.pointsDeducted}</td>
                       <td className="px-3 py-2 font-semibold text-emerald-700">
                         {row.iprScore} / {reportSummary.range.maxMarks}
-                      </td>
-                      <td className="px-3 py-2 text-gray-700">
-                        {row.approvedDayCloses ?? "–"}
                       </td>
                       <td className="px-3 py-2">
                         {(() => {
@@ -985,6 +1015,57 @@ export default function AdsPage() {
                   </tr>
                 </tfoot>
               </table>
+            </div>
+          )}
+          {reportSummary.rows.length > 0 && (
+            <div className="mt-4 flex items-center gap-2">
+              <Button
+                variant="light"
+                size="sm"
+                onClick={() => setShowMemberDetail((prev) => !prev)}
+              >
+                {showMemberDetail ? "Hide member AD detail" : "Member AD detail (private)"}
+              </Button>
+              <span className="text-xs text-gray-500">
+                Shows per-member ADs (date, category, evidence) for this window; not printed.
+              </span>
+            </div>
+          )}
+          {showMemberDetail && detailEntries.length > 0 && (
+            <div className="mt-3 space-y-3 print-hide">
+              {detailEntries.map((member) => (
+                <div key={member.memberId || member.memberName} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                  <div className="flex items-center justify-between">
+                    <div className="font-semibold text-gray-900">{member.memberName}</div>
+                    <div className="text-xs text-gray-600">{member.items.length} ADs</div>
+                  </div>
+                  <div className="mt-2 overflow-x-auto">
+                    <table className="min-w-full text-xs">
+                      <thead>
+                        <tr className="border-b text-gray-500 uppercase tracking-wide">
+                          <th className="px-2 py-1 text-left">Date</th>
+                          <th className="px-2 py-1 text-left">Category</th>
+                          <th className="px-2 py-1 text-left">Evidence</th>
+                          <th className="px-2 py-1 text-right">Points</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {member.items
+                          .slice()
+                          .sort((a, b) => b.when - a.when)
+                          .map((item, idx) => (
+                            <tr key={idx} className="border-b last:border-0 text-gray-700">
+                              <td className="px-2 py-1">{item.when.toLocaleDateString()} {item.when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</td>
+                              <td className="px-2 py-1">{CATEGORY_LABELS[item.category] || item.category}</td>
+                              <td className="px-2 py-1">{item.evidence}</td>
+                              <td className="px-2 py-1 text-right">-{Math.abs(item.points ?? POINTS_PER_AD)}</td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </CardBody>
