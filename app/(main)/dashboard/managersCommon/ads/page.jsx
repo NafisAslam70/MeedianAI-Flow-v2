@@ -582,6 +582,58 @@ export default function AdsPage() {
     popup.print();
   };
 
+  const handlePrintMember = (member) => {
+    if (!member || !member.items?.length) return;
+    const fmt = (d) =>
+      new Date(d).toLocaleString([], { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    const rowsHtml = member.items
+      .slice()
+      .sort((a, b) => b.when - a.when)
+      .map(
+        (item) => `
+        <tr>
+          <td>${fmt(item.when)}</td>
+          <td>${CATEGORY_LABELS[item.category] || item.category}</td>
+          <td>${item.evidence || "-"}</td>
+          <td>- ${Math.abs(item.points ?? POINTS_PER_AD)}</td>
+        </tr>`
+      )
+      .join("");
+    const html = `
+      <html>
+        <head>
+          <title>AD Slip - ${member.memberName}</title>
+          <style>
+            @page { size: A5 portrait; margin: 10mm; }
+            body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #0f172a; margin: 0; padding: 0; }
+            .wrap { padding: 8mm; }
+            h1 { margin: 0 0 6px; font-size: 16px; }
+            .meta { font-size: 12px; color: #475569; margin-bottom: 8px; }
+            table { width: 100%; border-collapse: collapse; font-size: 11px; }
+            th, td { padding: 6px 4px; border-bottom: 1px solid #e2e8f0; text-align: left; }
+            th { text-transform: uppercase; letter-spacing: .04em; font-size: 10px; color: #475569; }
+          </style>
+        </head>
+        <body>
+          <div class="wrap">
+            <h1>AD Slip</h1>
+            <div class="meta">Member: <strong>${member.memberName}</strong></div>
+            <div class="meta">Range: ${reportSummary.range.label} (${reportSummary.range.start.toLocaleDateString()} – ${reportSummary.range.end.toLocaleDateString()})</div>
+            <table>
+              <thead><tr><th>Date</th><th>Category</th><th>Evidence</th><th>Points</th></tr></thead>
+              <tbody>${rowsHtml || "<tr><td colspan='4'>No ADs in range.</td></tr>"}</tbody>
+            </table>
+          </div>
+        </body>
+      </html>`;
+    const popup = window.open("", "_blank", "width=720,height=900");
+    if (!popup) return;
+    popup.document.write(html);
+    popup.document.close();
+    popup.focus();
+    popup.print();
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     if (saving) return;
@@ -1037,7 +1089,12 @@ export default function AdsPage() {
                 <div key={member.memberId || member.memberName} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
                   <div className="flex items-center justify-between">
                     <div className="font-semibold text-gray-900">{member.memberName}</div>
-                    <div className="text-xs text-gray-600">{member.items.length} ADs</div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-600">{member.items.length} ADs</span>
+                      <Button size="xs" variant="light" onClick={() => handlePrintMember(member)}>
+                        Print slip (A5)
+                      </Button>
+                    </div>
                   </div>
                   <div className="mt-2 overflow-x-auto">
                     <table className="min-w-full text-xs">
