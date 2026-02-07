@@ -142,12 +142,13 @@ export async function GET(req) {
   "randomsLab",
   "campusGateStaff",
   "guardianGateLogs",
-    "guardianGateAssignments",
-    "adminClub",
-    "recruitmentPro",
-    "mspCodeFamilies",
-    "meedSchedules",
-  ]);
+  "guardianGateAssignments",
+  "adminClub",
+  "recruitmentPro",
+  "mspCodeFamilies",
+  "meedSchedules",
+  "mhcpSlotDuties",
+]);
   if (memberReadable.has(section)) {
     if (!session || !["admin", "team_manager", "member"].includes(session.user?.role)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -788,6 +789,40 @@ export async function GET(req) {
       return NextResponse.json({ days: rows }, { status: 200 });
     }
 
+    // MHCP Slot Duties (GET)
+    if (section === "mhcpSlotDuties") {
+      const programId = Number(searchParams.get("programId"));
+      if (!programId) {
+        return NextResponse.json({ error: "Missing required param: programId" }, { status: 400 });
+      }
+      const track = String(searchParams.get("track") || "").trim() || "both";
+      const day = String(searchParams.get("day") || "").trim();
+      let where = eq(mhcpSlotDuties.programId, programId);
+      if (track) where = and(where, eq(mhcpSlotDuties.track, track));
+      if (day) where = and(where, eq(mhcpSlotDuties.dayName, day));
+      const rows = await db
+        .select({
+          id: mhcpSlotDuties.id,
+          programId: mhcpSlotDuties.programId,
+          track: mhcpSlotDuties.track,
+          dayName: mhcpSlotDuties.dayName,
+          slotLabel: mhcpSlotDuties.slotLabel,
+          dutyTitle: mhcpSlotDuties.dutyTitle,
+          startTime: mhcpSlotDuties.startTime,
+          endTime: mhcpSlotDuties.endTime,
+          notes: mhcpSlotDuties.notes,
+          position: mhcpSlotDuties.position,
+          active: mhcpSlotDuties.active,
+          assignedUserId: mhcpSlotDuties.assignedUserId,
+          assignedUserName: users.name,
+        })
+        .from(mhcpSlotDuties)
+        .leftJoin(users, eq(users.id, mhcpSlotDuties.assignedUserId))
+        .where(where)
+        .orderBy(mhcpSlotDuties.dayName, mhcpSlotDuties.position, mhcpSlotDuties.id);
+      return NextResponse.json({ duties: rows }, { status: 200 });
+    }
+
     // Meed Schedules (GET)
     if (section === "meedSchedules") {
       const programId = Number(searchParams.get("programId") || "");
@@ -1030,7 +1065,7 @@ export async function POST(req) {
         "mriReportTemplates","mriReportAssignments",
         "openCloseTimes","userOpenCloseTimes",
         "guardianGateLogs",
-        "meedSchedules",
+        "meedSchedules","mhcpSlotDuties",
       ]);
       if (sec !== 'upload' && sec !== 'controlsShare') {
         if (!allowedWrite.has(sec)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -1957,6 +1992,37 @@ export async function POST(req) {
       );
     }
 
+    // MHCP Slot Duties (create/replace for a day)
+    if (section === "mhcpSlotDuties") {
+      const { programId, track = "both", dayName, duties = [] } = body || {};
+      if (!programId || !dayName) {
+        return NextResponse.json({ error: "programId and dayName required" }, { status: 400 });
+      }
+      const normTrack = String(track || "both").trim() || "both";
+      // Replace existing rows for program + track + day
+      await db
+        .delete(mhcpSlotDuties)
+        .where(and(eq(mhcpSlotDuties.programId, Number(programId)), eq(mhcpSlotDuties.track, normTrack), eq(mhcpSlotDuties.dayName, String(dayName))));
+
+      const rows = (Array.isArray(duties) ? duties : []).map((d, i) => ({
+        programId: Number(programId),
+        track: normTrack,
+        dayName: String(dayName),
+        slotLabel: String(d.slotLabel || `Slot ${i + 1}`),
+        dutyTitle: d.dutyTitle ? String(d.dutyTitle) : null,
+        startTime: d.startTime ? normalizeTimeValue(d.startTime) : null,
+        endTime: d.endTime ? normalizeTimeValue(d.endTime) : null,
+        assignedUserId: d.assignedUserId ? Number(d.assignedUserId) : null,
+        notes: d.notes ? String(d.notes) : null,
+        position: Number.isFinite(d.position) ? Number(d.position) : i,
+        active: d.active === false ? false : true,
+      }));
+      if (rows.length) {
+        await db.insert(mhcpSlotDuties).values(rows);
+      }
+      return NextResponse.json({ inserted: rows.length }, { status: 201 });
+    }
+
     // Program schedule days (POST)
     if (section === "programScheduleDays") {
       const { programId, track, days = [], cells = [] } = body || {};
@@ -2582,7 +2648,7 @@ export async function PATCH(req) {
         "metaFamilies","metaPrograms","metaProgramRoles","metaRoleDefs","metaRoleTasks",
         "programPeriods","programScheduleCells",
         "openCloseTimes","userOpenCloseTimes",
-        "meedSchedules",
+        "meedSchedules","mhcpSlotDuties",
       ]);
       if (!allowedWrite.has(section)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
       const wr = await db
@@ -2855,6 +2921,29 @@ export async function PATCH(req) {
         .orderBy(meedScheduleDivisions.position, meedScheduleDivisions.id);
 
       return NextResponse.json({ schedule: { ...updatedSchedule, divisions } }, { status: 200 });
+    }
+
+    if (section === "mhcpSlotDuties") {
+      const updates = Array.isArray(body?.updates) ? body.updates : [];
+      if (!updates.length) return NextResponse.json({ error: "updates[] required" }, { status: 400 });
+      let updated = 0;
+      for (const u of updates) {
+        const id = Number(u.id);
+        if (!id) continue;
+        const setObj = {};
+        if (u.slotLabel !== undefined) setObj.slotLabel = String(u.slotLabel || "").trim();
+        if (u.dutyTitle !== undefined) setObj.dutyTitle = u.dutyTitle ? String(u.dutyTitle) : null;
+        if (u.startTime !== undefined) setObj.startTime = u.startTime ? normalizeTimeValue(u.startTime) : null;
+        if (u.endTime !== undefined) setObj.endTime = u.endTime ? normalizeTimeValue(u.endTime) : null;
+        if (u.notes !== undefined) setObj.notes = u.notes ? String(u.notes) : null;
+        if (u.assignedUserId !== undefined) setObj.assignedUserId = u.assignedUserId ? Number(u.assignedUserId) : null;
+        if (u.position !== undefined) setObj.position = Number.isFinite(u.position) ? Number(u.position) : 0;
+        if (u.active !== undefined) setObj.active = !!u.active;
+        if (Object.keys(setObj).length === 0) continue;
+        await db.update(mhcpSlotDuties).set(setObj).where(eq(mhcpSlotDuties.id, id));
+        updated += 1;
+      }
+      return NextResponse.json({ updated }, { status: 200 });
     }
 
     if (section === "metaPrograms") {
@@ -3214,7 +3303,7 @@ export async function DELETE(req) {
     // Team manager write-gating across admin sections
     if (session.user?.role === 'team_manager') {
       const allowedWrite = new Set([
-        "slots","mspCodes","mspCodeAssignments","mspCodeFamilies","metaFamilies","metaPrograms","mriReportAssignments","guardianGateLogs","meedSchedules",
+        "slots","mspCodes","mspCodeAssignments","mspCodeFamilies","metaFamilies","metaPrograms","mriReportAssignments","guardianGateLogs","meedSchedules","mhcpSlotDuties",
       ]);
       if (!allowedWrite.has(section)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
       const wr = await db
@@ -3237,6 +3326,16 @@ export async function DELETE(req) {
       const deleted = await db.delete(mriPrograms).where(eq(mriPrograms.id, id)).returning({ id: mriPrograms.id });
       if (!deleted.length) {
         return NextResponse.json({ error: "Program not found" }, { status: 404 });
+      }
+      return NextResponse.json({ deleted: 1 }, { status: 200 });
+    }
+
+    if (section === "mhcpSlotDuties") {
+      const id = Number(body.id);
+      if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+      const deleted = await db.delete(mhcpSlotDuties).where(eq(mhcpSlotDuties.id, id)).returning({ id: mhcpSlotDuties.id });
+      if (!deleted.length) {
+        return NextResponse.json({ error: "Duty not found" }, { status: 404 });
       }
       return NextResponse.json({ deleted: 1 }, { status: 200 });
     }

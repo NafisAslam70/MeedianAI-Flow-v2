@@ -20,7 +20,14 @@ import Button from "@/components/ui/Button";
 
 const fetcher = (u) => fetch(u, { headers: { "Content-Type": "application/json" } }).then((r) => r.json());
 
-const emptyDivision = (start = "") => ({ label: "", startTime: start, endTime: "", isFree: false, checklist: [] });
+const emptyDivision = (start = "") => ({
+  label: "",
+  startTime: start,
+  endTime: "",
+  isFree: false,
+  checklist: [],
+  duties: {},
+});
 
 export default function MeedSchedulesPage() {
   const { data: session } = useSession();

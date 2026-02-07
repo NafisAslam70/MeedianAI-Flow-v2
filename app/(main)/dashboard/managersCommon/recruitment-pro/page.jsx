@@ -84,6 +84,7 @@ export default function RecruitmentProPage() {
   const [benchSearch, setBenchSearch] = React.useState("");
   const [benchFilterLocation, setBenchFilterLocation] = React.useState("");
   const [benchFilterApplied, setBenchFilterApplied] = React.useState("");
+  const [benchFilterGender, setBenchFilterGender] = React.useState("");
 
   const programs = programsSwr.data?.programs || [];
   const activePrograms = React.useMemo(() => programs.filter((p) => p.isActive !== false), [programs]);
@@ -1505,6 +1506,16 @@ export default function RecruitmentProPage() {
                     <option key={opt} value={opt}>{opt}</option>
                   ))}
                 </select>
+                <select
+                  className="rounded-lg border border-slate-200 bg-white/90 px-3 py-1.5 text-sm"
+                  value={benchFilterGender}
+                  onChange={(e) => setBenchFilterGender(e.target.value)}
+                >
+                  <option value="">All genders</option>
+                  <option value="male">Male</option>
+                  <option value="female">Female</option>
+                  <option value="other">Other / Prefer not</option>
+                </select>
               </div>
               <div className="flex flex-wrap gap-2">
                 <select
@@ -1591,7 +1602,8 @@ export default function RecruitmentProPage() {
                         b.source?.toLowerCase().includes(q);
                       const matchesLoc = !benchFilterLocation || b.location === benchFilterLocation;
                       const matchesApplied = !benchFilterApplied || b.appliedFor === benchFilterApplied;
-                      return matchesSearch && matchesLoc && matchesApplied;
+                      const matchesGender = !benchFilterGender || (b.gender || "") === benchFilterGender;
+                      return matchesSearch && matchesLoc && matchesApplied && matchesGender;
                     })
                     .map((b, idx) => {
                     const draft = benchDrafts[b.id] || b;

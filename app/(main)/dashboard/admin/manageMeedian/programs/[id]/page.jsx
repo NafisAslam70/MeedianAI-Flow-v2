@@ -54,14 +54,41 @@ export default function ProgramDetailPage() {
   const [cloneBusy, setCloneBusy] = useState(false);
   const [cloneMsg, setCloneMsg] = useState("");
   const [cloneErr, setCloneErr] = useState("");
+  // MHCP duties
+  const isMhcpProgram = useMemo(() => String(program?.programKey || "").toUpperCase().startsWith("MHCP"), [program]);
+  const [dutyTrack, setDutyTrack] = useState("both");
+  const [dutyDay, setDutyDay] = useState("Mon");
+  const [dutyRows, setDutyRows] = useState([]);
+  const [dutyModerator, setDutyModerator] = useState("");
+  const { data: dutyData, mutate: refreshDuty } = useSWR(
+    isMhcpProgram && id ? `/api/admin/manageMeedian?section=mhcpSlotDuties&programId=${id}&track=${dutyTrack}&day=${dutyDay}` : null,
+    fetcher
+  );
+  useEffect(() => {
+    if (dutyData?.duties) {
+      const rows = dutyData.duties.slice().sort((a,b)=> (a.position??0)-(b.position??0)).map((d,i)=>({
+        id: d.id,
+        slotLabel: d.slotLabel || `Slot ${i+1}`,
+        dutyTitle: d.dutyTitle || "",
+        startTime: d.startTime || "",
+        endTime: d.endTime || "",
+        assignedUserId: d.assignedUserId || "",
+        notes: d.notes || "",
+        position: d.position ?? i,
+      }));
+      setDutyRows(rows);
+    } else {
+      setDutyRows([]);
+    }
+  }, [dutyData?.duties, dutyDay, dutyTrack]);
 
   // Update active section from URL hash so clicking sidebar sublinks shows only that section
   useEffect(() => {
     const readHash = () => {
       const h = typeof window !== "undefined" ? window.location.hash.replace(/^#/, "") : "";
-      if (["overview", "schedule", "trackers"].includes(h)) setActiveSection(h);
+      if (["overview", "schedule", "trackers", "mhcpDuties"].includes(h)) setActiveSection(h);
       else setActiveSection(null);
-      setView(["overview", "schedule", "trackers"].includes(h) ? "detail" : "cards");
+      setView(["overview", "schedule", "trackers", "mhcpDuties"].includes(h) ? "detail" : "cards");
     };
     readHash();
     window.addEventListener("hashchange", readHash);
@@ -421,6 +448,108 @@ export default function ProgramDetailPage() {
     }
   };
 
+  /* ---------- MHCP duties helpers ---------- */
+  const addDutyRow = () => {
+    setDutyRows((rows) => {
+      const nextPos = rows.length ? Math.max(...rows.map((r) => r.position || 0)) + 1 : 0;
+      return [
+        ...rows,
+        { slotLabel: "Room", dutyTitle: "", startTime: "", endTime: "", assignedUserId: "", notes: "", position: nextPos },
+      ];
+    });
+  };
+  const updateDutyRow = (idx, patch) => setDutyRows((rows) => rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
+  const removeDutyRow = (idx) => setDutyRows((rows) => rows.filter((_, i) => i !== idx));
+
+  const saveDuties = async () => {
+    if (!id) return;
+    const payload = {
+      programId: id,
+      track: dutyTrack,
+      dayName: dutyDay,
+      duties: dutyRows.map((r, i) => ({
+        slotLabel: r.slotLabel || `Slot ${i + 1}`,
+        dutyTitle: r.dutyTitle || "",
+        startTime: r.startTime || null,
+        endTime: r.endTime || null,
+        assignedUserId: r.assignedUserId ? Number(r.assignedUserId) : null,
+        notes: r.notes || null,
+        position: i,
+        active: true,
+      })),
+    };
+    const res = await fetch("/api/admin/manageMeedian?section=mhcpSlotDuties", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const j = await res.json();
+    if (!res.ok) {
+      alert(j.error || `Save failed (${res.status})`);
+      return;
+    }
+    await refreshDuty();
+    alert("Duties saved");
+  };
+
+  const printDuties = () => {
+    const duties = dutyRows.slice().sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+    const slots = Array.from(new Set(duties.map((d) => d.slotLabel || "Room"))).filter(Boolean);
+    const rows = duties.length ? duties : [{ slotLabel: "Room 1" }, { slotLabel: "Room 2" }, { slotLabel: "Room 3" }];
+    const dateStr = new Date().toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "2-digit" });
+    const win = window.open("", "_blank");
+    if (!win) return;
+    const style = `
+      <style>
+        body{font-family:'Inter',system-ui,-apple-system,sans-serif;color:#111;margin:24px;}
+        h1{font-size:22px;margin:0;}
+        .motto{font-size:12px;color:#555;margin-top:2px;}
+        table{width:100%;border-collapse:collapse;margin-top:12px;}
+        th,td{border:1px solid #444;padding:6px 8px;font-size:12px;}
+        th{background:#e5e7eb;text-align:center;}
+        .footer{margin-top:18px;font-size:11px;color:#444;display:flex;justify-content:space-between;}
+      </style>
+    `;
+    const header = `
+      <div style="text-align:center;">
+        <h1 style="color:#0ea5e9;">MEED PUBLIC SCHOOL</h1>
+        <div class="motto">Educating for now and the world hereafter</div>
+      </div>
+      <div style="margin-top:8px;font-size:12px;">
+        <strong>${program?.programKey || "MHCP"}</strong> — Moderator: ${dutyModerator || "—"}
+      </div>
+    `;
+    const thead = `<tr><th style="width:18%;">Day</th>${slots.map((s) => `<th>${s}</th>`).join("")}</tr>`;
+    const tbody = rows
+      .map((r) => {
+        const cols = slots
+          .map((s) => {
+            if (r.slotLabel !== s) return "<td></td>";
+            const time = r.startTime || r.endTime ? `${r.startTime || "--"} – ${r.endTime || "--"}` : "";
+            const name = r.assignedUserId
+              ? (teamData?.users || []).find((u) => u.id === Number(r.assignedUserId))?.name || r.assignedUserId
+              : "";
+            const duty = r.dutyTitle || "";
+            return `<td><div>${duty}</div><div style="color:#555;">${time}</div><div style="color:#2563eb;">${name}</div></td>`;
+          })
+          .join("");
+        return `<tr><td style="text-align:center;">${dutyDay}</td>${cols}</tr>`;
+      })
+      .join("");
+    win.document.write(`
+      <html><head>${style}</head><body>
+      ${header}
+      <table>${thead}<tbody>${tbody}</tbody></table>
+      <div class="footer">
+        <span>Released: ${dateStr}</span>
+        <span>Released by: ${dutyModerator || ""}</span>
+      </div>
+      </body></html>
+    `);
+    win.document.close();
+    win.focus();
+    win.print();
+  };
   // --- Manage Classes state ---
   const [manageClassesOpen, setManageClassesOpen] = useState(false);
   const [manageClassesStep, setManageClassesStep] = useState('pick'); // pick | list
@@ -1290,6 +1419,85 @@ export default function ProgramDetailPage() {
           {/* Meta Features moved to root cards */}
         </CardBody>
       </Card>
+      )}
+
+      {isMhcpProgram && (view === "detail" && (activeSection === null || activeSection === "mhcpDuties")) && (
+        <Card id="mhcpDuties">
+          <CardHeader className="flex items-center justify-between">
+            <div>
+              <div className="text-sm uppercase tracking-wide text-gray-500">MHCP Duties</div>
+              <div className="font-semibold text-gray-900">{program?.programKey || "MHCP"}</div>
+            </div>
+            <div className="flex items-center gap-2">
+              <select className="px-2 py-1.5 border rounded text-sm" value={dutyTrack} onChange={(e) => setDutyTrack(e.target.value)}>
+                <option value="both">Both</option>
+                <option value="pre_primary">Pre-Primary</option>
+                <option value="elementary">Elementary</option>
+              </select>
+              <select className="px-2 py-1.5 border rounded text-sm" value={dutyDay} onChange={(e) => setDutyDay(e.target.value)}>
+                {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map((d)=> <option key={d} value={d}>{d}</option>)}
+              </select>
+              <input className="px-2 py-1.5 border rounded text-sm" placeholder="Moderator" value={dutyModerator} onChange={(e)=>setDutyModerator(e.target.value)} />
+              <Button size="sm" variant="light" onClick={addDutyRow}>Add Row</Button>
+              <Button size="sm" variant="primary" onClick={saveDuties}>Save Duties</Button>
+              <Button size="sm" variant="light" onClick={printDuties}>Print</Button>
+            </div>
+          </CardHeader>
+          <CardBody>
+            <div className="overflow-auto">
+              <table className="min-w-full border text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="border px-2 py-1 text-left">#</th>
+                    <th className="border px-2 py-1 text-left">Slot</th>
+                    <th className="border px-2 py-1 text-left">Duty</th>
+                    <th className="border px-2 py-1 text-left">Time</th>
+                    <th className="border px-2 py-1 text-left">Assigned</th>
+                    <th className="border px-2 py-1 text-left">Notes</th>
+                    <th className="border px-2 py-1 text-left">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dutyRows.map((row, idx) => (
+                    <tr key={idx} className="odd:bg-white even:bg-gray-50">
+                      <td className="border px-2 py-1 text-center">{idx + 1}</td>
+                      <td className="border px-2 py-1">
+                        <input className="w-full px-2 py-1 border rounded" value={row.slotLabel} onChange={(e)=>updateDutyRow(idx,{slotLabel:e.target.value})} />
+                      </td>
+                      <td className="border px-2 py-1">
+                        <input className="w-full px-2 py-1 border rounded" value={row.dutyTitle} onChange={(e)=>updateDutyRow(idx,{dutyTitle:e.target.value})} />
+                      </td>
+                      <td className="border px-2 py-1">
+                        <div className="flex gap-1">
+                          <input type="time" className="w-full px-2 py-1 border rounded" value={row.startTime} onChange={(e)=>updateDutyRow(idx,{startTime:e.target.value})} />
+                          <span className="text-gray-500 text-xs self-center">to</span>
+                          <input type="time" className="w-full px-2 py-1 border rounded" value={row.endTime} onChange={(e)=>updateDutyRow(idx,{endTime:e.target.value})} />
+                        </div>
+                      </td>
+                      <td className="border px-2 py-1">
+                        <select className="w-full px-2 py-1 border rounded" value={row.assignedUserId || ""} onChange={(e)=>updateDutyRow(idx,{assignedUserId:e.target.value})}>
+                          <option value="">Unassigned</option>
+                          {(teamData?.users || []).map((u)=> <option key={u.id} value={u.id}>{u.name || u.id}</option>)}
+                        </select>
+                      </td>
+                      <td className="border px-2 py-1">
+                        <input className="w-full px-2 py-1 border rounded" value={row.notes} onChange={(e)=>updateDutyRow(idx,{notes:e.target.value})} />
+                      </td>
+                      <td className="border px-2 py-1 text-center">
+                        <Button size="xs" variant="ghost" onClick={()=>removeDutyRow(idx)}>Delete</Button>
+                      </td>
+                    </tr>
+                  ))}
+                  {dutyRows.length === 0 && (
+                    <tr>
+                      <td className="border px-2 py-3 text-center text-gray-500" colSpan={7}>No duties added yet.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </CardBody>
+        </Card>
       )}
 
       {/* Period Grid modal */}
