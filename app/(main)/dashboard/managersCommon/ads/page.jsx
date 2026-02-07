@@ -57,6 +57,7 @@ const REPORT_RANGE_OPTIONS = [
   { key: "last_1_month", label: "Last 1 month", days: 30, maxMarks: 1000 },
 ];
 const STATUS_BANDS = [
+  { minRatio: 1.0, label: "Perfect", cls: "bg-indigo-100 text-indigo-800" }, // 250/250
   { minRatio: 0.96, label: "Excellent", cls: "bg-emerald-100 text-emerald-800" }, // ≥240/250
   { minRatio: 0.94, label: "Very Good", cls: "bg-teal-100 text-teal-800" },       // ≥235/250
   { minRatio: 0.9, label: "Good", cls: "bg-amber-100 text-amber-800" },           // ≥225/250
@@ -98,6 +99,15 @@ const rangeFromMonth = (year, monthIndex) => ({
   end: new Date(year, monthIndex + 1, 0, 23, 59, 59, 999),
 });
 
+const resolveReportRangeStatic = (key) => {
+  const option = REPORT_RANGE_OPTIONS.find((item) => item.key === key) || REPORT_RANGE_OPTIONS[0];
+  const today = new Date();
+  const end = endOfDay(today);
+  const start = startOfDay(new Date(today));
+  start.setDate(start.getDate() - (option.days - 1));
+  return { start, end, maxMarks: option.maxMarks, label: option.label };
+};
+
 const formatDateTime = (value) => {
   if (!value) return "-";
   const date = value instanceof Date ? value : new Date(value);
@@ -137,12 +147,24 @@ export default function AdsPage() {
   const [showIprModal, setShowIprModal] = useState(false);
   const [iprDate, setIprDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [reportRangeKey, setReportRangeKey] = useState("last_1_week");
+  const [minApprovedDayCloses, setMinApprovedDayCloses] = useState(0);
+  const [minApprovedDayClosesDraft, setMinApprovedDayClosesDraft] = useState(0);
+  const [excludedMemberIds, setExcludedMemberIds] = useState([]);
+  const [exceptionMemberIds, setExceptionMemberIds] = useState([]);
+  const [showMemberDetail, setShowMemberDetail] = useState(false);
   const [activeTab, setActiveTab] = useState("raise");
   const [notesTarget, setNotesTarget] = useState(null);
   const [evidenceTarget, setEvidenceTarget] = useState(null);
 
   const { data, error: loadError, isLoading, mutate } = useSWR("/api/managersCommon/ads", fetcher);
   const { data: usersData } = useSWR("/api/member/users", fetcher, { dedupingInterval: 60000 });
+  const reportRange = useMemo(() => resolveReportRangeStatic(reportRangeKey), [reportRangeKey]);
+  const { data: dayCloseSummary } = useSWR(
+    reportRange && activeTab === "ipr"
+      ? `/api/managersCommon/dayClose/summary?start=${reportRange.start.toISOString()}&end=${reportRange.end.toISOString()}`
+      : null,
+    fetcher
+  );
   const {
     data: iprData,
     error: iprError,
@@ -283,8 +305,12 @@ export default function AdsPage() {
   }, [entries, categoryFilter, query, dateFilter, monthFilter]);
 
   const reportSummary = useMemo(() => {
-    const range = resolveReportRange(reportRangeKey);
+    const range = reportRange;
     const map = new Map();
+    const dayCountMap = new Map();
+    const approvedMap = new Map(
+      (dayCloseSummary?.counts || []).map((row) => [row.userId, row.count || 0])
+    );
     // Preload all active non-admin members so they appear even with zero ADs
     members.forEach((member) => {
       map.set(member.id || `m-${member.name}`, {
@@ -292,7 +318,9 @@ export default function AdsPage() {
         memberName: member.name || `User #${member.id}`,
         ads: 0,
         points: 0,
+        daysWithActivity: 0,
       });
+      dayCountMap.set(member.id, new Set());
     });
     entries.forEach((entry) => {
       const baseDate = entry.occurredAt || entry.createdAt;
@@ -307,24 +335,44 @@ export default function AdsPage() {
           memberName: entry.memberName || `User #${entry.memberId}`,
           ads: 0,
           points: 0,
+          daysWithActivity: 0,
         });
       }
       const current = map.get(key);
       current.ads += 1;
       current.points += points;
+      const dayKey = parsed.toISOString().slice(0, 10);
+      if (!dayCountMap.has(key)) dayCountMap.set(key, new Set());
+      dayCountMap.get(key).add(dayKey);
+      current.daysWithActivity = dayCountMap.get(key).size;
     });
 
     const rows = Array.from(map.values())
+      .filter((row) => {
+        if (excludedMemberIds.includes(row.memberId)) return false;
+        if (!exceptionMemberIds.includes(row.memberId)) {
+          const hasSummary = !!dayCloseSummary;
+          if (minApprovedDayCloses > 0 && hasSummary) {
+            const approvedCount = approvedMap.get(row.memberId) ?? 0; // default 0 once summary is loaded
+            if (approvedCount < minApprovedDayCloses) return false;
+          }
+        }
+        return true;
+      })
       .map((row) => {
         const pointsDeducted = Math.abs(row.points);
         const iprScore = Math.max(range.maxMarks - pointsDeducted, 0);
-        return { ...row, pointsDeducted, iprScore };
+        const approvedDayCloses =
+          approvedMap.has(row.memberId) || dayCloseSummary
+            ? approvedMap.get(row.memberId) ?? 0
+            : null;
+        return { ...row, pointsDeducted, iprScore, approvedDayCloses };
       })
       .sort((a, b) => (a.memberName || "").localeCompare(b.memberName || ""));
 
     const totalPoints = rows.reduce((sum, row) => sum + row.pointsDeducted, 0);
     return { rows, range, totalPoints };
-  }, [entries, reportRangeKey]);
+  }, [entries, reportRange, members, excludedMemberIds, minApprovedDayCloses, dayCloseSummary, exceptionMemberIds]);
 
   const topPerformers = useMemo(() => {
     if (!reportSummary.rows.length) return [];
@@ -382,9 +430,87 @@ export default function AdsPage() {
   };
 
   const handleOpenPdfView = () => {
-    const node = document.getElementById("ad-print-area");
-    if (!node) return;
-    const html = node.outerHTML;
+    if (!reportSummary.rows.length) {
+      setError("No ADs in the selected window to print.");
+      setTimeout(() => setError(""), 2500);
+      return;
+    }
+
+    const fmtDate = (d) => new Date(d).toLocaleDateString();
+    const legendHtml = STATUS_BANDS.map((band, index) => {
+      const next = STATUS_BANDS[index - 1];
+      const max = reportSummary.range.maxMarks;
+      const minScore = Math.round(band.minRatio * max);
+      const maxScore = next ? Math.round(next.minRatio * max) - 1 : max;
+      return `<div class="legend-item"><span class="pill ${band.cls}">${band.label}</span><div class="range">${minScore} – ${maxScore} marks</div></div>`;
+    }).join("");
+
+    const toppersHtml = topPerformers.map((row, idx) => {
+      const band = resolveStatus(row.iprScore, reportSummary.range.maxMarks);
+      return `<div class="topper-item">
+        <div class="rank">#${idx + 1}</div>
+        <div class="name">${row.memberName}</div>
+        <div class="score">${row.iprScore} / ${reportSummary.range.maxMarks}</div>
+        <div class="meta">${row.ads} ADs · -${row.pointsDeducted} pts</div>
+        <span class="pill ${band.cls}">${band.label}</span>
+      </div>`;
+    }).join("");
+
+    const rowsHtml = reportSummary.rows.map((row) => {
+      const band = resolveStatus(row.iprScore, reportSummary.range.maxMarks);
+      return `<tr>
+        <td>${row.memberName}</td>
+        <td>${row.ads}</td>
+        <td>-${row.pointsDeducted}</td>
+        <td>${row.iprScore} / ${reportSummary.range.maxMarks}</td>
+        <td><span class="pill ${band.cls}">${band.label}</span></td>
+      </tr>`;
+    }).join("");
+
+    const html = `
+      <div class="card">
+        <div class="header">
+          <div>
+            <div class="title">AD Report</div>
+            <div class="subtitle">Member-wise AD deductions and marks</div>
+          </div>
+          <div class="pills">
+            <span class="pill">Range: ${reportSummary.range.label}</span>
+            <span class="pill">${fmtDate(reportSummary.range.start)} – ${fmtDate(reportSummary.range.end)}</span>
+            <span class="pill">Cap: ${reportSummary.range.maxMarks}</span>
+            <span class="pill">Generated: ${new Date().toLocaleString()}</span>
+          </div>
+        </div>
+      </div>
+      ${topPerformers.length ? `
+      <div class="card topper">
+        <div class="section-title">Top performers</div>
+        <div class="topper-grid">${toppersHtml}</div>
+      </div>` : ""}
+      <div class="card">
+        <div class="section-title">Status legend</div>
+        <div class="legend">${legendHtml}</div>
+      </div>
+      <div class="card">
+        <table>
+          <thead>
+            <tr>
+              <th>Member</th><th>ADs</th><th>Points deducted</th><th>Marks</th><th>Status</th>
+            </tr>
+          </thead>
+          <tbody>${rowsHtml}</tbody>
+          <tfoot>
+            <tr>
+              <td><strong>Totals</strong></td>
+              <td><strong>${reportSummary.rows.reduce((s, r) => s + r.ads, 0)}</strong></td>
+              <td><strong>-${reportSummary.totalPoints}</strong></td>
+              <td colspan="2">Scaled to cap</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    `;
+
     const popup = window.open("", "ad-report-print", "width=1024,height=768");
     if (!popup) return;
     popup.document.write(`
@@ -393,15 +519,29 @@ export default function AdsPage() {
           <title>AD Report</title>
           <style>
             :root { color-scheme: light; }
+            * { box-sizing: border-box; }
             body { margin: 0; padding: 16px; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: #fff; color: #0f172a; }
-            table { width: 100%; border-collapse: collapse; }
+            .card { border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; margin-bottom: 12px; }
+            .header { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap; }
+            .title { font-size: 18px; font-weight: 700; color: #0f172a; }
+            .subtitle { font-size: 13px; color: #475569; }
+            .pills { display: flex; flex-wrap: wrap; gap: 8px; }
+            .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: #fff; border: 1px solid #e2e8f0; font-size: 11px; font-weight: 600; color: #334155; white-space: nowrap; }
+            table { width: 100%; border-collapse: collapse; margin-top: 4px; }
             th, td { padding: 6px 8px; font-size: 12px; border-bottom: 1px solid #e2e8f0; text-align: left; }
             th { text-transform: uppercase; letter-spacing: .04em; font-size: 11px; color: #475569; }
-            .card { border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; margin-bottom: 12px; }
-            .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: #fff; border: 1px solid #e2e8f0; font-size: 11px; font-weight: 600; color: #334155; }
+            tfoot td { border-top: 1px solid #cbd5e1; font-weight: 700; }
             .legend { display: grid; grid-template-columns: repeat(auto-fill,minmax(140px,1fr)); gap: 10px; }
             .legend-item { border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px; font-size: 12px; background:#f8fafc; }
-            .topper { border: 1px solid #d1fae5; border-radius: 10px; padding: 12px; background: #ecfdf3; }
+            .range { color: #475569; margin-top: 4px; }
+            .topper { border: 1px solid #d1fae5; background: #ecfdf3; }
+            .section-title { font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 6px; }
+            .topper-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(200px,1fr)); gap: 10px; }
+            .topper-item { border: 1px solid #bbf7d0; background: #fff; border-radius: 10px; padding: 10px; }
+            .rank { font-weight: 700; color: #16a34a; }
+            .name { font-weight: 700; color: #0f172a; margin: 4px 0; }
+            .score { font-weight: 700; color: #0f172a; }
+            .meta { font-size: 12px; color: #047857; margin-bottom: 4px; }
           </style>
         </head>
         <body>${html}</body>
@@ -639,12 +779,92 @@ export default function AdsPage() {
                   </option>
                 ))}
               </select>
-              <Button onClick={handlePrintReport} variant="secondary">
-                Print report
+              <Button onClick={handleOpenPdfView} variant="secondary">
+                PDF / Print
               </Button>
-              <Button onClick={handleOpenPdfView} variant="light">
-                Open PDF view
-              </Button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <label className="flex items-center gap-2">
+                <span className="text-gray-600">Min approved day closes</span>
+                <input
+                  type="number"
+                  min={0}
+                  className="w-24 rounded-lg border border-gray-300 px-2 py-1"
+                  value={minApprovedDayClosesDraft}
+                  onChange={(e) => setMinApprovedDayClosesDraft(Math.max(0, Number(e.target.value)))}
+                />
+                <Button
+                  size="xs"
+                  variant="light"
+                  onClick={() => setMinApprovedDayCloses(minApprovedDayClosesDraft)}
+                >
+                  Apply
+                </Button>
+              </label>
+              <label className="flex items-center gap-2">
+                <span className="text-gray-600">Hide member</span>
+                <select
+                  className="rounded-lg border border-gray-300 px-2 py-1"
+                  value=""
+                  onChange={(e) => {
+                    const id = Number(e.target.value);
+                    if (!id) return;
+                    setExcludedMemberIds((prev) =>
+                      prev.includes(id) ? prev : [...prev, id]
+                    );
+                  }}
+                >
+                  <option value="">Select</option>
+                  {members
+                    .filter((m) => !excludedMemberIds.includes(m.id))
+                    .map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name || `User #${m.id}`}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label className="flex items-center gap-2">
+                <span className="text-gray-600">Allow exception</span>
+                <select
+                  className="rounded-lg border border-gray-300 px-2 py-1"
+                  value=""
+                  onChange={(e) => {
+                    const id = Number(e.target.value);
+                    if (!id) return;
+                    setExceptionMemberIds((prev) =>
+                      prev.includes(id) ? prev : [...prev, id]
+                    );
+                  }}
+                >
+                  <option value="">Select</option>
+                  {members
+                    .filter((m) => !exceptionMemberIds.includes(m.id))
+                    .map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name || `User #${m.id}`}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              {excludedMemberIds.length > 0 && (
+                <button
+                  type="button"
+                  className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800"
+                  onClick={() => setExcludedMemberIds([])}
+                >
+                  Clear hidden ({excludedMemberIds.length})
+                </button>
+              )}
+              {exceptionMemberIds.length > 0 && (
+                <button
+                  type="button"
+                  className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800"
+                  onClick={() => setExceptionMemberIds([])}
+                >
+                  Clear exceptions ({exceptionMemberIds.length})
+                </button>
+              )}
             </div>
           </div>
         </CardHeader>
@@ -725,6 +945,7 @@ export default function AdsPage() {
                     <th className="px-3 py-2">ADs</th>
                     <th className="px-3 py-2">Points deducted</th>
                     <th className="px-3 py-2">IPR marks</th>
+                    <th className="px-3 py-2">Day closes (approved)</th>
                     <th className="px-3 py-2">Status</th>
                   </tr>
                 </thead>
@@ -736,6 +957,9 @@ export default function AdsPage() {
                       <td className="px-3 py-2 text-gray-700">-{row.pointsDeducted}</td>
                       <td className="px-3 py-2 font-semibold text-emerald-700">
                         {row.iprScore} / {reportSummary.range.maxMarks}
+                      </td>
+                      <td className="px-3 py-2 text-gray-700">
+                        {row.approvedDayCloses ?? "–"}
                       </td>
                       <td className="px-3 py-2">
                         {(() => {
