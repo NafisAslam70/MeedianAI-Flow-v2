@@ -209,6 +209,7 @@ const GuardianRelationshipManager = () => {
     followUpRequired: false,
     followUpDate: "",
     followUpNotes: "",
+      potentialLead: false,
   });
   const [interactionSaving, setInteractionSaving] = useState(false);
   const [interactionError, setInteractionError] = useState("");

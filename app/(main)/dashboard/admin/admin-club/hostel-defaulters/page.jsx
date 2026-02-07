@@ -88,8 +88,10 @@ export default function HostelDefaultersPage() {
       : null;
 
   const existingKey =
-    form.reportDate && form.assignedToUserId
-      ? `/api/admin/admin-club/hostel-defaulters?reportDate=${form.reportDate}&siteId=${form.siteId || 1}&assignedToUserId=${form.assignedToUserId}`
+    form.reportDate
+      ? `/api/admin/admin-club/hostel-defaulters?reportDate=${form.reportDate}&siteId=${form.siteId || 1}${
+          form.assignedToUserId ? `&assignedToUserId=${form.assignedToUserId}` : ""
+        }`
       : null;
 
   const {
@@ -154,6 +156,9 @@ export default function HostelDefaultersPage() {
     }));
     setForm((prev) => ({
       ...prev,
+      assignedToUserId: prev.assignedToUserId || (existingReport?.report?.assignedToUserId
+        ? String(existingReport.report.assignedToUserId)
+        : prev.assignedToUserId),
       defaulters: hydrated,
       actionsByCategory: existingReport?.report?.actionsByCategory || prev.actionsByCategory,
     }));
@@ -353,7 +358,10 @@ export default function HostelDefaultersPage() {
     defaulterOptions.forEach((opt) => {
       const names = groups.get(opt.value);
       if (names?.length) {
-        lines.push(`${opt.label} defaulters: ${names.join(", ")}.`);
+        lines.push(`${opt.label} defaulters:`);
+        names.forEach((n, idx) => {
+          lines.push(`${idx + 1}. ${n}, please come forward.`);
+        });
       }
     });
     if (!lines.length) lines.push("No defaulters recorded for today.");
@@ -367,6 +375,7 @@ export default function HostelDefaultersPage() {
     const english = voices.filter((v) => (v.lang || "").toLowerCase().startsWith("en"));
 
     const maleNames = [
+      "Google UK English Male",
       "Google US English",
       "Alex",
       "Daniel",
@@ -392,13 +401,13 @@ export default function HostelDefaultersPage() {
       "English",
     ];
 
-    const pickByNames = (list) =>
-      list
-        .map((name) => english.find((v) => v.name === name))
-        .find(Boolean);
+    const pickByNames = (list) => list.map((name) => english.find((v) => v.name === name)).find(Boolean);
 
     if (gender === "male") {
-      const byName = pickByNames(maleNames) || english.find((v) => /male/i.test(v.name));
+      const byName =
+        pickByNames(maleNames) ||
+        english.find((v) => /male/i.test(v.name)) ||
+        english.find((v) => /Daniel|Alex|David|Fred/i.test(v.name));
       if (byName) return byName;
     } else if (gender === "female") {
       const byName = pickByNames(femaleNames) || english.find((v) => /female/i.test(v.name));

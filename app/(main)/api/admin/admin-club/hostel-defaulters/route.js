@@ -25,11 +25,12 @@ export async function GET(req) {
     const { searchParams } = new URL(req.url);
     const reportDate = searchParams.get("reportDate");
     const siteId = Number(searchParams.get("siteId") || 1);
-    const assignedToUserId = Number(searchParams.get("assignedToUserId") || session.user.id);
+    const assignedToUserIdParam = searchParams.get("assignedToUserId");
+    const assignedToUserId = assignedToUserIdParam ? Number(assignedToUserIdParam) : null;
 
-    if (!reportDate || !assignedToUserId) {
+    if (!reportDate) {
       return NextResponse.json(
-        { error: "reportDate and assignedToUserId are required" },
+        { error: "reportDate is required" },
         { status: 400 }
       );
     }
@@ -37,7 +38,7 @@ export async function GET(req) {
     const reports = await listAcademicHealthReports({
       date: reportDate,
       siteId,
-      assignedToUserId,
+      assignedToUserId: assignedToUserId || undefined,
     });
 
     if (!reports.length) {
