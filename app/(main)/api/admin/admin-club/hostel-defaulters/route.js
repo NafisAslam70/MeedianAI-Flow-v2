@@ -4,6 +4,7 @@ import {
   createAcademicHealthReport,
   updateAcademicHealthReport,
   getAcademicHealthReportById,
+  listAcademicHealthReports,
   ValidationError,
 } from "@/lib/academicHealthReports";
 import { db } from "@/lib/db";
@@ -14,6 +15,46 @@ import { and, eq } from "drizzle-orm";
  * Creates/updates an AHR record for the given date + assignee and upserts defaulters/actions.
  * This lets Hostel Daily Defaulters (Admin Club tab) stay in sync with the AHR defaulters table.
  */
+export async function GET(req) {
+  try {
+    const session = await auth();
+    if (!session?.user || !["admin", "team_manager"].includes(session.user.role)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(req.url);
+    const reportDate = searchParams.get("reportDate");
+    const siteId = Number(searchParams.get("siteId") || 1);
+    const assignedToUserId = Number(searchParams.get("assignedToUserId") || session.user.id);
+
+    if (!reportDate || !assignedToUserId) {
+      return NextResponse.json(
+        { error: "reportDate and assignedToUserId are required" },
+        { status: 400 }
+      );
+    }
+
+    const reports = await listAcademicHealthReports({
+      date: reportDate,
+      siteId,
+      assignedToUserId,
+    });
+
+    if (!reports.length) {
+      return NextResponse.json({ report: null }, { status: 200 });
+    }
+
+    const hydrated = await getAcademicHealthReportById(reports[0].id);
+    return NextResponse.json({ report: hydrated }, { status: 200 });
+  } catch (error) {
+    if (error instanceof ValidationError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    console.error("GET /api/admin/admin-club/hostel-defaulters error:", error);
+    return NextResponse.json({ error: "Failed to load report" }, { status: 500 });
+  }
+}
+
 export async function POST(req) {
   try {
     const session = await auth();

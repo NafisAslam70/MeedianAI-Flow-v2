@@ -634,6 +634,69 @@ export default function AdsPage() {
     popup.print();
   };
 
+  const handlePrintAllSlips = () => {
+    if (!detailEntries.length) return;
+    const fmt = (d) =>
+      new Date(d).toLocaleString([], { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+
+    const slipHtml = detailEntries
+      .map((member, idx) => {
+        const rows = (member.items || [])
+          .slice()
+          .sort((a, b) => b.when - a.when)
+          .map(
+            (item) => `
+            <tr>
+              <td>${fmt(item.when)}</td>
+              <td>${CATEGORY_LABELS[item.category] || item.category}</td>
+              <td>${item.evidence || "-"}</td>
+              <td>- ${Math.abs(item.points ?? POINTS_PER_AD)}</td>
+            </tr>`
+          )
+          .join("");
+        const bodyRows = rows || "<tr><td colspan='4'>No ADs in range.</td></tr>";
+        return `
+          <div class="slip">
+            <h1>AD Slip</h1>
+            <div class="meta"><strong>Member:</strong> ${member.memberName}</div>
+            <div class="meta">Range: ${reportSummary.range.label} (${reportSummary.range.start.toLocaleDateString()} – ${reportSummary.range.end.toLocaleDateString()})</div>
+            <table>
+              <thead><tr><th>Date</th><th>Category</th><th>Evidence</th><th>Points</th></tr></thead>
+              <tbody>${bodyRows}</tbody>
+            </table>
+          </div>
+          ${idx < detailEntries.length - 1 ? '<div class="page-break"></div>' : ""}`;
+      })
+      .join("");
+
+    const html = `
+      <html>
+        <head>
+          <title>AD Slips</title>
+          <style>
+            @page { size: A5 portrait; margin: 10mm; }
+            * { box-sizing: border-box; }
+            body { margin: 0; padding: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #0f172a; background: #fff; }
+            .slip { padding: 8mm; }
+            h1 { margin: 0 0 6px; font-size: 16px; }
+            .meta { font-size: 12px; color: #475569; margin-bottom: 6px; }
+            table { width: 100%; border-collapse: collapse; font-size: 11px; }
+            th, td { padding: 6px 4px; border-bottom: 1px solid #e2e8f0; text-align: left; }
+            th { text-transform: uppercase; letter-spacing: .04em; font-size: 10px; color: #475569; }
+            .page-break { page-break-after: always; }
+          </style>
+        </head>
+        <body>${slipHtml}</body>
+      </html>`;
+
+    const popup = window.open("", "_blank", "width=720,height=900");
+    if (!popup) return;
+    popup.document.write(html);
+    popup.document.close();
+    popup.focus();
+    popup.print();
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     if (saving) return;
@@ -1081,6 +1144,11 @@ export default function AdsPage() {
               <span className="text-xs text-gray-500">
                 Shows per-member ADs (date, category, evidence) for this window; not printed.
               </span>
+              {showMemberDetail && detailEntries.length > 0 && (
+                <Button size="sm" variant="secondary" onClick={handlePrintAllSlips}>
+                  Print all slips (A5)
+                </Button>
+              )}
             </div>
           )}
           {showMemberDetail && detailEntries.length > 0 && (
