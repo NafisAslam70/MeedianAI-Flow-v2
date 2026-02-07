@@ -3,8 +3,12 @@ import { auth } from "@/lib/auth";
 import {
   createAcademicHealthReport,
   updateAcademicHealthReport,
+  getAcademicHealthReportById,
   ValidationError,
 } from "@/lib/academicHealthReports";
+import { db } from "@/lib/db";
+import { academicHealthReports } from "@/lib/schema";
+import { and, eq } from "drizzle-orm";
 
 /**
  * Creates/updates an AHR record for the given date + assignee and upserts defaulters/actions.
@@ -25,6 +29,8 @@ export async function POST(req) {
       defaulters = [],
       actionsByCategory = [],
       checkMode = "MSP",
+      override = false,
+      extend = false,
     } = body || {};
 
     if (!reportDate || !assignedToUserId) {
@@ -34,19 +40,64 @@ export async function POST(req) {
       );
     }
 
-    // Ensure an AHR exists (returns existing if already created)
-    const report = await createAcademicHealthReport({
-      reportDate,
-      siteId,
-      assignedToUserId: Number(assignedToUserId),
-      checkMode,
-      createdByUserId: Number(session.user.id),
-    });
+    // Check for existing report
+    const existing = await db
+      .select({ id: academicHealthReports.id })
+      .from(academicHealthReports)
+      .where(
+        and(
+          eq(academicHealthReports.reportDate, new Date(`${reportDate}T00:00:00`)),
+          eq(academicHealthReports.siteId, Number(siteId)),
+          eq(academicHealthReports.assignedToUserId, Number(assignedToUserId))
+        )
+      )
+      .limit(1);
 
-    // Upsert defaulters + actions (no validation run here)
+    const existingId = existing?.[0]?.id || null;
+
+    if (existingId && !override && !extend) {
+      return NextResponse.json(
+        {
+          error: "Report already exists for this date and dean.",
+          conflict: true,
+          reportId: existingId,
+        },
+        { status: 409 }
+      );
+    }
+
+    const targetReport = existingId
+      ? await getAcademicHealthReportById(existingId)
+      : await createAcademicHealthReport({
+          reportDate,
+          siteId,
+          assignedToUserId: Number(assignedToUserId),
+          checkMode,
+          createdByUserId: Number(session.user.id),
+        });
+
+    let mergedDefaulters = defaulters || [];
+    if (existingId && extend && Array.isArray(targetReport?.defaulters)) {
+      mergedDefaulters = [...targetReport.defaulters, ...(defaulters || [])];
+    }
+
+    // Aggregate actionsByCategory from mergedDefaulters if not provided explicitly
+    const mergedActionsByCategory =
+      actionsByCategory && actionsByCategory.length
+        ? actionsByCategory
+        : Object.values(
+            (mergedDefaulters || []).reduce((acc, row) => {
+              if (!row?.defaulterType) return acc;
+              const set = new Set(acc[row.defaulterType]?.actions || []);
+              (Array.isArray(row.actions) ? row.actions : []).forEach((a) => set.add(a));
+              acc[row.defaulterType] = { category: row.defaulterType, actions: Array.from(set) };
+              return acc;
+            }, {})
+          );
+
     const updated = await updateAcademicHealthReport(
-      report.id,
-      { defaulters, actionsByCategory },
+      targetReport.id,
+      { defaulters: mergedDefaulters, actionsByCategory: mergedActionsByCategory },
       { actorUserId: session.user.id, actorRole: session.user.role }
     );
 

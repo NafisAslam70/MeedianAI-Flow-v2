@@ -43,6 +43,27 @@ const DATE_FILTERS = [
   { key: "this_month", label: "This month" },
   { key: "last_month", label: "Last month" },
 ];
+const TAB_OPTIONS = [
+  { key: "raise", label: "Raise AD" },
+  { key: "scores", label: "AD Scores" },
+  { key: "ledger", label: "AD Ledger" },
+  { key: "ipr", label: "AD Report" },
+  { key: "her", label: "IPR Report" },
+];
+const REPORT_RANGE_OPTIONS = [
+  { key: "last_1_week", label: "Last 1 week", days: 7, maxMarks: 250 },
+  { key: "last_2_weeks", label: "Last 2 weeks", days: 14, maxMarks: 500 },
+  { key: "last_3_weeks", label: "Last 3 weeks", days: 21, maxMarks: 750 },
+  { key: "last_1_month", label: "Last 1 month", days: 30, maxMarks: 1000 },
+];
+const STATUS_BANDS = [
+  { minRatio: 0.96, label: "Excellent", cls: "bg-emerald-100 text-emerald-800" }, // ≥240/250
+  { minRatio: 0.94, label: "Very Good", cls: "bg-teal-100 text-teal-800" },       // ≥235/250
+  { minRatio: 0.9, label: "Good", cls: "bg-amber-100 text-amber-800" },           // ≥225/250
+  { minRatio: 0.85, label: "Satisfactory", cls: "bg-yellow-100 text-yellow-800" },// ≥212.5/250
+  { minRatio: 0.8, label: "Needs Improvement", cls: "bg-orange-100 text-orange-800" }, // ≥200/250
+  { minRatio: 0, label: "Critical", cls: "bg-rose-100 text-rose-800" },
+];
 
 const CATEGORY_LABELS = AD_CATEGORIES.reduce((acc, item) => {
   acc[item.key] = item.label;
@@ -115,6 +136,8 @@ export default function AdsPage() {
   const [convertError, setConvertError] = useState("");
   const [showIprModal, setShowIprModal] = useState(false);
   const [iprDate, setIprDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [reportRangeKey, setReportRangeKey] = useState("last_1_week");
+  const [activeTab, setActiveTab] = useState("raise");
   const [notesTarget, setNotesTarget] = useState(null);
   const [evidenceTarget, setEvidenceTarget] = useState(null);
 
@@ -192,6 +215,15 @@ export default function AdsPage() {
     return null;
   };
 
+  const resolveReportRange = (key) => {
+    const option = REPORT_RANGE_OPTIONS.find((item) => item.key === key) || REPORT_RANGE_OPTIONS[0];
+    const today = new Date();
+    const end = endOfDay(today);
+    const start = startOfDay(new Date(today));
+    start.setDate(start.getDate() - (option.days - 1));
+    return { start, end, maxMarks: option.maxMarks, label: option.label };
+  };
+
   const filteredEntries = useMemo(() => {
     const queryText = query.trim().toLowerCase();
     const monthValue = monthFilter ? monthFilter.split("-") : [];
@@ -250,6 +282,67 @@ export default function AdsPage() {
     });
   }, [entries, categoryFilter, query, dateFilter, monthFilter]);
 
+  const reportSummary = useMemo(() => {
+    const range = resolveReportRange(reportRangeKey);
+    const map = new Map();
+    // Preload all active non-admin members so they appear even with zero ADs
+    members.forEach((member) => {
+      map.set(member.id || `m-${member.name}`, {
+        memberId: member.id,
+        memberName: member.name || `User #${member.id}`,
+        ads: 0,
+        points: 0,
+      });
+    });
+    entries.forEach((entry) => {
+      const baseDate = entry.occurredAt || entry.createdAt;
+      const parsed = baseDate ? new Date(baseDate) : null;
+      if (!parsed || Number.isNaN(parsed.getTime())) return;
+      if (parsed < range.start || parsed > range.end) return;
+      const key = entry.memberId || "unknown";
+      const points = Number.isFinite(entry.points) ? entry.points : POINTS_PER_AD;
+      if (!map.has(key)) {
+        map.set(key, {
+          memberId: entry.memberId,
+          memberName: entry.memberName || `User #${entry.memberId}`,
+          ads: 0,
+          points: 0,
+        });
+      }
+      const current = map.get(key);
+      current.ads += 1;
+      current.points += points;
+    });
+
+    const rows = Array.from(map.values())
+      .map((row) => {
+        const pointsDeducted = Math.abs(row.points);
+        const iprScore = Math.max(range.maxMarks - pointsDeducted, 0);
+        return { ...row, pointsDeducted, iprScore };
+      })
+      .sort((a, b) => (a.memberName || "").localeCompare(b.memberName || ""));
+
+    const totalPoints = rows.reduce((sum, row) => sum + row.pointsDeducted, 0);
+    return { rows, range, totalPoints };
+  }, [entries, reportRangeKey]);
+
+  const topPerformers = useMemo(() => {
+    if (!reportSummary.rows.length) return [];
+    return reportSummary.rows
+      .slice()
+      .sort((a, b) => b.iprScore - a.iprScore || (a.memberName || "").localeCompare(b.memberName || ""))
+      .slice(0, 3);
+  }, [reportSummary]);
+
+  const resolveStatus = (score, max) => {
+    if (!Number.isFinite(score) || !Number.isFinite(max) || max <= 0) {
+      return { label: "Unknown", cls: "bg-gray-100 text-gray-700" };
+    }
+    const ratio = score / max;
+    const band = STATUS_BANDS.find((item) => ratio >= item.minRatio) || STATUS_BANDS[STATUS_BANDS.length - 1];
+    return band;
+  };
+
   const memberTotals = useMemo(() => {
     const map = new Map();
     filteredEntries.forEach((entry) => {
@@ -278,6 +371,46 @@ export default function AdsPage() {
       evidence: "",
       notes: "",
     }));
+
+  const handlePrintReport = () => {
+    if (!reportSummary.rows.length) {
+      setError("No ADs in the selected window to print.");
+      setTimeout(() => setError(""), 2500);
+      return;
+    }
+    window.print();
+  };
+
+  const handleOpenPdfView = () => {
+    const node = document.getElementById("ad-print-area");
+    if (!node) return;
+    const html = node.outerHTML;
+    const popup = window.open("", "ad-report-print", "width=1024,height=768");
+    if (!popup) return;
+    popup.document.write(`
+      <html>
+        <head>
+          <title>AD Report</title>
+          <style>
+            :root { color-scheme: light; }
+            body { margin: 0; padding: 16px; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: #fff; color: #0f172a; }
+            table { width: 100%; border-collapse: collapse; }
+            th, td { padding: 6px 8px; font-size: 12px; border-bottom: 1px solid #e2e8f0; text-align: left; }
+            th { text-transform: uppercase; letter-spacing: .04em; font-size: 11px; color: #475569; }
+            .card { border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; margin-bottom: 12px; }
+            .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: #fff; border: 1px solid #e2e8f0; font-size: 11px; font-weight: 600; color: #334155; }
+            .legend { display: grid; grid-template-columns: repeat(auto-fill,minmax(140px,1fr)); gap: 10px; }
+            .legend-item { border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px; font-size: 12px; background:#f8fafc; }
+            .topper { border: 1px solid #d1fae5; border-radius: 10px; padding: 12px; background: #ecfdf3; }
+          </style>
+        </head>
+        <body>${html}</body>
+      </html>
+    `);
+    popup.document.close();
+    popup.focus();
+    popup.print();
+  };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -449,7 +582,7 @@ export default function AdsPage() {
 
   return (
     <div className="space-y-6 p-4 md:p-6">
-      <header className="space-y-2">
+      <header className="space-y-2 print-hide">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-slate-800">
             <AlertTriangle className="h-6 w-6" />
@@ -464,7 +597,178 @@ export default function AdsPage() {
         </p>
       </header>
 
-      <div className="grid gap-4 lg:grid-cols-[1.1fr_1fr]">
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white/70 p-2 shadow-sm print-hide">
+        {TAB_OPTIONS.map((tab) => {
+          const active = activeTab === tab.key;
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setActiveTab(tab.key)}
+              className={`rounded-full px-3 py-1.5 text-sm font-semibold transition print:hidden ${
+                active
+                  ? "bg-slate-900 text-white shadow-sm"
+                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+              }`}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {activeTab === "ipr" && (
+        <Card id="ad-print-area" className="ad-print-block">
+          <CardHeader>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-gray-900">AD Report (Printable)</h2>
+                <p className="text-sm text-gray-600">
+                  Choose a window and print member-wise AD deductions with marks (250 per week, up to 1000 per month).
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                value={reportRangeKey}
+                onChange={(event) => setReportRangeKey(event.target.value)}
+              >
+                {REPORT_RANGE_OPTIONS.map((option) => (
+                  <option key={option.key} value={option.key}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <Button onClick={handlePrintReport} variant="secondary">
+                Print report
+              </Button>
+              <Button onClick={handleOpenPdfView} variant="light">
+                Open PDF view
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardBody className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between text-sm text-gray-700 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 print:shadow-none print:border">
+            <div className="space-x-2">
+              <span className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-sm">
+                Range: {reportSummary.range.label}
+              </span>
+              <span className="text-xs text-slate-500">
+                {reportSummary.range.start.toLocaleDateString()} – {reportSummary.range.end.toLocaleDateString()}
+              </span>
+            </div>
+            <div className="space-x-2 text-xs text-slate-600">
+              <span className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1 font-semibold shadow-sm">
+                IPR cap: {reportSummary.range.maxMarks.toLocaleString()}
+              </span>
+              <span>Generated: {new Date().toLocaleString()}</span>
+            </div>
+          </div>
+          {reportSummary.rows.length > 0 && (
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50/80 px-4 py-3 print:shadow-none print:border">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-semibold text-emerald-800">Top performers</div>
+                <div className="text-xs text-emerald-700">Highest IPR in window</div>
+              </div>
+              <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                {topPerformers.map((row, idx) => (
+                  <div
+                    key={row.memberId || row.memberName}
+                    className="rounded-lg border border-emerald-100 bg-white/80 px-3 py-2 shadow-sm"
+                  >
+                    <div className="flex items-center justify-between text-xs text-emerald-700">
+                      <span className="font-semibold">#{idx + 1}</span>
+                      <span className="font-mono">{row.iprScore} / {reportSummary.range.maxMarks}</span>
+                    </div>
+                    <div className="mt-1 text-sm font-semibold text-emerald-900">{row.memberName}</div>
+                    <div className="text-xs text-emerald-700">{row.ads} ADs · -{row.pointsDeducted} pts</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {reportSummary.rows.length > 0 && (
+            <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm print:shadow-none print:border">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status legend</div>
+              <div className="mt-2 grid gap-2 sm:grid-cols-3 md:grid-cols-6">
+                {STATUS_BANDS.map((band, index) => {
+                  const next = STATUS_BANDS[index - 1];
+                  const max = reportSummary.range.maxMarks;
+                  const minScore = Math.round(band.minRatio * max);
+                  const maxScore = next ? Math.round(next.minRatio * max) - 1 : max;
+                  return (
+                    <div
+                      key={band.label}
+                      className="flex flex-col gap-1 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs"
+                    >
+                      <span className={`inline-flex w-fit rounded-full px-2 py-1 font-semibold ${band.cls}`}>
+                        {band.label}
+                      </span>
+                      <span className="text-slate-600">
+                        {minScore} – {maxScore} marks
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {reportSummary.rows.length === 0 ? (
+            <p className="text-sm text-gray-600">No ADs found in this window.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-xs uppercase tracking-wide text-gray-500">
+                    <th className="px-3 py-2">Member</th>
+                    <th className="px-3 py-2">ADs</th>
+                    <th className="px-3 py-2">Points deducted</th>
+                    <th className="px-3 py-2">IPR marks</th>
+                    <th className="px-3 py-2">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {reportSummary.rows.map((row) => (
+                    <tr key={row.memberId || row.memberName}>
+                      <td className="px-3 py-2 text-gray-900">{row.memberName}</td>
+                      <td className="px-3 py-2 text-gray-700">{row.ads}</td>
+                      <td className="px-3 py-2 text-gray-700">-{row.pointsDeducted}</td>
+                      <td className="px-3 py-2 font-semibold text-emerald-700">
+                        {row.iprScore} / {reportSummary.range.maxMarks}
+                      </td>
+                      <td className="px-3 py-2">
+                        {(() => {
+                          const band = resolveStatus(row.iprScore, reportSummary.range.maxMarks);
+                          return (
+                            <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${band.cls}`}>
+                              {band.label}
+                            </span>
+                          );
+                        })()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t text-xs text-gray-600">
+                    <td className="px-3 py-2 font-semibold">Totals</td>
+                    <td className="px-3 py-2 font-semibold">
+                      {reportSummary.rows.reduce((sum, row) => sum + row.ads, 0)}
+                    </td>
+                    <td className="px-3 py-2 font-semibold">-{reportSummary.totalPoints}</td>
+                    <td className="px-3 py-2 text-gray-500">Scaled to range cap</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+        </CardBody>
+      </Card>
+      )}
+
+      {activeTab === "raise" && (
+      <div className="grid gap-4 lg:grid-cols-[1.1fr_1fr] print-hide">
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between gap-3">
@@ -653,8 +957,61 @@ export default function AdsPage() {
           </CardBody>
         </Card>
       </div>
+      )}
 
-      <Card>
+      {activeTab === "scores" && (
+        <Card className="print-hide">
+          <CardHeader>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-gray-900">AD Scores (Month view)</h2>
+                <p className="text-sm text-gray-600">Monthly AD counts and point deductions per member.</p>
+              </div>
+              <div className="flex items-center gap-2 text-sm text-gray-600">
+                <span>Active month</span>
+                <input
+                  type="month"
+                  className="rounded-lg border border-gray-300 px-2 py-1 text-sm"
+                  value={monthFilter}
+                  onChange={(event) => {
+                    setMonthFilter(event.target.value);
+                    setDateFilter("custom");
+                  }}
+                />
+              </div>
+            </div>
+          </CardHeader>
+          <CardBody>
+            {memberTotals.length === 0 ? (
+              <p className="text-sm text-gray-600">No ADs logged for this month.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="border-b text-left text-xs uppercase tracking-wide text-gray-500">
+                    <tr>
+                      <th className="px-3 py-2">Member</th>
+                      <th className="px-3 py-2">ADs</th>
+                      <th className="px-3 py-2">Points deducted</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {memberTotals.map((row) => (
+                      <tr key={row.memberId || row.memberName}>
+                        <td className="px-3 py-2 text-gray-900">{row.memberName}</td>
+                        <td className="px-3 py-2 text-gray-700">{row.ads}</td>
+                        <td className="px-3 py-2 text-gray-700">-{Math.abs(row.points)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardBody>
+        </Card>
+      )}
+
+      {activeTab === "ledger" && (
+      <Card className="print-hide">
         <CardHeader>
           <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -800,9 +1157,74 @@ export default function AdsPage() {
           )}
         </CardBody>
       </Card>
+      )}
+
+      {activeTab === "her" && (
+        <Card className="print-hide">
+          <CardHeader>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-gray-900">IPR Report (Holistic)</h2>
+                <p className="text-sm text-gray-600">
+                  One place to review day open/close times, attendance, PT submissions, subject reports, and AD/IPR context.
+                </p>
+              </div>
+              <div className="text-xs text-gray-500">Alpha — data wiring in progress</div>
+            </div>
+          </CardHeader>
+          <CardBody className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+                <h3 className="text-sm font-semibold text-slate-800">Day Open / Day Close</h3>
+                <p className="mt-1 text-xs text-slate-600">
+                  Target: show first check-in (day open) and last check-out (day close) times for the selected window.
+                </p>
+                <ul className="mt-2 space-y-1 text-sm text-slate-700 list-disc list-inside">
+                  <li>Earliest open: —</li>
+                  <li>Latest close: —</li>
+                  <li>Average span: —</li>
+                </ul>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+                <h3 className="text-sm font-semibold text-slate-800">Attendance timeline</h3>
+                <p className="mt-1 text-xs text-slate-600">
+                  Will show per-day attendance status and first/last punch times; ties into campus attendance feed.
+                </p>
+                <div className="mt-2 text-sm text-slate-500 italic">No attendance feed connected yet.</div>
+              </div>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-4">
+                <h3 className="text-sm font-semibold text-emerald-900">PT / Subject submissions</h3>
+                <p className="mt-1 text-xs text-emerald-700">
+                  Hook here to list latest PT reports, subject reports, and marks per member for the window.
+                </p>
+                <div className="mt-2 text-sm text-emerald-800">Pending API hookup.</div>
+              </div>
+              <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-4">
+                <h3 className="text-sm font-semibold text-amber-900">AD/IPR context</h3>
+                <p className="mt-1 text-xs text-amber-700">
+                  Surface latest ADs, IPR marks, and statuses for quick coaching conversations.
+                </p>
+                <div className="mt-2 text-sm text-amber-800">
+                  Use the IPR tab to print; this card will pull the same data automatically once wired.
+                </div>
+              </div>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-white p-4">
+              <h3 className="text-sm font-semibold text-slate-900">Coming next</h3>
+              <ul className="mt-2 space-y-1 text-sm text-slate-700 list-disc list-inside">
+                <li>Connect attendance/day-open/close API and plot timeline.</li>
+                <li>Ingest PT/subject report summaries per member.</li>
+                <li>Add export/print for holistic view (HER).</li>
+              </ul>
+            </div>
+          </CardBody>
+        </Card>
+      )}
 
       {convertTarget && (
-        <div className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 print-hide">
           <div className="w-full max-w-xl rounded-2xl bg-white shadow-xl">
             <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
               <div>
@@ -870,7 +1292,7 @@ export default function AdsPage() {
       )}
 
       {showIprModal && (
-        <div className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 print-hide">
           <div className="w-full max-w-5xl rounded-2xl bg-white shadow-xl max-h-[85vh] overflow-hidden">
             <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
               <div>
@@ -951,7 +1373,7 @@ export default function AdsPage() {
       )}
 
       {notesTarget && (
-        <div className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 print-hide">
           <div className="w-full max-w-xl rounded-2xl bg-white shadow-xl">
             <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
               <div>
@@ -979,7 +1401,7 @@ export default function AdsPage() {
       )}
 
       {evidenceTarget && (
-        <div className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 print-hide">
           <div className="w-full max-w-3xl rounded-2xl bg-white shadow-xl">
             <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
               <div>
@@ -1021,6 +1443,56 @@ export default function AdsPage() {
           </div>
         </div>
       )}
+      <style jsx global>{`
+        @media print {
+          :root {
+            color-scheme: light;
+          }
+          html,
+          body {
+            background: #ffffff !important;
+            color: #0f172a !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+          /* hide common shell chrome */
+          header, nav, aside, footer, .print-hide {
+            display: none !important;
+          }
+          /* isolate the report as an overlay */
+          #ad-print-area {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            background: #ffffff;
+            color: #0f172a;
+            padding: 16px;
+            page-break-after: auto;
+            display: block !important;
+            width: 100%;
+            max-width: 100%;
+            overflow: visible;
+          }
+          table {
+            page-break-inside: auto;
+          }
+          #ad-print-area table th,
+          #ad-print-area table td {
+            font-size: 12px;
+            padding: 6px 8px;
+          }
+          #ad-print-area .ad-print-block {
+            box-shadow: none;
+            border: 0;
+          }
+          #ad-print-area .rounded-xl,
+          #ad-print-area .rounded-lg {
+            border-radius: 6px;
+          }
+        }
+      `}</style>
     </div>
   );
 }

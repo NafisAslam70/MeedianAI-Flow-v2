@@ -147,17 +147,33 @@ const buildPatchPayload = (report) => {
             studentId: row.studentId ? Number(row.studentId) : null,
             defaulterType: row.defaulterType || "",
             reason: row.reason || "",
+            actions: Array.isArray(row.actions) ? row.actions.filter(Boolean) : [],
           }))
           .filter((row) => row.studentId && row.defaulterType)
       : [],
-    actionsByCategory: Array.isArray(report.actionsByCategory)
-      ? report.actionsByCategory
+    actionsByCategory: (() => {
+      if (Array.isArray(report.defaulters)) {
+        const byCat = (report.defaulters || []).reduce((acc, row) => {
+          if (!row?.defaulterType) return acc;
+          const set = new Set(acc[row.defaulterType]?.actions || []);
+          (Array.isArray(row.actions) ? row.actions : []).forEach((a) => set.add(a));
+          acc[row.defaulterType] = { category: row.defaulterType, actions: Array.from(set) };
+          return acc;
+        }, {});
+        const list = Object.values(byCat);
+        if (list.length) return list;
+      }
+      // fallback to existing actionsByCategory if defaulters actions empty
+      if (Array.isArray(report.actionsByCategory)) {
+        return report.actionsByCategory
           .map((row) => ({
             category: row.category || "",
             actions: Array.isArray(row.actions) ? row.actions.filter(Boolean) : [],
           }))
-          .filter((row) => row.category)
-      : [],
+          .filter((row) => row.category);
+      }
+      return [];
+    })(),
     selfDayClose: Boolean(report.selfDayClose),
     finalRemarks: report.finalRemarks || "",
     signatureName: report.signatureName || "",
@@ -194,11 +210,19 @@ const defaultReportState = {
   signatureBlobPath: "",
 };
 
-const primeReport = (raw) => {
-  if (!raw) return { ...defaultReportState };
-  return {
-    ...defaultReportState,
-    ...raw,
+  const primeReport = (raw) => {
+    if (!raw) return { ...defaultReportState };
+    const categoryActionsMap = new Map();
+    if (Array.isArray(raw.actionsByCategory)) {
+      raw.actionsByCategory.forEach((row) => {
+        if (row?.category) {
+          categoryActionsMap.set(row.category, safeArray(row.actions));
+        }
+      });
+    }
+    return {
+      ...defaultReportState,
+      ...raw,
     mhcp2PresentCount:
       raw.mhcp2PresentCount === null || typeof raw.mhcp2PresentCount === "undefined"
         ? ""
@@ -221,23 +245,26 @@ const primeReport = (raw) => {
         }
       : { absentees: [], state: "" },
     escalationsHandledIds: safeArray(raw.escalationsHandledIds),
-    escalationDetails: Array.isArray(raw.escalationDetails)
-      ? raw.escalationDetails.map((row, index) => ({
-          id: row?.id || `esc-${index}`,
-          escalationId: row?.escalationId || null,
-          actionTaken: row?.actionTaken || "",
-          outcome: row?.outcome || "",
-          status: row?.status || "FOLLOW_UP",
-        }))
-      : [],
-    defaulters: Array.isArray(raw.defaulters)
-      ? raw.defaulters.map((row, index) => ({
-          id: row?.id || `def-${index}`,
-          studentId: row?.studentId || null,
-          defaulterType: row?.defaulterType || "",
-          reason: row?.reason || "",
-        }))
-      : [],
+      escalationDetails: Array.isArray(raw.escalationDetails)
+        ? raw.escalationDetails.map((row, index) => ({
+            id: row?.id || `esc-${index}`,
+            escalationId: row?.escalationId || null,
+            actionTaken: row?.actionTaken || "",
+            outcome: row?.outcome || "",
+            status: row?.status || "FOLLOW_UP",
+          }))
+        : [],
+      defaulters: Array.isArray(raw.defaulters)
+        ? raw.defaulters.map((row, index) => ({
+            id: row?.id || `def-${index}`,
+            studentId: row?.studentId || null,
+            defaulterType: row?.defaulterType || "",
+            reason: row?.reason || "",
+            actions: safeArray(row?.actions).length
+              ? safeArray(row?.actions)
+              : categoryActionsMap.get(row?.defaulterType) || [],
+          }))
+        : [],
     actionsByCategory: Array.isArray(raw.actionsByCategory)
       ? raw.actionsByCategory.map((row, index) => ({
           id: row?.id || `act-${index}`,
@@ -540,7 +567,10 @@ export default function AcademicHealthMemberForm({
       if (!prev) return prev;
       return {
         ...prev,
-        defaulters: [...(prev.defaulters || []), { id: `def-${Date.now()}`, studentId: null, defaulterType: "", reason: "" }],
+        defaulters: [
+          ...(prev.defaulters || []),
+          { id: `def-${Date.now()}`, studentId: null, defaulterType: "", reason: "", actions: [] },
+        ],
       };
     });
     setDirty(true);
@@ -721,15 +751,6 @@ export default function AcademicHealthMemberForm({
     }
   };
 
-  const activeDefaulterCategories = useMemo(() => {
-    if (!report || !Array.isArray(report.defaulters)) return [];
-    const set = new Set();
-    report.defaulters.forEach((row) => {
-      if (row?.defaulterType) set.add(row.defaulterType);
-    });
-    return Array.from(set);
-  }, [report?.defaulters]);
-
   const attendanceNeedsAttention = hasMarker("attendance");
   const slot12NeedsAttention = hasMarker("slot12");
   const mhcpNeedsAttention = hasMarker("mhcp2");
@@ -739,7 +760,7 @@ export default function AcademicHealthMemberForm({
   const morningCoachingNeedsAttention = hasMarker("morningCoaching");
   const escalationsNeedAttention = hasMarker("escalations");
   const defaultersNeedAttention = hasMarker("defaulters");
-  const actionsNeedAttention = hasMarker("actions");
+  const actionsNeedAttention = false; // handled per-defaulter actions inline
   const selfDayCloseNeedsAttention = hasMarker("selfDayClose");
   const signatureNeedsAttention = hasMarker("signature");
 
@@ -747,7 +768,7 @@ export default function AcademicHealthMemberForm({
   const section2NeedsAttention =
     checkModeNeedsAttention || copyChecksNeedsAttention || classChecksNeedsAttention || morningCoachingNeedsAttention || escalationsNeedAttention;
   const section3NeedsAttention =
-    defaultersNeedAttention || actionsNeedAttention || selfDayCloseNeedsAttention || signatureNeedsAttention;
+    defaultersNeedAttention || selfDayCloseNeedsAttention || signatureNeedsAttention;
 
   const attendanceNotConfirmed = !report?.attendanceConfirmed;
   const slot12TransitionMissing = !report?.slot12TransitionQuality;
@@ -1509,125 +1530,101 @@ export default function AcademicHealthMemberForm({
               <p className="text-xs text-slate-500">No defaulters logged yet.</p>
             )}
             {report.defaulters.map((row, index) => (
-              <div key={row.id || index} className="grid grid-cols-1 gap-2 md:grid-cols-3">
-                <Select
-                  value={row.studentId || ""}
-                  onChange={(event) =>
-                    handleNestedUpdate("defaulters", index, (current) => ({
-                      ...current,
-                      studentId: Number(event.target.value) || null,
-                    }))
-                  }
-                >
-                  <option value="">Select student</option>
-                  {sortedStudents.map((student) => (
-                    <option key={student.id} value={student.id}>
-                      {student.name}
-                    </option>
-                  ))}
-                </Select>
-                <Select
-                  value={row.defaulterType || ""}
-                  onChange={(event) =>
-                    handleNestedUpdate("defaulters", index, (current) => ({
-                      ...current,
-                      defaulterType: event.target.value,
-                    }))
-                  }
-                >
-                  <option value="">Select category</option>
-                  {defaulterTypes.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </Select>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={row.reason || ""}
+              <div key={row.id || index} className="space-y-2 rounded-lg border border-slate-200 bg-white p-3">
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+                  <Select
+                    value={row.studentId || ""}
                     onChange={(event) =>
                       handleNestedUpdate("defaulters", index, (current) => ({
                         ...current,
-                        reason: event.target.value,
+                        studentId: Number(event.target.value) || null,
                       }))
                     }
-                    placeholder="Reason / AD"
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500"
-                  />
-                  <button
-                    type="button"
-                    className="rounded-md border border-transparent p-1 text-slate-400 hover:text-red-600"
-                    onClick={() => removeDefaulterRow(index)}
                   >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                    <option value="">Select student</option>
+                    {sortedStudents.map((student) => (
+                      <option key={student.id} value={student.id}>
+                        {student.name}
+                      </option>
+                    ))}
+                  </Select>
+                  <Select
+                    value={row.defaulterType || ""}
+                    onChange={(event) =>
+                      handleNestedUpdate("defaulters", index, (current) => ({
+                        ...current,
+                        defaulterType: event.target.value,
+                      }))
+                    }
+                  >
+                    <option value="">Select category</option>
+                    {defaulterTypes.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </Select>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={row.reason || ""}
+                      onChange={(event) =>
+                        handleNestedUpdate("defaulters", index, (current) => ({
+                          ...current,
+                          reason: event.target.value,
+                        }))
+                      }
+                      placeholder="Reason / AD"
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    />
+                    <button
+                      type="button"
+                      className="rounded-md border border-transparent p-1 text-slate-400 hover:text-red-600"
+                      onClick={() => removeDefaulterRow(index)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
+
+                {!!actionsCatalog.length && (
+                  <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                      Actions for this defaulter
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-700">
+                      {actionsCatalog.map((action) => {
+                        const active = Array.isArray(row.actions) && row.actions.includes(action.value);
+                        return (
+                          <button
+                            key={`${row.id || index}-${action.value}`}
+                            type="button"
+                            onClick={() => {
+                              handleNestedUpdate("defaulters", index, (current) => {
+                                const set = new Set(Array.isArray(current.actions) ? current.actions : []);
+                                if (set.has(action.value)) set.delete(action.value);
+                                else set.add(action.value);
+                                return { ...current, actions: Array.from(set) };
+                              });
+                              setDirty(true);
+                            }}
+                            className={`rounded-full px-3 py-1 font-semibold transition ${
+                              active
+                                ? "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200"
+                                : "bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-100"
+                            }`}
+                          >
+                            {action.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
         </div>
-
-        {activeDefaulterCategories.length > 0 && (
-          <div
-            className={`rounded-lg border p-3 ${
-              actionsNeedAttention ? "border-red-300 bg-red-50/70" : "border-slate-200 bg-slate-50/70"
-            }`}
-          >
-            <h5
-              className={`text-sm font-semibold ${
-                actionsNeedAttention ? "text-red-600" : "text-slate-800"
-              }`}
-            >
-              Actions taken per category
-            </h5>
-            {actionsNeedAttention && (
-              <p className="mt-1 text-xs font-semibold text-red-600">
-                Record at least one action for each defaulter category.
-              </p>
-            )}
-            <div className="mt-2 space-y-3">
-              {activeDefaulterCategories.map((category) => {
-                const actions = new Set(
-                  report.actionsByCategory?.find((row) => row.category === category)?.actions || []
-                );
-                return (
-                  <div
-                    key={category}
-                    className={`rounded-lg border bg-white px-3 py-3 ${
-                      actionsNeedAttention && actions.size === 0 ? "border-red-200" : "border-slate-200"
-                    }`}
-                  >
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      {category}
-                    </p>
-                    <div className="mt-2 flex flex-wrap gap-3">
-                      {actionsCatalog.map((action) => (
-                        <label key={`${category}-${action.value}`} className="flex items-center gap-2 text-xs text-slate-600">
-                          <input
-                            type="checkbox"
-                            className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
-                            checked={actions.has(action.value)}
-                            onChange={(event) => {
-                              const next = new Set(actions);
-                              if (event.target.checked) {
-                                next.add(action.value);
-                              } else {
-                                next.delete(action.value);
-                              }
-                              updateActionsForCategory(category, Array.from(next));
-                            }}
-                          />
-                          {action.label}
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           <label
