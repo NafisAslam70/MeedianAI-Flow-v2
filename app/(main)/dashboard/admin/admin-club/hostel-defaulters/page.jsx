@@ -21,7 +21,7 @@ const todayIso = () => new Date().toISOString().slice(0, 10);
 const normaliseActions = (actions) =>
   Array.isArray(actions) ? actions.filter(Boolean) : [];
 
-const DEFAULT_CALL_RATE = 0.75;
+const DEFAULT_CALL_RATE = 0.7;
 const DEFAULT_CALL_PITCH = 1.0;
 
 const romanToArabicWord = (label = "") => {
@@ -73,6 +73,7 @@ export default function HostelDefaultersPage() {
   const [callLines, setCallLines] = useState([]);
   const [callIndex, setCallIndex] = useState(0);
   const [activeTab, setActiveTab] = useState("capture"); // capture | analysis
+  const [voicePref, setVoicePref] = useState("female"); // female | male | auto
   const [statsRange, setStatsRange] = useState(() => {
     const today = new Date();
     const end = today.toISOString().slice(0, 10);
@@ -360,20 +361,55 @@ export default function HostelDefaultersPage() {
     return [header, ...lines];
   };
 
-  const pickVoice = () => {
+  const pickVoice = (gender = "auto") => {
     if (typeof window === "undefined" || !window.speechSynthesis) return null;
     const voices = window.speechSynthesis.getVoices() || [];
-    const preferredOrder = [
+    const english = voices.filter((v) => (v.lang || "").toLowerCase().startsWith("en"));
+
+    const maleNames = [
       "Google US English",
+      "Alex",
+      "Daniel",
+      "David",
+      "Fred",
+      "Aaron",
+    ];
+    const femaleNames = [
+      "Google UK English Female",
+      "Samantha",
+      "Victoria",
+      "Fiona",
+      "Karen",
+      "Moira",
+    ];
+    const neutralOrder = [
+      "Google US English",
+      "Google UK English Female",
+      "Samantha",
+      "Victoria",
       "en-US",
       "en-GB",
       "English",
     ];
-    for (const pref of preferredOrder) {
-      const match = voices.find((v) => v.name.includes(pref) || v.lang.includes(pref));
+
+    const pickByNames = (list) =>
+      list
+        .map((name) => english.find((v) => v.name === name))
+        .find(Boolean);
+
+    if (gender === "male") {
+      const byName = pickByNames(maleNames) || english.find((v) => /male/i.test(v.name));
+      if (byName) return byName;
+    } else if (gender === "female") {
+      const byName = pickByNames(femaleNames) || english.find((v) => /female/i.test(v.name));
+      if (byName) return byName;
+    }
+
+    for (const pref of neutralOrder) {
+      const match = english.find((v) => v.name.includes(pref) || v.lang.includes(pref));
       if (match) return match;
     }
-    return voices[0] || null;
+    return english[0] || voices[0] || null;
   };
 
   const speakLine = (line) => {
@@ -384,7 +420,7 @@ export default function HostelDefaultersPage() {
     try {
       window.speechSynthesis.cancel();
       const utter = new SpeechSynthesisUtterance(line);
-      const voice = pickVoice();
+      const voice = pickVoice(voicePref);
       if (voice) utter.voice = voice;
       utter.lang = voice?.lang || "en-US";
       utter.rate = DEFAULT_CALL_RATE;
@@ -726,6 +762,23 @@ export default function HostelDefaultersPage() {
                     Stop
                   </Button>
                 )}
+                <div className="flex items-center gap-2 rounded-lg bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
+                  <span className="uppercase tracking-wide">Voice</span>
+                  {["female", "male", "auto"].map((opt) => (
+                    <button
+                      key={opt}
+                      type="button"
+                      onClick={() => setVoicePref(opt)}
+                      className={`rounded px-2 py-1 font-semibold ${
+                        voicePref === opt
+                          ? "bg-teal-600 text-white"
+                          : "bg-white text-slate-700 ring-1 ring-slate-200"
+                      }`}
+                    >
+                      {opt.charAt(0).toUpperCase() + opt.slice(1)}
+                    </button>
+                  ))}
+                </div>
                 <Button
                   variant="secondary"
                   size="xs"
