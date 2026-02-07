@@ -372,9 +372,26 @@ export default function HostelDefaultersPage() {
     return [header, ...lines, footer];
   };
 
+  const [availableVoices, setAvailableVoices] = useState([]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.speechSynthesis) return;
+    const loadVoices = () => {
+      const list = window.speechSynthesis.getVoices() || [];
+      if (list.length) setAvailableVoices(list);
+    };
+    loadVoices();
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+    return () => {
+      if (window.speechSynthesis.onvoiceschanged === loadVoices) {
+        window.speechSynthesis.onvoiceschanged = null;
+      }
+    };
+  }, []);
+
   const pickVoice = (gender = "auto") => {
     if (typeof window === "undefined" || !window.speechSynthesis) return null;
-    const voices = window.speechSynthesis.getVoices() || [];
+    const voices = availableVoices.length ? availableVoices : window.speechSynthesis.getVoices() || [];
     const english = voices.filter((v) => (v.lang || "").toLowerCase().startsWith("en"));
 
     const maleNames = [

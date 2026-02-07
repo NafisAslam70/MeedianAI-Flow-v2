@@ -1442,6 +1442,16 @@ export default function RecruitmentProPage() {
               <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" placeholder="Full name" value={newBench.fullName} onChange={(e) => setNewBench({ ...newBench, fullName: e.target.value })} />
               <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" placeholder="Phone" value={newBench.phone} onChange={(e) => setNewBench({ ...newBench, phone: e.target.value })} />
               <input className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" placeholder="Email (optional)" value={newBench.email} onChange={(e) => setNewBench({ ...newBench, email: e.target.value })} />
+              <select
+                className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm"
+                value={newBench.gender || ""}
+                onChange={(e) => setNewBench({ ...newBench, gender: e.target.value })}
+              >
+                <option value="">Gender</option>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+                <option value="other">Other / Prefer not to say</option>
+              </select>
               <select className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm" value={newBench.location} onChange={(e) => setNewBench({ ...newBench, location: e.target.value })}>
                 <option value="">Location</option>
                 {locations.map((l) => (
