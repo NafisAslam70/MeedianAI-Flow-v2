@@ -87,11 +87,10 @@ export default function HostelDefaultersPage() {
       ? `/api/reports/academic-health?mode=supporting&reportDate=${form.reportDate}&assignedToUserId=${form.assignedToUserId}`
       : null;
 
+  // Load existing report for the date/site (regardless of who created it)
   const existingKey =
     form.reportDate
-      ? `/api/admin/admin-club/hostel-defaulters?reportDate=${form.reportDate}&siteId=${form.siteId || 1}${
-          form.assignedToUserId ? `&assignedToUserId=${form.assignedToUserId}` : ""
-        }`
+      ? `/api/admin/admin-club/hostel-defaulters?reportDate=${form.reportDate}&siteId=${form.siteId || 1}`
       : null;
 
   const {
@@ -126,10 +125,10 @@ export default function HostelDefaultersPage() {
 
   // Default to self when session arrives
   useEffect(() => {
-    if (!form.assignedToUserId && selfId) {
+    if (!form.assignedToUserId && selfId && !existingReport?.report?.assignedToUserId) {
       setForm((prev) => ({ ...prev, assignedToUserId: selfId }));
     }
-  }, [selfId, form.assignedToUserId]);
+  }, [selfId, form.assignedToUserId, existingReport?.report?.assignedToUserId]);
 
   // Load existing defaulters for the selected date/assignee so the form isn't blank.
   useEffect(() => {
@@ -156,9 +155,10 @@ export default function HostelDefaultersPage() {
     }));
     setForm((prev) => ({
       ...prev,
-      assignedToUserId: prev.assignedToUserId || (existingReport?.report?.assignedToUserId
-        ? String(existingReport.report.assignedToUserId)
-        : prev.assignedToUserId),
+      assignedToUserId:
+        existingReport?.report?.assignedToUserId
+          ? String(existingReport.report.assignedToUserId)
+          : prev.assignedToUserId,
       defaulters: hydrated,
       actionsByCategory: existingReport?.report?.actionsByCategory || prev.actionsByCategory,
     }));
@@ -392,12 +392,13 @@ export default function HostelDefaultersPage() {
       "Moira",
     ];
     const neutralOrder = [
-      "Google US English",
+      // Prefer the clearer British female voice the team liked
       "Google UK English Female",
+      "Google US English",
       "Samantha",
       "Victoria",
-      "en-US",
       "en-GB",
+      "en-US",
       "English",
     ];
 
