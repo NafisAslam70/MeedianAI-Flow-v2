@@ -366,7 +366,10 @@ export default function HostelDefaultersPage() {
     });
     if (!lines.length) lines.push("No defaulters recorded for today.");
 
-    return [header, ...lines];
+    const footer =
+      "Dear Admin and Warden sir, please deal with these students. Bye students, see you tomorrow. Please do not come on this defaulters list again.";
+
+    return [header, ...lines, footer];
   };
 
   const pickVoice = (gender = "auto") => {
