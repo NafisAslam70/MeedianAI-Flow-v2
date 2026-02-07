@@ -11,13 +11,16 @@ export async function GET(req) {
   }
 
   try {
-    let query = db.select({
-      id: users.id,
-      name: users.name,
-      email: users.email,
-      role: users.role,
-      team_manager_type: users.team_manager_type,
-    }).from(users);
+    let query = db
+      .select({
+        id: users.id,
+        name: users.name,
+        email: users.email,
+        role: users.role,
+        team_manager_type: users.team_manager_type,
+      })
+      .from(users)
+      .where(eq(users.active, true));
 
     if (session.user.role === "team_manager") {
       query = query.where(eq(users.team_manager_type, session.user.team_manager_type));

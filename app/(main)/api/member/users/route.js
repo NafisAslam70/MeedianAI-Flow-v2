@@ -37,7 +37,8 @@ export async function GET(req) {
         member_scope: users.member_scope,
         immediate_supervisor: users.immediate_supervisor,
       })
-      .from(users);
+      .from(users)
+      .where(eq(users.active, true));
 
     // Fetch MRI roles for the current user
   const mriRoles = await db

@@ -41,6 +41,15 @@ export default function AdminClubHome() {
       requiresGrant: true,
     },
     {
+      key: "hostel-defaulters",
+      title: "Hostel Daily Defaulters",
+      description:
+        "Quick-capture hostel defaulters and sync them straight into the Academic Health Report.",
+      href: "/dashboard/admin/admin-club/hostel-defaulters",
+      icon: Activity,
+      requiresGrant: true,
+    },
+    {
       key: "analyse-team",
       title: "Analyse Meed / Team",
       description:

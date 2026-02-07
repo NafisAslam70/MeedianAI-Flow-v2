@@ -1,0 +1,434 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import useSWR from "swr";
+import { useSession } from "next-auth/react";
+import Button from "@/components/ui/Button";
+import Input from "@/components/ui/Input";
+import Select from "@/components/ui/Select";
+import { Card, CardHeader, CardBody } from "@/components/ui/Card";
+import { Plus, RefreshCw, Save, Trash2, ArrowLeft } from "lucide-react";
+import Link from "next/link";
+
+const fetcher = (url) =>
+  fetch(url, { headers: { "Content-Type": "application/json" } }).then((res) => {
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  });
+
+const todayIso = () => new Date().toISOString().slice(0, 10);
+
+const normaliseActions = (actions) =>
+  Array.isArray(actions) ? actions.filter(Boolean) : [];
+
+export default function HostelDefaultersPage() {
+  const { data: session } = useSession();
+  const selfId = session?.user?.id ? String(session.user.id) : "";
+  const selfName = session?.user?.name || "Assigned dean";
+  const [form, setForm] = useState({
+    reportDate: todayIso(),
+    siteId: 1,
+    assignedToUserId: "",
+    defaulters: [
+      { id: `df-${Date.now()}`, studentId: "", defaulterType: "", reason: "", actions: [] },
+    ],
+    actionsByCategory: [],
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [statsRange, setStatsRange] = useState(() => {
+    const today = new Date();
+    const end = today.toISOString().slice(0, 10);
+    const startObj = new Date(today.getTime() - 13 * 24 * 60 * 60 * 1000);
+    const start = startObj.toISOString().slice(0, 10);
+    return { start, end };
+  });
+
+  const supportingKey =
+    form.reportDate && form.assignedToUserId
+      ? `/api/reports/academic-health?mode=supporting&reportDate=${form.reportDate}&assignedToUserId=${form.assignedToUserId}`
+      : null;
+
+  const {
+    data: supporting,
+    error: supportingError,
+    isLoading: supportLoading,
+    mutate: refreshSupporting,
+  } = useSWR(
+    supportingKey,
+    fetcher,
+    { dedupingInterval: 0 }
+  );
+
+  const statsKey =
+    form.assignedToUserId && statsRange.start && statsRange.end
+      ? `/api/admin/admin-club/hostel-defaulters/stats?startDate=${statsRange.start}&endDate=${statsRange.end}&assignedToUserId=${form.assignedToUserId}`
+      : null;
+  const { data: statsData, isLoading: statsLoading, error: statsError, mutate: refreshStats } = useSWR(statsKey, fetcher, {
+    dedupingInterval: 30_000,
+  });
+
+  const teamOptions = useMemo(() => {
+    const users = supporting?.teachers || [];
+    return users
+      .map((u) => ({ value: String(u.id), label: u.name || `User #${u.id}` }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [supporting?.teachers]);
+
+  // Default to self when session arrives
+  useEffect(() => {
+    if (!form.assignedToUserId && selfId) {
+      setForm((prev) => ({ ...prev, assignedToUserId: selfId }));
+    }
+  }, [selfId, form.assignedToUserId]);
+
+  const studentOptions = useMemo(() => supporting?.students || [], [supporting?.students]);
+  const defaulterOptions = useMemo(() => supporting?.defaulterTypes || [], [supporting?.defaulterTypes]);
+  const actionsCatalog = useMemo(() => supporting?.actionsCatalog || [], [supporting?.actionsCatalog]);
+
+  const setDefaulter = (idx, updater) => {
+    setForm((prev) => {
+      const rows = prev.defaulters.slice();
+      rows[idx] = updater(rows[idx]);
+      return { ...prev, defaulters: rows };
+    });
+  };
+
+  const addDefaulter = () =>
+    setForm((prev) => ({
+      ...prev,
+      defaulters: [
+        ...prev.defaulters,
+        { id: `df-${Date.now()}`, studentId: "", defaulterType: "", reason: "", actions: [] },
+      ],
+    }));
+
+  const removeDefaulter = (idx) =>
+    setForm((prev) => {
+      const rows = prev.defaulters.slice();
+      rows.splice(idx, 1);
+      return {
+        ...prev,
+        defaulters:
+          rows.length
+            ? rows
+            : [{ id: `df-${Date.now()}`, studentId: "", defaulterType: "", reason: "", actions: [] }],
+      };
+    });
+
+  const toggleRowAction = (rowIdx, actionValue) => {
+    setForm((prev) => {
+      const rows = prev.defaulters.slice();
+      const current = rows[rowIdx] || {};
+      const set = new Set(current.actions || []);
+      if (set.has(actionValue)) set.delete(actionValue);
+      else set.add(actionValue);
+      rows[rowIdx] = { ...current, actions: Array.from(set) };
+      return { ...prev, defaulters: rows };
+    });
+  };
+
+  const save = async () => {
+    setSaving(true);
+    setError("");
+    setMessage("");
+    try {
+      const payload = {
+        reportDate: form.reportDate,
+        siteId: Number(form.siteId) || 1,
+        assignedToUserId: Number(form.assignedToUserId),
+        defaulters: form.defaulters
+          .filter((row) => row.studentId && row.defaulterType)
+          .map((row) => ({
+            studentId: Number(row.studentId),
+            defaulterType: row.defaulterType,
+            reason: row.reason || "",
+            actions: normaliseActions(row.actions),
+          })),
+        actionsByCategory: Object.values(
+          form.defaulters.reduce((acc, row) => {
+            if (!row.defaulterType) return acc;
+            const key = row.defaulterType;
+            const set = new Set(acc[key]?.actions || []);
+            normaliseActions(row.actions).forEach((a) => set.add(a));
+            acc[key] = { category: key, actions: Array.from(set) };
+            return acc;
+          }, {})
+        ),
+      };
+      const res = await fetch("/api/admin/admin-club/hostel-defaulters", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || `HTTP ${res.status}`);
+      setMessage("Saved and synced to AHR.");
+    } catch (err) {
+      setError(err.message || "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const disabled = !form.assignedToUserId || supportLoading;
+
+  const statusBadge = supportLoading
+    ? { text: "Loading data…", tone: "bg-amber-100 text-amber-800" }
+    : supportingError
+    ? { text: "Data load failed — retry", tone: "bg-rose-100 text-rose-700" }
+    : { text: "Data ready", tone: "bg-emerald-100 text-emerald-800" };
+
+  return (
+    <div className="space-y-6 p-4 md:p-6">
+      <header className="space-y-2">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase text-emerald-600">Managerial Club</p>
+            <h1 className="text-2xl font-semibold text-slate-900">Hostel Daily Defaulters</h1>
+            <p className="text-sm text-slate-600">
+              Capture hostel defaulters and sync directly into the Academic Health Report defaulter table.
+            </p>
+            <Link
+              href="/dashboard/managersCommon/managerial-club"
+              className="mt-2 inline-flex items-center gap-2 text-xs font-semibold text-teal-700 hover:text-teal-800"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back to Managerial Club
+            </Link>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={() => refreshSupporting()} disabled={supportLoading || disabled}>
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+            <Button onClick={save} disabled={saving || disabled}>
+              <Save className="mr-2 h-4 w-4" />
+              {saving ? "Saving…" : "Save & Sync"}
+            </Button>
+          </div>
+        </div>
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        {message && <p className="text-sm text-emerald-600">{message}</p>}
+      </header>
+
+      <Card className="border-slate-100">
+        <CardBody>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Report date</span>
+              <Input
+                type="date"
+                label=""
+                value={form.reportDate}
+                onChange={(e) => setForm((p) => ({ ...p, reportDate: e.target.value || todayIso() }))}
+                className="w-[170px]"
+              />
+            </div>
+            <span className={`inline-flex items-center rounded-full px-2 py-1 text-[11px] font-semibold ${statusBadge.tone}`}>
+              {statusBadge.text}
+            </span>
+          </div>
+        </CardBody>
+      </Card>
+
+      <Card className="border-slate-100">
+        <CardHeader className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-gray-900">Defaulter Analysis</h2>
+            <p className="text-xs text-slate-500">Snapshot of hostel defaulters pulled from AHR.</p>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-slate-600">
+            <Input
+              type="date"
+              label=""
+              value={statsRange.start}
+              onChange={(e) => setStatsRange((p) => ({ ...p, start: e.target.value }))}
+              className="w-[140px]"
+            />
+            <Input
+              type="date"
+              label=""
+              value={statsRange.end}
+              onChange={(e) => setStatsRange((p) => ({ ...p, end: e.target.value }))}
+              className="w-[140px]"
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => refreshStats()}
+              disabled={statsLoading || !statsKey}
+            >
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+          </div>
+        </CardHeader>
+        <CardBody className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-3">
+              <p className="text-xs font-semibold uppercase text-slate-500">Total defaulters</p>
+              <p className="text-2xl font-semibold text-slate-900">
+                {statsLoading ? "…" : statsData?.summary?.totalDefaulters ?? 0}
+              </p>
+            </div>
+            <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-3">
+              <p className="text-xs font-semibold uppercase text-slate-500">Unique students</p>
+              <p className="text-2xl font-semibold text-slate-900">
+                {statsLoading ? "…" : statsData?.summary?.uniqueStudents ?? 0}
+              </p>
+            </div>
+            <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-3">
+              <p className="text-xs font-semibold uppercase text-slate-500">Top category</p>
+              <p className="text-lg font-semibold text-slate-900">
+                {statsLoading ? "…" : statsData?.summary?.topCategory || "—"}
+              </p>
+            </div>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="rounded-xl border border-slate-100 p-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-slate-800">By category</p>
+                {statsError && <span className="text-xs text-rose-600">Failed to load</span>}
+              </div>
+              <div className="mt-2 space-y-2 text-sm text-slate-700">
+                {(statsData?.categories || []).map((row) => (
+                  <div key={row.type} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
+                    <span className="capitalize">{row.type.replace(/_/g, " ")}</span>
+                    <span className="font-semibold">{row.count}</span>
+                  </div>
+                ))}
+                {!statsLoading && !(statsData?.categories || []).length && (
+                  <p className="text-xs text-slate-500">No defaulters in this range.</p>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-100 p-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-slate-800">Top students</p>
+                {statsError && <span className="text-xs text-rose-600">Failed to load</span>}
+              </div>
+              <div className="mt-2 space-y-2 text-sm text-slate-700">
+                {(statsData?.students || []).map((row) => (
+                  <div key={row.studentId} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
+                    <span>{row.name}</span>
+                    <span className="font-semibold">{row.count}</span>
+                  </div>
+                ))}
+                {!statsLoading && !(statsData?.students || []).length && (
+                  <p className="text-xs text-slate-500">No defaulters in this range.</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-100 p-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-slate-800">Trend (per day)</p>
+              {statsError && <span className="text-xs text-rose-600">Failed to load</span>}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2 text-sm text-slate-700">
+              {(statsData?.trend || []).map((row) => (
+                <span
+                  key={row.date}
+                  className="rounded-lg bg-slate-50 px-3 py-2 ring-1 ring-slate-100"
+                >
+                  {row.date}: <span className="font-semibold">{row.count}</span>
+                </span>
+              ))}
+              {!statsLoading && !(statsData?.trend || []).length && (
+                <p className="text-xs text-slate-500">No activity in this range.</p>
+              )}
+            </div>
+          </div>
+        </CardBody>
+      </Card>
+
+      <Card className="border-slate-100">
+        <CardHeader className="flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-gray-900">Defaulters</h2>
+            <p className="text-xs text-slate-500">These rows are written into AHR defaulters.</p>
+          </div>
+          <Button variant="ghost" size="sm" onClick={addDefaulter}>
+            <Plus className="mr-1 h-4 w-4" />
+            Add row
+          </Button>
+        </CardHeader>
+        <CardBody className="space-y-3">
+          {form.defaulters.map((row, idx) => (
+            <div key={row.id || idx} className="space-y-2 rounded-xl border border-slate-100 p-3 shadow-[0_6px_18px_-12px_rgba(15,23,42,0.18)]">
+              <div className="grid items-center gap-3 md:grid-cols-4">
+                <div className="text-xs font-semibold text-slate-500">#{idx + 1}</div>
+                <Select
+                  value={row.studentId}
+                  onChange={(e) => setDefaulter(idx, (r) => ({ ...r, studentId: e.target.value }))}
+                >
+                  <option value="">Select student</option>
+                  {studentOptions.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </Select>
+                <Select
+                  value={row.defaulterType}
+                  onChange={(e) => setDefaulter(idx, (r) => ({ ...r, defaulterType: e.target.value }))}
+                >
+                  <option value="">Select category</option>
+                  {defaulterOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </Select>
+                <div className="flex items-center gap-2">
+                  <Input
+                    placeholder="Reason / notes"
+                    value={row.reason}
+                    onChange={(e) => setDefaulter(idx, (r) => ({ ...r, reason: e.target.value }))}
+                  />
+                  <button
+                    type="button"
+                    className="rounded-md p-2 text-slate-400 hover:text-rose-600"
+                    onClick={() => removeDefaulter(idx)}
+                    disabled={form.defaulters.length === 1}
+                    title="Remove row"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+
+              {actionsCatalog.length > 0 && (
+                <div className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-xs text-slate-700">
+                  <p className="font-semibold text-slate-700 mb-2">Actions for this defaulter</p>
+                  <div className="flex flex-wrap gap-2">
+                    {actionsCatalog.map((action) => {
+                      const active = (row.actions || []).includes(action.value);
+                      return (
+                        <button
+                          key={`${row.id}-${action.value}`}
+                          type="button"
+                          onClick={() => toggleRowAction(idx, action.value)}
+                          className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                            active
+                              ? "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200"
+                              : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-100"
+                          }`}
+                        >
+                          {action.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </CardBody>
+      </Card>
+    </div>
+  );
+}

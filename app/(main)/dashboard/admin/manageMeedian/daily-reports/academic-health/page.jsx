@@ -82,6 +82,24 @@ const initialiseClassChecks = (rows = []) =>
 
 const buildPatchPayload = (report) => {
   if (!report) return {};
+  const normalizedDefaulters = Array.isArray(report.defaulters)
+    ? report.defaulters.map((row) => ({
+        studentId: row.studentId ? Number(row.studentId) : null,
+        defaulterType: row.defaulterType || "",
+        reason: row.reason || "",
+        actions: Array.isArray(row.actions) ? row.actions.filter(Boolean) : [],
+      }))
+    : [];
+  const actionsByCategory = Object.values(
+    normalizedDefaulters.reduce((acc, row) => {
+      if (!row.defaulterType) return acc;
+      const set = new Set(acc[row.defaulterType]?.actions || []);
+      (row.actions || []).forEach((a) => set.add(a));
+      acc[row.defaulterType] = { category: row.defaulterType, actions: Array.from(set) };
+      return acc;
+    }, {})
+  );
+
   return {
     attendanceConfirmed: Boolean(report.attendanceConfirmed),
     maghribSalahLedById: report.maghribSalahLedById ? Number(report.maghribSalahLedById) : null,
@@ -145,23 +163,8 @@ const buildPatchPayload = (report) => {
           }))
           .filter((row) => row.escalationId)
       : [],
-    defaulters: Array.isArray(report.defaulters)
-      ? report.defaulters
-          .map((row) => ({
-            studentId: row.studentId ? Number(row.studentId) : null,
-            defaulterType: row.defaulterType || "",
-            reason: row.reason || "",
-          }))
-          .filter((row) => row.studentId && row.defaulterType)
-      : [],
-    actionsByCategory: Array.isArray(report.actionsByCategory)
-      ? report.actionsByCategory
-          .map((row) => ({
-            category: row.category || "",
-            actions: Array.isArray(row.actions) ? row.actions.filter(Boolean) : [],
-          }))
-          .filter((row) => row.category)
-      : [],
+    defaulters: normalizedDefaulters.filter((row) => row.studentId && row.defaulterType),
+    actionsByCategory,
     selfDayClose: Boolean(report.selfDayClose),
     finalRemarks: report.finalRemarks || "",
     signatureName: report.signatureName || "",
@@ -265,7 +268,10 @@ export default function AcademicHealthReportPage() {
             classChecks: initialiseClassChecks(incoming.classChecks),
             morningCoaching: incoming.morningCoaching || { absentees: [], state: "" },
             escalationDetails: incoming.escalationDetails || [],
-            defaulters: incoming.defaulters || [],
+            defaulters: (incoming.defaulters || []).map((row) => ({
+              ...row,
+              actions: Array.isArray(row.actions) ? row.actions : [],
+            })),
             actionsByCategory: incoming.actionsByCategory || [],
             checkMode: incoming.checkMode || "MSP",
           });
@@ -327,7 +333,10 @@ export default function AcademicHealthReportPage() {
           classChecks: initialiseClassChecks(incoming.classChecks),
           morningCoaching: incoming.morningCoaching || { absentees: [], state: "" },
           escalationDetails: incoming.escalationDetails || [],
-          defaulters: incoming.defaulters || [],
+          defaulters: (incoming.defaulters || []).map((row) => ({
+            ...row,
+            actions: Array.isArray(row.actions) ? row.actions : [],
+          })),
           actionsByCategory: incoming.actionsByCategory || [],
           checkMode: incoming.checkMode || params.checkMode || "MSP",
         });
@@ -491,7 +500,7 @@ export default function AcademicHealthReportPage() {
       ...prev,
       defaulters: [
         ...(Array.isArray(prev.defaulters) ? prev.defaulters : []),
-        { id: `def-${Date.now()}`, studentId: null, defaulterType: "", reason: "" },
+        { id: `def-${Date.now()}`, studentId: null, defaulterType: "", reason: "", actions: [] },
       ],
     }));
     markDirty();
@@ -526,7 +535,10 @@ export default function AcademicHealthReportPage() {
         classChecks: initialiseClassChecks(updated.classChecks),
         morningCoaching: updated.morningCoaching || { absentees: [], state: "" },
         escalationDetails: updated.escalationDetails || [],
-        defaulters: updated.defaulters || [],
+        defaulters: (updated.defaulters || []).map((row) => ({
+          ...row,
+          actions: Array.isArray(row.actions) ? row.actions : [],
+        })),
         actionsByCategory: updated.actionsByCategory || [],
       }));
       setSaveState({
@@ -1306,58 +1318,98 @@ export default function AcademicHealthReportPage() {
             </div>
             <div className="mt-2 space-y-3">
               {(report?.defaulters || []).map((row, index) => (
-                <div key={row.id || index} className="grid grid-cols-1 gap-3 md:grid-cols-4">
-                  <Select
-                    value={row.studentId || ""}
-                    onChange={(event) =>
-                      updateNestedArray("defaulters", index, (current) => ({
-                        ...current,
-                        studentId: Number(event.target.value) || null,
-                      }))
-                    }
-                  >
-                    <option value="">Select student</option>
-                    {(supportingData?.students || []).map((student) => (
-                      <option key={student.id} value={student.id}>
-                        {student.name}
-                      </option>
-                    ))}
-                  </Select>
-                  <Select
-                    value={row.defaulterType || ""}
-                    onChange={(event) =>
-                      updateNestedArray("defaulters", index, (current) => ({
-                        ...current,
-                        defaulterType: event.target.value,
-                      }))
-                    }
-                  >
-                    <option value="">Select category</option>
-                    {(supportingData?.defaulterTypes || []).map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </Select>
-                  <input
-                    type="text"
-                    value={row.reason || ""}
-                    onChange={(event) =>
-                      updateNestedArray("defaulters", index, (current) => ({
-                        ...current,
-                        reason: event.target.value,
-                      }))
-                    }
-                    placeholder="Reason / AD"
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500"
-                  />
-                  <button
-                    type="button"
-                    className="flex items-center justify-center rounded-lg border border-transparent bg-red-50 px-3 py-2 text-sm text-red-600 hover:bg-red-100"
-                    onClick={() => removeDefaulter(index)}
-                  >
-                    Remove
-                  </button>
+                <div
+                  key={row.id || index}
+                  className="space-y-2 rounded-lg border border-gray-200 p-3"
+                >
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                    <Select
+                      value={row.studentId || ""}
+                      onChange={(event) =>
+                        updateNestedArray("defaulters", index, (current) => ({
+                          ...current,
+                          studentId: Number(event.target.value) || null,
+                        }))
+                      }
+                    >
+                      <option value="">Select student</option>
+                      {(supportingData?.students || []).map((student) => (
+                        <option key={student.id} value={student.id}>
+                          {student.name}
+                        </option>
+                      ))}
+                    </Select>
+                    <Select
+                      value={row.defaulterType || ""}
+                      onChange={(event) =>
+                        updateNestedArray("defaulters", index, (current) => ({
+                          ...current,
+                          defaulterType: event.target.value,
+                        }))
+                      }
+                    >
+                      <option value="">Select category</option>
+                      {(supportingData?.defaulterTypes || []).map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </Select>
+                    <input
+                      type="text"
+                      value={row.reason || ""}
+                      onChange={(event) =>
+                        updateNestedArray("defaulters", index, (current) => ({
+                          ...current,
+                          reason: event.target.value,
+                        }))
+                      }
+                      placeholder="Reason / AD"
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    />
+                    <button
+                      type="button"
+                      className="flex items-center justify-center rounded-lg border border-transparent bg-red-50 px-3 py-2 text-sm text-red-600 hover:bg-red-100"
+                      onClick={() => removeDefaulter(index)}
+                    >
+                      Remove
+                    </button>
+                  </div>
+
+                  {!!(supportingData?.actionsCatalog || []).length && (
+                    <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-600">
+                        Actions for this defaulter
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-2 text-xs text-gray-700">
+                        {(supportingData?.actionsCatalog || []).map((action) => {
+                          const active = Array.isArray(row.actions) ? row.actions.includes(action.value) : false;
+                          return (
+                            <button
+                              key={`${row.id || index}-${action.value}`}
+                              type="button"
+                              onClick={() => {
+                                updateNestedArray("defaulters", index, (current) => {
+                                  const set = new Set(Array.isArray(current.actions) ? current.actions : []);
+                                  if (set.has(action.value)) set.delete(action.value);
+                                  else set.add(action.value);
+                                  return { ...current, actions: Array.from(set) };
+                                });
+                                markDirty();
+                              }}
+                              className={`rounded-full px-3 py-1 font-semibold transition ${
+                                active
+                                  ? "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200"
+                                  : "bg-white text-gray-700 ring-1 ring-gray-200 hover:bg-gray-100"
+                              }`}
+                            >
+                              {action.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
               {!(report?.defaulters || []).length && (
@@ -1365,45 +1417,6 @@ export default function AcademicHealthReportPage() {
               )}
             </div>
           </div>
-
-          {activeDefaulterCategories.length > 0 && (
-            <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-4">
-              <h3 className="text-sm font-semibold text-gray-800">Actions taken (per category)</h3>
-              <p className="text-xs text-gray-500">
-                Ensure each defaulter category has at least one follow-up action for audit purposes.
-              </p>
-              <div className="mt-3 space-y-3">
-                {activeDefaulterCategories.map((category) => {
-                  const activeActions = new Set(actionsByCategoryMap.get(category) || []);
-                  return (
-                    <div key={category} className="rounded-lg border border-gray-200 bg-white px-3 py-3">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                        {category}
-                      </p>
-                      <div className="mt-2 flex flex-wrap gap-3">
-                        {(supportingData?.actionsCatalog || []).map((action) => (
-                          <label key={`${category}-${action.value}`} className="flex items-center gap-2 text-xs text-gray-600">
-                            <input
-                              type="checkbox"
-                              className="h-4 w-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500"
-                              checked={activeActions.has(action.value)}
-                              onChange={(event) => {
-                                const next = new Set(actionsByCategoryMap.get(category) || []);
-                                if (event.target.checked) next.add(action.value);
-                                else next.delete(action.value);
-                                updateActionsByCategory(category, Array.from(next));
-                              }}
-                            />
-                            {action.label}
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <label className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm">

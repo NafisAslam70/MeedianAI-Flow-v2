@@ -155,7 +155,14 @@ export default function ChatBox({ userDetails, isOpen = false, setIsOpen, recipi
     const loadMuteSettings = async () => {
       try {
         const res = await fetch("/api/others/chat/settings", { cache: "no-store" });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) {
+          // If unauthenticated or feature unavailable, fall back to no-mute capability
+          if (res.status === 401 || res.status === 404) {
+            setCanMute(false);
+            return;
+          }
+          throw new Error(`HTTP ${res.status}`);
+        }
         const cfg = await res.json();
         if (!active) return;
         const allowed =

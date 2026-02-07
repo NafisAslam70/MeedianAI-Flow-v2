@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
   Phone,
@@ -227,6 +227,19 @@ const GuardianRelationshipManager = () => {
   const [mgcpHeads, setMgcpHeads] = useState([]);
   const [mgcpUsers, setMgcpUsers] = useState([]);
   const [selectedBeltId, setSelectedBeltId] = useState("");
+  const [selectedRandomLead, setSelectedRandomLead] = useState(null);
+  const [currentUserName, setCurrentUserName] = useState("");
+
+  const lookupUserName = useCallback(
+    (id) => {
+      if (!id) return null;
+      const found = mgcpUsers.find((u) => String(u.id) === String(id));
+      if (found) return found.name;
+      if (currentUserName && String(id) === "me") return currentUserName;
+      return null;
+    },
+    [mgcpUsers, currentUserName]
+  );
   const [mgcpActionState, setMgcpActionState] = useState({
     error: "",
     saving: false,
@@ -468,6 +481,12 @@ const GuardianRelationshipManager = () => {
     const controller = new AbortController();
     loadMgcpHeads(controller.signal);
     loadMgcpUsers(controller.signal);
+    fetch("/api/admin/users?me=1")
+      .then((res) => res.json().catch(() => ({})))
+      .then((payload) => {
+        if (payload?.user?.name) setCurrentUserName(payload.user.name);
+      })
+      .catch(() => {});
     return () => controller.abort();
   }, [activeTab]);
 
@@ -3400,6 +3419,12 @@ const GuardianRelationshipManager = () => {
                           <div>
                             <p className="text-sm font-semibold text-slate-800">{belt.name}</p>
                             <p className="text-xs text-slate-500">{belt.notes || "No notes"}</p>
+                            {belt.createdByName && (
+                              <p className="text-[11px] text-slate-400 mt-1">
+                                by {belt.createdByName}
+                                {belt.createdAt ? ` · ${formatDate(belt.createdAt)}` : ""}
+                              </p>
+                            )}
                           </div>
                           <Badge color={belt.active ? "teal" : "gray"}>
                             {belt.active ? "Active" : "Inactive"}
@@ -3557,12 +3582,18 @@ const GuardianRelationshipManager = () => {
                                             : "border-slate-200 text-slate-600 hover:bg-slate-50"
                                         }`}
                                       >
-                                        <p className="font-semibold">{belt.name}</p>
-                                        <p className="text-xs text-slate-500">
-                                          Villages {belt.villages?.length || 0} · Managers {belt.leadManagers?.length || 0}
+                                      <p className="font-semibold">{belt.name}</p>
+                                      <p className="text-xs text-slate-500">
+                                        Villages {belt.villages?.length || 0} · Managers {belt.leadManagers?.length || 0}
+                                      </p>
+                                      {belt.createdByName && (
+                                        <p className="text-[11px] text-slate-400">
+                                          by {belt.createdByName}
+                                          {belt.createdAt ? ` · ${formatDate(belt.createdAt)}` : ""}
                                         </p>
-                                      </button>
-                                    ))
+                                      )}
+                                    </button>
+                                  ))
                                   ) : (
                                     <p className="text-sm text-slate-500">No belts created yet.</p>
                                   )}
@@ -3645,12 +3676,18 @@ const GuardianRelationshipManager = () => {
                                                   key={village.id}
                                                   className="flex items-center justify-between rounded-lg border border-slate-200 px-2 py-1"
                                                 >
-                                                  <span>{village.name}</span>
-                                                  <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    onClick={() =>
-                                                      runMgcpAction({
+                                              <span>{village.name}</span>
+                                              {village.createdByName && (
+                                                <span className="text-[11px] text-slate-400">
+                                                  by {village.createdByName}
+                                                  {village.createdAt ? ` · ${formatDate(village.createdAt)}` : ""}
+                                                </span>
+                                              )}
+                                              <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() =>
+                                                  runMgcpAction({
                                                         url: "/api/enrollment/mgcp/villages",
                                                         method: "DELETE",
                                                         body: { id: village.id },
@@ -4090,6 +4127,12 @@ const GuardianRelationshipManager = () => {
                                               <p className="text-xs text-slate-500">
                                                 {manager.phone || manager.whatsapp || "No phone"}
                                               </p>
+                                              {manager.createdByName && (
+                                                <p className="text-[11px] text-slate-400">
+                                                  by {manager.createdByName}
+                                                  {manager.createdAt ? ` · ${formatDate(manager.createdAt)}` : ""}
+                                                </p>
+                                              )}
                                             </div>
                                             <Button
                                               size="sm"
@@ -4166,7 +4209,7 @@ const GuardianRelationshipManager = () => {
                           </div>
                         )}
 
-      {mgcpSection === "random" && (
+          {mgcpSection === "random" && (
         <Card>
                             <CardHeader>
                               <div className="flex items-center justify-between">
@@ -4179,33 +4222,107 @@ const GuardianRelationshipManager = () => {
                                 </Button>
                               </div>
                             </CardHeader>
-                            <CardBody className="space-y-2 text-sm">
+                            <CardBody className="space-y-3 text-sm">
+                              {selectedRandomLead && (
+                                <div className="rounded-xl border border-teal-100 bg-teal-50/60 px-3 py-3">
+                                  <div className="flex items-start justify-between">
+                                    <div>
+                                      <p className="text-sm font-semibold text-teal-800">{selectedRandomLead.name}</p>
+                                      <p className="text-xs text-teal-700">
+                                        {selectedRandomLead.phone || selectedRandomLead.whatsapp || "No contact"}
+                                      </p>
+                                      <p className="text-[11px] text-slate-500">{selectedRandomLead.location || "No location"}</p>
+                                    </div>
+                                    <Badge color={selectedRandomLead.status === "won" ? "teal" : selectedRandomLead.status === "lost" ? "rose" : "amber"}>
+                                      {selectedRandomLead.status}
+                                    </Badge>
+                                  </div>
+                                  <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-slate-600">
+                                    <div>
+                                      <p className="font-semibold text-slate-700">Category</p>
+                                      <p>{selectedRandomLead.category || "MGCP Lead"}</p>
+                                    </div>
+                                    <div>
+                                      <p className="font-semibold text-slate-700">Source</p>
+                                      <p>{selectedRandomLead.source || "Unknown"}</p>
+                                    </div>
+                                    <div>
+                                      <p className="font-semibold text-slate-700">Notes</p>
+                                      <p className="whitespace-pre-line">{selectedRandomLead.notes || "No notes"}</p>
+                                    </div>
+                                    <div>
+                                      <p className="font-semibold text-slate-700">Created</p>
+                                      <p>
+                                        by {selectedRandomLead.createdByName || lookupUserName(selectedRandomLead.createdBy) || (selectedRandomLead.createdBy ? `User ${selectedRandomLead.createdBy}` : "Unknown")}
+                                        {selectedRandomLead.createdAt ? ` · ${formatDate(selectedRandomLead.createdAt)}` : ""}
+                                        {(!selectedRandomLead.createdByName && !lookupUserName(selectedRandomLead.createdBy) && selectedRandomLead.createdBy) ? ` (id ${selectedRandomLead.createdBy})` : ""}
+                                      </p>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+
                               {mgcpRandomLeads.length ? (
                                 mgcpRandomLeads.map((lead) => (
                                   <div
                                     key={lead.id}
-                                    className="flex items-center justify-between rounded-lg border border-slate-200 px-2 py-1"
+                                    role="button"
+                                    tabIndex={0}
+                                    onClick={() => setSelectedRandomLead(lead)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter" || e.key === " ") setSelectedRandomLead(lead);
+                                    }}
+                                    className={`w-full text-left rounded-lg border px-3 py-2 transition focus:outline-none focus:ring-2 focus:ring-teal-400 ${
+                                      selectedRandomLead?.id === lead.id
+                                        ? "border-teal-200 bg-teal-50"
+                                        : "border-slate-200 hover:bg-slate-50"
+                                    }`}
                                   >
-                                    <div>
-                                      <p className="font-medium text-slate-700">{lead.name}</p>
-                                      <p className="text-xs text-slate-500">{lead.phone || "No phone"}</p>
-                                      <p className="text-[11px] font-semibold text-teal-600">
-                                        {lead.category || "MGCP Lead"}
-                                      </p>
+                                    <div className="flex items-center justify-between">
+                                      <div className="space-y-0.5">
+                                        <p className="font-semibold text-slate-800">{lead.name}</p>
+                                        <p className="text-xs text-slate-500">{lead.phone || lead.whatsapp || "No phone"}</p>
+                                        <p className="text-[11px] font-semibold text-teal-600">
+                                          {lead.category || "MGCP Lead"}
+                                        </p>
+                                        <p className="text-[11px] text-slate-400">
+                                          by {lead.createdByName || lookupUserName(lead.createdBy) || (lead.createdBy ? `User ${lead.createdBy}` : "Unknown")}
+                                          {lead.createdAt ? ` · ${formatDate(lead.createdAt)}` : ""}
+                                          {(!lead.createdByName && !lookupUserName(lead.createdBy) && lead.createdBy) ? ` (id ${lead.createdBy})` : ""}
+                                        </p>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <Badge color={lead.status === "won" ? "teal" : lead.status === "lost" ? "rose" : "amber"}>
+                                          {lead.status}
+                                        </Badge>
+                                        <div
+                                          role="button"
+                                          tabIndex={0}
+                                          className="inline-flex items-center justify-center rounded-lg border border-transparent px-2 py-1 text-rose-600 hover:bg-rose-50 focus:outline-none focus:ring-2 focus:ring-rose-300"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            runMgcpAction({
+                                              url: "/api/enrollment/mgcp/leads",
+                                              method: "DELETE",
+                                              body: { id: lead.id },
+                                            });
+                                          }}
+                                          onKeyDown={(e) => {
+                                            if (e.key === "Enter" || e.key === " ") {
+                                              e.preventDefault();
+                                              e.stopPropagation();
+                                              runMgcpAction({
+                                                url: "/api/enrollment/mgcp/leads",
+                                                method: "DELETE",
+                                                body: { id: lead.id },
+                                              });
+                                            }
+                                          }}
+                                        >
+                                          <Trash2 className="w-4 h-4" />
+                                        </div>
+                                      </div>
                                     </div>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() =>
-                                        runMgcpAction({
-                                          url: "/api/enrollment/mgcp/leads",
-                                          method: "DELETE",
-                                          body: { id: lead.id },
-                                        })
-                                      }
-                                    >
-                                      <Trash2 className="w-4 h-4 text-rose-600" />
-                                    </Button>
                                   </div>
                                 ))
                               ) : (

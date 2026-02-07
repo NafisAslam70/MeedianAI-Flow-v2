@@ -86,6 +86,15 @@ const CLUB_TOOLS = [
     isNew: true,
   },
   {
+    key: "hostel-defaulters",
+    label: "Hostel Daily Defaulters",
+    description: "Capture hostel defaulters that sync straight into AHR.",
+    icon: ClipboardList,
+    accent: "from-emerald-500/90 via-teal-500/85 to-sky-400/85",
+    href: "/dashboard/managersCommon/managerial-club/hostel-defaulters",
+    isNew: true,
+  },
+  {
     key: "recruitment-pro",
     label: "Meed Recruitment",
     description: "Pipeline view for Meed leads, interviews, and conversions.",
