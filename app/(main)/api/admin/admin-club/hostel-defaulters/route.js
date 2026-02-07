@@ -45,8 +45,41 @@ export async function GET(req) {
       return NextResponse.json({ report: null }, { status: 200 });
     }
 
-    const hydrated = await getAcademicHealthReportById(reports[0].id);
-    return NextResponse.json({ report: hydrated }, { status: 200 });
+    // If multiple reports exist for the day/site (different assignees), merge defaulters so everyone sees a single list.
+    const hydratedList = await Promise.all(reports.map((r) => getAcademicHealthReportById(r.id)));
+
+    const allDefaulters = [];
+    const actionsByCategoryMap = {};
+
+    hydratedList.forEach((rep) => {
+      (rep?.defaulters || []).forEach((d, idx) => {
+        allDefaulters.push({
+          ...d,
+          // ensure unique id in merged view
+          id: d.id || `${rep.id}-${idx}`,
+        });
+      });
+      (rep?.actionsByCategory || []).forEach((row) => {
+        if (!row?.category) return;
+        const set = new Set(actionsByCategoryMap[row.category] || []);
+        (row.actions || []).forEach((a) => set.add(a));
+        actionsByCategoryMap[row.category] = Array.from(set);
+      });
+    });
+
+    const mergedReport = {
+      id: hydratedList[0]?.id,
+      reportDate,
+      siteId,
+      assignedToUserId: hydratedList[0]?.assignedToUserId,
+      defaulters: allDefaulters,
+      actionsByCategory: Object.entries(actionsByCategoryMap).map(([category, actions]) => ({
+        category,
+        actions,
+      })),
+    };
+
+    return NextResponse.json({ report: mergedReport }, { status: 200 });
   } catch (error) {
     if (error instanceof ValidationError) {
       return NextResponse.json({ error: error.message }, { status: 400 });
