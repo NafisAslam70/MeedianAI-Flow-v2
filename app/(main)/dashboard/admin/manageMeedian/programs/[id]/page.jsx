@@ -57,30 +57,45 @@ export default function ProgramDetailPage() {
   // MHCP duties
   const isMhcpProgram = useMemo(() => String(program?.programKey || "").toUpperCase().startsWith("MHCP"), [program]);
   const [dutyTrack, setDutyTrack] = useState("both");
-  const [dutyDay, setDutyDay] = useState("Mon");
-  const [dutyRows, setDutyRows] = useState([]);
   const [dutyModerator, setDutyModerator] = useState("");
+  const [dutyStartTime, setDutyStartTime] = useState("");
+  const [dutyEndTime, setDutyEndTime] = useState("");
+  const [dutyRooms, setDutyRooms] = useState(["Room 1", "Room 2", "Room 3"]);
+  const [dutyAssignments, setDutyAssignments] = useState({}); // key: day|room -> {dutyTitle, assignedUserId, notes, id}
+  const [mergedDays, setMergedDays] = useState(new Set());
+  const [todoModerator, setTodoModerator] = useState("");
+  const [todoTods, setTodoTods] = useState("");
+  const [todoAdmin, setTodoAdmin] = useState("");
+  const [dutyNote, setDutyNote] = useState("");
+  const daysList = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
   const { data: dutyData, mutate: refreshDuty } = useSWR(
-    isMhcpProgram && id ? `/api/admin/manageMeedian?section=mhcpSlotDuties&programId=${id}&track=${dutyTrack}&day=${dutyDay}` : null,
+    isMhcpProgram && id ? `/api/admin/manageMeedian?section=mhcpSlotDuties&programId=${id}&track=${dutyTrack}` : null,
     fetcher
   );
   useEffect(() => {
     if (dutyData?.duties) {
-      const rows = dutyData.duties.slice().sort((a,b)=> (a.position??0)-(b.position??0)).map((d,i)=>({
-        id: d.id,
-        slotLabel: d.slotLabel || `Slot ${i+1}`,
-        dutyTitle: d.dutyTitle || "",
-        startTime: d.startTime || "",
-        endTime: d.endTime || "",
-        assignedUserId: d.assignedUserId || "",
-        notes: d.notes || "",
-        position: d.position ?? i,
-      }));
-      setDutyRows(rows);
+      const map = {};
+      const rooms = new Set(dutyRooms);
+      dutyData.duties.forEach((d) => {
+        const key = `${d.dayName}|${d.slotLabel}`;
+        map[key] = {
+          id: d.id,
+          dutyTitle: d.dutyTitle || "",
+          assignedUserId: d.assignedUserId || "",
+          notes: d.notes || "",
+          startTime: d.startTime || "",
+          endTime: d.endTime || "",
+        };
+        rooms.add(d.slotLabel || "Room");
+        if (d.startTime) setDutyStartTime(d.startTime);
+        if (d.endTime) setDutyEndTime(d.endTime);
+      });
+      setDutyAssignments(map);
+      setDutyRooms(Array.from(rooms));
     } else {
-      setDutyRows([]);
+      setDutyAssignments({});
     }
-  }, [dutyData?.duties, dutyDay, dutyTrack]);
+  }, [dutyData?.duties]);
 
   // Update active section from URL hash so clicking sidebar sublinks shows only that section
   useEffect(() => {
@@ -449,34 +464,98 @@ export default function ProgramDetailPage() {
   };
 
   /* ---------- MHCP duties helpers ---------- */
-  const addDutyRow = () => {
-    setDutyRows((rows) => {
-      const nextPos = rows.length ? Math.max(...rows.map((r) => r.position || 0)) + 1 : 0;
-      return [
-        ...rows,
-        { slotLabel: "Room", dutyTitle: "", startTime: "", endTime: "", assignedUserId: "", notes: "", position: nextPos },
-      ];
+  const addRoom = () => {
+    const next = `Room ${dutyRooms.length + 1}`;
+    setDutyRooms((r) => [...r, next]);
+  };
+
+  const renameRoom = (index, nextName) => {
+    setDutyRooms((rooms) => {
+      const oldName = rooms[index];
+      const newName = (nextName || "") || oldName; // keep spaces user types; fallback to old if empty
+      if (oldName === newName) return rooms;
+      const updatedRooms = rooms.map((r, i) => (i === index ? newName : r));
+      setDutyAssignments((prev) => {
+        const next = {};
+        Object.entries(prev).forEach(([key, val]) => {
+          const [day, room] = key.split("|");
+          const newKey = room === oldName ? `${day}|${newName}` : key;
+          next[newKey] = val;
+        });
+        return next;
+      });
+      return updatedRooms;
     });
   };
-  const updateDutyRow = (idx, patch) => setDutyRows((rows) => rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
-  const removeDutyRow = (idx) => setDutyRows((rows) => rows.filter((_, i) => i !== idx));
+
+  const updateDutyCell = (day, room, patch) => {
+    setDutyAssignments((prev) => {
+      const key = `${day}|${room}`;
+      const prevVal = prev[key] || {};
+      return { ...prev, [key]: { ...prevVal, ...patch } };
+    });
+  };
+
+  const toggleMergeDay = (day) => {
+    setMergedDays((prev) => {
+      const next = new Set(prev);
+      if (next.has(day)) {
+        next.delete(day);
+      } else {
+        const countStr = typeof window !== "undefined" ? window.prompt("Merge how many rooms for this day?", dutyRooms.length) : null;
+        const count = Number(countStr);
+        const mergeCount = Number.isFinite(count) && count > 1 ? Math.min(count, dutyRooms.length) : dutyRooms.length;
+        // store merge count via a marker in dutyAssignments
+        setDutyAssignments((p) => ({ ...p, [`${day}|__mergeCount`]: mergeCount }));
+        next.add(day);
+      }
+      return next;
+    });
+  };
+
+  const handleDropMerged = (day) => (e) => {
+    e.preventDefault();
+    const uid = e.dataTransfer.getData("text/plain");
+    if (uid) updateDutyCell(day, "__merged", { assignedUserId: uid });
+  };
+
+  const handleDropCell = (day, room) => (e) => {
+    e.preventDefault();
+    const uid = e.dataTransfer.getData("text/plain");
+    if (uid) updateDutyCell(day, room, { assignedUserId: uid });
+  };
 
   const saveDuties = async () => {
     if (!id) return;
+    const duties = [];
+    daysList.forEach((day) => {
+      const mergedKey = `${day}|__merged`;
+      const isMerged = mergedDays.has(day);
+      const mergeCount = dutyAssignments[`${day}|__mergeCount`] || dutyRooms.length;
+      const sourceRooms = isMerged ? dutyRooms.slice(0, mergeCount || dutyRooms.length) : dutyRooms;
+      sourceRooms.forEach((room, idx) => {
+          const key = isMerged ? mergedKey : `${day}|${room}`;
+        const cell = dutyAssignments[key] || {};
+        dutyRooms.forEach((r, pos) => {
+          if (!isMerged && r !== room) return;
+          duties.push({
+            slotLabel: isMerged ? room : r || `Room ${pos + 1}`,
+            dayName: day,
+            dutyTitle: cell.dutyTitle || "",
+            startTime: cell.startTime || dutyStartTime || null,
+            endTime: cell.endTime || dutyEndTime || null,
+            assignedUserId: cell.assignedUserId ? Number(cell.assignedUserId) : null,
+            notes: cell.notes || null,
+            position: pos,
+            active: true,
+          });
+        });
+      });
+    });
     const payload = {
       programId: id,
       track: dutyTrack,
-      dayName: dutyDay,
-      duties: dutyRows.map((r, i) => ({
-        slotLabel: r.slotLabel || `Slot ${i + 1}`,
-        dutyTitle: r.dutyTitle || "",
-        startTime: r.startTime || null,
-        endTime: r.endTime || null,
-        assignedUserId: r.assignedUserId ? Number(r.assignedUserId) : null,
-        notes: r.notes || null,
-        position: i,
-        active: true,
-      })),
+      duties,
     };
     const res = await fetch("/api/admin/manageMeedian?section=mhcpSlotDuties", {
       method: "POST",
@@ -493,9 +572,7 @@ export default function ProgramDetailPage() {
   };
 
   const printDuties = () => {
-    const duties = dutyRows.slice().sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
-    const slots = Array.from(new Set(duties.map((d) => d.slotLabel || "Room"))).filter(Boolean);
-    const rows = duties.length ? duties : [{ slotLabel: "Room 1" }, { slotLabel: "Room 2" }, { slotLabel: "Room 3" }];
+    const slots = dutyRooms;
     const dateStr = new Date().toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "2-digit" });
     const win = window.open("", "_blank");
     if (!win) return;
@@ -508,6 +585,11 @@ export default function ProgramDetailPage() {
         th,td{border:1px solid #444;padding:6px 8px;font-size:12px;}
         th{background:#e5e7eb;text-align:center;}
         .footer{margin-top:18px;font-size:11px;color:#444;display:flex;justify-content:space-between;}
+        .todos{margin-top:16px;font-size:12px;}
+        .todos h3{margin:6px 0 4px;font-size:12px;}
+        .note{margin-top:12px;font-size:12px;}
+        .seal{margin-top:24px;display:flex;justify-content:space-between;align-items:center;font-size:12px;color:#444;}
+        .seal .box{width:110px;height:70px;border:2px dashed #999;border-radius:8px;display:flex;align-items:center;justify-content:center;}
       </style>
     `;
     const header = `
@@ -520,29 +602,46 @@ export default function ProgramDetailPage() {
       </div>
     `;
     const thead = `<tr><th style="width:18%;">Day</th>${slots.map((s) => `<th>${s}</th>`).join("")}</tr>`;
-    const tbody = rows
-      .map((r) => {
-        const cols = slots
-          .map((s) => {
-            if (r.slotLabel !== s) return "<td></td>";
-            const time = r.startTime || r.endTime ? `${r.startTime || "--"} – ${r.endTime || "--"}` : "";
-            const name = r.assignedUserId
-              ? (teamData?.users || []).find((u) => u.id === Number(r.assignedUserId))?.name || r.assignedUserId
+    const tbody = daysList
+      .map((day) => {
+        const mergeCount = dutyAssignments[`${day}|__mergeCount`] || dutyRooms.length;
+        const isMerged = mergedDays.has(day);
+        const slotsToPrint = isMerged ? dutyRooms.slice(0, mergeCount) : dutyRooms;
+        const cols = slotsToPrint
+          .map((room) => {
+            const cell = (isMerged ? dutyAssignments[`${day}|__merged`] : dutyAssignments[`${day}|${room}`]) || {};
+            const time = dutyStartTime || dutyEndTime || cell.startTime || cell.endTime
+              ? `${cell.startTime || dutyStartTime || ""}${cell.startTime || dutyStartTime || cell.endTime || dutyEndTime ? " – " : ""}${cell.endTime || dutyEndTime || ""}`
               : "";
-            const duty = r.dutyTitle || "";
-            return `<td><div>${duty}</div><div style="color:#555;">${time}</div><div style="color:#2563eb;">${name}</div></td>`;
+            const name = cell.assignedUserId
+              ? (teamData?.users || []).find((u) => u.id === Number(cell.assignedUserId))?.name || cell.assignedUserId
+              : "";
+            return `<td><div>${time}</div><div style="color:#2563eb;">${name}</div><div style="color:#555;">${cell.notes || ""}</div></td>`;
           })
           .join("");
-        return `<tr><td style="text-align:center;">${dutyDay}</td>${cols}</tr>`;
+        return `<tr><td style="text-align:center;">${day}</td>${cols}</tr>`;
       })
       .join("");
     win.document.write(`
       <html><head>${style}</head><body>
       ${header}
       <table>${thead}<tbody>${tbody}</tbody></table>
+      <div class="todos">
+        <h3>Moderator To-Dos</h3>
+        <div>${todoModerator || "—"}</div>
+        <h3>TODs</h3>
+        <div>${todoTods || "—"}</div>
+        <h3>Admin / COD / IS</h3>
+        <div>${todoAdmin || "—"}</div>
+      </div>
+      <div class="note"><strong>Notes:</strong> ${dutyNote || "—"}</div>
       <div class="footer">
         <span>Released: ${dateStr}</span>
         <span>Released by: ${dutyModerator || ""}</span>
+      </div>
+      <div class="seal">
+        <div>Seal</div>
+        <div class="box">Official</div>
       </div>
       </body></html>
     `);
@@ -1153,7 +1252,7 @@ export default function ProgramDetailPage() {
       </Card>
       )}
 
-      {(view === "detail" && (activeSection === null || activeSection === "schedule")) && (
+      {(!isMhcpProgram && view === "detail" && (activeSection === null || activeSection === "schedule")) && (
       <Card id="schedule">
         <CardHeader className="flex items-center justify-between">
           <h2 className="font-semibold text-gray-900">Schedule / Duties</h2>
@@ -1421,7 +1520,7 @@ export default function ProgramDetailPage() {
       </Card>
       )}
 
-      {isMhcpProgram && (view === "detail" && (activeSection === null || activeSection === "mhcpDuties")) && (
+      {isMhcpProgram && (view === "detail" && (activeSection === null || activeSection === "mhcpDuties" || activeSection === "schedule")) && (
         <Card id="mhcpDuties">
           <CardHeader className="flex items-center justify-between">
             <div>
@@ -1434,67 +1533,194 @@ export default function ProgramDetailPage() {
                 <option value="pre_primary">Pre-Primary</option>
                 <option value="elementary">Elementary</option>
               </select>
-              <select className="px-2 py-1.5 border rounded text-sm" value={dutyDay} onChange={(e) => setDutyDay(e.target.value)}>
-                {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map((d)=> <option key={d} value={d}>{d}</option>)}
+              <select
+                className="px-2 py-1.5 border rounded text-sm min-w-[160px]"
+                value={dutyModerator}
+                onChange={(e)=>setDutyModerator(e.target.value)}
+                title="Select moderator"
+              >
+                <option value="">Select moderator…</option>
+                {(teamData?.users || []).map((u)=> (
+                  <option key={u.id} value={u.name || u.id}>{u.name || u.id}</option>
+                ))}
               </select>
-              <input className="px-2 py-1.5 border rounded text-sm" placeholder="Moderator" value={dutyModerator} onChange={(e)=>setDutyModerator(e.target.value)} />
-              <Button size="sm" variant="light" onClick={addDutyRow}>Add Row</Button>
+              <input
+                className="px-2 py-1.5 border rounded text-sm"
+                placeholder="Or type moderator name"
+                value={dutyModerator}
+                onChange={(e)=>setDutyModerator(e.target.value)}
+              />
+              <input type="time" className="px-2 py-1.5 border rounded text-sm" value={dutyStartTime} onChange={(e)=>setDutyStartTime(e.target.value)} title="Start time (applies to cells without overrides)" />
+              <input type="time" className="px-2 py-1.5 border rounded text-sm" value={dutyEndTime} onChange={(e)=>setDutyEndTime(e.target.value)} title="End time (applies to cells without overrides)" />
+              <Button size="sm" variant="light" onClick={addRoom}>Add Room</Button>
               <Button size="sm" variant="primary" onClick={saveDuties}>Save Duties</Button>
               <Button size="sm" variant="light" onClick={printDuties}>Print</Button>
             </div>
           </CardHeader>
           <CardBody>
             <div className="overflow-auto">
+              <div className="mb-3 space-y-2">
+                <div className="text-xs font-semibold text-gray-700">Drag staff into cells</div>
+                {(() => {
+                  const users = teamData?.users || [];
+                  const buckets = {
+                    Admin: users.filter((u) => String(u.role).toLowerCase() === "admin"),
+                    Residential: users.filter(
+                      (u) =>
+                        String(u.role).toLowerCase() !== "admin" &&
+                        String(u.type).toLowerCase() === "residential"
+                    ),
+                    "Non‑Residential": users.filter(
+                      (u) =>
+                        String(u.role).toLowerCase() !== "admin" &&
+                        String(u.type).toLowerCase() === "non_residential"
+                    ),
+                    Other: users.filter((u) => {
+                      const role = String(u.role).toLowerCase();
+                      const type = String(u.type).toLowerCase();
+                      return role !== "admin" && type !== "residential" && type !== "non_residential";
+                    }),
+                  };
+                  return (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      {Object.entries(buckets).map(([label, list]) =>
+                        !list.length ? null : (
+                          <div key={label} className="border rounded-lg p-2">
+                            <div className="text-[11px] font-semibold text-gray-600 mb-1">{label}</div>
+                            <div className="flex flex-wrap gap-2">
+                              {list.map((u) => (
+                                <span
+                                  key={u.id}
+                                  draggable
+                                  onDragStart={(e) => e.dataTransfer.setData("text/plain", String(u.id))}
+                                  className="px-2 py-1 rounded-full border bg-white text-xs cursor-grab hover:bg-gray-50"
+                                  title="Drag to assign"
+                                >
+                                  {u.name || u.id}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
               <table className="min-w-full border text-sm">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="border px-2 py-1 text-left">#</th>
-                    <th className="border px-2 py-1 text-left">Slot</th>
-                    <th className="border px-2 py-1 text-left">Duty</th>
-                    <th className="border px-2 py-1 text-left">Time</th>
-                    <th className="border px-2 py-1 text-left">Assigned</th>
-                    <th className="border px-2 py-1 text-left">Notes</th>
-                    <th className="border px-2 py-1 text-left">Actions</th>
+                    <th className="border px-2 py-1 text-left w-20">Day</th>
+                      {dutyRooms.map((room, idx) => (
+                      <th key={`${room}-${idx}`} className="border px-3 py-2 text-left min-w-[200px]">
+                        <div className="flex items-center justify-between gap-2">
+                          <input
+                            className="w-full px-2 py-1 border rounded text-xs"
+                            value={room}
+                            onChange={(e) => renameRoom(idx, e.target.value)}
+                          />
+                          <button className="text-[11px] text-rose-600" onClick={()=> setDutyRooms((r)=> r.filter((_,i)=>i!==idx))} disabled={dutyRooms.length<=1}>✕</button>
+                        </div>
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {dutyRows.map((row, idx) => (
-                    <tr key={idx} className="odd:bg-white even:bg-gray-50">
-                      <td className="border px-2 py-1 text-center">{idx + 1}</td>
-                      <td className="border px-2 py-1">
-                        <input className="w-full px-2 py-1 border rounded" value={row.slotLabel} onChange={(e)=>updateDutyRow(idx,{slotLabel:e.target.value})} />
-                      </td>
-                      <td className="border px-2 py-1">
-                        <input className="w-full px-2 py-1 border rounded" value={row.dutyTitle} onChange={(e)=>updateDutyRow(idx,{dutyTitle:e.target.value})} />
-                      </td>
-                      <td className="border px-2 py-1">
-                        <div className="flex gap-1">
-                          <input type="time" className="w-full px-2 py-1 border rounded" value={row.startTime} onChange={(e)=>updateDutyRow(idx,{startTime:e.target.value})} />
-                          <span className="text-gray-500 text-xs self-center">to</span>
-                          <input type="time" className="w-full px-2 py-1 border rounded" value={row.endTime} onChange={(e)=>updateDutyRow(idx,{endTime:e.target.value})} />
-                        </div>
-                      </td>
-                      <td className="border px-2 py-1">
-                        <select className="w-full px-2 py-1 border rounded" value={row.assignedUserId || ""} onChange={(e)=>updateDutyRow(idx,{assignedUserId:e.target.value})}>
-                          <option value="">Unassigned</option>
-                          {(teamData?.users || []).map((u)=> <option key={u.id} value={u.id}>{u.name || u.id}</option>)}
-                        </select>
-                      </td>
-                      <td className="border px-2 py-1">
-                        <input className="w-full px-2 py-1 border rounded" value={row.notes} onChange={(e)=>updateDutyRow(idx,{notes:e.target.value})} />
-                      </td>
-                      <td className="border px-2 py-1 text-center">
-                        <Button size="xs" variant="ghost" onClick={()=>removeDutyRow(idx)}>Delete</Button>
-                      </td>
-                    </tr>
-                  ))}
-                  {dutyRows.length === 0 && (
-                    <tr>
-                      <td className="border px-2 py-3 text-center text-gray-500" colSpan={7}>No duties added yet.</td>
-                    </tr>
-                  )}
+                  {daysList.map((day) => {
+                    const isMerged = mergedDays.has(day);
+                    return (
+                      <tr key={day} className="odd:bg-white even:bg-gray-50">
+                        <td className="border px-3 py-2 text-center font-semibold">
+                          {day}
+                          <button
+                            className="ml-2 text-[11px] text-blue-600 underline"
+                            onClick={()=> toggleMergeDay(day)}
+                          >
+                            {isMerged ? "Split" : "Merge"}
+                          </button>
+                        </td>
+                        {isMerged ? (
+                          <td
+                            className="border px-3 py-3 space-y-2 min-h-[72px]"
+                            colSpan={dutyRooms.length}
+                            onDragOver={(e)=> e.preventDefault()}
+                            onDrop={handleDropMerged(day)}
+                          >
+                            <div className="flex items-center justify-between text-xs min-h-[18px]">
+                              <span className="font-semibold">
+                                {(teamData?.users || []).find((u)=> u.id === Number((dutyAssignments[`${day}|__merged`]||{}).assignedUserId))?.name || (dutyAssignments[`${day}|__merged`]||{}).assignedUserId || ""}
+                              </span>
+                              {(dutyAssignments[`${day}|__merged`]||{}).assignedUserId && (
+                                <button className="text-[11px] text-rose-600" onClick={()=> updateDutyCell(day, "__merged", { assignedUserId: "" })}>Clear</button>
+                              )}
+                            </div>
+                          </td>
+                        ) : dutyRooms.map((room, idx) => {
+                          const cell = dutyAssignments[`${day}|${room}`] || {};
+                          return (
+                            <td
+                              key={`${day}-${room}-${idx}`}
+                            className="border px-3 py-3 space-y-2 min-h-[72px]"
+                            onDragOver={(e)=> e.preventDefault()}
+                              onDrop={handleDropCell(day, room)}
+                          >
+                              <div className="flex items-center justify-between text-xs min-h-[18px]">
+                                <span className="font-semibold">
+                                  {cell.assignedUserId
+                                    ? (teamData?.users || []).find((u)=> u.id === Number(cell.assignedUserId))?.name || cell.assignedUserId
+                                    : ""}
+                                </span>
+                                {cell.assignedUserId && (
+                                  <button
+                                    className="text-[11px] text-rose-600"
+                                    onClick={()=> updateDutyCell(day, room, { assignedUserId: "" })}
+                                  >Clear</button>
+                                )}
+                              </div>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
+              <div>
+                <div className="text-xs font-semibold text-gray-700 mb-1">Moderator To-Dos</div>
+                <textarea
+                  className="w-full border rounded px-2 py-1 text-sm min-h-[80px]"
+                  value={todoModerator}
+                  onChange={(e)=>setTodoModerator(e.target.value)}
+                />
+              </div>
+              <div>
+                <div className="text-xs font-semibold text-gray-700 mb-1">TODs</div>
+                <textarea
+                  className="w-full border rounded px-2 py-1 text-sm min-h-[80px]"
+                  value={todoTods}
+                  onChange={(e)=>setTodoTods(e.target.value)}
+                />
+              </div>
+              <div>
+                <div className="text-xs font-semibold text-gray-700 mb-1">Admin / COD / IS</div>
+                <textarea
+                  className="w-full border rounded px-2 py-1 text-sm min-h-[80px]"
+                  value={todoAdmin}
+                  onChange={(e)=>setTodoAdmin(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="mt-3">
+              <div className="text-xs font-semibold text-gray-700 mb-1">Notes</div>
+              <textarea
+                className="w-full border rounded px-2 py-1 text-sm min-h-[60px]"
+                value={dutyNote}
+                onChange={(e)=>setDutyNote(e.target.value)}
+              />
             </div>
           </CardBody>
         </Card>

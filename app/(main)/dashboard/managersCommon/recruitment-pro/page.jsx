@@ -85,6 +85,7 @@ export default function RecruitmentProPage() {
   const [benchFilterLocation, setBenchFilterLocation] = React.useState("");
   const [benchFilterApplied, setBenchFilterApplied] = React.useState("");
   const [benchFilterGender, setBenchFilterGender] = React.useState("");
+  const [benchFilterGender, setBenchFilterGender] = React.useState("");
 
   const programs = programsSwr.data?.programs || [];
   const activePrograms = React.useMemo(() => programs.filter((p) => p.isActive !== false), [programs]);
@@ -189,6 +190,8 @@ export default function RecruitmentProPage() {
   const [newBench, setNewBench] = React.useState({
     fullName: "",
     phone: "",
+    email: "",
+    gender: "",
     location: "",
     appliedFor: "",
     appliedDate: "",
@@ -453,7 +456,7 @@ export default function RecruitmentProPage() {
   const handleBenchCreate = async () => {
     try {
       await apiCall("bench", "POST", newBench);
-      setNewBench({ fullName: "", phone: "", location: "", appliedFor: "", appliedDate: "", linkUrl: "", notes: "", source: "" });
+      setNewBench({ fullName: "", phone: "", email: "", gender: "", location: "", appliedFor: "", appliedDate: "", linkUrl: "", notes: "", source: "" });
       await benchSwr.mutate();
     } catch (e) {
       alert(e.message || "Failed to add to bench");
@@ -1580,6 +1583,8 @@ export default function RecruitmentProPage() {
                     </th>
                     <th className="p-3 text-left">Name</th>
                     <th className="p-3 text-left">Phone</th>
+                    <th className="p-3 text-left">Email</th>
+                    <th className="p-3 text-left">Gender</th>
                     <th className="p-3 text-left">Location</th>
                     <th className="p-3 text-left">Applied For</th>
                     <th className="p-3 text-left">Date</th>
@@ -1599,6 +1604,7 @@ export default function RecruitmentProPage() {
                         !q ||
                         b.fullName?.toLowerCase().includes(q) ||
                         b.phone?.toLowerCase().includes(q) ||
+                        b.email?.toLowerCase().includes(q) ||
                         b.source?.toLowerCase().includes(q);
                       const matchesLoc = !benchFilterLocation || b.location === benchFilterLocation;
                       const matchesApplied = !benchFilterApplied || b.appliedFor === benchFilterApplied;
@@ -1629,6 +1635,25 @@ export default function RecruitmentProPage() {
                             <input className="w-28 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.phone || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], phone: e.target.value } }))} />
                           ) : (
                             <span>{b.phone}</span>
+                          )}
+                        </td>
+                        <td className="p-3">
+                          {isEditing ? (
+                            <input className="w-36 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.email || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], email: e.target.value } }))} />
+                          ) : (
+                            <span>{b.email || "—"}</span>
+                          )}
+                        </td>
+                        <td className="p-3">
+                          {isEditing ? (
+                            <select className="w-32 rounded-lg border border-slate-200 px-2 py-1 text-xs" value={draft.gender || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...prev[b.id], gender: e.target.value } }))}>
+                              <option value="">—</option>
+                              {["Male", "Female", "Other / Prefer not to say"].map((g) => (
+                                <option key={g} value={g}>{g}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span className="capitalize">{b.gender || "—"}</span>
                           )}
                         </td>
                         <td className="p-3">
@@ -1703,7 +1728,7 @@ export default function RecruitmentProPage() {
                   })}
                   {!(benchSwr.data?.bench || []).length && (
                     <tr className="border-t">
-                      <td className="p-3 text-slate-500" colSpan={11}>No leads yet.</td>
+                      <td className="p-3 text-slate-500" colSpan={15}>No leads yet.</td>
                     </tr>
                   )}
                 </tbody>

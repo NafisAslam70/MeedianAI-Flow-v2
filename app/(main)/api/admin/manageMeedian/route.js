@@ -37,6 +37,7 @@ import {
   programScheduleDays,
   meedSchedules,
   meedScheduleDivisions,
+  mhcpSlotDuties,
   slotWeeklyRoles,
   slotRoleAssignments,
   managerSectionGrants,
@@ -1995,19 +1996,19 @@ export async function POST(req) {
     // MHCP Slot Duties (create/replace for a day)
     if (section === "mhcpSlotDuties") {
       const { programId, track = "both", dayName, duties = [] } = body || {};
-      if (!programId || !dayName) {
-        return NextResponse.json({ error: "programId and dayName required" }, { status: 400 });
+      if (!programId) {
+        return NextResponse.json({ error: "programId required" }, { status: 400 });
       }
       const normTrack = String(track || "both").trim() || "both";
-      // Replace existing rows for program + track + day
+      // Replace existing rows for program + track (all days)
       await db
         .delete(mhcpSlotDuties)
-        .where(and(eq(mhcpSlotDuties.programId, Number(programId)), eq(mhcpSlotDuties.track, normTrack), eq(mhcpSlotDuties.dayName, String(dayName))));
+        .where(and(eq(mhcpSlotDuties.programId, Number(programId)), eq(mhcpSlotDuties.track, normTrack)));
 
       const rows = (Array.isArray(duties) ? duties : []).map((d, i) => ({
         programId: Number(programId),
         track: normTrack,
-        dayName: String(dayName),
+        dayName: d.dayName ? String(d.dayName) : String(d.day || ""),
         slotLabel: String(d.slotLabel || `Slot ${i + 1}`),
         dutyTitle: d.dutyTitle ? String(d.dutyTitle) : null,
         startTime: d.startTime ? normalizeTimeValue(d.startTime) : null,

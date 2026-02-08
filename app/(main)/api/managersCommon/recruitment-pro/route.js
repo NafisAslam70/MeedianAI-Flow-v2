@@ -495,6 +495,8 @@ export async function GET(req) {
         id: recruitmentBench.id,
         fullName: recruitmentBench.fullName,
         phone: recruitmentBench.phone,
+        email: recruitmentBench.email,
+        gender: recruitmentBench.gender,
         location: recruitmentBench.location,
         appliedFor: recruitmentBench.appliedFor,
         appliedDate: recruitmentBench.appliedDate,
@@ -915,6 +917,7 @@ export async function POST(req) {
     const fullName = String(body?.fullName || "").trim();
     const phone = String(body?.phone || "").trim();
     const benchEmail = String(body?.email || "").trim() || null;
+    const gender = String(body?.gender || "").trim() || null;
     if (!fullName || !phone) {
       return NextResponse.json({ error: "fullName and phone required" }, { status: 400 });
     }
@@ -927,7 +930,7 @@ export async function POST(req) {
 
     const [row] = await db
       .insert(recruitmentBench)
-      .values({ fullName, phone, location, appliedFor, appliedDate, linkUrl, notes, source, email: benchEmail })
+      .values({ fullName, phone, location, appliedFor, appliedDate, linkUrl, notes, source, email: benchEmail, gender })
       .returning();
 
     return NextResponse.json({ bench: row }, { status: 201 });
@@ -1178,8 +1181,14 @@ export async function PUT(req) {
   }
 
   if (section === "bench") {
+    const id = Number(body?.id);
     const fullName = String(body?.fullName || "").trim();
     const phone = String(body?.phone || "").trim();
+    const email = String(body?.email || "").trim() || null;
+    const gender = String(body?.gender || "").trim() || null;
+    if (!id) {
+      return NextResponse.json({ error: "id required" }, { status: 400 });
+    }
     if (!fullName || !phone) {
       return NextResponse.json({ error: "fullName and phone required" }, { status: 400 });
     }
@@ -1192,7 +1201,7 @@ export async function PUT(req) {
 
     const [row] = await db
       .update(recruitmentBench)
-      .set({ fullName, phone, email, location, appliedFor, appliedDate, linkUrl, notes, source, updatedAt: new Date() })
+      .set({ fullName, phone, email, gender, location, appliedFor, appliedDate, linkUrl, notes, source, updatedAt: new Date() })
       .where(eq(recruitmentBench.id, id))
       .returning();
 
