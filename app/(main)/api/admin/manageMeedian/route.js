@@ -815,6 +815,7 @@ export async function GET(req) {
           position: mhcpSlotDuties.position,
           active: mhcpSlotDuties.active,
           assignedUserId: mhcpSlotDuties.assignedUserId,
+          assignedUserIds: mhcpSlotDuties.assignedUserIds,
           assignedUserName: users.name,
         })
         .from(mhcpSlotDuties)
@@ -2014,6 +2015,11 @@ export async function POST(req) {
         startTime: d.startTime ? normalizeTimeValue(d.startTime) : null,
         endTime: d.endTime ? normalizeTimeValue(d.endTime) : null,
         assignedUserId: d.assignedUserId ? Number(d.assignedUserId) : null,
+        assignedUserIds: Array.isArray(d.assignedUserIds)
+          ? d.assignedUserIds.map((u) => Number(u)).filter((n) => Number.isFinite(n))
+          : d.assignedUserId
+          ? [Number(d.assignedUserId)]
+          : [],
         notes: d.notes ? String(d.notes) : null,
         position: Number.isFinite(d.position) ? Number(d.position) : i,
         active: d.active === false ? false : true,
@@ -2938,6 +2944,13 @@ export async function PATCH(req) {
         if (u.endTime !== undefined) setObj.endTime = u.endTime ? normalizeTimeValue(u.endTime) : null;
         if (u.notes !== undefined) setObj.notes = u.notes ? String(u.notes) : null;
         if (u.assignedUserId !== undefined) setObj.assignedUserId = u.assignedUserId ? Number(u.assignedUserId) : null;
+        if (u.assignedUserIds !== undefined) {
+          if (Array.isArray(u.assignedUserIds)) {
+            setObj.assignedUserIds = u.assignedUserIds.map((n) => Number(n)).filter((n) => Number.isFinite(n));
+          } else {
+            setObj.assignedUserIds = [];
+          }
+        }
         if (u.position !== undefined) setObj.position = Number.isFinite(u.position) ? Number(u.position) : 0;
         if (u.active !== undefined) setObj.active = !!u.active;
         if (Object.keys(setObj).length === 0) continue;

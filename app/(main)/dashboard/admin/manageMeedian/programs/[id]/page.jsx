@@ -3,6 +3,7 @@ import { useMemo, useState, useEffect, useRef } from "react";
 import useSWR from "swr";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { Card, CardHeader, CardBody, CardFooter } from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 
@@ -32,6 +33,11 @@ export default function ProgramDetailPage() {
   }
   const params = useParams();
   const id = Number(params?.id);
+  const { data: session } = useSession();
+  const currentVerifier = useMemo(() => {
+    const u = session?.user || {};
+    return u.name || u.email || u.id || "";
+  }, [session]);
   const { data: progData, mutate: refreshPrograms } = useSWR(id ? `/api/admin/manageMeedian?section=metaPrograms` : null, fetcher);
   const program = useMemo(() => (progData?.programs || []).find((p) => p.id === id), [progData, id]);
   const mspProgram = useMemo(
@@ -57,36 +63,94 @@ export default function ProgramDetailPage() {
   // MHCP duties
   const isMhcpProgram = useMemo(() => String(program?.programKey || "").toUpperCase().startsWith("MHCP"), [program]);
   const [dutyTrack, setDutyTrack] = useState("both");
-  const [dutyModerator, setDutyModerator] = useState("");
-  const [dutyStartTime, setDutyStartTime] = useState("");
-  const [dutyEndTime, setDutyEndTime] = useState("");
-  const [dutyRooms, setDutyRooms] = useState(["Room 1", "Room 2", "Room 3"]);
-  const [dutyAssignments, setDutyAssignments] = useState({}); // key: day|room -> {dutyTitle, assignedUserId, notes, id}
-  const [mergedDays, setMergedDays] = useState(new Set());
-  const [todoModerator, setTodoModerator] = useState("");
-  const [todoTods, setTodoTods] = useState("");
-  const [todoAdmin, setTodoAdmin] = useState("");
-  const [dutyNote, setDutyNote] = useState("");
+const [dutyModerator, setDutyModerator] = useState("");
+const [dutyStartTime, setDutyStartTime] = useState("");
+const [dutyEndTime, setDutyEndTime] = useState("");
+const [dutyGoal, setDutyGoal] = useState("");
+const [dutyReleaseDate, setDutyReleaseDate] = useState("");
+const [dutyCircular, setDutyCircular] = useState("");
+const [dutyVerifiedBy, setDutyVerifiedBy] = useState("");
+const [dutyVerifiedAt, setDutyVerifiedAt] = useState("");
+const [dutyTimeDivisions, setDutyTimeDivisions] = useState(["Division 1", "Division 2", "Division 3"]);
+const [dutyRooms, setDutyRooms] = useState(["Room 1", "Room 2", "Room 3"]);
+const [dutyAssignments, setDutyAssignments] = useState({}); // key: day|room -> {assignedUserIds: [], notes, id}
+const [mergedDays, setMergedDays] = useState(new Set());
+const [mergedRoomsByDay, setMergedRoomsByDay] = useState({});
+const [todoModerator, setTodoModerator] = useState("");
+const [todoTods, setTodoTods] = useState("");
+const [todoAdmin, setTodoAdmin] = useState("");
+const [dutyNote, setDutyNote] = useState("");
   const daysList = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
   const { data: dutyData, mutate: refreshDuty } = useSWR(
     isMhcpProgram && id ? `/api/admin/manageMeedian?section=mhcpSlotDuties&programId=${id}&track=${dutyTrack}` : null,
     fetcher
   );
+  // Seed custom room labels for MHCP2 (program id 5) when untouched
+  useEffect(() => {
+    const key = String(program?.programKey || "").toUpperCase();
+    if ((key === "MHCP2" || program?.id === 5) && Array.isArray(dutyTimeDivisions) && dutyTimeDivisions.every((d,i)=>!d || d === `Division ${i+1}` || d === `Slot ${i+1}`)) {
+      setDutyTimeDivisions([
+        "06:00–06:45 PM — Students finish leftover HW; TODs verify with diary; Warden signs diary.",
+        "06:45–07:30 PM — TODs teach released curriculum.",
+        "07:30–07:50 PM — Day-Close: Warden/App calls defaulters; Admin/COD handles HOD+IS."
+      ]);
+    }
+  }, [program?.programKey, program?.id, dutyTimeDivisions]);
   useEffect(() => {
     if (dutyData?.duties) {
       const map = {};
       const rooms = new Set(dutyRooms);
+      let metaMerged = {};
+      // First pass: extract meta row
       dutyData.duties.forEach((d) => {
-        const key = `${d.dayName}|${d.slotLabel}`;
+        if (d.dayName === "__meta" && d.slotLabel === "__meta") {
+          try {
+            const meta = d.notes ? JSON.parse(d.notes) : {};
+            if (meta.moderator != null) setDutyModerator(String(meta.moderator));
+            if (meta.todoModerator != null) setTodoModerator(String(meta.todoModerator));
+            if (meta.todoTods != null) setTodoTods(String(meta.todoTods));
+            if (meta.todoAdmin != null) setTodoAdmin(String(meta.todoAdmin));
+            if (meta.dutyNote != null) setDutyNote(String(meta.dutyNote));
+            if (meta.dutyStartTime != null) setDutyStartTime(String(meta.dutyStartTime));
+            if (meta.dutyEndTime != null) setDutyEndTime(String(meta.dutyEndTime));
+            if (meta.dutyGoal != null) setDutyGoal(String(meta.dutyGoal));
+            if (meta.dutyReleaseDate != null) setDutyReleaseDate(String(meta.dutyReleaseDate));
+            if (meta.dutyCircular != null) setDutyCircular(String(meta.dutyCircular));
+            if (meta.dutyVerifiedBy != null) setDutyVerifiedBy(String(meta.dutyVerifiedBy));
+            if (meta.dutyVerifiedAt != null) setDutyVerifiedAt(String(meta.dutyVerifiedAt));
+            if (Array.isArray(meta.dutyTimeDivisions)) setDutyTimeDivisions(meta.dutyTimeDivisions.map(String));
+            if (meta.mergedRoomsByDay && typeof meta.mergedRoomsByDay === "object") {
+              metaMerged = meta.mergedRoomsByDay;
+              setMergedRoomsByDay(metaMerged);
+              setMergedDays(new Set(Object.keys(metaMerged)));
+            }
+          } catch {}
+        }
+      });
+      // Second pass: cells
+      dutyData.duties.forEach((d) => {
+        if (d.dayName === "__meta" && d.slotLabel === "__meta") return;
+        const slotLabel = d.slotLabel;
+        const key = `${d.dayName}|${slotLabel}`;
+        const assignedIds = Array.isArray(d.assignedUserIds)
+          ? d.assignedUserIds
+          : d.assignedUserId
+          ? [d.assignedUserId]
+          : [];
         map[key] = {
           id: d.id,
           dutyTitle: d.dutyTitle || "",
-          assignedUserId: d.assignedUserId || "",
+          assignedUserIds: assignedIds,
           notes: d.notes || "",
           startTime: d.startTime || "",
           endTime: d.endTime || "",
         };
-        rooms.add(d.slotLabel || "Room");
+        const mergedList = metaMerged[d.dayName];
+        const mergedLabel = mergedList ? mergedList.join(" + ") : "";
+        const isMergedRow = mergedList && d.slotLabel === mergedLabel;
+        if (!isMergedRow) {
+          rooms.add(d.slotLabel || "Room");
+        }
         if (d.startTime) setDutyStartTime(d.startTime);
         if (d.endTime) setDutyEndTime(d.endTime);
       });
@@ -94,6 +158,8 @@ export default function ProgramDetailPage() {
       setDutyRooms(Array.from(rooms));
     } else {
       setDutyAssignments({});
+      setMergedRoomsByDay({});
+      setMergedDays(new Set());
     }
   }, [dutyData?.duties]);
 
@@ -473,6 +539,19 @@ export default function ProgramDetailPage() {
     setDutyRooms((rooms) => {
       const oldName = rooms[index];
       const newName = (nextName || "") || oldName; // keep spaces user types; fallback to old if empty
+      if (newName === "") {
+        const updatedRooms = rooms.filter((_, i) => i !== index);
+        setDutyAssignments((prev) => {
+          const next = {};
+          Object.entries(prev).forEach(([key, val]) => {
+            const [day, room] = key.split("|");
+            if (room === oldName) return; // drop assignments for removed room
+            next[key] = val;
+          });
+          return next;
+        });
+        return updatedRooms.length ? updatedRooms : rooms;
+      }
       if (oldName === newName) return rooms;
       const updatedRooms = rooms.map((r, i) => (i === index ? newName : r));
       setDutyAssignments((prev) => {
@@ -496,61 +575,143 @@ export default function ProgramDetailPage() {
     });
   };
 
-  const toggleMergeDay = (day) => {
+  const splitMergeDay = (day) => {
     setMergedDays((prev) => {
+      if (!prev.has(day)) return prev;
       const next = new Set(prev);
-      if (next.has(day)) {
-        next.delete(day);
-      } else {
-        const countStr = typeof window !== "undefined" ? window.prompt("Merge how many rooms for this day?", dutyRooms.length) : null;
-        const count = Number(countStr);
-        const mergeCount = Number.isFinite(count) && count > 1 ? Math.min(count, dutyRooms.length) : dutyRooms.length;
-        // store merge count via a marker in dutyAssignments
-        setDutyAssignments((p) => ({ ...p, [`${day}|__mergeCount`]: mergeCount }));
-        next.add(day);
-      }
+      next.delete(day);
       return next;
+    });
+    setMergedRoomsByDay((m) => {
+      const copy = { ...m };
+      delete copy[day];
+      return copy;
+    });
+    setDutyAssignments((p) => {
+      const copy = { ...p };
+      delete copy[`${day}|__merged`];
+      delete copy[`${day}|__mergeCount`];
+      return copy;
     });
   };
 
-  const handleDropMerged = (day) => (e) => {
-    e.preventDefault();
-    const uid = e.dataTransfer.getData("text/plain");
-    if (uid) updateDutyCell(day, "__merged", { assignedUserId: uid });
-  };
-
-  const handleDropCell = (day, room) => (e) => {
-    e.preventDefault();
-    const uid = e.dataTransfer.getData("text/plain");
-    if (uid) updateDutyCell(day, room, { assignedUserId: uid });
+  const promptMergeDay = (day) => {
+    const promptText = `Enter room names to merge (comma separated).\nAvailable: ${dutyRooms.join(", ")}`;
+    const input = typeof window !== "undefined" ? window.prompt(promptText, (mergedRoomsByDay[day] || dutyRooms).join(", ")) : null;
+    if (!input) return;
+    const list = input
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .filter((s, idx, arr) => arr.indexOf(s) === idx)
+      .filter((s) => dutyRooms.includes(s));
+    if (list.length < 2) {
+      alert("Select at least two valid rooms to merge.");
+      return;
+    }
+    setMergedRoomsByDay((m) => ({ ...m, [day]: list }));
+    setDutyAssignments((p) => ({ ...p, [`${day}|__mergeCount`]: list.length }));
+    setMergedDays((prev) => {
+      const next = new Set(prev);
+      next.add(day);
+      return next;
+    });
   };
 
   const saveDuties = async () => {
     if (!id) return;
     const duties = [];
     daysList.forEach((day) => {
-      const mergedKey = `${day}|__merged`;
-      const isMerged = mergedDays.has(day);
-      const mergeCount = dutyAssignments[`${day}|__mergeCount`] || dutyRooms.length;
-      const sourceRooms = isMerged ? dutyRooms.slice(0, mergeCount || dutyRooms.length) : dutyRooms;
-      sourceRooms.forEach((room, idx) => {
-          const key = isMerged ? mergedKey : `${day}|${room}`;
-        const cell = dutyAssignments[key] || {};
-        dutyRooms.forEach((r, pos) => {
-          if (!isMerged && r !== room) return;
+      const mergedList = mergedRoomsByDay[day] || [];
+      const isMerged = mergedDays.has(day) && mergedList.length >= 2;
+      if (isMerged) {
+        const mergedKey = `${day}|__merged`;
+        const cell = dutyAssignments[mergedKey] || {};
+        const assignedIds = Array.isArray(cell.assignedUserIds)
+          ? cell.assignedUserIds.map((n) => Number(n)).filter((n) => Number.isFinite(n))
+          : [];
+        duties.push({
+          slotLabel: mergedList.join(" + ") || "Merged",
+          dayName: day || "Day",
+          dutyTitle: cell.dutyTitle || "",
+          startTime: cell.startTime || dutyStartTime || null,
+          endTime: cell.endTime || dutyEndTime || null,
+          assignedUserId: assignedIds[0] || null,
+          assignedUserIds: assignedIds,
+          notes: cell.notes || null,
+          position: 0,
+          active: true,
+        });
+        dutyRooms
+          .filter((r) => !mergedList.includes(r))
+          .forEach((room, idx) => {
+            const key = `${day}|${room}`;
+            const cell = dutyAssignments[key] || {};
+            const assignedIds = Array.isArray(cell.assignedUserIds)
+              ? cell.assignedUserIds.map((n) => Number(n)).filter((n) => Number.isFinite(n))
+              : [];
+            duties.push({
+              slotLabel: room || `Room ${idx + 1}`,
+              dayName: day || "Day",
+              dutyTitle: cell.dutyTitle || "",
+              startTime: cell.startTime || dutyStartTime || null,
+              endTime: cell.endTime || dutyEndTime || null,
+              assignedUserId: assignedIds[0] || null,
+              assignedUserIds: assignedIds,
+              notes: cell.notes || null,
+              position: idx + 1,
+              active: true,
+            });
+          });
+      } else {
+        dutyRooms.forEach((room, idx) => {
+          const key = `${day}|${room}`;
+          const cell = dutyAssignments[key] || {};
+          const assignedIds = Array.isArray(cell.assignedUserIds)
+            ? cell.assignedUserIds.map((n) => Number(n)).filter((n) => Number.isFinite(n))
+            : [];
           duties.push({
-            slotLabel: isMerged ? room : r || `Room ${pos + 1}`,
-            dayName: day,
+            slotLabel: room || `Room ${idx + 1}`,
+            dayName: day || "Day",
             dutyTitle: cell.dutyTitle || "",
             startTime: cell.startTime || dutyStartTime || null,
             endTime: cell.endTime || dutyEndTime || null,
-            assignedUserId: cell.assignedUserId ? Number(cell.assignedUserId) : null,
+            assignedUserId: assignedIds[0] || null,
+            assignedUserIds: assignedIds,
             notes: cell.notes || null,
-            position: pos,
+            position: idx,
             active: true,
           });
         });
-      });
+      }
+    });
+    // Meta row to persist moderator, todos, notes, times
+    duties.push({
+      slotLabel: "__meta",
+      dayName: "__meta",
+      dutyTitle: "meta",
+      startTime: null,
+      endTime: null,
+      assignedUserId: null,
+      assignedUserIds: [],
+      notes: JSON.stringify({
+        moderator: dutyModerator,
+        todoModerator,
+        todoTods,
+        todoAdmin,
+        dutyNote,
+        dutyStartTime,
+        dutyEndTime,
+        dutyGoal,
+        dutyReleaseDate,
+        dutyCircular,
+        dutyVerifiedBy,
+        dutyVerifiedAt,
+        dutyTimeDivisions,
+        mergedRoomsByDay,
+      }),
+      position: 9999,
+      active: true,
     });
     const payload = {
       programId: id,
@@ -573,7 +734,10 @@ export default function ProgramDetailPage() {
 
   const printDuties = () => {
     const slots = dutyRooms;
-    const dateStr = new Date().toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "2-digit" });
+    const todayStr = new Date().toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "2-digit" });
+    const releaseStr = dutyReleaseDate
+      ? new Date(dutyReleaseDate).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "2-digit" })
+      : todayStr;
     const win = window.open("", "_blank");
     if (!win) return;
     const style = `
@@ -592,56 +756,103 @@ export default function ProgramDetailPage() {
         .seal .box{width:110px;height:70px;border:2px dashed #999;border-radius:8px;display:flex;align-items:center;justify-content:center;}
       </style>
     `;
+    const verifiedLine = dutyVerifiedBy
+      ? `Verified by ${dutyVerifiedBy}${dutyVerifiedAt ? ` on ${new Date(dutyVerifiedAt).toLocaleDateString(undefined,{day:"2-digit",month:"short",year:"2-digit"})}` : ""}`
+      : "Not verified";
+    const circularLine = dutyCircular || "—";
     const header = `
       <div style="text-align:center;">
         <h1 style="color:#0ea5e9;">MEED PUBLIC SCHOOL</h1>
         <div class="motto">Educating for now and the world hereafter</div>
       </div>
-      <div style="margin-top:8px;font-size:12px;">
-        <strong>${program?.programKey || "MHCP"}</strong> — Moderator: ${dutyModerator || "—"}
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-top:8px;font-size:12px;">
+        <div style="flex:1;min-width:0;">
+          <div><strong>${program?.programKey || "MHCP"}</strong> — Moderator: ${dutyModerator || "—"}</div>
+          <div style="margin-top:4px;font-size:13px;font-weight:700;color:#0f172a;">Goal: ${dutyGoal || "—"}</div>
+        </div>
+        <div style="text-align:right;color:#1f2937;font-size:12px;">
+          <div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;">
+            <span style="padding:6px 10px;border:1px solid #e5e7eb;border-radius:12px;background:#f8fafc;box-shadow:0 1px 2px rgba(0,0,0,0.06);">Release: ${releaseStr}</span>
+            <span style="padding:6px 10px;border:1px solid #e5e7eb;border-radius:12px;background:#f8fafc;box-shadow:0 1px 2px rgba(0,0,0,0.06);">Circular: ${circularLine}</span>
+            <span style="padding:6px 10px;border:1px solid #e0f2fe;border-radius:12px;background:#eff6ff;box-shadow:0 1px 2px rgba(0,0,0,0.06);"> ${verifiedLine}</span>
+          </div>
+        </div>
       </div>
+      ${(program?.id === 5 || String(program?.programKey||"").toUpperCase()==="MHCP2") ? `
+        <div style="display:grid;grid-template-columns:repeat(${dutyTimeDivisions.length},1fr);margin-top:10px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
+          ${dutyTimeDivisions.map((label,idx)=>`<div style="padding:10px;text-align:center;background:${idx%2===0?"#f1f5f9":"#e2e8f0"};font-weight:600;color:#0f172a;">${label || "Time Slot"}</div>`).join("")}
+        </div>
+      ` : ""}
     `;
     const thead = `<tr><th style="width:18%;">Day</th>${slots.map((s) => `<th>${s}</th>`).join("")}</tr>`;
     const tbody = daysList
       .map((day) => {
-        const mergeCount = dutyAssignments[`${day}|__mergeCount`] || dutyRooms.length;
-        const isMerged = mergedDays.has(day);
-        const slotsToPrint = isMerged ? dutyRooms.slice(0, mergeCount) : dutyRooms;
-        const cols = slotsToPrint
-          .map((room) => {
-            const cell = (isMerged ? dutyAssignments[`${day}|__merged`] : dutyAssignments[`${day}|${room}`]) || {};
-            const time = dutyStartTime || dutyEndTime || cell.startTime || cell.endTime
-              ? `${cell.startTime || dutyStartTime || ""}${cell.startTime || dutyStartTime || cell.endTime || dutyEndTime ? " – " : ""}${cell.endTime || dutyEndTime || ""}`
-              : "";
-            const name = cell.assignedUserId
-              ? (teamData?.users || []).find((u) => u.id === Number(cell.assignedUserId))?.name || cell.assignedUserId
-              : "";
-            return `<td><div>${time}</div><div style="color:#2563eb;">${name}</div><div style="color:#555;">${cell.notes || ""}</div></td>`;
+        const mergeList = mergedRoomsByDay[day] || [];
+        const mergeSet = new Set(mergeList);
+        const isMerged = mergedDays.has(day) && mergeList.length >= 2;
+        const cols = dutyRooms
+          .map((room, idx) => {
+            if (isMerged && mergeSet.has(room)) {
+              if (room !== mergeList[0]) return "";
+              const cell = dutyAssignments[`${day}|__merged`] || {};
+              const names = (cell.assignedUserIds || [])
+                .map((uid) => (teamData?.users || []).find((u) => u.id === Number(uid))?.name || uid)
+                .join(", ");
+              return `<td colspan="${mergeList.length}"><div style="color:#2563eb;">${names}</div><div style="color:#555;">${cell.notes || ""}</div></td>`;
+            }
+            const cell = dutyAssignments[`${day}|${room}`] || {};
+            const names = (cell.assignedUserIds || [])
+              .map((uid) => (teamData?.users || []).find((u) => u.id === Number(uid))?.name || uid)
+              .join(", ");
+            return `<td><div style="color:#2563eb;">${names}</div><div style="color:#555;">${cell.notes || ""}</div></td>`;
           })
           .join("");
         return `<tr><td style="text-align:center;">${day}</td>${cols}</tr>`;
       })
       .join("");
+    const listToComma = (text) => (text || "")
+      .split(/\\r?\\n/)
+      .map((t) => t.trim())
+      .filter(Boolean)
+      .join(", ");
     win.document.write(`
       <html><head>${style}</head><body>
       ${header}
       <table>${thead}<tbody>${tbody}</tbody></table>
       <div class="todos">
         <h3>Moderator To-Dos</h3>
-        <div>${todoModerator || "—"}</div>
+        <div>${listToComma(todoModerator) || "—"}</div>
         <h3>TODs</h3>
-        <div>${todoTods || "—"}</div>
+        <div>${listToComma(todoTods) || "—"}</div>
         <h3>Admin / COD / IS</h3>
-        <div>${todoAdmin || "—"}</div>
+        <div>${listToComma(todoAdmin) || "—"}</div>
       </div>
       <div class="note"><strong>Notes:</strong> ${dutyNote || "—"}</div>
       <div class="footer">
-        <span>Released: ${dateStr}</span>
+        <span>Released: ${releaseStr}</span>
         <span>Released by: ${dutyModerator || ""}</span>
       </div>
       <div class="seal">
-        <div>Seal</div>
-        <div class="box">Official</div>
+        <div class="box" style="position:relative; overflow:hidden; background:radial-gradient(circle, #f8fbff 0%, #dceeff 55%, #f8fbff 100%); box-shadow:0 10px 24px rgba(0,0,0,0.10); width:120px; height:120px;">
+          <div style="
+            position:absolute; inset:8px; border-radius:50%;
+            border:3px solid #0c6eb8; box-shadow:inset 0 0 0 2px #e6f3ff;
+          "></div>
+          <div style="
+            position:absolute; inset:16px; border-radius:50%;
+            border:1.5px dashed #0c6eb8;
+          "></div>
+          <div style="
+            position:absolute; inset:0; display:flex; flex-direction:column;
+            align-items:center; justify-content:center; text-align:center;
+            color:#0c4775; font-weight:800; letter-spacing:0.7px;
+          ">
+            <div style="font-size:10px; letter-spacing:1.4px;">MEED PUBLIC SCHOOL</div>
+            <div style="font-size:12px; margin:4px 0 2px 0; letter-spacing:3px;">OFFICIAL</div>
+            <div style="font-size:9px; font-weight:700; letter-spacing:1px;">RELEASED BY</div>
+            <div style="font-size:11px; margin-top:2px; text-transform:capitalize;">${dutyModerator || "—"}</div>
+          </div>
+        </div>
       </div>
       </body></html>
     `);
@@ -1525,37 +1736,90 @@ export default function ProgramDetailPage() {
           <CardHeader className="flex items-center justify-between">
             <div>
               <div className="text-sm uppercase tracking-wide text-gray-500">MHCP Duties</div>
-              <div className="font-semibold text-gray-900">{program?.programKey || "MHCP"}</div>
-            </div>
-            <div className="flex items-center gap-2">
-              <select className="px-2 py-1.5 border rounded text-sm" value={dutyTrack} onChange={(e) => setDutyTrack(e.target.value)}>
-                <option value="both">Both</option>
-                <option value="pre_primary">Pre-Primary</option>
-                <option value="elementary">Elementary</option>
-              </select>
-              <select
-                className="px-2 py-1.5 border rounded text-sm min-w-[160px]"
-                value={dutyModerator}
-                onChange={(e)=>setDutyModerator(e.target.value)}
-                title="Select moderator"
-              >
-                <option value="">Select moderator…</option>
-                {(teamData?.users || []).map((u)=> (
-                  <option key={u.id} value={u.name || u.id}>{u.name || u.id}</option>
-                ))}
-              </select>
-              <input
-                className="px-2 py-1.5 border rounded text-sm"
-                placeholder="Or type moderator name"
-                value={dutyModerator}
-                onChange={(e)=>setDutyModerator(e.target.value)}
-              />
-              <input type="time" className="px-2 py-1.5 border rounded text-sm" value={dutyStartTime} onChange={(e)=>setDutyStartTime(e.target.value)} title="Start time (applies to cells without overrides)" />
-              <input type="time" className="px-2 py-1.5 border rounded text-sm" value={dutyEndTime} onChange={(e)=>setDutyEndTime(e.target.value)} title="End time (applies to cells without overrides)" />
-              <Button size="sm" variant="light" onClick={addRoom}>Add Room</Button>
-              <Button size="sm" variant="primary" onClick={saveDuties}>Save Duties</Button>
-              <Button size="sm" variant="light" onClick={printDuties}>Print</Button>
-            </div>
+        <div className="font-semibold text-gray-900">{program?.programKey || "MHCP"}</div>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          className="px-2 py-1.5 border rounded text-sm min-w-[200px]"
+          placeholder="Program goal"
+          value={dutyGoal}
+          onChange={(e)=> setDutyGoal(e.target.value)}
+          title="Goal of the program (prints prominently)"
+        />
+        <input
+          type="date"
+          className="px-2 py-1.5 border rounded text-sm"
+          value={dutyReleaseDate}
+          onChange={(e)=> setDutyReleaseDate(e.target.value)}
+          title="Release date"
+        />
+        <input
+          className="px-2 py-1.5 border rounded text-sm min-w-[160px]"
+          placeholder="Circular / distribution"
+          value={dutyCircular}
+          onChange={(e)=> setDutyCircular(e.target.value)}
+          title="Where this notice is circulated"
+        />
+        <select className="px-2 py-1.5 border rounded text-sm" value={dutyTrack} onChange={(e) => setDutyTrack(e.target.value)}>
+          <option value="both">Both</option>
+          <option value="pre_primary">Pre-Primary</option>
+          <option value="elementary">Elementary</option>
+        </select>
+        <select
+          className="px-2 py-1.5 border rounded text-sm min-w-[160px]"
+          value={dutyModerator}
+          onChange={(e)=>setDutyModerator(e.target.value)}
+          title="Select moderator"
+        >
+          <option value="">Select moderator…</option>
+          {(teamData?.users || []).map((u)=> (
+            <option key={u.id} value={u.name || u.id}>{u.name || u.id}</option>
+          ))}
+        </select>
+        <div className="flex items-center gap-1 text-xs px-2 py-1.5 border rounded text-gray-700 bg-gray-50">
+          <span className="font-semibold">Status:</span>
+          <span>{dutyVerifiedBy ? `Verified by ${dutyVerifiedBy}` : "Not verified"}</span>
+          {dutyVerifiedAt ? <span className="text-gray-500">({new Date(dutyVerifiedAt).toLocaleDateString()})</span> : null}
+          <button
+            type="button"
+            className="ml-2 text-blue-600 underline"
+            onClick={() => {
+              if (!currentVerifier) {
+                alert("Sign in to verify");
+                return;
+              }
+              const now = new Date().toISOString();
+              setDutyVerifiedBy(currentVerifier);
+              setDutyVerifiedAt(now);
+              alert(`Verified by ${currentVerifier}`);
+            }}
+          >
+            Mark verified
+          </button>
+        </div>
+        <input type="time" className="px-2 py-1.5 border rounded text-sm" value={dutyStartTime} onChange={(e)=>setDutyStartTime(e.target.value)} title="Start time (applies to cells without overrides)" />
+        <input type="time" className="px-2 py-1.5 border rounded text-sm" value={dutyEndTime} onChange={(e)=>setDutyEndTime(e.target.value)} title="End time (applies to cells without overrides)" />
+        <Button size="sm" variant="light" onClick={addRoom}>Add Room</Button>
+        <Button size="sm" variant="primary" onClick={saveDuties}>Save Duties</Button>
+        <Button size="sm" variant="light" onClick={printDuties}>Print</Button>
+      </div>
+      {(program?.id === 5 || String(program?.programKey||"").toUpperCase()==="MHCP2") && (
+        <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2">
+          {dutyTimeDivisions.map((label, idx) => (
+            <input
+              key={idx}
+              className="px-3 py-2 border rounded text-sm bg-slate-50"
+              value={label}
+              onChange={(e)=> {
+                const next = [...dutyTimeDivisions];
+                next[idx] = e.target.value;
+                setDutyTimeDivisions(next);
+              }}
+              placeholder={`Time slot ${idx+1}`}
+            />
+          ))}
+        </div>
+      )}
           </CardHeader>
           <CardBody>
             <div className="overflow-auto">
@@ -1612,7 +1876,7 @@ export default function ProgramDetailPage() {
                   <tr>
                     <th className="border px-2 py-1 text-left w-20">Day</th>
                       {dutyRooms.map((room, idx) => (
-                      <th key={`${room}-${idx}`} className="border px-3 py-2 text-left min-w-[200px]">
+                      <th key={`room-${idx}`} className="border px-3 py-2 text-left min-w-[200px]">
                         <div className="flex items-center justify-between gap-2">
                           <input
                             className="w-full px-2 py-1 border rounded text-xs"
@@ -1627,55 +1891,94 @@ export default function ProgramDetailPage() {
                 </thead>
                 <tbody>
                   {daysList.map((day) => {
-                    const isMerged = mergedDays.has(day);
+                    const mergeList = mergedRoomsByDay[day] || [];
+                    const mergeSet = new Set(mergeList);
+                    const isMerged = mergedDays.has(day) && mergeList.length >= 2;
                     return (
                       <tr key={day} className="odd:bg-white even:bg-gray-50">
                         <td className="border px-3 py-2 text-center font-semibold">
                           {day}
-                          <button
-                            className="ml-2 text-[11px] text-blue-600 underline"
-                            onClick={()=> toggleMergeDay(day)}
-                          >
-                            {isMerged ? "Split" : "Merge"}
-                          </button>
+                          <div className="flex items-center justify-center gap-2 mt-1 text-[11px]">
+                            <button
+                              className="text-blue-600 underline"
+                              onClick={()=> promptMergeDay(day)}
+                            >
+                              Merge
+                            </button>
+                            <button
+                              className={`underline ${isMerged ? "text-rose-600" : "text-gray-400 cursor-not-allowed"}`}
+                              onClick={()=> splitMergeDay(day)}
+                              disabled={!isMerged}
+                            >
+                              Split
+                            </button>
+                          </div>
                         </td>
-                        {isMerged ? (
-                          <td
-                            className="border px-3 py-3 space-y-2 min-h-[72px]"
-                            colSpan={dutyRooms.length}
-                            onDragOver={(e)=> e.preventDefault()}
-                            onDrop={handleDropMerged(day)}
-                          >
-                            <div className="flex items-center justify-between text-xs min-h-[18px]">
-                              <span className="font-semibold">
-                                {(teamData?.users || []).find((u)=> u.id === Number((dutyAssignments[`${day}|__merged`]||{}).assignedUserId))?.name || (dutyAssignments[`${day}|__merged`]||{}).assignedUserId || ""}
-                              </span>
-                              {(dutyAssignments[`${day}|__merged`]||{}).assignedUserId && (
-                                <button className="text-[11px] text-rose-600" onClick={()=> updateDutyCell(day, "__merged", { assignedUserId: "" })}>Clear</button>
-                              )}
-                            </div>
-                          </td>
-                        ) : dutyRooms.map((room, idx) => {
+                        {dutyRooms.map((room, idx) => {
+                          if (isMerged && mergeSet.has(room)) {
+                            if (room !== mergeList[0]) return null;
+                            const cell = dutyAssignments[`${day}|__merged`] || {};
+                            return (
+                              <td
+                                key={`${day}-merged`}
+                                className="border px-3 py-3 space-y-2 min-h-[72px]"
+                                colSpan={mergeList.length}
+                                onDragOver={(e)=> e.preventDefault()}
+                                onDrop={(e)=> {
+                                  e.preventDefault();
+                                  const uid = e.dataTransfer.getData("text/plain");
+                                  if (!uid) return;
+                                  const num = Number(uid);
+                                  const addId = Number.isFinite(num) ? num : uid;
+                                  const prevIds = Array.isArray((dutyAssignments[`${day}|__merged`]||{}).assignedUserIds)
+                                    ? dutyAssignments[`${day}|__merged`].assignedUserIds
+                                    : [];
+                                  const nextIds = Array.from(new Set([...prevIds, addId]));
+                                  updateDutyCell(day, "__merged", { assignedUserIds: nextIds });
+                                }}
+                              >
+                                <div className="flex items-center justify-between text-xs min-h-[18px]">
+                                  <span className="font-semibold">
+                                    {((dutyAssignments[`${day}|__merged`]||{}).assignedUserIds || [])
+                                      .map((uid) => (teamData?.users || []).find((u)=> u.id === Number(uid))?.name || uid)
+                                      .join(", ")}
+                                  </span>
+                                  {(dutyAssignments[`${day}|__merged`]||{}).assignedUserIds?.length ? (
+                                    <button className="text-[11px] text-rose-600" onClick={()=> updateDutyCell(day, "__merged", { assignedUserIds: [] })}>Clear</button>
+                                  ) : null}
+                                </div>
+                              </td>
+                            );
+                          }
                           const cell = dutyAssignments[`${day}|${room}`] || {};
                           return (
                             <td
                               key={`${day}-${room}-${idx}`}
-                            className="border px-3 py-3 space-y-2 min-h-[72px]"
-                            onDragOver={(e)=> e.preventDefault()}
-                              onDrop={handleDropCell(day, room)}
-                          >
+                              className="border px-3 py-3 space-y-2 min-h-[72px]"
+                              onDragOver={(e)=> e.preventDefault()}
+                              onDrop={(e)=> {
+                                e.preventDefault();
+                                const uid = e.dataTransfer.getData("text/plain");
+                                if (!uid) return;
+                                const num = Number(uid);
+                                const addId = Number.isFinite(num) ? num : uid;
+                                const prevIds = Array.isArray(cell.assignedUserIds) ? cell.assignedUserIds : [];
+                                const nextIds = Array.from(new Set([...prevIds, addId]));
+                                updateDutyCell(day, room, { assignedUserIds: nextIds });
+                              }}
+                            >
                               <div className="flex items-center justify-between text-xs min-h-[18px]">
                                 <span className="font-semibold">
-                                  {cell.assignedUserId
-                                    ? (teamData?.users || []).find((u)=> u.id === Number(cell.assignedUserId))?.name || cell.assignedUserId
-                                    : ""}
+                                  {(cell.assignedUserIds || [])
+                                    .map((uid) => (teamData?.users || []).find((u)=> u.id === Number(uid))?.name || uid)
+                                    .join(", ")}
                                 </span>
-                                {cell.assignedUserId && (
+                                {cell.assignedUserIds?.length ? (
                                   <button
                                     className="text-[11px] text-rose-600"
-                                    onClick={()=> updateDutyCell(day, room, { assignedUserId: "" })}
+                                    onClick={()=> updateDutyCell(day, room, { assignedUserIds: [] })}
                                   >Clear</button>
-                                )}
+                                ) : null}
                               </div>
                             </td>
                           );
@@ -1688,30 +1991,42 @@ export default function ProgramDetailPage() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
-              <div>
-                <div className="text-xs font-semibold text-gray-700 mb-1">Moderator To-Dos</div>
-                <textarea
-                  className="w-full border rounded px-2 py-1 text-sm min-h-[80px]"
-                  value={todoModerator}
-                  onChange={(e)=>setTodoModerator(e.target.value)}
-                />
-              </div>
-              <div>
-                <div className="text-xs font-semibold text-gray-700 mb-1">TODs</div>
-                <textarea
-                  className="w-full border rounded px-2 py-1 text-sm min-h-[80px]"
-                  value={todoTods}
-                  onChange={(e)=>setTodoTods(e.target.value)}
-                />
-              </div>
-              <div>
-                <div className="text-xs font-semibold text-gray-700 mb-1">Admin / COD / IS</div>
-                <textarea
-                  className="w-full border rounded px-2 py-1 text-sm min-h-[80px]"
-                  value={todoAdmin}
-                  onChange={(e)=>setTodoAdmin(e.target.value)}
-                />
-              </div>
+              {[
+                { label: "Moderator To-Dos", value: todoModerator, setter: setTodoModerator },
+                { label: "TODs", value: todoTods, setter: setTodoTods },
+                { label: "Admin / COD / IS", value: todoAdmin, setter: setTodoAdmin },
+              ].map(({ label, value, setter }) => (
+                <div key={label}>
+                  <div className="text-xs font-semibold text-gray-700 mb-1">{label}</div>
+                  <div className="border rounded p-2 min-h-[80px] bg-white">
+                    {(value.split("\n").filter(Boolean).length ? value.split("\n") : [""]).map((line, idx) => (
+                      <label key={idx} className="flex items-start gap-2 text-xs text-gray-800">
+                        <input
+                          type="checkbox"
+                          className="mt-0.5"
+                          onChange={() => {}}
+                        />
+                        <input
+                          className="w-full border rounded px-2 py-1 text-xs"
+                          value={line}
+                          placeholder="Add task..."
+                          onChange={(e) => {
+                            const lines = value.split("\n");
+                            lines[idx] = e.target.value;
+                            setter(lines.join("\n"));
+                          }}
+                        />
+                      </label>
+                    ))}
+                    <button
+                      className="mt-2 text-[11px] text-blue-600"
+                      onClick={() => setter([...(value ? value.split("\n") : []), ""].join("\n"))}
+                    >
+                      + Add item
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
 
             <div className="mt-3">

@@ -1245,6 +1245,20 @@ export default function RecruitmentProPage() {
                             {commOpen ? "Hide convo" : "View full convo"}
                           </button>
                         )}
+                        {logs.length > 0 && (
+                          <div className="mt-2 rounded-lg border border-slate-200 bg-white px-2 py-2 text-[11px] text-slate-600">
+                            <div className="flex items-center justify-between">
+                              <span className="font-semibold text-slate-800">Recent conversation</span>
+                              <span className="text-[10px] text-slate-400">{toDateInput(logs[0].communicationDate)}</span>
+                            </div>
+                            <div className="mt-1 text-slate-700 font-medium">{logs[0].subject || "No subject"}</div>
+                            <div className="mt-0.5">{logs[0].notes || logs[0].communicationMethod || ""}</div>
+                            <div className="mt-0.5 text-slate-500">Outcome: {logs[0].outcome}</div>
+                            {logs[0].followUpDate && (
+                              <div className="text-slate-500">Follow-up: {toDateInput(logs[0].followUpDate)}</div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
                     {commOpen && (
