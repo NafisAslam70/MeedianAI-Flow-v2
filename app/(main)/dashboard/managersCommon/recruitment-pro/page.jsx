@@ -451,6 +451,10 @@ export default function RecruitmentProPage() {
     notes: "",
     finishStage: true,
   });
+  const [benchEditModal, setBenchEditModal] = React.useState({
+    open: false,
+    benchId: null,
+  });
 
   const handleBenchCreate = async () => {
     try {
@@ -1613,7 +1617,7 @@ export default function RecruitmentProPage() {
                     .map((b, idx) => {
                     const draft = benchDrafts[b.id] || b;
                     const checked = selectedBench.has(b.id);
-                    const isEditing = benchEditingId === b.id;
+                    const isEditing = false;
                     return (
                       <tr key={b.id} className="border-t">
                         <td className="p-3 text-slate-600">{(benchSwr.data?.bench?.length || 0) - idx}</td>
@@ -1717,7 +1721,17 @@ export default function RecruitmentProPage() {
                             </>
                           ) : (
                             <>
-                              <button className="rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-700" title="Edit lead" onClick={() => { setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...b } })); setBenchEditingId(b.id); }}>✏️</button>
+                              <button
+                                className="rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-700"
+                                title="Edit lead"
+                                onClick={() => {
+                                  setBenchDrafts((prev) => ({ ...prev, [b.id]: { ...b } }));
+                                  setBenchEditingId(b.id);
+                                  setBenchEditModal({ open: true, benchId: b.id });
+                                }}
+                              >
+                                ✏️
+                              </button>
                               <button className="rounded-lg bg-rose-100 px-2 py-1 text-xs text-rose-700" title="Delete lead" onClick={() => handleBenchDelete(b.id)}>🗑️</button>
                             </>
                           )}
@@ -1799,6 +1813,99 @@ export default function RecruitmentProPage() {
               </button>
               <button className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-700" onClick={submitCommModal}>
                 Save log
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {benchEditModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white shadow-xl border border-slate-200">
+            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+              <div>
+                <div className="text-xs uppercase tracking-wide text-slate-500">Edit bench lead</div>
+                <div className="text-sm font-semibold text-slate-900">Update details</div>
+              </div>
+              <button className="text-slate-500 hover:text-slate-700" onClick={() => setBenchEditModal({ open: false, benchId: null })}>✕</button>
+            </div>
+            {(() => {
+              const b = (benchSwr.data?.bench || []).find((row) => row.id === benchEditModal.benchId);
+              const draft = benchDrafts[benchEditModal.benchId] || b || {};
+              return (
+                <div className="space-y-3 px-4 py-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[11px] uppercase text-slate-500">Full name</label>
+                      <input className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" value={draft.fullName || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [benchEditModal.benchId]: { ...draft, fullName: e.target.value } }))} />
+                    </div>
+                    <div>
+                      <label className="text-[11px] uppercase text-slate-500">Phone</label>
+                      <input className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" value={draft.phone || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [benchEditModal.benchId]: { ...draft, phone: e.target.value } }))} />
+                    </div>
+                    <div>
+                      <label className="text-[11px] uppercase text-slate-500">Email</label>
+                      <input className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" value={draft.email || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [benchEditModal.benchId]: { ...draft, email: e.target.value } }))} />
+                    </div>
+                    <div>
+                      <label className="text-[11px] uppercase text-slate-500">Gender</label>
+                      <select className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" value={draft.gender || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [benchEditModal.benchId]: { ...draft, gender: e.target.value } }))}>
+                        <option value="">—</option>
+                        {["Male", "Female", "Other / Prefer not to say"].map((g) => (
+                          <option key={g} value={g}>{g}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[11px] uppercase text-slate-500">Location</label>
+                      <select className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" value={draft.location || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [benchEditModal.benchId]: { ...draft, location: e.target.value } }))}>
+                        <option value="">Location</option>
+                        {locations.map((l) => (
+                          <option key={l.id} value={l.locationName}>{l.locationName}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[11px] uppercase text-slate-500">Applied for</label>
+                      <select className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" value={draft.appliedFor || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [benchEditModal.benchId]: { ...draft, appliedFor: e.target.value } }))}>
+                        <option value="">Applied for</option>
+                        {["English/SST/Science", "Maths", "Jr Eng", "Jr All", "Computer/Arts", "Admin/Principal/Vice Principal", "Office"].map((opt) => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[11px] uppercase text-slate-500">Applied date</label>
+                      <input type="date" className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" value={toDateInput(draft.appliedDate)} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [benchEditModal.benchId]: { ...draft, appliedDate: e.target.value } }))} />
+                    </div>
+                    <div>
+                      <label className="text-[11px] uppercase text-slate-500">Link</label>
+                      <input className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" value={draft.linkUrl || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [benchEditModal.benchId]: { ...draft, linkUrl: e.target.value } }))} />
+                    </div>
+                    <div>
+                      <label className="text-[11px] uppercase text-slate-500">Source</label>
+                      <input className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" value={draft.source || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [benchEditModal.benchId]: { ...draft, source: e.target.value } }))} />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="text-[11px] uppercase text-slate-500">Notes</label>
+                      <textarea className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" rows={3} value={draft.notes || ""} onChange={(e) => setBenchDrafts((prev) => ({ ...prev, [benchEditModal.benchId]: { ...draft, notes: e.target.value } }))} />
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+            <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-4 py-3">
+              <button className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50" onClick={() => setBenchEditModal({ open: false, benchId: null })}>
+                Cancel
+              </button>
+              <button
+                className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm text-white"
+                onClick={async () => {
+                  await handleBenchSave(benchEditModal.benchId);
+                  setBenchEditModal({ open: false, benchId: null });
+                }}
+              >
+                Save
               </button>
             </div>
           </div>
