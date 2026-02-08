@@ -85,7 +85,6 @@ export default function RecruitmentProPage() {
   const [benchFilterLocation, setBenchFilterLocation] = React.useState("");
   const [benchFilterApplied, setBenchFilterApplied] = React.useState("");
   const [benchFilterGender, setBenchFilterGender] = React.useState("");
-  const [benchFilterGender, setBenchFilterGender] = React.useState("");
 
   const programs = programsSwr.data?.programs || [];
   const activePrograms = React.useMemo(() => programs.filter((p) => p.isActive !== false), [programs]);
