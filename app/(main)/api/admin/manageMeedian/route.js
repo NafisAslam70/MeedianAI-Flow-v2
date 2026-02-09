@@ -45,6 +45,7 @@ import {
   campusGateStaffLogs,
   guardianGateLogs,
   nmriTodRoleEnum,
+  mhcpSeeds,
 } from "@/lib/schema";
 import { eq, or, inArray, and, sql, gte, lt, desc } from "drizzle-orm";
 import bcrypt from "bcrypt";
@@ -149,6 +150,7 @@ export async function GET(req) {
   "mspCodeFamilies",
   "meedSchedules",
   "mhcpSlotDuties",
+  "mhcpSeeds",
 ]);
   if (memberReadable.has(section)) {
     if (!session || !["admin", "team_manager", "member"].includes(session.user?.role)) {
@@ -823,6 +825,27 @@ export async function GET(req) {
         .where(where)
         .orderBy(mhcpSlotDuties.dayName, mhcpSlotDuties.position, mhcpSlotDuties.id);
       return NextResponse.json({ duties: rows }, { status: 200 });
+    }
+
+    // MHCP Seeds (GET)
+    if (section === "mhcpSeeds") {
+      const programId = Number(searchParams.get("programId"));
+      if (!programId) return NextResponse.json({ error: "programId required" }, { status: 400 });
+      const track = String(searchParams.get("track") || "both");
+      const rows = await db
+        .select({
+          id: mhcpSeeds.id,
+          programId: mhcpSeeds.programId,
+          track: mhcpSeeds.track,
+          label: mhcpSeeds.label,
+          payload: mhcpSeeds.payload,
+          createdBy: mhcpSeeds.createdBy,
+          createdAt: mhcpSeeds.createdAt,
+        })
+        .from(mhcpSeeds)
+        .where(and(eq(mhcpSeeds.programId, programId), eq(mhcpSeeds.track, track)))
+        .orderBy(desc(mhcpSeeds.createdAt));
+      return NextResponse.json({ seeds: rows }, { status: 200 });
     }
 
     // Meed Schedules (GET)
@@ -2030,6 +2053,33 @@ export async function POST(req) {
       return NextResponse.json({ inserted: rows.length }, { status: 201 });
     }
 
+    // MHCP Seeds (POST)
+    if (section === "mhcpSeeds") {
+      const { programId, track = "both", label, payload, createdBy } = body || {};
+      if (!programId || !label || !payload) {
+        return NextResponse.json({ error: "programId, label, payload are required" }, { status: 400 });
+      }
+      const row = await db
+        .insert(mhcpSeeds)
+        .values({
+          programId: Number(programId),
+          track: String(track || "both"),
+          label: String(label),
+          payload: payload,
+          createdBy: createdBy ? String(createdBy) : null,
+        })
+        .returning({
+          id: mhcpSeeds.id,
+          programId: mhcpSeeds.programId,
+          track: mhcpSeeds.track,
+          label: mhcpSeeds.label,
+          payload: mhcpSeeds.payload,
+          createdBy: mhcpSeeds.createdBy,
+          createdAt: mhcpSeeds.createdAt,
+        });
+      return NextResponse.json({ seed: row[0] }, { status: 201 });
+    }
+
     // Program schedule days (POST)
     if (section === "programScheduleDays") {
       const { programId, track, days = [], cells = [] } = body || {};
@@ -2958,6 +3008,14 @@ export async function PATCH(req) {
         updated += 1;
       }
       return NextResponse.json({ updated }, { status: 200 });
+    }
+
+    if (section === "mhcpSeeds") {
+      const id = Number(body?.id || searchParams.get("id"));
+      if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+      const deleted = await db.delete(mhcpSeeds).where(eq(mhcpSeeds.id, id)).returning({ id: mhcpSeeds.id });
+      if (!deleted.length) return NextResponse.json({ error: "Not found" }, { status: 404 });
+      return NextResponse.json({ deleted: deleted[0].id }, { status: 200 });
     }
 
     if (section === "metaPrograms") {

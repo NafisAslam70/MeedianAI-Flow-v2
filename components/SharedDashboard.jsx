@@ -53,7 +53,12 @@ async function getJsonAbs(url) {
   }
 }
 function fmtHM(ms) {
-  return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return new Intl.DateTimeFormat("en-IN", {
+    timeZone: "Asia/Kolkata",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date(ms));
 }
 
 /* ------------------------------------------------------------------ */
@@ -187,7 +192,11 @@ const useDashboardData = (session, selectedDate, role, router, viewUserId = null
   const openedAtMs = useMemo(() => {
     const t = mriStatusData?.dayOpenedAt;
     if (!t) return null;
-    try { return new Date(`${selectedDate}T${t}`).getTime(); } catch { return null; }
+    try {
+      return new Date(`${selectedDate}T${t}+05:30`).getTime();
+    } catch {
+      return null;
+    }
   }, [mriStatusData?.dayOpenedAt, selectedDate]);
 
   // DeepCalendar token
@@ -350,7 +359,7 @@ const useDashboardData = (session, selectedDate, role, router, viewUserId = null
           if (ms.ok) {
             const mj = await ms.json();
             if (mj?.dayOpenedAt) {
-              const opened = new Date(`${date}T${mj.dayOpenedAt}`).getTime();
+              const opened = new Date(`${date}T${mj.dayOpenedAt}+05:30`).getTime();
               setDayPack((p) => p ? ({ ...p, openedAt: opened }) : ({ openedAt: opened }));
             }
           }
@@ -1009,7 +1018,7 @@ export default function SharedDashboard({ role, viewUserId = null, embed = false
       const rows = Array.isArray(ocHist?.history) ? ocHist.history : [];
       const row = rows[0];
       if (!row?.openedAt) return null;
-      return new Date(`${selectedDate}T${row.openedAt}`).getTime();
+      return new Date(`${selectedDate}T${row.openedAt}+05:30`).getTime();
     } catch { return null; }
   }, [ocHist?.history, selectedDate]);
 

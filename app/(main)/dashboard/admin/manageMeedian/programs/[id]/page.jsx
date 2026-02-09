@@ -38,6 +38,76 @@ export default function ProgramDetailPage() {
     const u = session?.user || {};
     return u.name || u.email || u.id || "";
   }, [session]);
+
+  const saveSeed = async () => {
+    if (!id) return;
+    const defaultLabel = (program?.id === 5 ? "MHCP2 seed" : "MHCP1 seed") + " " + new Date().toLocaleString();
+    const label = typeof window !== "undefined" ? window.prompt("Seed name", defaultLabel) : defaultLabel;
+    if (!label) return;
+    const payload = {
+      dutyRooms,
+      dutyAssignments,
+      mergedRoomsByDay,
+      mergedDays: Array.from(mergedDays),
+      dutyModerator,
+      dutyStartTime,
+      dutyEndTime,
+      dutyGoal,
+      dutyReleaseDate,
+      dutyCircular,
+      dutyVerifiedBy,
+      dutyVerifiedAt,
+      dutyTimeDivisions,
+      todoModerator,
+      todoTods,
+      todoAdmin,
+      todoWarden,
+      dutyNote,
+    };
+    const res = await fetch("/api/admin/manageMeedian?section=mhcpSeeds", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        programId: id,
+        track: dutyTrack,
+        label,
+        payload,
+        createdBy: currentVerifier || dutyModerator || "system",
+      }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(j.error || `Save seed failed (${res.status})`);
+      return;
+    }
+    await refreshSeeds();
+    alert("Seed saved");
+  };
+
+  const applySeed = (seedId) => {
+    const seed = (seedData?.seeds || []).find((s) => s.id === Number(seedId));
+    if (!seed) return;
+    const p = seed.payload || {};
+    setDutyRooms(p.dutyRooms && p.dutyRooms.length ? p.dutyRooms : ["Room 1", "Room 2", "Room 3"]);
+    setDutyAssignments(p.dutyAssignments || {});
+    setMergedRoomsByDay(p.mergedRoomsByDay || {});
+    setMergedDays(new Set(p.mergedDays || Object.keys(p.mergedRoomsByDay || {})));
+    setDutyModerator(p.dutyModerator || "");
+    setDutyStartTime(p.dutyStartTime || "");
+    setDutyEndTime(p.dutyEndTime || "");
+    setDutyGoal(p.dutyGoal || "");
+    setDutyReleaseDate(p.dutyReleaseDate || "");
+    setDutyCircular(p.dutyCircular || "");
+    setDutyVerifiedBy(p.dutyVerifiedBy || "");
+    setDutyVerifiedAt(p.dutyVerifiedAt || "");
+    setDutyTimeDivisions(Array.isArray(p.dutyTimeDivisions) ? p.dutyTimeDivisions : dutyTimeDivisions);
+    setTodoModerator(p.todoModerator || "");
+    setTodoTods(p.todoTods || "");
+    setTodoAdmin(p.todoAdmin || "");
+    setTodoWarden(p.todoWarden || "");
+    setDutyNote(p.dutyNote || "");
+    alert(`Seed "${seed.label}" applied. Remember to Save Duties to persist.`);
+  };
   const { data: progData, mutate: refreshPrograms } = useSWR(id ? `/api/admin/manageMeedian?section=metaPrograms` : null, fetcher);
   const program = useMemo(() => (progData?.programs || []).find((p) => p.id === id), [progData, id]);
   const mspProgram = useMemo(
@@ -75,14 +145,21 @@ const [dutyTimeDivisions, setDutyTimeDivisions] = useState(["Division 1", "Divis
 const [dutyRooms, setDutyRooms] = useState(["Room 1", "Room 2", "Room 3"]);
 const [dutyAssignments, setDutyAssignments] = useState({}); // key: day|room -> {assignedUserIds: [], notes, id}
 const [mergedDays, setMergedDays] = useState(new Set());
+// mergedRoomsByDay: { [day]: Array<Array<string>> } supports multiple merged groups per day
 const [mergedRoomsByDay, setMergedRoomsByDay] = useState({});
 const [todoModerator, setTodoModerator] = useState("");
 const [todoTods, setTodoTods] = useState("");
 const [todoAdmin, setTodoAdmin] = useState("");
+const [todoWarden, setTodoWarden] = useState("");
 const [dutyNote, setDutyNote] = useState("");
+const [selectedSeedId, setSelectedSeedId] = useState(null);
   const daysList = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
   const { data: dutyData, mutate: refreshDuty } = useSWR(
     isMhcpProgram && id ? `/api/admin/manageMeedian?section=mhcpSlotDuties&programId=${id}&track=${dutyTrack}` : null,
+    fetcher
+  );
+  const { data: seedData, mutate: refreshSeeds } = useSWR(
+    isMhcpProgram && id ? `/api/admin/manageMeedian?section=mhcpSeeds&programId=${id}&track=${dutyTrack}` : null,
     fetcher
   );
   // Seed custom room labels for MHCP2 (program id 5) when untouched
@@ -110,6 +187,7 @@ const [dutyNote, setDutyNote] = useState("");
             if (meta.todoModerator != null) setTodoModerator(String(meta.todoModerator));
             if (meta.todoTods != null) setTodoTods(String(meta.todoTods));
             if (meta.todoAdmin != null) setTodoAdmin(String(meta.todoAdmin));
+            if (meta.todoWarden != null) setTodoWarden(String(meta.todoWarden));
             if (meta.dutyNote != null) setDutyNote(String(meta.dutyNote));
             if (meta.dutyStartTime != null) setDutyStartTime(String(meta.dutyStartTime));
             if (meta.dutyEndTime != null) setDutyEndTime(String(meta.dutyEndTime));
@@ -120,42 +198,85 @@ const [dutyNote, setDutyNote] = useState("");
             if (meta.dutyVerifiedAt != null) setDutyVerifiedAt(String(meta.dutyVerifiedAt));
             if (Array.isArray(meta.dutyTimeDivisions)) setDutyTimeDivisions(meta.dutyTimeDivisions.map(String));
             if (meta.mergedRoomsByDay && typeof meta.mergedRoomsByDay === "object") {
-              metaMerged = meta.mergedRoomsByDay;
-              setMergedRoomsByDay(metaMerged);
-              setMergedDays(new Set(Object.keys(metaMerged)));
+              const normalized = {};
+              Object.entries(meta.mergedRoomsByDay).forEach(([day, val]) => {
+                if (Array.isArray(val) && val.every((v) => Array.isArray(v))) {
+                  normalized[day] = val.map((g) => g.map(String));
+                } else if (Array.isArray(val)) {
+                  normalized[day] = [val.map(String)];
+                }
+              });
+              metaMerged = normalized;
+              setMergedRoomsByDay(normalized);
+              setMergedDays(new Set(Object.keys(normalized)));
+            }
+            if (Array.isArray(meta.dutyRooms) && meta.dutyRooms.length) {
+              setDutyRooms(meta.dutyRooms.map(String));
             }
           } catch {}
         }
       });
+      const labelForGroup = (g) => Array.isArray(g) ? g.join(" + ") : "";
       // Second pass: cells
       dutyData.duties.forEach((d) => {
         if (d.dayName === "__meta" && d.slotLabel === "__meta") return;
         const slotLabel = d.slotLabel;
-        const key = `${d.dayName}|${slotLabel}`;
         const assignedIds = Array.isArray(d.assignedUserIds)
           ? d.assignedUserIds
           : d.assignedUserId
           ? [d.assignedUserId]
           : [];
-        map[key] = {
-          id: d.id,
-          dutyTitle: d.dutyTitle || "",
-          assignedUserIds: assignedIds,
-          notes: d.notes || "",
-          startTime: d.startTime || "",
-          endTime: d.endTime || "",
-        };
-        const mergedList = metaMerged[d.dayName];
-        const mergedLabel = mergedList ? mergedList.join(" + ") : "";
-        const isMergedRow = mergedList && d.slotLabel === mergedLabel;
-        if (!isMergedRow) {
+        const groups = metaMerged[d.dayName] || [];
+        // Infer merged group if meta missing
+        if (!groups.length && typeof slotLabel === "string" && slotLabel.includes("+")) {
+          const infer = slotLabel
+            .split("+")
+            .map((s) => s.trim())
+            .filter(Boolean);
+          if (infer.length >= 2) {
+            metaMerged[d.dayName] = [infer];
+            setMergedRoomsByDay((m) => ({ ...m, [d.dayName]: [infer] }));
+            setMergedDays((prev) => new Set(prev).add(d.dayName));
+          }
+        }
+        const groupsNow = metaMerged[d.dayName] || [];
+        const matchedIdx = groupsNow.findIndex((g) => labelForGroup(g) === (slotLabel || "").trim());
+        const isMergedRow = matchedIdx >= 0;
+        if (isMergedRow) {
+          const key = `${d.dayName}|__merged_${matchedIdx}`;
+          map[key] = {
+            id: d.id,
+            dutyTitle: d.dutyTitle || "",
+            assignedUserIds: assignedIds,
+            notes: d.notes || "",
+            startTime: d.startTime || "",
+            endTime: d.endTime || "",
+          };
+          const grp = groups[matchedIdx] || [];
+          grp.forEach((r) => rooms.add(r || "Room"));
+        } else {
+          // If the slot label looks like a merged label but no meta matched, skip adding as a column
+          if (typeof slotLabel === "string" && slotLabel.includes("+")) {
+            return;
+          }
+          const key = `${d.dayName}|${slotLabel}`;
+          map[key] = {
+            id: d.id,
+            dutyTitle: d.dutyTitle || "",
+            assignedUserIds: assignedIds,
+            notes: d.notes || "",
+            startTime: d.startTime || "",
+            endTime: d.endTime || "",
+          };
           rooms.add(d.slotLabel || "Room");
         }
         if (d.startTime) setDutyStartTime(d.startTime);
         if (d.endTime) setDutyEndTime(d.endTime);
       });
       setDutyAssignments(map);
-      setDutyRooms(Array.from(rooms));
+      const isMhcp2Program = program?.id === 5 || String(program?.programKey || "").toUpperCase() === "MHCP2";
+      const nextRooms = Array.from(rooms).filter(Boolean);
+      setDutyRooms(nextRooms.length ? nextRooms : isMhcp2Program ? ["Room 1"] : ["Room 1", "Room 2", "Room 3"]);
     } else {
       setDutyAssignments({});
       setMergedRoomsByDay({});
@@ -589,7 +710,9 @@ const [dutyNote, setDutyNote] = useState("");
     });
     setDutyAssignments((p) => {
       const copy = { ...p };
-      delete copy[`${day}|__merged`];
+      Object.keys(copy).forEach((k) => {
+        if (k.startsWith(`${day}|__merged`)) delete copy[k];
+      });
       delete copy[`${day}|__mergeCount`];
       return copy;
     });
@@ -609,8 +732,21 @@ const [dutyNote, setDutyNote] = useState("");
       alert("Select at least two valid rooms to merge.");
       return;
     }
-    setMergedRoomsByDay((m) => ({ ...m, [day]: list }));
-    setDutyAssignments((p) => ({ ...p, [`${day}|__mergeCount`]: list.length }));
+    setMergedRoomsByDay((m) => {
+      const next = { ...m };
+      const groups = Array.isArray(next[day]) ? next[day].map((g) => Array.isArray(g) ? g : [g]) : [];
+      // prevent overlap
+      const alreadyUsed = new Set(groups.flat());
+      const overlaps = list.some((r) => alreadyUsed.has(r));
+      if (overlaps) {
+        alert("Those rooms are already merged in another group for this day.");
+        return next;
+      }
+      groups.push(list);
+      next[day] = groups;
+      return next;
+    });
+    setDutyAssignments((p) => ({ ...p, [`${day}|__mergeCount`]: (mergedRoomsByDay[day]?.length || 0) + 1 }));
     setMergedDays((prev) => {
       const next = new Set(prev);
       next.add(day);
@@ -622,68 +758,50 @@ const [dutyNote, setDutyNote] = useState("");
     if (!id) return;
     const duties = [];
     daysList.forEach((day) => {
-      const mergedList = mergedRoomsByDay[day] || [];
-      const isMerged = mergedDays.has(day) && mergedList.length >= 2;
-      if (isMerged) {
-        const mergedKey = `${day}|__merged`;
-        const cell = dutyAssignments[mergedKey] || {};
+      const groups = mergedRoomsByDay[day] || [];
+      const used = new Set();
+      let pos = 0;
+      groups.forEach((group, gIdx) => {
+        if (!Array.isArray(group) || group.length < 2) return;
+        group.forEach((r) => used.add(r));
+        const key = `${day}|__merged_${gIdx}`;
+        const cell = dutyAssignments[key] || {};
         const assignedIds = Array.isArray(cell.assignedUserIds)
           ? cell.assignedUserIds.map((n) => Number(n)).filter((n) => Number.isFinite(n))
           : [];
         duties.push({
-          slotLabel: mergedList.join(" + ") || "Merged",
+          slotLabel: group.join(" + "),
           dayName: day || "Day",
           dutyTitle: cell.dutyTitle || "",
           startTime: cell.startTime || dutyStartTime || null,
           endTime: cell.endTime || dutyEndTime || null,
           assignedUserId: assignedIds[0] || null,
           assignedUserIds: assignedIds,
-          notes: cell.notes || null,
-          position: 0,
+          notes: (cell.notes || "").trim() || null,
+          position: pos++,
           active: true,
         });
-        dutyRooms
-          .filter((r) => !mergedList.includes(r))
-          .forEach((room, idx) => {
-            const key = `${day}|${room}`;
-            const cell = dutyAssignments[key] || {};
-            const assignedIds = Array.isArray(cell.assignedUserIds)
-              ? cell.assignedUserIds.map((n) => Number(n)).filter((n) => Number.isFinite(n))
-              : [];
-            duties.push({
-              slotLabel: room || `Room ${idx + 1}`,
-              dayName: day || "Day",
-              dutyTitle: cell.dutyTitle || "",
-              startTime: cell.startTime || dutyStartTime || null,
-              endTime: cell.endTime || dutyEndTime || null,
-              assignedUserId: assignedIds[0] || null,
-              assignedUserIds: assignedIds,
-              notes: cell.notes || null,
-              position: idx + 1,
-              active: true,
-            });
-          });
-      } else {
-        dutyRooms.forEach((room, idx) => {
-          const key = `${day}|${room}`;
-          const cell = dutyAssignments[key] || {};
-          const assignedIds = Array.isArray(cell.assignedUserIds)
-            ? cell.assignedUserIds.map((n) => Number(n)).filter((n) => Number.isFinite(n))
-            : [];
-          duties.push({
-            slotLabel: room || `Room ${idx + 1}`,
-            dayName: day || "Day",
-            dutyTitle: cell.dutyTitle || "",
-            startTime: cell.startTime || dutyStartTime || null,
-            endTime: cell.endTime || dutyEndTime || null,
-            assignedUserId: assignedIds[0] || null,
-            assignedUserIds: assignedIds,
-            notes: cell.notes || null,
-            position: idx,
-            active: true,
-          });
+      });
+      dutyRooms.forEach((room) => {
+        if (used.has(room)) return;
+        const key = `${day}|${room}`;
+        const cell = dutyAssignments[key] || {};
+        const assignedIds = Array.isArray(cell.assignedUserIds)
+          ? cell.assignedUserIds.map((n) => Number(n)).filter((n) => Number.isFinite(n))
+          : [];
+        duties.push({
+          slotLabel: room || `Room ${pos + 1}`,
+          dayName: day || "Day",
+          dutyTitle: cell.dutyTitle || "",
+          startTime: cell.startTime || dutyStartTime || null,
+          endTime: cell.endTime || dutyEndTime || null,
+          assignedUserId: assignedIds[0] || null,
+          assignedUserIds: assignedIds,
+          notes: (cell.notes || "").trim() || null,
+          position: pos++,
+          active: true,
         });
-      }
+      });
     });
     // Meta row to persist moderator, todos, notes, times
     duties.push({
@@ -709,6 +827,8 @@ const [dutyNote, setDutyNote] = useState("");
         dutyVerifiedAt,
         dutyTimeDivisions,
         mergedRoomsByDay,
+        dutyRooms,
+        todoWarden,
       }),
       position: 9999,
       active: true,
@@ -740,7 +860,7 @@ const [dutyNote, setDutyNote] = useState("");
       : todayStr;
     const win = window.open("", "_blank");
     if (!win) return;
-    const style = `
+      const style = `
       <style>
         body{font-family:'Inter',system-ui,-apple-system,sans-serif;color:#111;margin:24px;}
         h1{font-size:22px;margin:0;}
@@ -754,6 +874,21 @@ const [dutyNote, setDutyNote] = useState("");
         .note{margin-top:12px;font-size:12px;}
         .seal{margin-top:24px;display:flex;justify-content:space-between;align-items:center;font-size:12px;color:#444;}
         .seal .box{width:110px;height:70px;border:2px dashed #999;border-radius:8px;display:flex;align-items:center;justify-content:center;}
+        .todo-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin-top:12px;}
+        .todo-card{border:1px solid #e5e7eb;border-radius:10px;padding:10px;background:#f8fafc;box-shadow:0 1px 3px rgba(0,0,0,0.06);}
+        .todo-card h4{margin:0 0 6px 0;font-size:12px;color:#0f172a;letter-spacing:0.2px;}
+        .todo-card ul{margin:0;padding-left:0;list-style:none;}
+        .todo-card li{margin:4px 0;font-size:12px;color:#0f172a;display:flex;gap:6px;align-items:flex-start;}
+        .todo-card li:before{content:"✔";color:#0c6eb8;font-weight:700;display:inline-block;min-width:12px;}
+        body::before{
+          content:"";
+          position:fixed;
+          inset:0;
+          background:url('/meedSeal.png') center center / 260px 260px no-repeat;
+          opacity:0.12;
+          pointer-events:none;
+          filter:grayscale(100%);
+        }
       </style>
     `;
     const verifiedLine = dutyVerifiedBy
@@ -761,17 +896,19 @@ const [dutyNote, setDutyNote] = useState("");
       : "Not verified";
     const circularLine = dutyCircular || "—";
     const header = `
-      <div style="text-align:center;">
-        <h1 style="color:#0ea5e9;">MEED PUBLIC SCHOOL</h1>
-        <div class="motto">Educating for now and the world hereafter</div>
-      </div>
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-top:8px;font-size:12px;">
-        <div style="flex:1;min-width:0;">
-          <div><strong>${program?.programKey || "MHCP"}</strong> — Moderator: ${dutyModerator || "—"}</div>
-          <div style="margin-top:4px;font-size:13px;font-weight:700;color:#0f172a;">Goal: ${dutyGoal || "—"}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:14px;">
+        <img src="/meedSeal.png" alt="Seal" style="width:100px;height:100px;object-fit:contain;filter:grayscale(100%) contrast(115%);" />
+        <div style="text-align:left; flex:1;">
+          <div style="font-size:28px;font-weight:800;color:#0ea5e9;letter-spacing:0.6px;">MEED PUBLIC SCHOOL</div>
+          <div class="motto" style="font-size:14px;color:#374151;margin-top:2px;">“Educating for now and for the world hereafter”</div>
+          <div style="margin-top:6px;font-weight:700;font-size:14px;color:#0f172a;">${program?.programKey || "MHCP"}</div>
         </div>
-        <div style="text-align:right;color:#1f2937;font-size:12px;">
-          <div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;">
+        <div style="min-width:220px;text-align:right;color:#1f2937;font-size:12px;">
+          <div style="font-weight:600;">Moderator</div>
+          <div style="margin-top:2px;">${dutyModerator || "—"}</div>
+          <div style="margin-top:8px;font-weight:700;">Goal</div>
+          <div style="margin-top:2px;font-size:13px;font-weight:700;color:#0f172a;">${dutyGoal || "—"}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;margin-top:8px;">
             <span style="padding:6px 10px;border:1px solid #e5e7eb;border-radius:12px;background:#f8fafc;box-shadow:0 1px 2px rgba(0,0,0,0.06);">Release: ${releaseStr}</span>
             <span style="padding:6px 10px;border:1px solid #e5e7eb;border-radius:12px;background:#f8fafc;box-shadow:0 1px 2px rgba(0,0,0,0.06);">Circular: ${circularLine}</span>
             <span style="padding:6px 10px;border:1px solid #e0f2fe;border-radius:12px;background:#eff6ff;box-shadow:0 1px 2px rgba(0,0,0,0.06);"> ${verifiedLine}</span>
@@ -787,73 +924,77 @@ const [dutyNote, setDutyNote] = useState("");
     const thead = `<tr><th style="width:18%;">Day</th>${slots.map((s) => `<th>${s}</th>`).join("")}</tr>`;
     const tbody = daysList
       .map((day) => {
-        const mergeList = mergedRoomsByDay[day] || [];
-        const mergeSet = new Set(mergeList);
-        const isMerged = mergedDays.has(day) && mergeList.length >= 2;
-        const cols = dutyRooms
-          .map((room, idx) => {
-            if (isMerged && mergeSet.has(room)) {
-              if (room !== mergeList[0]) return "";
-              const cell = dutyAssignments[`${day}|__merged`] || {};
-              const names = (cell.assignedUserIds || [])
-                .map((uid) => (teamData?.users || []).find((u) => u.id === Number(uid))?.name || uid)
-                .join(", ");
-              return `<td colspan="${mergeList.length}"><div style="color:#2563eb;">${names}</div><div style="color:#555;">${cell.notes || ""}</div></td>`;
-            }
+        const groups = mergedRoomsByDay[day] || [];
+        const cols = [];
+        const used = new Set();
+        dutyRooms.forEach((room) => {
+          if (used.has(room)) return;
+          const gIdx = groups.findIndex((g) => Array.isArray(g) && g.includes(room));
+          if (gIdx >= 0) {
+            const group = groups[gIdx];
+            group.forEach((r) => used.add(r));
+            const cell = dutyAssignments[`${day}|__merged_${gIdx}`] || {};
+            const names = (cell.assignedUserIds || [])
+              .map((uid) => (teamData?.users || []).find((u) => u.id === Number(uid))?.name || uid)
+              .join(", ");
+            cols.push(`<td colspan="${group.length}"><div style="color:#2563eb;">${names}</div><div style="color:#555;">${cell.notes || ""}</div></td>`);
+          } else {
             const cell = dutyAssignments[`${day}|${room}`] || {};
             const names = (cell.assignedUserIds || [])
               .map((uid) => (teamData?.users || []).find((u) => u.id === Number(uid))?.name || uid)
               .join(", ");
-            return `<td><div style="color:#2563eb;">${names}</div><div style="color:#555;">${cell.notes || ""}</div></td>`;
-          })
-          .join("");
-        return `<tr><td style="text-align:center;">${day}</td>${cols}</tr>`;
+            cols.push(`<td><div style="color:#2563eb;">${names}</div><div style="color:#555;">${cell.notes || ""}</div></td>`);
+          }
+        });
+        return `<tr><td style="text-align:center;">${day}</td>${cols.join("")}</tr>`;
       })
       .join("");
-    const listToComma = (text) => (text || "")
-      .split(/\\r?\\n/)
-      .map((t) => t.trim())
-      .filter(Boolean)
-      .join(", ");
-    win.document.write(`
-      <html><head>${style}</head><body>
+    const footer = `
+      <div class="footer" style="align-items:flex-start; margin-top:12px;">
+        <div>
+          <div>Released: ${releaseStr}</div>
+          <div>Released by: ${dutyModerator || ""}</div>
+        </div>
+      </div>`;
+const schedulePage = `
       ${header}
       <table>${thead}<tbody>${tbody}</tbody></table>
-      <div class="todos">
-        <h3>Moderator To-Dos</h3>
-        <div>${listToComma(todoModerator) || "—"}</div>
-        <h3>TODs</h3>
-        <div>${listToComma(todoTods) || "—"}</div>
-        <h3>Admin / COD / IS</h3>
-        <div>${listToComma(todoAdmin) || "—"}</div>
-      </div>
-      <div class="note"><strong>Notes:</strong> ${dutyNote || "—"}</div>
-      <div class="footer">
-        <span>Released: ${releaseStr}</span>
-        <span>Released by: ${dutyModerator || ""}</span>
-      </div>
-      <div class="seal">
-        <div class="box" style="position:relative; overflow:hidden; background:radial-gradient(circle, #f8fbff 0%, #dceeff 55%, #f8fbff 100%); box-shadow:0 10px 24px rgba(0,0,0,0.10); width:120px; height:120px;">
-          <div style="
-            position:absolute; inset:8px; border-radius:50%;
-            border:3px solid #0c6eb8; box-shadow:inset 0 0 0 2px #e6f3ff;
-          "></div>
-          <div style="
-            position:absolute; inset:16px; border-radius:50%;
-            border:1.5px dashed #0c6eb8;
-          "></div>
-          <div style="
-            position:absolute; inset:0; display:flex; flex-direction:column;
-            align-items:center; justify-content:center; text-align:center;
-            color:#0c4775; font-weight:800; letter-spacing:0.7px;
-          ">
-            <div style="font-size:10px; letter-spacing:1.4px;">MEED PUBLIC SCHOOL</div>
-            <div style="font-size:12px; margin:4px 0 2px 0; letter-spacing:3px;">OFFICIAL</div>
-            <div style="font-size:9px; font-weight:700; letter-spacing:1px;">RELEASED BY</div>
-            <div style="font-size:11px; margin-top:2px; text-transform:capitalize;">${dutyModerator || "—"}</div>
-          </div>
-        </div>
-      </div>
+      <div class="note"><strong>Notes:</strong> ${listToBullets(dutyNote)}</div>
+      ${footer}
+      <div style="page-break-after: always;"></div>
+    `;
+    function listToBullets(text) {
+      const parts = (text || "")
+        .split(/\r?\n/)
+        .map((t) => t.trim())
+        .filter(Boolean);
+      if (!parts.length) return "<ul><li>—</li></ul>";
+      return `<ul>${parts.map((t)=>`<li>${t}</li>`).join("")}</ul>`;
+    }
+    const todoCards = [
+      { title: "Moderator To-Dos", html: listToBullets(todoModerator) },
+      { title: "TODs", html: listToBullets(todoTods) },
+      { title: "Admin / COD / IS", html: listToBullets(todoAdmin) },
+      { title: "Hostel Warden", html: listToBullets(todoWarden) },
+      { title: "Notes", html: listToBullets(dutyNote) },
+    ]
+      .map(
+        ({ title, html }) => `
+        <div class="todo-card">
+          <h4>${title}</h4>
+          ${html}
+        </div>`
+      )
+      .join("");
+    const todoPage = `
+      ${header}
+      <div class="todo-grid">${todoCards}</div>
+      ${footer}
+    `;
+    win.document.write(`
+      <html><head>${style}</head><body>
+        ${schedulePage}
+        ${todoPage}
       </body></html>
     `);
     win.document.close();
@@ -1799,6 +1940,21 @@ const [dutyNote, setDutyNote] = useState("");
         </div>
         <input type="time" className="px-2 py-1.5 border rounded text-sm" value={dutyStartTime} onChange={(e)=>setDutyStartTime(e.target.value)} title="Start time (applies to cells without overrides)" />
         <input type="time" className="px-2 py-1.5 border rounded text-sm" value={dutyEndTime} onChange={(e)=>setDutyEndTime(e.target.value)} title="End time (applies to cells without overrides)" />
+        <select
+          className="px-2 py-1.5 border rounded text-sm min-w-[170px]"
+          value={selectedSeedId || ""}
+          onChange={(e)=> {
+            const v = e.target.value;
+            setSelectedSeedId(v);
+            if (v) applySeed(v);
+          }}
+        >
+          <option value="">Apply seed…</option>
+          {(seedData?.seeds || []).map((s)=> (
+            <option key={s.id} value={s.id}>{s.label}</option>
+          ))}
+        </select>
+        <Button size="sm" variant="light" onClick={saveSeed}>Save Seed</Button>
         <Button size="sm" variant="light" onClick={addRoom}>Add Room</Button>
         <Button size="sm" variant="primary" onClick={saveDuties}>Save Duties</Button>
         <Button size="sm" variant="light" onClick={printDuties}>Print</Button>
@@ -1891,9 +2047,9 @@ const [dutyNote, setDutyNote] = useState("");
                 </thead>
                 <tbody>
                   {daysList.map((day) => {
-                    const mergeList = mergedRoomsByDay[day] || [];
-                    const mergeSet = new Set(mergeList);
-                    const isMerged = mergedDays.has(day) && mergeList.length >= 2;
+                    const groups = mergedRoomsByDay[day] || [];
+                    const isMerged = mergedDays.has(day) && groups.length > 0;
+                    const usedRooms = new Set();
                     return (
                       <tr key={day} className="odd:bg-white even:bg-gray-50">
                         <td className="border px-3 py-2 text-center font-semibold">
@@ -1915,14 +2071,18 @@ const [dutyNote, setDutyNote] = useState("");
                           </div>
                         </td>
                         {dutyRooms.map((room, idx) => {
-                          if (isMerged && mergeSet.has(room)) {
-                            if (room !== mergeList[0]) return null;
-                            const cell = dutyAssignments[`${day}|__merged`] || {};
+                          if (usedRooms.has(room)) return null;
+                          const groupIdx = groups.findIndex((g) => Array.isArray(g) && g.includes(room));
+                          if (groupIdx >= 0) {
+                            const group = groups[groupIdx];
+                            group.forEach((r) => usedRooms.add(r));
+                            const key = `${day}|__merged_${groupIdx}`;
+                            const cell = dutyAssignments[key] || {};
                             return (
                               <td
-                                key={`${day}-merged`}
+                                key={`${day}-merged-${groupIdx}`}
                                 className="border px-3 py-3 space-y-2 min-h-[72px]"
-                                colSpan={mergeList.length}
+                                colSpan={group.length}
                                 onDragOver={(e)=> e.preventDefault()}
                                 onDrop={(e)=> {
                                   e.preventDefault();
@@ -1930,21 +2090,19 @@ const [dutyNote, setDutyNote] = useState("");
                                   if (!uid) return;
                                   const num = Number(uid);
                                   const addId = Number.isFinite(num) ? num : uid;
-                                  const prevIds = Array.isArray((dutyAssignments[`${day}|__merged`]||{}).assignedUserIds)
-                                    ? dutyAssignments[`${day}|__merged`].assignedUserIds
-                                    : [];
+                                  const prevIds = Array.isArray(cell.assignedUserIds) ? cell.assignedUserIds : [];
                                   const nextIds = Array.from(new Set([...prevIds, addId]));
-                                  updateDutyCell(day, "__merged", { assignedUserIds: nextIds });
+                                  updateDutyCell(day, `__merged_${groupIdx}`, { assignedUserIds: nextIds });
                                 }}
                               >
                                 <div className="flex items-center justify-between text-xs min-h-[18px]">
                                   <span className="font-semibold">
-                                    {((dutyAssignments[`${day}|__merged`]||{}).assignedUserIds || [])
+                                    {(cell.assignedUserIds || [])
                                       .map((uid) => (teamData?.users || []).find((u)=> u.id === Number(uid))?.name || uid)
                                       .join(", ")}
                                   </span>
-                                  {(dutyAssignments[`${day}|__merged`]||{}).assignedUserIds?.length ? (
-                                    <button className="text-[11px] text-rose-600" onClick={()=> updateDutyCell(day, "__merged", { assignedUserIds: [] })}>Clear</button>
+                                  {cell.assignedUserIds?.length ? (
+                                    <button className="text-[11px] text-rose-600" onClick={()=> updateDutyCell(day, `__merged_${groupIdx}`, { assignedUserIds: [] })}>Clear</button>
                                   ) : null}
                                 </div>
                               </td>
@@ -1995,6 +2153,7 @@ const [dutyNote, setDutyNote] = useState("");
                 { label: "Moderator To-Dos", value: todoModerator, setter: setTodoModerator },
                 { label: "TODs", value: todoTods, setter: setTodoTods },
                 { label: "Admin / COD / IS", value: todoAdmin, setter: setTodoAdmin },
+                { label: "Hostel Warden", value: todoWarden, setter: setTodoWarden },
               ].map(({ label, value, setter }) => (
                 <div key={label}>
                   <div className="text-xs font-semibold text-gray-700 mb-1">{label}</div>
@@ -2031,11 +2190,29 @@ const [dutyNote, setDutyNote] = useState("");
 
             <div className="mt-3">
               <div className="text-xs font-semibold text-gray-700 mb-1">Notes</div>
-              <textarea
-                className="w-full border rounded px-2 py-1 text-sm min-h-[60px]"
-                value={dutyNote}
-                onChange={(e)=>setDutyNote(e.target.value)}
-              />
+              <div className="border rounded px-2 py-2 bg-white space-y-2">
+                {(dutyNote.split("\n").filter(()=>true).length ? dutyNote.split("\n") : [""]).map((line, idx) => (
+                  <div key={idx} className="flex items-start gap-2 text-sm text-gray-800">
+                    <span className="mt-1 text-gray-500">•</span>
+                    <input
+                      className="w-full border rounded px-2 py-1 text-xs"
+                      value={line}
+                      placeholder="Add note..."
+                      onChange={(e) => {
+                        const lines = dutyNote.split("\n");
+                        lines[idx] = e.target.value;
+                        setDutyNote(lines.join("\n"));
+                      }}
+                    />
+                  </div>
+                ))}
+                <button
+                  className="mt-1 text-[11px] text-blue-600"
+                  onClick={() => setDutyNote([...(dutyNote ? dutyNote.split("\n") : []), ""].join("\n"))}
+                >
+                  + Add note
+                </button>
+              </div>
             </div>
           </CardBody>
         </Card>
