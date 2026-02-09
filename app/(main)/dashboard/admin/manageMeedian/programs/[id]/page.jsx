@@ -884,7 +884,7 @@ const [selectedSeedId, setSelectedSeedId] = useState(null);
           content:"";
           position:fixed;
           inset:0;
-          background:url('/meedSeal.png') center center / 260px 260px no-repeat;
+          background:url('${typeof window !== "undefined" ? window.location.origin + "/meedSeal.png" : "/meedSeal.png"}') center center / 260px 260px no-repeat;
           opacity:0.12;
           pointer-events:none;
           filter:grayscale(100%);
@@ -895,19 +895,26 @@ const [selectedSeedId, setSelectedSeedId] = useState(null);
       ? `Verified by ${dutyVerifiedBy}${dutyVerifiedAt ? ` on ${new Date(dutyVerifiedAt).toLocaleDateString(undefined,{day:"2-digit",month:"short",year:"2-digit"})}` : ""}`
       : "Not verified";
     const circularLine = dutyCircular || "—";
+    const sealUrl = typeof window !== "undefined" ? `${window.location.origin}/meedSeal.png` : "/meedSeal.png";
     const header = `
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:14px;">
-        <img src="/meedSeal.png" alt="Seal" style="width:100px;height:100px;object-fit:contain;filter:grayscale(100%) contrast(115%);" />
-        <div style="text-align:left; flex:1;">
-          <div style="font-size:28px;font-weight:800;color:#0ea5e9;letter-spacing:0.6px;">MEED PUBLIC SCHOOL</div>
-          <div class="motto" style="font-size:14px;color:#374151;margin-top:2px;">“Educating for now and for the world hereafter”</div>
-          <div style="margin-top:6px;font-weight:700;font-size:14px;color:#0f172a;">${program?.programKey || "MHCP"}</div>
+      <div style="display:flex;justify-content:center;align-items:flex-start;gap:12px;">
+        <div style="width:82px;height:82px;border-radius:12px;background:#f1f5f9;box-shadow:none;display:flex;align-items:center;justify-content:center;transform:translateY(-6px);">
+          <img src="${sealUrl}" alt="Seal" style="width:68px;height:68px;object-fit:contain;filter:grayscale(100%) contrast(115%);" />
         </div>
-        <div style="min-width:220px;text-align:right;color:#1f2937;font-size:12px;">
+        <div style="text-align:center; padding-top:6px;">
+          <div style="font-size:28px;font-weight:800;color:#0ea5e9;letter-spacing:0.6px;">MEED PUBLIC SCHOOL</div>
+          <div class="motto" style="font-size:14px;color:#374151;margin-top:6px;">“Educating for now and for the world hereafter”</div>
+          <div style="margin:8px auto 0 auto;width:220px;height:1px;background:#cbd5e1;"></div>
+          <div style="margin-top:8px;font-weight:700;font-size:14px;color:#0f172a;">${program?.programKey || "MHCP"}</div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;font-size:12px;color:#1f2937;margin-top:12px;">
+        <div style="min-width:140px;text-align:left;">
           <div style="font-weight:600;">Moderator</div>
           <div style="margin-top:2px;">${dutyModerator || "—"}</div>
-          <div style="margin-top:8px;font-weight:700;">Goal</div>
-          <div style="margin-top:2px;font-size:13px;font-weight:700;color:#0f172a;">${dutyGoal || "—"}</div>
+        </div>
+        <div style="text-align:right;min-width:220px;">
+          <div style="font-size:13px;font-weight:700;color:#0f172a; margin-top:2px;">Goal: ${dutyGoal || "—"}</div>
           <div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;margin-top:8px;">
             <span style="padding:6px 10px;border:1px solid #e5e7eb;border-radius:12px;background:#f8fafc;box-shadow:0 1px 2px rgba(0,0,0,0.06);">Release: ${releaseStr}</span>
             <span style="padding:6px 10px;border:1px solid #e5e7eb;border-radius:12px;background:#f8fafc;box-shadow:0 1px 2px rgba(0,0,0,0.06);">Circular: ${circularLine}</span>
@@ -976,7 +983,6 @@ const schedulePage = `
       { title: "TODs", html: listToBullets(todoTods) },
       { title: "Admin / COD / IS", html: listToBullets(todoAdmin) },
       { title: "Hostel Warden", html: listToBullets(todoWarden) },
-      { title: "Notes", html: listToBullets(dutyNote) },
     ]
       .map(
         ({ title, html }) => `
@@ -998,8 +1004,12 @@ const schedulePage = `
       </body></html>
     `);
     win.document.close();
-    win.focus();
-    win.print();
+    win.onload = () => {
+      setTimeout(() => {
+        try { win.print(); } catch {}
+        try { win.close(); } catch {}
+      }, 150);
+    };
   };
   // --- Manage Classes state ---
   const [manageClassesOpen, setManageClassesOpen] = useState(false);
