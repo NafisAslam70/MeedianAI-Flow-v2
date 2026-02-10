@@ -54,6 +54,7 @@ export default function ProgramDetailPage() {
       dutyEndTime,
       dutyGoal,
       dutyReleaseDate,
+      dutyWefDate,
       dutyCircular,
       dutyVerifiedBy,
       dutyVerifiedAt,
@@ -97,6 +98,7 @@ export default function ProgramDetailPage() {
     setDutyEndTime(p.dutyEndTime || "");
     setDutyGoal(p.dutyGoal || "");
     setDutyReleaseDate(p.dutyReleaseDate || "");
+    setDutyWefDate(p.dutyWefDate || "");
     setDutyCircular(p.dutyCircular || "");
     setDutyVerifiedBy(p.dutyVerifiedBy || "");
     setDutyVerifiedAt(p.dutyVerifiedAt || "");
@@ -138,6 +140,7 @@ const [dutyStartTime, setDutyStartTime] = useState("");
 const [dutyEndTime, setDutyEndTime] = useState("");
 const [dutyGoal, setDutyGoal] = useState("");
 const [dutyReleaseDate, setDutyReleaseDate] = useState("");
+const [dutyWefDate, setDutyWefDate] = useState("");
 const [dutyCircular, setDutyCircular] = useState("");
 const [dutyVerifiedBy, setDutyVerifiedBy] = useState("");
 const [dutyVerifiedAt, setDutyVerifiedAt] = useState("");
@@ -193,6 +196,7 @@ const [selectedSeedId, setSelectedSeedId] = useState(null);
             if (meta.dutyEndTime != null) setDutyEndTime(String(meta.dutyEndTime));
             if (meta.dutyGoal != null) setDutyGoal(String(meta.dutyGoal));
             if (meta.dutyReleaseDate != null) setDutyReleaseDate(String(meta.dutyReleaseDate));
+            if (meta.dutyWefDate != null) setDutyWefDate(String(meta.dutyWefDate));
             if (meta.dutyCircular != null) setDutyCircular(String(meta.dutyCircular));
             if (meta.dutyVerifiedBy != null) setDutyVerifiedBy(String(meta.dutyVerifiedBy));
             if (meta.dutyVerifiedAt != null) setDutyVerifiedAt(String(meta.dutyVerifiedAt));
@@ -822,6 +826,7 @@ const [selectedSeedId, setSelectedSeedId] = useState(null);
         dutyEndTime,
         dutyGoal,
         dutyReleaseDate,
+        dutyWefDate,
         dutyCircular,
         dutyVerifiedBy,
         dutyVerifiedAt,
@@ -905,7 +910,10 @@ const [selectedSeedId, setSelectedSeedId] = useState(null);
           <div style="font-size:28px;font-weight:800;color:#0ea5e9;letter-spacing:0.6px;">MEED PUBLIC SCHOOL</div>
           <div class="motto" style="font-size:14px;color:#374151;margin-top:6px;">“Educating for now and for the world hereafter”</div>
           <div style="margin:8px auto 0 auto;width:220px;height:1px;background:#cbd5e1;"></div>
-          <div style="margin-top:8px;font-weight:700;font-size:14px;color:#0f172a;">${program?.programKey || "MHCP"}</div>
+          <div style="margin-top:8px;font-weight:700;font-size:14px;color:#0f172a;">
+            ${program?.programKey || "MHCP"}
+            ${dutyWefDate ? `<span style="margin-left:8px;font-size:12px;color:#475569;font-weight:600;">(WEF ${new Date(dutyWefDate).toLocaleDateString(undefined,{day:"2-digit",month:"short",year:"2-digit"})})</span>` : ""}
+          </div>
         </div>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;font-size:12px;color:#1f2937;margin-top:12px;">
@@ -917,6 +925,7 @@ const [selectedSeedId, setSelectedSeedId] = useState(null);
           <div style="font-size:13px;font-weight:700;color:#0f172a; margin-top:2px;">Goal: ${dutyGoal || "—"}</div>
           <div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;margin-top:8px;">
             <span style="padding:6px 10px;border:1px solid #e5e7eb;border-radius:12px;background:#f8fafc;box-shadow:0 1px 2px rgba(0,0,0,0.06);">Release: ${releaseStr}</span>
+            ${dutyWefDate ? `<span style="padding:6px 10px;border:1px solid #e5e7eb;border-radius:12px;background:#f8fafc;box-shadow:0 1px 2px rgba(0,0,0,0.06);">WEF: ${new Date(dutyWefDate).toLocaleDateString(undefined,{day:"2-digit",month:"short",year:"2-digit"})}</span>` : ""}
             <span style="padding:6px 10px;border:1px solid #e5e7eb;border-radius:12px;background:#f8fafc;box-shadow:0 1px 2px rgba(0,0,0,0.06);">Circular: ${circularLine}</span>
             <span style="padding:6px 10px;border:1px solid #e0f2fe;border-radius:12px;background:#eff6ff;box-shadow:0 1px 2px rgba(0,0,0,0.06);"> ${verifiedLine}</span>
           </div>
@@ -957,12 +966,40 @@ const [selectedSeedId, setSelectedSeedId] = useState(null);
       })
       .join("");
     const footer = `
-      <div class="footer" style="align-items:flex-start; margin-top:12px;">
+      <div class="footer" style="align-items:flex-start; margin-top:12px; break-inside: avoid; page-break-inside: avoid;">
         <div>
           <div>Released: ${releaseStr}</div>
           <div>Released by: ${dutyModerator || ""}</div>
         </div>
+        <div style="display:flex;justify-content:flex-end;flex:1;">
+          <div style="position:relative;width:100px;height:100px;margin-left:auto;display:flex;align-items:center;justify-content:center;transform:rotate(-6deg);">
+            <div style="position:absolute;inset:0;border:2px dashed #64748b;border-radius:999px;opacity:0.9;"></div>
+            <div style="position:absolute;inset:10px;border:2px solid #0ea5e9;border-radius:999px;background:#f8fafc;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px;box-shadow:inset 0 0 0 2px rgba(14,165,233,0.08);">
+              <div style="font-size:10px;letter-spacing:1px;color:#0f172a;font-weight:700;">APPROVED</div>
+              <div style="font-size:13px;font-weight:800;color:#0ea5e9;letter-spacing:0.5px;">MEED</div>
+              <div style="font-size:8px;color:#475569;margin-top:2px;">${(dutyVerifiedBy || dutyModerator || "Moderator").replace(/</g,"&lt;")}</div>
+            </div>
+            <div style="position:absolute;bottom:-16px;left:50%;transform:translateX(-50%);font-size:9px;color:#475569;letter-spacing:0.2px;">
+              ${(dutyReleaseDate || releaseStr).replace(/</g,"&lt;")}
+            </div>
+          </div>
+        </div>
       </div>`;
+    const stampHtml = `
+      <div style="margin-top:12px; display:flex; justify-content:flex-end; break-inside: avoid; page-break-inside: avoid; page-break-after: avoid;">
+        <div style="position:relative;width:100px;height:100px;margin:0 auto;display:flex;align-items:center;justify-content:center;transform:rotate(-6deg);">
+          <div style="position:absolute;inset:0;border:2px dashed #64748b;border-radius:999px;opacity:0.9;"></div>
+          <div style="position:absolute;inset:10px;border:2px solid #0ea5e9;border-radius:999px;background:#f8fafc;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px;box-shadow:inset 0 0 0 2px rgba(14,165,233,0.08);">
+            <div style="font-size:10px;letter-spacing:1px;color:#0f172a;font-weight:700;">APPROVED</div>
+            <div style="font-size:13px;font-weight:800;color:#0ea5e9;letter-spacing:0.5px;">MEED</div>
+            <div style="font-size:8px;color:#475569;margin-top:2px;">${(dutyVerifiedBy || dutyModerator || "Moderator").replace(/</g,"&lt;")}</div>
+          </div>
+          <div style="position:absolute;bottom:-16px;left:50%;transform:translateX(-50%);font-size:9px;color:#475569;letter-spacing:0.2px;">
+            ${(dutyReleaseDate || releaseStr).replace(/</g,"&lt;")}
+          </div>
+        </div>
+      </div>
+    `;
 const schedulePage = `
       ${header}
       <table>${thead}<tbody>${tbody}</tbody></table>
@@ -995,7 +1032,6 @@ const schedulePage = `
     const todoPage = `
       ${header}
       <div class="todo-grid">${todoCards}</div>
-      ${footer}
     `;
     win.document.write(`
       <html><head>${style}</head><body>
@@ -1897,13 +1933,22 @@ const schedulePage = `
           onChange={(e)=> setDutyGoal(e.target.value)}
           title="Goal of the program (prints prominently)"
         />
-        <input
-          type="date"
-          className="px-2 py-1.5 border rounded text-sm"
-          value={dutyReleaseDate}
-          onChange={(e)=> setDutyReleaseDate(e.target.value)}
-          title="Release date"
-        />
+        <div className="flex items-center gap-1">
+          <input
+            type="date"
+            className="px-2 py-1.5 border rounded text-sm"
+            value={dutyReleaseDate}
+            onChange={(e)=> setDutyReleaseDate(e.target.value)}
+            title="Release date"
+          />
+          <input
+            type="date"
+            className="px-2 py-1.5 border rounded text-sm"
+            value={dutyWefDate}
+            onChange={(e)=> setDutyWefDate(e.target.value)}
+            title="WEF date"
+          />
+        </div>
         <input
           className="px-2 py-1.5 border rounded text-sm min-w-[160px]"
           placeholder="Circular / distribution"

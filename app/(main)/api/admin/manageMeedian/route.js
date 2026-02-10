@@ -857,6 +857,14 @@ export async function GET(req) {
           programId: meedSchedules.programId,
           title: meedSchedules.title,
           description: meedSchedules.description,
+          scheduleNumber: meedSchedules.scheduleNumber,
+          releasedBy: meedSchedules.releasedBy,
+          moderatorId: meedSchedules.moderatorId,
+          verifiedBy: meedSchedules.verifiedBy,
+          verifiedAt: meedSchedules.verifiedAt,
+          wefDate: meedSchedules.wefDate,
+          goal: meedSchedules.goal,
+          printOptions: meedSchedules.printOptions,
           active: meedSchedules.active,
           createdAt: meedSchedules.createdAt,
           updatedAt: meedSchedules.updatedAt,
@@ -882,6 +890,7 @@ export async function GET(req) {
             isFree: meedScheduleDivisions.isFree,
             position: meedScheduleDivisions.position,
             checklist: meedScheduleDivisions.checklist,
+            dutyHolders: meedScheduleDivisions.dutyHolders,
           })
           .from(meedScheduleDivisions)
           .where(inArray(meedScheduleDivisions.scheduleId, ids))
@@ -1935,7 +1944,21 @@ export async function POST(req) {
 
     // Meed Schedules (create)
     if (section === "meedSchedules") {
-      const { title, programId = null, description = null, active = true, divisions = [] } = body || {};
+      const {
+        title,
+        programId = null,
+        description = null,
+        scheduleNumber = null,
+        releasedBy = null,
+        moderatorId = null,
+        verifiedBy = null,
+        verifiedAt = null,
+        wefDate = null,
+        goal = null,
+        printOptions = null,
+        active = true,
+        divisions = [],
+      } = body || {};
       const normalizedProgramId = programId ? Number(programId) : null;
       let finalTitle = String(title || "").trim();
       if (!finalTitle && normalizedProgramId) {
@@ -1957,6 +1980,14 @@ export async function POST(req) {
           title: finalTitle,
           programId: normalizedProgramId,
           description: description ? String(description).trim() : null,
+          scheduleNumber: scheduleNumber ? String(scheduleNumber).trim() : null,
+          releasedBy: releasedBy ? String(releasedBy).trim() : null,
+          moderatorId: moderatorId ? Number(moderatorId) : null,
+          verifiedBy: verifiedBy ? String(verifiedBy).trim() : null,
+          verifiedAt: verifiedAt ? new Date(verifiedAt) : null,
+          wefDate: wefDate ? new Date(wefDate) : null,
+          goal: goal ? String(goal).trim() : null,
+          printOptions: printOptions ? printOptions : {},
           active: !!active,
         })
         .returning({
@@ -1964,6 +1995,13 @@ export async function POST(req) {
           programId: meedSchedules.programId,
           title: meedSchedules.title,
           description: meedSchedules.description,
+          scheduleNumber: meedSchedules.scheduleNumber,
+          releasedBy: meedSchedules.releasedBy,
+          moderatorId: meedSchedules.moderatorId,
+          verifiedBy: meedSchedules.verifiedBy,
+          verifiedAt: meedSchedules.verifiedAt,
+          goal: meedSchedules.goal,
+          printOptions: meedSchedules.printOptions,
           active: meedSchedules.active,
           createdAt: meedSchedules.createdAt,
           updatedAt: meedSchedules.updatedAt,
@@ -1985,6 +2023,10 @@ export async function POST(req) {
         } else if (typeof d.checklist === "string") {
           checklist = d.checklist.split(/\n|,/).map((c) => c.trim()).filter(Boolean);
         }
+        let dutyHolders = [];
+        if (Array.isArray(d.dutyHolders)) {
+          dutyHolders = d.dutyHolders.map((c) => String(c || "").trim()).filter(Boolean);
+        }
         normalizedDivs.push({
           scheduleId: created.id,
           label: String(d.label || `Division ${i + 1}`).trim(),
@@ -1993,6 +2035,7 @@ export async function POST(req) {
           isFree,
           position: Number.isFinite(d.position) ? Number(d.position) : i,
           checklist,
+          dutyHolders,
         });
       }
       let inserted = [];
@@ -2900,6 +2943,14 @@ export async function PATCH(req) {
         setObj.title = t || setObj.title;
       }
       if (body?.description !== undefined) setObj.description = body.description ? String(body.description).trim() : null;
+      if (body?.scheduleNumber !== undefined) setObj.scheduleNumber = body.scheduleNumber ? String(body.scheduleNumber).trim() : null;
+      if (body?.releasedBy !== undefined) setObj.releasedBy = body.releasedBy ? String(body.releasedBy).trim() : null;
+      if (body?.moderatorId !== undefined) setObj.moderatorId = body.moderatorId ? Number(body.moderatorId) : null;
+      if (body?.verifiedBy !== undefined) setObj.verifiedBy = body.verifiedBy ? String(body.verifiedBy).trim() : null;
+      if (body?.verifiedAt !== undefined) setObj.verifiedAt = body.verifiedAt ? new Date(body.verifiedAt) : null;
+      if (body?.wefDate !== undefined) setObj.wefDate = body.wefDate ? new Date(body.wefDate) : null;
+      if (body?.goal !== undefined) setObj.goal = body.goal ? String(body.goal).trim() : null;
+      if (body?.printOptions !== undefined) setObj.printOptions = body.printOptions ? body.printOptions : {};
       if (body?.active !== undefined) setObj.active = !!body.active;
 
       if (Object.keys(setObj).length) {
@@ -2933,6 +2984,10 @@ export async function PATCH(req) {
           } else if (typeof d.checklist === "string") {
             checklist = d.checklist.split(/\n|,/).map((c) => c.trim()).filter(Boolean);
           }
+          let dutyHolders = [];
+          if (Array.isArray(d.dutyHolders)) {
+            dutyHolders = d.dutyHolders.map((c) => String(c || "").trim()).filter(Boolean);
+          }
           normalizedDivs.push({
             scheduleId,
             label: String(d.label || `Division ${i + 1}`).trim(),
@@ -2941,6 +2996,7 @@ export async function PATCH(req) {
             isFree,
             position: Number.isFinite(d.position) ? Number(d.position) : i,
             checklist,
+            dutyHolders,
           });
         }
         await db.delete(meedScheduleDivisions).where(eq(meedScheduleDivisions.scheduleId, scheduleId));
@@ -2955,6 +3011,14 @@ export async function PATCH(req) {
           programId: meedSchedules.programId,
           title: meedSchedules.title,
           description: meedSchedules.description,
+          scheduleNumber: meedSchedules.scheduleNumber,
+          releasedBy: meedSchedules.releasedBy,
+          moderatorId: meedSchedules.moderatorId,
+          verifiedBy: meedSchedules.verifiedBy,
+          verifiedAt: meedSchedules.verifiedAt,
+          wefDate: meedSchedules.wefDate,
+          goal: meedSchedules.goal,
+          printOptions: meedSchedules.printOptions,
           active: meedSchedules.active,
           createdAt: meedSchedules.createdAt,
           updatedAt: meedSchedules.updatedAt,
@@ -2972,6 +3036,7 @@ export async function PATCH(req) {
           isFree: meedScheduleDivisions.isFree,
           position: meedScheduleDivisions.position,
           checklist: meedScheduleDivisions.checklist,
+          dutyHolders: meedScheduleDivisions.dutyHolders,
         })
         .from(meedScheduleDivisions)
         .where(eq(meedScheduleDivisions.scheduleId, scheduleId))
