@@ -107,6 +107,8 @@ export async function GET(req) {
     "slotsWeekly",
     "controlsShareSelf",
     "memberClubShareSelf",
+    "mhcpSlotDuties",
+    "mhcpSeeds",
   ]);
   const memberClubSections = new Set([
     "guardianGateLogs",
@@ -798,7 +800,8 @@ export async function GET(req) {
       if (!programId) {
         return NextResponse.json({ error: "Missing required param: programId" }, { status: 400 });
       }
-      const track = String(searchParams.get("track") || "").trim() || "both";
+      const trackParam = String(searchParams.get("track") || "").trim();
+      const track = trackParam && trackParam !== "both" ? trackParam : "";
       const day = String(searchParams.get("day") || "").trim();
       let where = eq(mhcpSlotDuties.programId, programId);
       if (track) where = and(where, eq(mhcpSlotDuties.track, track));
@@ -824,6 +827,14 @@ export async function GET(req) {
         .leftJoin(users, eq(users.id, mhcpSlotDuties.assignedUserId))
         .where(where)
         .orderBy(mhcpSlotDuties.dayName, mhcpSlotDuties.position, mhcpSlotDuties.id);
+      console.log("[mhcpSlotDuties][GET]", {
+        userId: session?.user?.id,
+        role: session?.user?.role,
+        programId,
+        track: track || "(all)",
+        day: day || "(all)",
+        count: rows.length,
+      });
       return NextResponse.json({ duties: rows }, { status: 200 });
     }
 
@@ -831,7 +842,8 @@ export async function GET(req) {
     if (section === "mhcpSeeds") {
       const programId = Number(searchParams.get("programId"));
       if (!programId) return NextResponse.json({ error: "programId required" }, { status: 400 });
-      const track = String(searchParams.get("track") || "both");
+      const trackParam = String(searchParams.get("track") || "").trim();
+      const track = trackParam && trackParam !== "both" ? trackParam : null;
       const rows = await db
         .select({
           id: mhcpSeeds.id,
@@ -843,8 +855,15 @@ export async function GET(req) {
           createdAt: mhcpSeeds.createdAt,
         })
         .from(mhcpSeeds)
-        .where(and(eq(mhcpSeeds.programId, programId), eq(mhcpSeeds.track, track)))
+        .where(track ? and(eq(mhcpSeeds.programId, programId), eq(mhcpSeeds.track, track)) : eq(mhcpSeeds.programId, programId))
         .orderBy(desc(mhcpSeeds.createdAt));
+      console.log("[mhcpSeeds][GET]", {
+        userId: session?.user?.id,
+        role: session?.user?.role,
+        programId,
+        track: track || "(all)",
+        count: rows.length,
+      });
       return NextResponse.json({ seeds: rows }, { status: 200 });
     }
 

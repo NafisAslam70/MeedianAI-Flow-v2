@@ -118,7 +118,7 @@ export default function ProgramDetailPage() {
   );
 
   const searchParams = useSearchParams();
-  const [track, setTrack] = useState("pre_primary");
+const [track, setTrack] = useState("both");
   const trackOptions = [
     { value: "pre_primary", label: "Pre-Primary" },
     { value: "elementary", label: "Elementary" },
@@ -134,7 +134,7 @@ export default function ProgramDetailPage() {
   const [cloneErr, setCloneErr] = useState("");
   // MHCP duties
   const isMhcpProgram = useMemo(() => String(program?.programKey || "").toUpperCase().startsWith("MHCP"), [program]);
-  const [dutyTrack, setDutyTrack] = useState("both");
+  const [dutyTrack, setDutyTrack] = useState("");
 const [dutyModerator, setDutyModerator] = useState("");
 const [dutyStartTime, setDutyStartTime] = useState("");
 const [dutyEndTime, setDutyEndTime] = useState("");
@@ -158,7 +158,7 @@ const [dutyNote, setDutyNote] = useState("");
 const [selectedSeedId, setSelectedSeedId] = useState(null);
   const daysList = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
   const { data: dutyData, mutate: refreshDuty } = useSWR(
-    isMhcpProgram && id ? `/api/admin/manageMeedian?section=mhcpSlotDuties&programId=${id}&track=${dutyTrack}` : null,
+    isMhcpProgram && id ? `/api/admin/manageMeedian?section=mhcpSlotDuties&programId=${id}&track=${dutyTrack || ""}` : null,
     fetcher
   );
   const { data: seedData, mutate: refreshSeeds } = useSWR(
@@ -170,7 +170,7 @@ const [selectedSeedId, setSelectedSeedId] = useState(null);
     const key = String(program?.programKey || "").toUpperCase();
     if ((key === "MHCP2" || program?.id === 5) && Array.isArray(dutyTimeDivisions) && dutyTimeDivisions.every((d,i)=>!d || d === `Division ${i+1}` || d === `Slot ${i+1}`)) {
       setDutyTimeDivisions([
-        "06:00–06:45 PM — Students finish leftover HW; TODs verify with diary; Warden signs diary.",
+        "06:00–06:45 PM — Students finish leftover HW; TODs verify with diary; Warden signs MRI card & diary.",
         "06:45–07:30 PM — TODs teach released curriculum.",
         "07:30–07:50 PM — Day-Close: Warden/App calls defaulters; Admin/COD handles HOD+IS."
       ]);
@@ -1058,7 +1058,7 @@ const schedulePage = `
   const [bulkSaving, setBulkSaving] = useState(false);
 
   useEffect(() => {
-    setTrack("pre_primary");
+    setTrack("both");
     setPeriodTrack("pre_primary");
     setPeriodCache({});
     setPeriodLoading(false);
@@ -1957,7 +1957,7 @@ const schedulePage = `
           title="Where this notice is circulated"
         />
         <select className="px-2 py-1.5 border rounded text-sm" value={dutyTrack} onChange={(e) => setDutyTrack(e.target.value)}>
-          <option value="both">Both</option>
+          <option value="">All Tracks</option>
           <option value="pre_primary">Pre-Primary</option>
           <option value="elementary">Elementary</option>
         </select>
