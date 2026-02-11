@@ -74,6 +74,7 @@ export default function HostelDefaultersPage() {
   const [callIndex, setCallIndex] = useState(0);
   const [activeTab, setActiveTab] = useState("capture"); // capture | analysis
   const [voicePref, setVoicePref] = useState("female"); // female | male | auto
+  const [callMode, setCallMode] = useState("standard"); // standard | fast
   const [statsRange, setStatsRange] = useState(() => {
     const today = new Date();
     const end = today.toISOString().slice(0, 10);
@@ -358,16 +359,20 @@ export default function HostelDefaultersPage() {
     defaulterOptions.forEach((opt) => {
       const names = groups.get(opt.value);
       if (names?.length) {
-        lines.push(`${opt.label} defaulters:`);
-        names.forEach((n, idx) => {
-          lines.push(`${idx + 1}. ${n}, please come forward.`);
-        });
+        if (callMode === "fast") {
+          lines.push(`${opt.label} defaulters: ${names.join(", ")}. Please come forward together.`);
+        } else {
+          lines.push(`${opt.label} defaulters:`);
+          names.forEach((n, idx) => {
+            lines.push(`${idx + 1}. ${n}, please come forward.`);
+          });
+        }
       }
     });
     if (!lines.length) lines.push("No defaulters recorded for today.");
 
     const footer =
-      "Dear Admin and Warden, kindly handle today’s defaulters. Students, thank you for listening — see you tomorrow, and let’s all stay off this list.";
+      "Dear Admin and Warden, kindly handle today’s defaulters. Students, thank you for listening — please try hard not to be on this list tomorrow.";
 
     return [header, ...lines, footer];
   };
@@ -453,7 +458,7 @@ export default function HostelDefaultersPage() {
       const voice = pickVoice(voicePref);
       if (voice) utter.voice = voice;
       utter.lang = voice?.lang || "en-US";
-      utter.rate = DEFAULT_CALL_RATE;
+      utter.rate = callMode === "fast" ? 0.9 : DEFAULT_CALL_RATE;
       utter.pitch = DEFAULT_CALL_PITCH;
       utter.volume = 1.0;
       utter.onstart = () => setSpeaking(true);
@@ -793,6 +798,23 @@ export default function HostelDefaultersPage() {
                   </Button>
                 )}
                 <div className="flex items-center gap-2 rounded-lg bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
+                  <span className="uppercase tracking-wide">Mode</span>
+                  {["standard", "fast"].map((opt) => (
+                    <button
+                      key={opt}
+                      type="button"
+                      onClick={() => setCallMode(opt)}
+                      className={`rounded px-2 py-1 font-semibold capitalize ${
+                        callMode === opt
+                          ? "bg-amber-600 text-white"
+                          : "bg-white text-slate-700 ring-1 ring-slate-200"
+                      }`}
+                    >
+                      {opt === "fast" ? "Fast (by category)" : "Standard (each name)"}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2 rounded-lg bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
                   <span className="uppercase tracking-wide">Voice</span>
                   {["female", "male", "auto"].map((opt) => (
                     <button
@@ -815,7 +837,7 @@ export default function HostelDefaultersPage() {
                   onClick={openCallModal}
                   className="inline-flex items-center gap-1"
                 >
-                  {speaking ? "Playing…" : "Play calls"}
+                  {speaking ? "Playing…" : "DELU-GPT Calls"}
                 </Button>
                 <Button
                   variant="light"

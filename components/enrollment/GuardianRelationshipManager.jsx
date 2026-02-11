@@ -231,6 +231,16 @@ const GuardianRelationshipManager = () => {
   const [selectedRandomLead, setSelectedRandomLead] = useState(null);
   const [selectedBeltLead, setSelectedBeltLead] = useState(null);
   const [selectedBeltKing, setSelectedBeltKing] = useState(null);
+  const [selectedLeadManager, setSelectedLeadManager] = useState(null);
+  const [selectedMgcpHead, setSelectedMgcpHead] = useState(null);
+  const [randomAssignBeltId, setRandomAssignBeltId] = useState("");
+  const [convertedEnrollments, setConvertedEnrollments] = useState([]);
+  const [selectedEnrollmentId, setSelectedEnrollmentId] = useState(null);
+  const [dueCalls, setDueCalls] = useState([]);
+  const [dueInstructions, setDueInstructions] = useState({});
+  const [instructionOpenId, setInstructionOpenId] = useState(null);
+  const [dueUpdateDrafts, setDueUpdateDrafts] = useState({});
+  const [dueUpdateOpenId, setDueUpdateOpenId] = useState(null);
   const [moveBeltTargetId, setMoveBeltTargetId] = useState("");
   const [currentUserName, setCurrentUserName] = useState("");
 
@@ -482,10 +492,18 @@ const GuardianRelationshipManager = () => {
 
   // Reset belt-specific selections when belt changes
   useEffect(() => {
-    setSelectedBeltLead(null);
-    setSelectedBeltKing(null);
-    setMoveBeltTargetId("");
-  }, [selectedBeltId]);
+      setSelectedBeltLead(null);
+      setSelectedBeltKing(null);
+      setMoveBeltTargetId("");
+      setSelectedLeadManager(null);
+    }, [selectedBeltId]);
+
+  // Reset head selection if list changes
+  useEffect(() => {
+    if (selectedMgcpHead && !mgcpHeads.some((h) => h.id === selectedMgcpHead.id)) {
+      setSelectedMgcpHead(null);
+    }
+  }, [mgcpHeads, selectedMgcpHead]);
 
   useEffect(() => {
     if (activeTab !== "mgcp") return;
@@ -554,6 +572,59 @@ const GuardianRelationshipManager = () => {
     setGuardianModalMode("add");
     setAddForm(buildAddForm());
     setIsAddOpen(true);
+  };
+
+  const convertGuardianToEnrollment = (guardian) => {
+    if (!guardian) return;
+    if (typeof window !== "undefined") {
+      const ok = window.confirm(`Mark "${guardian.name || "this guardian"}" as converted to enrollment?`);
+      if (!ok) return;
+    }
+    setConvertedEnrollments((prev) => {
+      if (prev.some((item) => item.id === guardian.id)) return prev;
+      return [
+        {
+          id: guardian.id,
+          name: guardian.name,
+          location: guardian.location,
+          phone: guardian.whatsapp || guardian.phone || "",
+          status: guardian.status || "converted",
+          createdAt: new Date().toISOString(),
+        },
+        ...prev,
+      ];
+    });
+    setSelectedEnrollmentId(guardian.id);
+    setActiveTab("enrollments");
+  };
+
+  const pushDueCall = (guardian, instruction) => {
+    if (!guardian) return;
+    const newId = Date.now();
+    setDueCalls((prev) => [
+      {
+        id: newId,
+        guardianId: guardian.id,
+        guardianName: guardian.name,
+        contact: guardian.whatsapp || guardian.phone || guardian.location || "",
+        followUpDate: "",
+        instruction: instruction?.trim() || "Call/WhatsApp this guardian and update status.",
+        createdAt: new Date().toISOString(),
+      },
+      ...prev,
+    ]);
+    setDueInstructions((prev) => {
+      const copy = { ...prev };
+      delete copy[guardian.id];
+      return copy;
+    });
+    setDueUpdateOpenId(newId);
+    setActiveTab("due-calls");
+  };
+
+  const cancelEnrollment = (guardianId) => {
+    setConvertedEnrollments((prev) => prev.filter((item) => item.id !== guardianId));
+    if (selectedEnrollmentId === guardianId) setSelectedEnrollmentId(null);
   };
 
   const openEditModal = (guardian) => {
@@ -1010,6 +1081,28 @@ const GuardianRelationshipManager = () => {
         }
         if (data?.interaction) {
           appendGuardianInteraction(guardianId, data.interaction);
+          if (interactionForm.followUpRequired || interactionForm.potentialLead) {
+            const instruction =
+              interactionForm.followUpNotes?.trim() ||
+              interactionForm.notes?.trim() ||
+              "Call/WhatsApp this guardian and update status.";
+            setDueCalls((prev) => [
+              {
+                id: Date.now(),
+                guardianId,
+                guardianName: interactionModal.guardian.name,
+                contact:
+                  interactionModal.guardian.whatsapp ||
+                  interactionModal.guardian.phone ||
+                  interactionModal.guardian.location ||
+                  "",
+                followUpDate: interactionForm.followUpDate || "",
+                instruction,
+                createdAt: new Date().toISOString(),
+              },
+              ...prev,
+            ]);
+          }
         }
       } else {
         const payload = {
@@ -1023,19 +1116,41 @@ const GuardianRelationshipManager = () => {
           followUpRequired: interactionForm.potentialLead || interactionForm.followUpRequired,
           followUpDate: interactionForm.followUpDate || null,
           followUpNotes: interactionForm.followUpNotes.trim() || (interactionForm.potentialLead ? "Potential King – follow up" : null),
-        };
-        const res = await fetch("/api/enrollment/communications", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          throw new Error(data?.error || "Failed to log call");
+      };
+      const res = await fetch("/api/enrollment/communications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || "Failed to log call");
+      }
+      if (data?.interaction) {
+        appendGuardianInteraction(guardianId, data.interaction);
+        if (interactionForm.followUpRequired || interactionForm.potentialLead) {
+          const instruction =
+            interactionForm.followUpNotes?.trim() ||
+            interactionForm.notes?.trim() ||
+            "Call/WhatsApp this guardian and update status.";
+          setDueCalls((prev) => [
+            {
+              id: Date.now(),
+              guardianId,
+              guardianName: interactionModal.guardian.name,
+              contact:
+                interactionModal.guardian.whatsapp ||
+                interactionModal.guardian.phone ||
+                interactionModal.guardian.location ||
+                "",
+              followUpDate: interactionForm.followUpDate || "",
+              instruction,
+              createdAt: new Date().toISOString(),
+            },
+            ...prev,
+          ]);
         }
-        if (data?.interaction) {
-          appendGuardianInteraction(guardianId, data.interaction);
-        }
+      }
       }
 
       closeInteractionModal();
@@ -1436,12 +1551,23 @@ const GuardianRelationshipManager = () => {
                       <Eye className="w-4 h-4" />
                       View
                     </Button>
-                <Button
-                  variant="light"
-                  className="px-3"
-                  onClick={() => openInteractionModal(guardian, "whatsapp")}
-                >
-                  <MessageCircle className="w-4 h-4" />
+                    {guardianGroup === "probable" && (
+                      <Button
+                        size="sm"
+                        variant="light"
+                        className="gap-2"
+                        onClick={() => convertGuardianToEnrollment(guardian)}
+                      >
+                        <TrendingUp className="w-4 h-4" />
+                        Mark Convert
+                      </Button>
+                    )}
+                    <Button
+                      variant="light"
+                      className="px-3"
+                      onClick={() => openInteractionModal(guardian, "whatsapp")}
+                    >
+                      <MessageCircle className="w-4 h-4" />
                 </Button>
                 <Button
                   variant="light"
@@ -1571,6 +1697,117 @@ const GuardianRelationshipManager = () => {
                         <p className="text-sm text-slate-600 mt-2">
                           {interaction.content || interaction.notes || "Interaction logged"}
                         </p>
+                        <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                          <Button
+                            size="sm"
+                            variant="light"
+                            onClick={() => {
+                              const guardian = probableGuardians.find((g) => g.id === interaction.guardianId);
+                              if (guardian) {
+                                setSelectedGuardian(guardian);
+                                setSelectedGuardianGroup("probable");
+                              }
+                            }}
+                          >
+                            View Details
+                          </Button>
+                          <div className="flex flex-1 min-w-[180px] items-center gap-2">
+                            <Input
+                              value={dueInstructions[interaction.guardianId] || ""}
+                              onChange={(e) =>
+                                setDueInstructions((prev) => ({
+                                  ...prev,
+                                  [interaction.guardianId]: e.target.value,
+                                }))
+                              }
+                              placeholder="Instruction for follow-up"
+                            />
+                          </div>
+                          {(() => {
+                            const pushedDue = dueCalls.find((d) => d.guardianId === interaction.guardianId);
+                            if (pushedDue) {
+                              return (
+                                <span className="text-[11px] text-teal-700">
+                                  Pushed to Due Calls · {formatDate(pushedDue.createdAt || interaction.createdAt)}
+                                </span>
+                              );
+                            }
+                            return (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => {
+                                  const guardian = probableGuardians.find((g) => g.id === interaction.guardianId);
+                                  if (guardian) {
+                                    setInstructionOpenId(
+                                      instructionOpenId === interaction.guardianId ? null : interaction.guardianId
+                                    );
+                                  }
+                                }}
+                              >
+                                Push to Due Calls
+                              </Button>
+                            );
+                          })()}
+                          {instructionOpenId === interaction.guardianId && (
+                            <div className="w-full rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2">
+                            <Input
+                              label="Instruction"
+                              value={dueInstructions[interaction.guardianId] || ""}
+                              onChange={(e) =>
+                                setDueInstructions((prev) => ({
+                                  ...prev,
+                                  [interaction.guardianId]: e.target.value,
+                                }))
+                              }
+                              placeholder="e.g., Call tomorrow and confirm visit schedule"
+                              autoFocus
+                              onMouseDown={(e) => e.stopPropagation()}
+                            />
+                              <div className="flex gap-2 justify-end">
+                                <Button
+                                  size="sm"
+                                  variant="light"
+                                  onClick={() => {
+                                    setInstructionOpenId(null);
+                                    setDueInstructions((prev) => {
+                                      const copy = { ...prev };
+                                      delete copy[interaction.guardianId];
+                                      return copy;
+                                    });
+                                  }}
+                                >
+                                  Cancel
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="secondary"
+                                  onClick={() => {
+                                    const guardian = probableGuardians.find(
+                                      (g) => g.id === interaction.guardianId
+                                    );
+                                    if (guardian) {
+                                      const instruction =
+                                        dueInstructions[interaction.guardianId]?.trim() ||
+                                        "Call/WhatsApp this guardian and update status.";
+                                      pushDueCall(guardian, instruction);
+                                      setInstructionOpenId(null);
+                                      setDueInstructions((prev) => {
+                                        const copy = { ...prev };
+                                        delete copy[interaction.guardianId];
+                                        return copy;
+                                      });
+                                    }
+                                  }}
+                                >
+                                  Confirm Push
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -3284,8 +3521,12 @@ const GuardianRelationshipManager = () => {
           className="flex flex-wrap gap-2"
           style={{ backgroundColor: "#eef8f3" }}
         >
-          {["dashboard", "guardians", "communications", "analytics", "mgcp"].map((tab) => {
-            const label = tab === "mgcp" ? "MGCP" : tab;
+          {["dashboard", "guardians", "communications", "analytics", "mgcp", "due-calls", "enrollments"].map((tab) => {
+            const labelMap = {
+              mgcp: "MGCP",
+              "due-calls": "Due Calls",
+            };
+            const label = labelMap[tab] || tab;
             return (
               <button
                 key={tab}
@@ -3306,6 +3547,182 @@ const GuardianRelationshipManager = () => {
       {activeTab === "dashboard" && <DashboardView />}
       {activeTab === "guardians" && <GuardiansListView />}
       {activeTab === "communications" && <CommunicationsView />}
+      {activeTab === "enrollments" && (
+        <Card>
+          <CardHeader>
+            <h3 className="text-sm font-semibold text-slate-700">Enrollments</h3>
+            <p className="text-xs text-slate-500">Probable kings converted to enrollments.</p>
+          </CardHeader>
+          <CardBody className="space-y-3">
+            {convertedEnrollments.length ? (
+              convertedEnrollments.map((enroll) => (
+                <div
+                  key={enroll.id}
+                  className={`flex items-center justify-between rounded-xl border px-3 py-2 text-sm ${
+                    selectedEnrollmentId === enroll.id ? "border-teal-200 bg-teal-50" : "border-slate-200"
+                  }`}
+                  onClick={() => setSelectedEnrollmentId(enroll.id)}
+                >
+                  <div>
+                    <p className="font-semibold text-slate-800">{enroll.name}</p>
+                    <p className="text-xs text-slate-500">{enroll.location || "No location"}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="light"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const guardian =
+                          probableGuardians.find((g) => g.id === enroll.id) ||
+                          ongoingGuardians.find((g) => g.id === enroll.id);
+                        if (guardian) {
+                          setSelectedGuardian(guardian);
+                          setSelectedGuardianGroup(
+                            probableGuardians.some((g) => g.id === enroll.id) ? "probable" : "ongoing"
+                          );
+                        }
+                      }}
+                    >
+                      View
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (typeof window === "undefined" || window.confirm(`Cancel conversion for "${enroll.name}"?`)) {
+                          cancelEnrollment(enroll.id);
+                        }
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                    <Badge color="teal">Converted</Badge>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-slate-500">No enrollments yet. Convert from Probable Kings.</p>
+            )}
+          </CardBody>
+        </Card>
+      )}
+      {activeTab === "due-calls" && (
+        <Card>
+          <CardHeader>
+            <h3 className="text-sm font-semibold text-slate-700">Due Calls</h3>
+            <p className="text-xs text-slate-500">Follow-ups flagged from interactions.</p>
+          </CardHeader>
+          <CardBody className="space-y-3">
+            {dueCalls.length ? (
+              dueCalls.map((due) => (
+                <div key={due.id} className="rounded-xl border border-slate-200 px-3 py-2 text-sm">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-semibold text-slate-800">{due.guardianName}</p>
+                      <p className="text-xs text-slate-500">{due.contact || "No contact"}</p>
+                    </div>
+                    <Badge color="amber">Follow up</Badge>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">
+                    {due.followUpDate ? `Due: ${formatDate(due.followUpDate)}` : "No due date set"}
+                  </p>
+                  <p className="text-xs text-slate-600 mt-1 whitespace-pre-line">
+                    Instruction: {due.instruction || "Reach out and update status."}
+                  </p>
+                  <div className="mt-3">
+                    {dueUpdateOpenId === due.id ? (
+                      <div className="space-y-2 rounded-lg border border-slate-200 p-3 bg-slate-50">
+                        <Select
+                          label="Follow-up method"
+                          value={dueUpdateDrafts[due.id]?.method || "call"}
+                          onChange={(e) =>
+                            setDueUpdateDrafts((prev) => ({
+                              ...prev,
+                              [due.id]: { ...(prev[due.id] || {}), method: e.target.value },
+                            }))
+                          }
+                        >
+                          <option value="call">Call</option>
+                          <option value="whatsapp">WhatsApp / Text</option>
+                          <option value="visit">Visit</option>
+                        </Select>
+                        <Input
+                          label="What did you do?"
+                          value={dueUpdateDrafts[due.id]?.notes || ""}
+                          onChange={(e) =>
+                            setDueUpdateDrafts((prev) => ({
+                              ...prev,
+                              [due.id]: { ...(prev[due.id] || {}), notes: e.target.value },
+                            }))
+                          }
+                          placeholder="E.g., Called guardian, confirmed meeting for Friday."
+                        />
+                        <div className="flex gap-2 justify-end">
+                          <Button
+                            size="sm"
+                            variant="light"
+                            onClick={() => {
+                              setDueUpdateOpenId(null);
+                              setDueUpdateDrafts((prev) => {
+                                const copy = { ...prev };
+                                delete copy[due.id];
+                                return copy;
+                              });
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={() => {
+                              const draft = dueUpdateDrafts[due.id] || {};
+                              const method = draft.method || "call";
+                              const notes = draft.notes?.trim() || "Follow-up recorded.";
+                              setDueCalls((prev) =>
+                                prev.map((item) =>
+                                  item.id === due.id
+                                    ? {
+                                        ...item,
+                                        lastUpdate: { method, notes, at: new Date().toISOString() },
+                                      }
+                                    : item
+                                )
+                              );
+                              setDueUpdateOpenId(null);
+                              setDueUpdateDrafts((prev) => {
+                                const copy = { ...prev };
+                                delete copy[due.id];
+                                return copy;
+                              });
+                            }}
+                          >
+                            Save update
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between text-xs text-slate-500">
+                        <span>
+                          {due.lastUpdate
+                            ? `Last update: ${due.lastUpdate.method} · ${due.lastUpdate.notes}`
+                            : "No follow-up logged yet."}
+                        </span>
+                            <Button size="sm" variant="light" onClick={() => setDueUpdateOpenId(due.id)}>
+                              Update
+                            </Button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-slate-500">No due calls yet. Mark follow-up when logging interactions.</p>
+            )}
+          </CardBody>
+        </Card>
+      )}
       {activeTab === "analytics" && (
         <Card>
           <CardBody className="py-10 text-center">
@@ -3390,11 +3807,37 @@ const GuardianRelationshipManager = () => {
                 </div>
 
                 <div className="space-y-2">
+                  {selectedMgcpHead && (
+                    <div className="rounded-xl border border-teal-100 bg-teal-50/70 px-3 py-3 text-sm">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="font-semibold text-teal-800">{selectedMgcpHead.name}</p>
+                          <p className="text-xs text-teal-700">{selectedMgcpHead.email || "No email"}</p>
+                          <p className="text-[11px] text-slate-500">{selectedMgcpHead.role || "Role unknown"}</p>
+                        </div>
+                        <Badge color="teal">MGCP Head</Badge>
+                      </div>
+                      <p className="mt-2 text-[11px] text-slate-400">
+                        User ID: {selectedMgcpHead.userId ?? "—"}
+                        {selectedMgcpHead.id ? ` · Head ID: ${selectedMgcpHead.id}` : ""}
+                      </p>
+                    </div>
+                  )}
                   {mgcpHeads.length ? (
                     mgcpHeads.map((head) => (
                       <div
                         key={head.id}
-                        className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setSelectedMgcpHead(head)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") setSelectedMgcpHead(head);
+                        }}
+                        className={`flex items-center justify-between rounded-xl border px-3 py-2 text-sm transition ${
+                          selectedMgcpHead?.id === head.id
+                            ? "border-teal-200 bg-teal-50"
+                            : "border-slate-200 hover:bg-slate-50"
+                        }`}
                       >
                         <div>
                           <p className="font-medium text-slate-800">{head.name}</p>
@@ -3403,14 +3846,15 @@ const GuardianRelationshipManager = () => {
                         <Button
                           variant="light"
                           size="sm"
-                          onClick={() =>
+                          onClick={(e) => {
+                            e.stopPropagation();
                             runMgcpAction({
                               url: "/api/enrollment/mgcp/heads",
                               method: "DELETE",
                               body: { id: head.id },
                               afterSuccess: () => loadMgcpHeads(),
-                            })
-                          }
+                            });
+                          }}
                         >
                           <Trash2 className="w-4 h-4 text-rose-600" />
                         </Button>
@@ -4267,11 +4711,45 @@ const GuardianRelationshipManager = () => {
                               <CardBody className="space-y-4">
                                 {selectedBelt ? (
                                   <div className="space-y-4">
+                                    {selectedLeadManager && (
+                                      <div className="rounded-xl border border-teal-100 bg-teal-50/70 p-4 space-y-2 text-sm">
+                                        <div className="flex flex-wrap items-start justify-between gap-2">
+                                          <div>
+                                            <p className="text-sm font-semibold text-teal-800">{selectedLeadManager.name}</p>
+                                            <p className="text-xs text-teal-700">
+                                              {selectedLeadManager.phone || selectedLeadManager.whatsapp || "No contact"}
+                                            </p>
+                                          </div>
+                                          <Badge color="teal">Lead Manager</Badge>
+                                        </div>
+                                        <p className="text-xs text-slate-500">
+                                          Notes: {selectedLeadManager.notes || "No notes yet."}
+                                        </p>
+                                        <p className="text-[11px] text-slate-400">
+                                          {selectedLeadManager.createdByName
+                                            ? `by ${selectedLeadManager.createdByName}`
+                                            : selectedLeadManager.createdBy
+                                            ? `by User ${selectedLeadManager.createdBy}`
+                                            : "Unknown"}
+                                          {selectedLeadManager.createdAt ? ` · ${formatDate(selectedLeadManager.createdAt)}` : ""}
+                                        </p>
+                                      </div>
+                                    )}
                                     {(selectedBelt.leadManagers || []).length ? (
                                       selectedBelt.leadManagers.map((manager) => (
                                         <div
                                           key={manager.id}
-                                          className="rounded-xl border border-slate-200 p-4 space-y-3"
+                                          role="button"
+                                          tabIndex={0}
+                                          onClick={() => setSelectedLeadManager(manager)}
+                                          onKeyDown={(e) => {
+                                            if (e.key === "Enter" || e.key === " ") setSelectedLeadManager(manager);
+                                          }}
+                                          className={`rounded-xl border p-4 space-y-3 transition ${
+                                            selectedLeadManager?.id === manager.id
+                                              ? "border-teal-200 bg-teal-50"
+                                              : "border-slate-200 hover:bg-slate-50"
+                                          }`}
                                         >
                                           <div className="flex flex-wrap items-center justify-between gap-2">
                                             <div>
@@ -4291,13 +4769,14 @@ const GuardianRelationshipManager = () => {
                                             <Button
                                               size="sm"
                                               variant="light"
-                                              onClick={() =>
+                                              onClick={(e) => {
+                                                e.stopPropagation();
                                                 runMgcpAction({
                                                   url: "/api/enrollment/mgcp/lead-managers",
                                                   method: "DELETE",
                                                   body: { id: manager.id },
                                                 })
-                                              }
+                                              }}
                                             >
                                               Remove
                                             </Button>
@@ -4378,7 +4857,7 @@ const GuardianRelationshipManager = () => {
                             </CardHeader>
                             <CardBody className="space-y-3 text-sm">
                               {selectedRandomLead && (
-                                <div className="rounded-xl border border-teal-100 bg-teal-50/60 px-3 py-3">
+                                <div className="rounded-xl border border-teal-100 bg-teal-50/60 px-3 py-3 space-y-3">
                                   <div className="flex items-start justify-between">
                                     <div>
                                       <p className="text-sm font-semibold text-teal-800">{selectedRandomLead.name}</p>
@@ -4398,7 +4877,7 @@ const GuardianRelationshipManager = () => {
                                     </div>
                                     <div>
                                       <p className="font-semibold text-slate-700">Source</p>
-                                      <p>{selectedRandomLead.source || "Unknown"}</p>
+                                      <p>{selectedRandomLead.source === "student_enquiry" ? "Student Enquiry" : selectedRandomLead.source || "Unknown"}</p>
                                     </div>
                                     <div>
                                       <p className="font-semibold text-slate-700">Notes</p>
@@ -4413,6 +4892,39 @@ const GuardianRelationshipManager = () => {
                                       </p>
                                     </div>
                                   </div>
+                                  <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2 items-end">
+                                    <Select
+                                      label="Push to belt"
+                                      value={randomAssignBeltId}
+                                      onChange={(e) => setRandomAssignBeltId(e.target.value)}
+                                    >
+                                      <option value="">Select belt…</option>
+                                      {mgcpBelts.map((belt) => (
+                                        <option key={belt.id} value={belt.id}>
+                                          {belt.name}
+                                        </option>
+                                      ))}
+                                    </Select>
+                                    <Button
+                                      size="sm"
+                                      disabled={!randomAssignBeltId}
+                                      onClick={() => {
+                                        confirmAndRun(
+                                          {
+                                            url: "/api/enrollment/mgcp/leads",
+                                            method: "PATCH",
+                                            body: { id: selectedRandomLead.id, beltId: Number(randomAssignBeltId) },
+                                          },
+                                          `Push "${selectedRandomLead.name}" to selected belt?`
+                                        )?.then(() => {
+                                          setSelectedRandomLead(null);
+                                          setRandomAssignBeltId("");
+                                        });
+                                      }}
+                                    >
+                                      Push to Belt Leads
+                                    </Button>
+                                  </div>
                                 </div>
                               )}
 
@@ -4422,9 +4934,19 @@ const GuardianRelationshipManager = () => {
                                     key={lead.id}
                                     role="button"
                                     tabIndex={0}
-                                    onClick={() => setSelectedRandomLead(lead)}
+                                    onClick={() => {
+                                      setSelectedRandomLead(lead);
+                                      setRandomAssignBeltId(
+                                        selectedBeltId || (mgcpBelts[0]?.id ? String(mgcpBelts[0].id) : "")
+                                      );
+                                    }}
                                     onKeyDown={(e) => {
-                                      if (e.key === "Enter" || e.key === " ") setSelectedRandomLead(lead);
+                                      if (e.key === "Enter" || e.key === " ") {
+                                        setSelectedRandomLead(lead);
+                                        setRandomAssignBeltId(
+                                          selectedBeltId || (mgcpBelts[0]?.id ? String(mgcpBelts[0].id) : "")
+                                        );
+                                      }
                                     }}
                                     className={`w-full text-left rounded-lg border px-3 py-2 transition focus:outline-none focus:ring-2 focus:ring-teal-400 ${
                                       selectedRandomLead?.id === lead.id
@@ -4439,6 +4961,11 @@ const GuardianRelationshipManager = () => {
                                         <p className="text-[11px] font-semibold text-teal-600">
                                           {lead.category || "MGCP Lead"}
                                         </p>
+                                        {lead.source && (
+                                          <p className="text-[11px] text-amber-700">
+                                            Source: {lead.source === "student_enquiry" ? "Student Enquiry (Managerial Club)" : lead.source}
+                                          </p>
+                                        )}
                                         <p className="text-[11px] text-slate-400">
                                           by {lead.createdByName || lookupUserName(lead.createdBy) || (lead.createdBy ? `User ${lead.createdBy}` : "Unknown")}
                                           {lead.createdAt ? ` · ${formatDate(lead.createdAt)}` : ""}
