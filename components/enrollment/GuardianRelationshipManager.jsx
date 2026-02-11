@@ -229,6 +229,9 @@ const GuardianRelationshipManager = () => {
   const [mgcpUsers, setMgcpUsers] = useState([]);
   const [selectedBeltId, setSelectedBeltId] = useState("");
   const [selectedRandomLead, setSelectedRandomLead] = useState(null);
+  const [selectedBeltLead, setSelectedBeltLead] = useState(null);
+  const [selectedBeltKing, setSelectedBeltKing] = useState(null);
+  const [moveBeltTargetId, setMoveBeltTargetId] = useState("");
   const [currentUserName, setCurrentUserName] = useState("");
 
   const lookupUserName = useCallback(
@@ -476,6 +479,13 @@ const GuardianRelationshipManager = () => {
       setSelectedBeltId(String(mgcpBelts[0].id));
     }
   }, [mgcpBelts, selectedBeltId]);
+
+  // Reset belt-specific selections when belt changes
+  useEffect(() => {
+    setSelectedBeltLead(null);
+    setSelectedBeltKing(null);
+    setMoveBeltTargetId("");
+  }, [selectedBeltId]);
 
   useEffect(() => {
     if (activeTab !== "mgcp") return;
@@ -1054,6 +1064,14 @@ const GuardianRelationshipManager = () => {
       setMgcpActionState({ saving: false, error: error.message || "MGCP action failed" });
       return null;
     }
+  };
+
+  const confirmAndRun = (request, message = "Are you sure you want to delete this item?") => {
+    // Prevent overlapping actions
+    if (mgcpActionState.saving) return;
+    const ok = typeof window === "undefined" ? true : window.confirm(message);
+    if (!ok) return;
+    return runMgcpAction(request);
   };
 
   const toggleIncludeInactive = () => {
@@ -3852,6 +3870,30 @@ const GuardianRelationshipManager = () => {
                                         </h4>
                                       </CardHeader>
                                       <CardBody className="space-y-3">
+                                        {selectedBeltKing && (
+                                          <div className="rounded-xl border border-teal-100 bg-teal-50/70 px-3 py-3 text-sm">
+                                            <div className="flex items-start justify-between gap-2">
+                                              <div>
+                                                <p className="font-semibold text-teal-800">
+                                                  {selectedBeltKing.guardianName || "Unnamed King"}
+                                                </p>
+                                                <p className="text-xs text-teal-700">
+                                                  {selectedBeltKing.guardianPhone || selectedBeltKing.guardianWhatsapp || "No contact"}
+                                                </p>
+                                                <p className="text-[11px] text-slate-500">
+                                                  {selectedBeltKing.notes || "No notes"}
+                                                </p>
+                                              </div>
+                                              <Badge color={selectedBeltKing.isTrusted ? "teal" : "gray"}>
+                                                {selectedBeltKing.isTrusted ? "Trusted" : "Untrusted"}
+                                              </Badge>
+                                            </div>
+                                            <p className="mt-2 text-[11px] text-slate-400">
+                                              {selectedBeltKing.createdByName ? `by ${selectedBeltKing.createdByName}` : ""}
+                                              {selectedBeltKing.createdAt ? ` · ${formatDate(selectedBeltKing.createdAt)}` : ""}
+                                            </p>
+                                          </div>
+                                        )}
                                         <div className="flex flex-col gap-2">
                                           <Select
                                             label="Pick from ongoing guardians"
@@ -3974,7 +4016,17 @@ const GuardianRelationshipManager = () => {
                                           {(selectedBelt.guardians || []).map((guard) => (
                                             <div
                                               key={guard.id}
-                                              className="flex items-center justify-between rounded-lg border border-slate-200 px-2 py-1"
+                                              role="button"
+                                              tabIndex={0}
+                                              onClick={() => setSelectedBeltKing(guard)}
+                                              onKeyDown={(e) => {
+                                                if (e.key === "Enter" || e.key === " ") setSelectedBeltKing(guard);
+                                              }}
+                                              className={`flex items-center justify-between rounded-lg border px-2 py-1 transition ${
+                                                selectedBeltKing?.id === guard.id
+                                                  ? "border-teal-200 bg-teal-50"
+                                                  : "border-slate-200 hover:bg-slate-50"
+                                              }`}
                                             >
                                               <div>
                                                 <p className="font-medium text-slate-700">{guard.guardianName}</p>
@@ -3988,29 +4040,34 @@ const GuardianRelationshipManager = () => {
                                                   className={`text-xs font-semibold ${
                                                     guard.isTrusted ? "text-teal-700" : "text-slate-400"
                                                   }`}
-                                                  onClick={() =>
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
                                                     runMgcpAction({
                                                       url: "/api/enrollment/mgcp/guardians",
                                                       method: "PATCH",
                                                       body: { id: guard.id, isTrusted: !guard.isTrusted },
                                                     })
-                                                  }
+                                                  }}
                                                 >
                                                   {guard.isTrusted ? "Trusted" : "Trust?"}
                                                 </button>
                                                 <Button
                                                   variant="ghost"
                                                   size="sm"
-                                                  onClick={() =>
-                                                    runMgcpAction({
-                                                      url: "/api/enrollment/mgcp/guardians",
-                                                      method: "DELETE",
-                                                      body: { id: guard.id },
-                                                    })
-                                                  }
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    confirmAndRun(
+                                                      {
+                                                        url: "/api/enrollment/mgcp/guardians",
+                                                        method: "DELETE",
+                                                        body: { id: guard.id },
+                                                      },
+                                                      `Delete king "${guard.guardianName || "(no name)"}"?`
+                                                    )
+                                                  }}
                                                 >
-                                                  <Trash2 className="w-4 h-4 text-rose-600" />
-                                                </Button>
+                                                <Trash2 className="w-4 h-4 text-rose-600" />
+                                              </Button>
                                               </div>
                                             </div>
                                           ))}
@@ -4033,11 +4090,103 @@ const GuardianRelationshipManager = () => {
                                         </div>
                                       </CardHeader>
                                       <CardBody className="space-y-2 text-sm">
+                                        {selectedBeltLead && (
+                                          <div className="rounded-xl border border-teal-100 bg-teal-50/70 px-3 py-3">
+                                            <div className="flex items-start justify-between">
+                                              <div>
+                                                <p className="font-semibold text-teal-800">{selectedBeltLead.name}</p>
+                                                <p className="text-xs text-teal-700">
+                                                  {selectedBeltLead.phone || selectedBeltLead.whatsapp || "No contact"}
+                                                </p>
+                                                <p className="text-[11px] text-slate-500">
+                                                  {selectedBeltLead.location || "No location"}
+                                                </p>
+                                              </div>
+                                              <Badge color={selectedBeltLead.status === "won" ? "teal" : selectedBeltLead.status === "lost" ? "rose" : "amber"}>
+                                                {selectedBeltLead.status || "new"}
+                                              </Badge>
+                                            </div>
+                                            <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] text-slate-600">
+                                              <div>
+                                                <p className="font-semibold text-slate-700">Category</p>
+                                                <p>{selectedBeltLead.category || "MGCP Lead"}</p>
+                                              </div>
+                                              <div>
+                                                <p className="font-semibold text-slate-700">Source</p>
+                                                <p>{selectedBeltLead.source || "Belt"}</p>
+                                              </div>
+                                              <div className="md:col-span-2">
+                                                <p className="font-semibold text-slate-700">Notes</p>
+                                                <p className="whitespace-pre-line">{selectedBeltLead.notes || "No notes"}</p>
+                                              </div>
+                                              <div className="md:col-span-2">
+                                                <p className="font-semibold text-slate-700">Created</p>
+                                                <p>
+                                                  {selectedBeltLead.createdByName
+                                                    ? `by ${selectedBeltLead.createdByName}`
+                                                    : selectedBeltLead.createdBy
+                                                    ? `by User ${selectedBeltLead.createdBy}`
+                                                    : "Unknown"}{" "}
+                                                  {selectedBeltLead.createdAt ? `· ${formatDate(selectedBeltLead.createdAt)}` : ""}
+                                                </p>
+                                              </div>
+                                            </div>
+                                            <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
+                                              <Select
+                                                label="Move to belt"
+                                                value={moveBeltTargetId || ""}
+                                                onChange={(event) => setMoveBeltTargetId(event.target.value)}
+                                              >
+                                                <option value="">Select belt…</option>
+                                                {mgcpBelts.map((belt) => (
+                                                  <option key={belt.id} value={belt.id}>
+                                                    {belt.name}
+                                                  </option>
+                                                ))}
+                                              </Select>
+                                              <Button
+                                                size="sm"
+                                                disabled={!moveBeltTargetId || String(moveBeltTargetId) === String(selectedBeltId)}
+                                                onClick={() =>
+                                                  confirmAndRun(
+                                                    {
+                                                      url: "/api/enrollment/mgcp/leads",
+                                                      method: "PATCH",
+                                                      body: { id: selectedBeltLead.id, beltId: Number(moveBeltTargetId) },
+                                                    },
+                                                    `Move lead "${selectedBeltLead.name}" to a different belt?`
+                                                  )?.then(() => {
+                                                    setSelectedBeltLead(null);
+                                                    setMoveBeltTargetId("");
+                                                  })
+                                                }
+                                              >
+                                                Move
+                                              </Button>
+                                            </div>
+                                          </div>
+                                        )}
                                         {(selectedBelt.leads || []).length ? (
                                           (selectedBelt.leads || []).map((lead) => (
                                             <div
                                               key={lead.id}
-                                              className="flex items-center justify-between rounded-lg border border-slate-200 px-2 py-1"
+                                              role="button"
+                                              tabIndex={0}
+                                              onClick={() => {
+                                                setSelectedBeltLead(lead);
+                                                setMoveBeltTargetId(String(selectedBeltId));
+                                              }}
+                                              onKeyDown={(e) => {
+                                                if (e.key === "Enter" || e.key === " ") {
+                                                  setSelectedBeltLead(lead);
+                                                  setMoveBeltTargetId(String(selectedBeltId));
+                                                }
+                                              }}
+                                              className={`flex items-center justify-between rounded-lg border px-2 py-1 transition ${
+                                                selectedBeltLead?.id === lead.id
+                                                  ? "border-teal-200 bg-teal-50"
+                                                  : "border-slate-200 hover:bg-slate-50"
+                                              }`}
                                             >
                                               <div>
                                                 <p className="font-medium text-slate-700">{lead.name}</p>
@@ -4046,13 +4195,17 @@ const GuardianRelationshipManager = () => {
                                               <Button
                                                 variant="ghost"
                                                 size="sm"
-                                                onClick={() =>
-                                                  runMgcpAction({
-                                                    url: "/api/enrollment/mgcp/leads",
-                                                    method: "DELETE",
-                                                    body: { id: lead.id },
-                                                  })
-                                                }
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  confirmAndRun(
+                                                    {
+                                                      url: "/api/enrollment/mgcp/leads",
+                                                      method: "DELETE",
+                                                      body: { id: lead.id },
+                                                    },
+                                                    `Delete belt lead "${lead.name}"?`
+                                                  )
+                                                }}
                                               >
                                                 <Trash2 className="w-4 h-4 text-rose-600" />
                                               </Button>
@@ -4302,21 +4455,27 @@ const GuardianRelationshipManager = () => {
                                           className="inline-flex items-center justify-center rounded-lg border border-transparent px-2 py-1 text-rose-600 hover:bg-rose-50 focus:outline-none focus:ring-2 focus:ring-rose-300"
                                           onClick={(e) => {
                                             e.stopPropagation();
-                                            runMgcpAction({
-                                              url: "/api/enrollment/mgcp/leads",
-                                              method: "DELETE",
-                                              body: { id: lead.id },
-                                            });
+                                            confirmAndRun(
+                                              {
+                                                url: "/api/enrollment/mgcp/leads",
+                                                method: "DELETE",
+                                                body: { id: lead.id },
+                                              },
+                                              `Delete lead "${lead.name}"?`
+                                            );
                                           }}
                                           onKeyDown={(e) => {
                                             if (e.key === "Enter" || e.key === " ") {
                                               e.preventDefault();
                                               e.stopPropagation();
-                                              runMgcpAction({
-                                                url: "/api/enrollment/mgcp/leads",
-                                                method: "DELETE",
-                                                body: { id: lead.id },
-                                              });
+                                              confirmAndRun(
+                                                {
+                                                  url: "/api/enrollment/mgcp/leads",
+                                                  method: "DELETE",
+                                                  body: { id: lead.id },
+                                                },
+                                                `Delete lead "${lead.name}"?`
+                                              );
                                             }
                                           }}
                                         >

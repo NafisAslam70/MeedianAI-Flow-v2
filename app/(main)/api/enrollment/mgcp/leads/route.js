@@ -4,6 +4,10 @@ import { db } from "@/lib/db";
 import { mgcpLeads, memberSectionGrants } from "@/lib/schema";
 import { and, asc, eq, isNull } from "drizzle-orm";
 
+// Only admins and team managers can mutate leads (PATCH/DELETE)
+const requireManager = (session) =>
+  Boolean(session?.user) && ["admin", "team_manager"].includes(session.user.role);
+
 const hasLeadAccess = async (session) => {
   if (!session?.user) return false;
   if (["admin", "team_manager"].includes(session.user.role)) return true;
@@ -123,6 +127,10 @@ export async function PATCH(request) {
   if (typeof body?.guardianId !== "undefined") {
     const nextGuardianId = Number(body.guardianId);
     updates.guardianId = Number.isFinite(nextGuardianId) ? nextGuardianId : null;
+  }
+  if (typeof body?.beltId !== "undefined") {
+    const nextBeltId = Number(body.beltId);
+    updates.beltId = Number.isFinite(nextBeltId) ? nextBeltId : null;
   }
 
   try {

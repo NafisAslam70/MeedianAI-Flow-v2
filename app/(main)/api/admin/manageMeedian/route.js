@@ -2019,6 +2019,7 @@ export async function POST(req) {
           moderatorId: meedSchedules.moderatorId,
           verifiedBy: meedSchedules.verifiedBy,
           verifiedAt: meedSchedules.verifiedAt,
+          wefDate: meedSchedules.wefDate,
           goal: meedSchedules.goal,
           printOptions: meedSchedules.printOptions,
           active: meedSchedules.active,
