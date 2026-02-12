@@ -241,6 +241,7 @@ const GuardianRelationshipManager = () => {
   const [instructionOpenId, setInstructionOpenId] = useState(null);
   const [dueUpdateDrafts, setDueUpdateDrafts] = useState({});
   const [dueUpdateOpenId, setDueUpdateOpenId] = useState(null);
+  const [searchDraft, setSearchDraft] = useState("");
   const [moveBeltTargetId, setMoveBeltTargetId] = useState("");
   const [currentUserName, setCurrentUserName] = useState("");
 
@@ -553,6 +554,12 @@ const GuardianRelationshipManager = () => {
   const totalGuardians = ongoingCount + probableCount;
   const isLoading = guardianGroup === "ongoing" ? loadingOngoing : loadingProbable;
   const currentError = guardianGroup === "ongoing" ? loadErrorOngoing : loadErrorProbable;
+
+  // debounce search input to avoid state resets
+  useEffect(() => {
+    const id = setTimeout(() => setSearchTerm(searchDraft), 120);
+    return () => clearTimeout(id);
+  }, [searchDraft]);
 
   const avgEngagement = probableGuardians.length
     ? Math.round(
@@ -1323,8 +1330,9 @@ const GuardianRelationshipManager = () => {
               type="text"
               placeholder="Search guardians by name or location..."
               className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
-              value={searchTerm}
-              onChange={(event) => setSearchTerm(event.target.value)}
+              value={searchDraft}
+              onChange={(event) => setSearchDraft(event.target.value)}
+              autoComplete="off"
             />
           </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
