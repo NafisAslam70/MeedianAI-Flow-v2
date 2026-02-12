@@ -128,6 +128,18 @@ export async function POST(request) {
       return unauthorized();
     }
 
+    // Prevent duplicate WhatsApp entries
+    const existing = await db
+      .select({ id: enrollmentGuardians.id, name: enrollmentGuardians.name })
+      .from(enrollmentGuardians)
+      .where(eq(enrollmentGuardians.whatsapp, whatsapp));
+    if (existing.length) {
+      return NextResponse.json(
+        { error: `Guardian already exists with this WhatsApp (id ${existing[0].id})` },
+        { status: 409 }
+      );
+    }
+
     const [newGuardian] = await db
       .insert(enrollmentGuardians)
       .values({
@@ -172,6 +184,12 @@ export async function POST(request) {
     return NextResponse.json({ guardian: newGuardian }, { status: 201 });
   } catch (error) {
     console.error("Error creating guardian:", error);
+    if (error?.code === "23505") {
+      return NextResponse.json(
+        { error: "Guardian already exists with this WhatsApp number" },
+        { status: 409 }
+      );
+    }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

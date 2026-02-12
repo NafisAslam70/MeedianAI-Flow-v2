@@ -838,10 +838,10 @@ export default function HostelDefaultersPage() {
                   ))}
                 </div>
                 <Button
-                  variant="secondary"
-                  size="xs"
+                  variant="primary"
+                  size="sm"
                   onClick={openCallModal}
-                  className="inline-flex items-center gap-1"
+                  className="inline-flex items-center gap-1 shadow-md ring-2 ring-teal-200"
                 >
                   {speaking ? "Playing…" : "DELU-GPT Calls"}
                 </Button>
