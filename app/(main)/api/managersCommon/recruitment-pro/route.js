@@ -17,6 +17,7 @@ import {
   mriPrograms,
   recruitmentBench,
   recruitmentBenchPushes,
+  users,
 } from "@/lib/schema";
 import { and, desc, eq, gte, inArray, isNull, ne, or, sql } from "drizzle-orm";
 
@@ -452,9 +453,11 @@ export async function GET(req) {
         followUpDate: recruitmentCommunicationLog.followUpDate,
         notes: recruitmentCommunicationLog.notes,
         createdBy: recruitmentCommunicationLog.createdBy,
+        createdByName: users.name,
       })
       .from(recruitmentCommunicationLog)
       .leftJoin(recruitmentMetaStages, eq(recruitmentCommunicationLog.stageId, recruitmentMetaStages.id))
+      .leftJoin(users, eq(users.id, recruitmentCommunicationLog.createdBy))
       .orderBy(desc(recruitmentCommunicationLog.communicationDate), desc(recruitmentCommunicationLog.id));
 
     return NextResponse.json(
