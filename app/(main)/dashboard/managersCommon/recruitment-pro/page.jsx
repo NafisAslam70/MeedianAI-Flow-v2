@@ -1235,9 +1235,9 @@ export default function RecruitmentProPage() {
                       <div className="text-[11px] text-slate-500">{log.communicationMethod} · {log.outcome}</div>
                       <div className="text-sm text-slate-700 font-medium mt-1">{log.subject || "No subject"}</div>
                       <div className="text-[11px] text-slate-600 mt-0.5 line-clamp-2">{log.notes || ""}</div>
-                      {log.createdByName && (
-                        <div className="text-[10px] text-slate-400 mt-1">by {log.createdByName}</div>
-                      )}
+                      <div className="text-[10px] text-slate-400 mt-1">
+                        by {log.createdByName || (log.createdBy ? `User ${log.createdBy}` : "Unknown")}
+                      </div>
                     </div>
                   ))}
                 </div>
