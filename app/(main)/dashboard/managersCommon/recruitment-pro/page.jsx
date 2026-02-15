@@ -1199,6 +1199,51 @@ export default function RecruitmentProPage() {
 
       {activeTab === "pipeline" && (
         <div className="space-y-6">
+          <SectionCard title="Recent Conversations" subtitle="Latest logged comms across all candidates." className="space-y-2">
+            {(() => {
+              const rows = pipelineSwr.data?.rows || [];
+              const recent = [];
+              rows.forEach((row) => {
+                const stages = [
+                  { order: 1, logs: row.commLogs?.stage1 || [] },
+                  { order: 2, logs: row.commLogs?.stage2 || [] },
+                  { order: 3, logs: row.commLogs?.stage3 || [] },
+                  { order: 4, logs: row.commLogs?.stage4 || [] },
+                ];
+                stages.forEach(({ order, logs }) => {
+                  logs.forEach((log) => {
+                    recent.push({
+                      ...log,
+                      candidateName: `${row.firstName || ""} ${row.lastName || ""}`.trim() || row.fullPhone || "Candidate",
+                      stageName: stageByOrder.get(order)?.stageName || `Stage ${order}`,
+                    });
+                  });
+                });
+              });
+              recent.sort((a, b) => new Date(b.communicationDate || b.createdAt || 0) - new Date(a.communicationDate || a.createdAt || 0));
+              const top = recent.slice(0, 8);
+              if (!top.length) return <p className="text-sm text-slate-500">No conversations logged yet.</p>;
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {top.map((log) => (
+                    <div key={`${log.id}-${log.communicationDate}`} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                      <div className="flex items-center justify-between text-[11px] text-slate-500">
+                        <span>{toDateInput(log.communicationDate)}</span>
+                        <span>{log.stageName}</span>
+                      </div>
+                      <div className="mt-1 text-xs font-semibold text-slate-800">{log.candidateName}</div>
+                      <div className="text-[11px] text-slate-500">{log.communicationMethod} · {log.outcome}</div>
+                      <div className="text-sm text-slate-700 font-medium mt-1">{log.subject || "No subject"}</div>
+                      <div className="text-[11px] text-slate-600 mt-0.5 line-clamp-2">{log.notes || ""}</div>
+                      {log.createdByName && (
+                        <div className="text-[10px] text-slate-400 mt-1">by {log.createdByName}</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </SectionCard>
           <SectionCard title="Pipeline Tracker" subtitle="Slim cards with collapsible stages and comms.">
             <div className="space-y-3">
               {(pipelineSwr.data?.rows || []).map((row) => {
