@@ -85,6 +85,7 @@ export default function RecruitmentProPage() {
   const [benchFilterLocation, setBenchFilterLocation] = React.useState("");
   const [benchFilterApplied, setBenchFilterApplied] = React.useState("");
   const [benchFilterGender, setBenchFilterGender] = React.useState("");
+  const [recentCommOpen, setRecentCommOpen] = React.useState(true);
 
   const programs = programsSwr.data?.programs || [];
   const activePrograms = React.useMemo(() => programs.filter((p) => p.isActive !== false), [programs]);
@@ -1200,7 +1201,16 @@ export default function RecruitmentProPage() {
       {activeTab === "pipeline" && (
         <div className="space-y-6">
           <SectionCard title="Recent Conversations" subtitle="Latest logged comms across all candidates." className="space-y-2">
-            {(() => {
+            <div className="flex justify-between items-center">
+              <div className="text-xs text-slate-500">Newest comms across stages</div>
+              <button
+                className="text-[11px] text-teal-600 hover:text-teal-800"
+                onClick={() => setRecentCommOpen((prev) => !prev)}
+              >
+                {recentCommOpen ? "Collapse" : "Expand"}
+              </button>
+            </div>
+            {recentCommOpen && (() => {
               const rows = pipelineSwr.data?.rows || [];
               const recent = [];
               rows.forEach((row) => {
@@ -1226,7 +1236,7 @@ export default function RecruitmentProPage() {
               return (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                   {top.map((log) => (
-                    <div key={`${log.id}-${log.communicationDate}`} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                    <div key={`${log.id}-${log.communicationDate || log.id}`} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
                       <div className="flex items-center justify-between text-[11px] text-slate-500">
                         <span>{toDateInput(log.communicationDate)}</span>
                         <span>{log.stageName}</span>
