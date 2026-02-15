@@ -69,6 +69,11 @@ export const middleware = auth((req) => {
 
 export default middleware;
 
+// Explicit alias to satisfy any bundler edge cases
+export function defaultMiddleware(req, ev) {
+  return middleware(req, ev);
+}
+
 // Use Node runtime because auth() relies on server-only modules
 export const runtime = "nodejs";
 
