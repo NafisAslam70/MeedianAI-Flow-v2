@@ -23,6 +23,15 @@ function canCreate(role) {
   return ["admin", "team_manager"].includes(role) || ["principal", "coordinator"].includes(role);
 }
 
+async function fetchImmediateSupervisor(db, userId) {
+  if (!userId) return null;
+  const [row] = await db
+    .select({ supervisor: users.immediate_supervisor })
+    .from(users)
+    .where(eq(users.id, userId));
+  return row?.supervisor ? Number(row.supervisor) : null;
+}
+
 export async function GET(req) {
   const session = await auth();
   if (!session || !["admin", "team_manager", "member"].includes(session.user?.role)) {
@@ -334,6 +343,11 @@ export async function POST(req) {
     const description = body.description ? String(body.description) : null;
     const l1AssigneeId = Number(body.l1AssigneeId);
     if (!l1AssigneeId) return NextResponse.json({ error: "l1AssigneeId required" }, { status: 400 });
+    // Enforce L1 = creator's immediate supervisor (or self-admin override)
+    const creatorImmediateSupervisor = await fetchImmediateSupervisor(db, uid);
+    if (!isAdmin && creatorImmediateSupervisor && l1AssigneeId !== creatorImmediateSupervisor) {
+      return NextResponse.json({ error: "L1 must be the member's immediate supervisor." }, { status: 403 });
+    }
     // ensure L1 assignee is admin or team_manager
     const l1Row = await db.select({ role: users.role }).from(users).where(eq(users.id, l1AssigneeId));
     if (!l1Row.length || !["admin", "team_manager"].includes(l1Row[0].role)) {
@@ -379,6 +393,10 @@ export async function PATCH(req) {
       const toUserId = Number(body.l2AssigneeId);
       const note = body.note ? String(body.note) : null;
       if (!id || !toUserId) return NextResponse.json({ error: "id and l2AssigneeId required" }, { status: 400 });
+      const creatorImmediateSupervisor = await fetchImmediateSupervisor(db, uid);
+      if (!isAdmin && creatorImmediateSupervisor && toUserId !== creatorImmediateSupervisor) {
+        return NextResponse.json({ error: "L2 must be the member's immediate supervisor." }, { status: 403 });
+      }
       // ensure L2 assignee is admin or team_manager
       const toRow = await db.select({ role: users.role, name: users.name }).from(users).where(eq(users.id, toUserId));
       if (!toRow.length || !["admin", "team_manager"].includes(toRow[0].role)) {

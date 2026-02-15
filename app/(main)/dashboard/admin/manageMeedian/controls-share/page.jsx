@@ -26,6 +26,7 @@ export default function ControlsSharePage() {
     return s;
   }, [grants]);
   const [draft, setDraft] = useState({}); // supports `${userId}|${section}` and `${userId}|${section}|${programId}`
+  const [logoutBusy, setLogoutBusy] = useState(false);
   // Initialize draft only when the grants set actually changes
   const grantSig = useMemo(
     () => JSON.stringify(grants.map(g => [g.userId, g.section, g.programId]).sort()),
@@ -73,6 +74,26 @@ export default function ControlsSharePage() {
       alert('Save failed');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const logoutAllSessions = async (userId) => {
+    if (!userId) return;
+    setLogoutBusy(true);
+    try {
+      const res = await fetch('/api/admin/manageMeedian?section=logoutAllSessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload?.error || `HTTP ${res.status}`);
+      alert('All sessions for this user have been logged out.');
+    } catch (e) {
+      console.error(e);
+      alert(e.message || 'Failed to logout sessions');
+    } finally {
+      setLogoutBusy(false);
     }
   };
 
@@ -202,6 +223,30 @@ export default function ControlsSharePage() {
     });
   };
 
+  const renderLogoutButton = (uid) => (
+    <button
+      type="button"
+      disabled={logoutBusy}
+      onClick={() => logoutAllSessions(uid)}
+      className="ml-2 inline-flex items-center gap-1 rounded-full border border-rose-200 px-2 py-0.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+      title="Force logout all active sessions for this user"
+    >
+      Logout
+    </button>
+  );
+
+  const renderLogoutButton = (uid) => (
+    <button
+      type="button"
+      disabled={logoutBusy}
+      onClick={() => logoutAllSessions(uid)}
+      className="ml-2 inline-flex items-center gap-1 rounded-full border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+      title="Force logout all active sessions for this user"
+    >
+      Logout all
+    </button>
+  );
+
   return (
     <div className="p-4 space-y-4">
       <div className="flex items-center justify-between">
@@ -239,6 +284,7 @@ export default function ControlsSharePage() {
                     <span key={`prog-${p.id}-${m.id}`} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 border text-xs">
                       {m.name}
                       <button className="text-red-600" title="Remove" onClick={() => setDraft(prev => ({ ...prev, [`${m.id}|metaPrograms|${p.id}`]: false }))}>×</button>
+                      {renderLogoutButton(m.id)}
                     </span>
                   ))}
                 </div>
@@ -274,6 +320,7 @@ export default function ControlsSharePage() {
                     <span key={`${item.key}-${m.id}`} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 border text-xs">
                       {m.name}
                       <button className="text-red-600" title="Remove" onClick={() => removeUserFromItem(m.id, item)}>×</button>
+                      {renderLogoutButton(m.id)}
                     </span>
                   ))}
                 </div>
