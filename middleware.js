@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 
 // IMPORTANT: wrap with auth(...) and read req.auth
-export default auth((req) => {
+export const middleware = auth((req) => {
   const { nextUrl } = req;
   const pathname = nextUrl.pathname;
 
@@ -66,6 +66,11 @@ export default auth((req) => {
     return NextResponse.redirect(new URL("/dashboard/member", nextUrl));
   }
 });
+
+export default middleware;
+
+// Use Node runtime because auth() relies on server-only modules
+export const runtime = "nodejs";
 
 export const config = {
   matcher: ["/dashboard/:path*"],
