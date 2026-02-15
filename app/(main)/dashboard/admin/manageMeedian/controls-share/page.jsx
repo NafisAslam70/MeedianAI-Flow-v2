@@ -228,18 +228,6 @@ export default function ControlsSharePage() {
       type="button"
       disabled={logoutBusy}
       onClick={() => logoutAllSessions(uid)}
-      className="ml-2 inline-flex items-center gap-1 rounded-full border border-rose-200 px-2 py-0.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
-      title="Force logout all active sessions for this user"
-    >
-      Logout
-    </button>
-  );
-
-  const renderLogoutButton = (uid) => (
-    <button
-      type="button"
-      disabled={logoutBusy}
-      onClick={() => logoutAllSessions(uid)}
       className="ml-2 inline-flex items-center gap-1 rounded-full border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
       title="Force logout all active sessions for this user"
     >
