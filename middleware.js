@@ -1,21 +1,23 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { getToken } from "next-auth/jwt";
 
-// IMPORTANT: wrap with auth(...) and read req.auth
-export const middleware = auth((req) => {
+// Edge-safe auth check: decode JWT without DB calls
+export const middleware = async (req) => {
   const { nextUrl } = req;
   const pathname = nextUrl.pathname;
 
   // Only guard dashboard
-  if (!pathname.startsWith("/dashboard")) return;
+  if (!pathname.startsWith("/dashboard")) return NextResponse.next();
+
+  const token = await getToken({ req, secret: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET });
 
   // Not signed in -> go to login
-  if (!req.auth) {
+  if (!token) {
     return NextResponse.redirect(new URL("/login", nextUrl));
   }
 
   // Role-based routing
-  const role = req.auth.user?.role;
+  const role = token.role;
 
   const isGeneralDashboard = pathname === "/dashboard";
   const isAdminRoute = pathname.startsWith("/dashboard/admin");
@@ -65,7 +67,8 @@ export const middleware = auth((req) => {
   if (!isMemberRoute) {
     return NextResponse.redirect(new URL("/dashboard/member", nextUrl));
   }
-});
+  return NextResponse.next();
+};
 
 export default middleware;
 
@@ -73,9 +76,6 @@ export default middleware;
 export function defaultMiddleware(req, ev) {
   return middleware(req, ev);
 }
-
-// Use Node runtime because auth() relies on server-only modules
-export const runtime = "nodejs";
 
 export const config = {
   matcher: ["/dashboard/:path*"],
