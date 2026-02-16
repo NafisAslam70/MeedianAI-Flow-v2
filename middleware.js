@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
-import { AUTH_SECRET } from "@/lib/auth.config";
 
 // Edge-safe auth check: decode JWT without DB calls
 export const middleware = async (req) => {
@@ -10,7 +9,8 @@ export const middleware = async (req) => {
   // Only guard dashboard
   if (!pathname.startsWith("/dashboard")) return NextResponse.next();
 
-  const token = await getToken({ req, secret: AUTH_SECRET });
+  const secret = process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET || "dev-secret";
+  const token = await getToken({ req, secret });
 
   // Not signed in -> go to login
   if (!token) {
@@ -72,11 +72,6 @@ export const middleware = async (req) => {
 };
 
 export default middleware;
-
-// Explicit alias to satisfy any bundler edge cases
-export function defaultMiddleware(req, ev) {
-  return middleware(req, ev);
-}
 
 export const config = {
   matcher: ["/dashboard/:path*"],
