@@ -25,6 +25,7 @@ export default function StudentEnquiryPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [dateFilter, setDateFilter] = useState("all");
 
   const updateField = (field) => (event) => {
     setForm((prev) => ({ ...prev, [field]: event.target.value }));
@@ -60,6 +61,58 @@ export default function StudentEnquiryPage() {
       active = false;
     };
   }, []);
+
+  const filteredLeads = leads.filter((lead) => {
+    const term = searchTerm.trim().toLowerCase();
+    const matchesSearch =
+      !term ||
+      [lead.name, lead.phone, lead.whatsapp, lead.location, lead.notes, lead.createdByName]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(term));
+
+    const matchesSource = sourceFilter === "all" || (lead.source || "").toLowerCase() === sourceFilter;
+    const matchesStatus = statusFilter === "all" || (lead.status || "new").toLowerCase() === statusFilter;
+
+    const createdAt = lead.createdAt ? new Date(lead.createdAt) : null;
+    const matchesDate = (() => {
+      if (dateFilter === "all" || !createdAt || isNaN(createdAt)) return true;
+
+      const startOfToday = new Date();
+      startOfToday.setHours(0, 0, 0, 0);
+
+      const startOfDay = (daysAgo) => {
+        const d = new Date(startOfToday);
+        d.setDate(d.getDate() - daysAgo);
+        return d;
+      };
+
+      switch (dateFilter) {
+        case "today":
+          return createdAt >= startOfToday;
+        case "yesterday": {
+          const start = startOfDay(1);
+          const end = startOfToday;
+          return createdAt >= start && createdAt < end;
+        }
+        case "last3": {
+          const start = startOfDay(2);
+          return createdAt >= start;
+        }
+        case "last7": {
+          const start = startOfDay(6);
+          return createdAt >= start;
+        }
+        case "last30": {
+          const start = startOfDay(29);
+          return createdAt >= start;
+        }
+        default:
+          return true;
+      }
+    })();
+
+    return matchesSearch && matchesSource && matchesStatus && matchesDate;
+  });
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -225,15 +278,7 @@ export default function StudentEnquiryPage() {
             <div>
               <h2 className="text-base font-semibold text-slate-900">All enquiries</h2>
               <p className="text-sm text-slate-500">Search and filter every intake captured from Managerial Club.</p>
-              <p className="text-xs text-slate-400 mt-1">Showing {leads.length ? `${leads.filter((lead) => {
-                const term = searchTerm.trim().toLowerCase();
-                const matchesSearch = !term || [lead.name, lead.phone, lead.whatsapp, lead.location, lead.notes, lead.createdByName]
-                  .filter(Boolean)
-                  .some((value) => String(value).toLowerCase().includes(term));
-                const matchesSource = sourceFilter === "all" || (lead.source || "").toLowerCase() === sourceFilter;
-                const matchesStatus = statusFilter === "all" || (lead.status || "new").toLowerCase() === statusFilter;
-                return matchesSearch && matchesSource && matchesStatus;
-              }).length} of ${leads.length}` : "0 of 0"} enquiries</p>
+              <p className="text-xs text-slate-400 mt-1">Showing {leads.length ? `${filteredLeads.length} of ${leads.length}` : "0 of 0"} enquiries</p>
             </div>
             <div className="flex flex-wrap gap-2">
               <div className="relative">
@@ -265,6 +310,18 @@ export default function StudentEnquiryPage() {
                   <option key={status} value={status}>{status}</option>
                 ))}
               </select>
+              <select
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                value={dateFilter}
+                onChange={(e) => setDateFilter(e.target.value)}
+              >
+                <option value="all">All dates</option>
+                <option value="today">Today</option>
+                <option value="yesterday">Yesterday</option>
+                <option value="last3">Last 3 days</option>
+                <option value="last7">Last 7 days</option>
+                <option value="last30">Last 30 days</option>
+              </select>
             </div>
           </div>
         </CardHeader>
@@ -288,17 +345,7 @@ export default function StudentEnquiryPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  {leads
-                    .filter((lead) => {
-                      const term = searchTerm.trim().toLowerCase();
-                      const matchesSearch = !term || [lead.name, lead.phone, lead.whatsapp, lead.location, lead.notes, lead.createdByName]
-                        .filter(Boolean)
-                        .some((value) => String(value).toLowerCase().includes(term));
-                      const matchesSource = sourceFilter === "all" || (lead.source || "").toLowerCase() === sourceFilter;
-                      const matchesStatus = statusFilter === "all" || (lead.status || "new").toLowerCase() === statusFilter;
-                      return matchesSearch && matchesSource && matchesStatus;
-                    })
-                    .map((lead) => (
+                  {filteredLeads.map((lead) => (
                     <tr key={lead.id}>
                       <td className="py-2 pr-4 text-slate-800">{lead.name || "—"}</td>
                       <td className="py-2 pr-4 text-slate-700">{lead.phone || lead.whatsapp || "—"}</td>
