@@ -1,25 +1,21 @@
 import { NextResponse } from "next/server";
-import { getToken } from "next-auth/jwt";
-import { AUTH_SECRET } from "@/lib/auth.config";
+import { auth } from "@/lib/auth";
 
-// Edge-safe auth check: decode JWT without DB calls
-export const middleware = async (req) => {
+// IMPORTANT: wrap with auth(...) and read req.auth
+export const middleware = auth((req) => {
   const { nextUrl } = req;
   const pathname = nextUrl.pathname;
 
   // Only guard dashboard
-  if (!pathname.startsWith("/dashboard")) return NextResponse.next();
-
-  const secret = AUTH_SECRET || process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET || "dev-secret";
-  const token = await getToken({ req, secret });
+  if (!pathname.startsWith("/dashboard")) return;
 
   // Not signed in -> go to login
-  if (!token) {
+  if (!req.auth) {
     return NextResponse.redirect(new URL("/login", nextUrl));
   }
 
   // Role-based routing
-  const role = token.role;
+  const role = req.auth.user?.role;
 
   const isGeneralDashboard = pathname === "/dashboard";
   const isAdminRoute = pathname.startsWith("/dashboard/admin");
@@ -31,15 +27,14 @@ export const middleware = async (req) => {
   const isAdminStudentsRoute = pathname.startsWith("/dashboard/admin/students");
   const isManagersCommonRoute = pathname.startsWith("/dashboard/managersCommon");
 
-  if (isGeneralDashboard) return NextResponse.next(); // everyone logged-in can view
+  if (isGeneralDashboard) return; // everyone logged-in can view
 
   if (role === "member") {
     // Allow members into manageMeedian/admin-club/students when explicitly granted (API enforces finer grants)
-    if (isManageMeedian || isAdminClubRoute || isAdminStudentsRoute) return NextResponse.next();
+    if (isManageMeedian || isAdminClubRoute || isAdminStudentsRoute) return;
     if (!isMemberRoute) {
       return NextResponse.redirect(new URL("/dashboard/member", nextUrl));
     }
-    return NextResponse.next();
   }
 
   if (role === "admin") {
@@ -47,12 +42,12 @@ export const middleware = async (req) => {
       return NextResponse.redirect(new URL("/dashboard/admin", nextUrl));
     }
     // Admin can access managersCommon and admin routes including admin-only
-    return NextResponse.next();
+    return;
   }
 
   if (role === "team_manager") {
     // Allow team managers into Manage Meedian; API + sidebar enforce granular access
-    if (isManageMeedian || isAdminClubRoute || isAdminStudentsRoute) return NextResponse.next();
+    if (isManageMeedian || isAdminClubRoute || isAdminStudentsRoute) return;
     if (
       !isTeamManagerRoute &&
       !isManagersCommonRoute &&
@@ -63,15 +58,14 @@ export const middleware = async (req) => {
     if (isAdminOnlyRoute) {
       return NextResponse.redirect(new URL("/dashboard/team_manager", nextUrl));
     }
-    return NextResponse.next();
+    return;
   }
 
   // Fallback: members only
   if (!isMemberRoute) {
     return NextResponse.redirect(new URL("/dashboard/member", nextUrl));
   }
-  return NextResponse.next();
-};
+});
 
 export default middleware;
 

@@ -1,2 +1,0 @@
--- No schema change; enforced at API level. This file documents the rule.
--- Escalations L1/L2 must equal creator's immediate_supervisor unless creator is admin.

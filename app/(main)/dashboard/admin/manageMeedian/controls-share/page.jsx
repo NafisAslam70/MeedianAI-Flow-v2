@@ -26,7 +26,6 @@ export default function ControlsSharePage() {
     return s;
   }, [grants]);
   const [draft, setDraft] = useState({}); // supports `${userId}|${section}` and `${userId}|${section}|${programId}`
-  const [logoutBusy, setLogoutBusy] = useState(false);
   // Initialize draft only when the grants set actually changes
   const grantSig = useMemo(
     () => JSON.stringify(grants.map(g => [g.userId, g.section, g.programId]).sort()),
@@ -74,26 +73,6 @@ export default function ControlsSharePage() {
       alert('Save failed');
     } finally {
       setSaving(false);
-    }
-  };
-
-  const logoutAllSessions = async (userId) => {
-    if (!userId) return;
-    setLogoutBusy(true);
-    try {
-      const res = await fetch('/api/admin/manageMeedian?section=logoutAllSessions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId }),
-      });
-      const payload = await res.json();
-      if (!res.ok) throw new Error(payload?.error || `HTTP ${res.status}`);
-      alert('All sessions for this user have been logged out.');
-    } catch (e) {
-      console.error(e);
-      alert(e.message || 'Failed to logout sessions');
-    } finally {
-      setLogoutBusy(false);
     }
   };
 

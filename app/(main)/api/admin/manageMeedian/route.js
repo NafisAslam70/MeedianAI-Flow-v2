@@ -1065,16 +1065,6 @@ export async function GET(req) {
     return NextResponse.json({ error: `Failed to fetch ${section}: ${error.message}` }, { status: 500 });
   }
 
-  if (section === 'logoutAllSessions') {
-    if (!session || session.user?.role !== 'admin') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-    const targetId = Number(body?.userId);
-    if (!targetId) return NextResponse.json({ error: 'userId required' }, { status: 400 });
-    const nonce = crypto.randomUUID();
-    await db.update(users).set({ sessionNonce: nonce }).where(eq(users.id, targetId));
-    return NextResponse.json({ ok: true, nonce }, { status: 200 });
-  }
 }
 
 /* ============================== POST ============================== */
