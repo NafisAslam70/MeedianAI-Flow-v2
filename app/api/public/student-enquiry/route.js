@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { mgcpLeads } from "@/lib/schema";
 
+const logContext = (request, extra = {}) => {
+  const ua = request.headers.get("user-agent") || "unknown";
+  const referer = request.headers.get("referer") || "none";
+  console.warn("[public student-enquiry]", { ua, referer, ...extra });
+};
+
 // Public intake endpoint for landing-page enquiries.
 // Inserts into mgcp_leads so managers can view them under
 // Managerial Club → Student Enquiry (Random Leads).
@@ -25,6 +31,7 @@ export async function POST(request) {
   if (requiredToken) {
     const headerToken = request.headers.get("x-public-token");
     if (!headerToken || headerToken !== requiredToken) {
+      logContext(request, { status: "unauthorized", reason: !headerToken ? "missing token" : "token mismatch" });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
   }
@@ -58,8 +65,10 @@ export async function POST(request) {
       })
       .returning();
 
+    logContext(request, { status: "ok", leadId: lead?.id || null, source });
     return NextResponse.json({ ok: true, leadId: lead?.id || null });
   } catch (error) {
+    logContext(request, { status: "db-failed", error: error?.message });
     console.error("[public student-enquiry] insert failed", error);
     return NextResponse.json({ error: "Failed to record enquiry" }, { status: 500 });
   }
