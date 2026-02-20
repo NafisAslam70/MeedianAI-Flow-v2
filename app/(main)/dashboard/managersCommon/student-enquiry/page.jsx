@@ -22,6 +22,9 @@ export default function StudentEnquiryPage() {
   const [leads, setLeads] = useState([]);
   const [leadsLoading, setLeadsLoading] = useState(false);
   const [leadsError, setLeadsError] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [sourceFilter, setSourceFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
 
   const updateField = (field) => (event) => {
     setForm((prev) => ({ ...prev, [field]: event.target.value }));
@@ -43,7 +46,7 @@ export default function StudentEnquiryPage() {
         const rows = Array.isArray(payload?.randomLeads) ? payload.randomLeads : [];
         // sort newest first
         rows.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
-        setLeads(rows.slice(0, 12));
+        setLeads(rows);
       } catch (error) {
         if (!active) return;
         setLeadsError(error.message || "Failed to load enquiries");
@@ -99,10 +102,12 @@ export default function StudentEnquiryPage() {
           location: form.location || null,
           notes: [form.studentName, form.desiredClass, form.notes].filter(Boolean).join(" | "),
           source: form.source || "enquiry",
+          status: "new",
           createdAt: new Date().toISOString(),
+          createdByName: "You",
         },
         ...prev,
-      ].slice(0, 12));
+      ]);
     } catch (error) {
       setMessage(error.message || "Failed to save enquiry.");
     } finally {
@@ -216,10 +221,50 @@ export default function StudentEnquiryPage() {
 
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-base font-semibold text-slate-900">Recent enquiries</h2>
-              <p className="text-sm text-slate-500">Latest random leads captured from this form.</p>
+              <h2 className="text-base font-semibold text-slate-900">All enquiries</h2>
+              <p className="text-sm text-slate-500">Search and filter every intake captured from Managerial Club.</p>
+              <p className="text-xs text-slate-400 mt-1">Showing {leads.length ? `${leads.filter((lead) => {
+                const term = searchTerm.trim().toLowerCase();
+                const matchesSearch = !term || [lead.name, lead.phone, lead.whatsapp, lead.location, lead.notes, lead.createdByName]
+                  .filter(Boolean)
+                  .some((value) => String(value).toLowerCase().includes(term));
+                const matchesSource = sourceFilter === "all" || (lead.source || "").toLowerCase() === sourceFilter;
+                const matchesStatus = statusFilter === "all" || (lead.status || "new").toLowerCase() === statusFilter;
+                return matchesSearch && matchesSource && matchesStatus;
+              }).length} of ${leads.length}` : "0 of 0"} enquiries</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <div className="relative">
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Search name, phone, notes, created by"
+                  className="w-60 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                />
+              </div>
+              <select
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                value={sourceFilter}
+                onChange={(e) => setSourceFilter(e.target.value)}
+              >
+                <option value="all">All sources</option>
+                {[...new Set(leads.map((lead) => (lead.source || "").toLowerCase()).filter(Boolean))].map((source) => (
+                  <option key={source} value={source}>{source === "student_enquiry" ? "Student Enquiry" : source}</option>
+                ))}
+              </select>
+              <select
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+              >
+                <option value="all">All status</option>
+                {[...new Set(leads.map((lead) => (lead.status || "new").toLowerCase()))].map((status) => (
+                  <option key={status} value={status}>{status}</option>
+                ))}
+              </select>
             </div>
           </div>
         </CardHeader>
@@ -236,19 +281,35 @@ export default function StudentEnquiryPage() {
                     <th className="py-2 pr-4">Guardian</th>
                     <th className="py-2 pr-4">Phone</th>
                     <th className="py-2 pr-4">Source</th>
+                    <th className="py-2 pr-4">Status</th>
                     <th className="py-2 pr-4">Notes</th>
                     <th className="py-2 pr-4">Created</th>
+                    <th className="py-2 pr-4">Created By</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  {leads.map((lead) => (
+                  {leads
+                    .filter((lead) => {
+                      const term = searchTerm.trim().toLowerCase();
+                      const matchesSearch = !term || [lead.name, lead.phone, lead.whatsapp, lead.location, lead.notes, lead.createdByName]
+                        .filter(Boolean)
+                        .some((value) => String(value).toLowerCase().includes(term));
+                      const matchesSource = sourceFilter === "all" || (lead.source || "").toLowerCase() === sourceFilter;
+                      const matchesStatus = statusFilter === "all" || (lead.status || "new").toLowerCase() === statusFilter;
+                      return matchesSearch && matchesSource && matchesStatus;
+                    })
+                    .map((lead) => (
                     <tr key={lead.id}>
                       <td className="py-2 pr-4 text-slate-800">{lead.name || "—"}</td>
                       <td className="py-2 pr-4 text-slate-700">{lead.phone || lead.whatsapp || "—"}</td>
                       <td className="py-2 pr-4 text-slate-700 capitalize">{lead.source || "—"}</td>
+                      <td className="py-2 pr-4 text-slate-700 capitalize">{lead.status || "new"}</td>
                       <td className="py-2 pr-4 text-slate-600">{lead.notes || "—"}</td>
                       <td className="py-2 pr-4 text-slate-500 text-xs">
                         {lead.createdAt ? new Date(lead.createdAt).toLocaleDateString() : "—"}
+                      </td>
+                      <td className="py-2 pr-4 text-slate-700">
+                        {lead.createdByName || (lead.createdBy ? `User ${lead.createdBy}` : "—")}
                       </td>
                     </tr>
                   ))}

@@ -31,14 +31,15 @@ export const middleware = async (req) => {
   const isAdminStudentsRoute = pathname.startsWith("/dashboard/admin/students");
   const isManagersCommonRoute = pathname.startsWith("/dashboard/managersCommon");
 
-  if (isGeneralDashboard) return; // everyone logged-in can view
+  if (isGeneralDashboard) return NextResponse.next(); // everyone logged-in can view
 
   if (role === "member") {
     // Allow members into manageMeedian/admin-club/students when explicitly granted (API enforces finer grants)
-    if (isManageMeedian || isAdminClubRoute || isAdminStudentsRoute) return;
+    if (isManageMeedian || isAdminClubRoute || isAdminStudentsRoute) return NextResponse.next();
     if (!isMemberRoute) {
       return NextResponse.redirect(new URL("/dashboard/member", nextUrl));
     }
+    return NextResponse.next();
   }
 
   if (role === "admin") {
@@ -46,12 +47,12 @@ export const middleware = async (req) => {
       return NextResponse.redirect(new URL("/dashboard/admin", nextUrl));
     }
     // Admin can access managersCommon and admin routes including admin-only
-    return;
+    return NextResponse.next();
   }
 
   if (role === "team_manager") {
     // Allow team managers into Manage Meedian; API + sidebar enforce granular access
-    if (isManageMeedian || isAdminClubRoute || isAdminStudentsRoute) return;
+    if (isManageMeedian || isAdminClubRoute || isAdminStudentsRoute) return NextResponse.next();
     if (
       !isTeamManagerRoute &&
       !isManagersCommonRoute &&
@@ -62,7 +63,7 @@ export const middleware = async (req) => {
     if (isAdminOnlyRoute) {
       return NextResponse.redirect(new URL("/dashboard/team_manager", nextUrl));
     }
-    return;
+    return NextResponse.next();
   }
 
   // Fallback: members only
