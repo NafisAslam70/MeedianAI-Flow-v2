@@ -1576,14 +1576,14 @@ const GuardianRelationshipManager = () => {
                       onClick={() => openInteractionModal(guardian, "whatsapp")}
                     >
                       <MessageCircle className="w-4 h-4" />
-                </Button>
-                <Button
-                  variant="light"
-                  className="px-3"
-                  onClick={() => openInteractionModal(guardian, "call")}
-                >
-                  <Phone className="w-4 h-4" />
-                </Button>
+                    </Button>
+                    <Button
+                      variant="light"
+                      className="px-3"
+                      onClick={() => openInteractionModal(guardian, "call")}
+                    >
+                      <Phone className="w-4 h-4" />
+                    </Button>
                   </div>
                 </CardBody>
               </Card>

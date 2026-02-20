@@ -334,17 +334,39 @@ export default function Home() {
     const email = formData.get("email") || "";
     const organization = formData.get("organization") || "";
     const message = formData.get("message") || "";
+    const publicToken = process.env.NEXT_PUBLIC_PUBLIC_ENQUIRY_TOKEN;
 
     try {
-      const response = await fetch("/api/contact", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, organization, message }),
-      });
+      // Send the email and also log a lead for Managerial Club → Student Enquiry.
+      const [contactRes, leadRes] = await Promise.all([
+        fetch("/api/contact", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, email, organization, message }),
+        }),
+        fetch("/api/public/student-enquiry", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(publicToken ? { "x-public-token": publicToken } : {}),
+          },
+          body: JSON.stringify({
+            name,
+            email,
+            organization,
+            message,
+            source: "landing-popup",
+          }),
+        }),
+      ]);
 
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
+      if (!contactRes.ok) {
+        const data = await contactRes.json().catch(() => ({}));
         throw new Error(data.error || "Failed to send your message.");
+      }
+
+      if (!leadRes.ok) {
+        console.error("Lead logging failed", await leadRes.text().catch(() => ""));
       }
 
       form.reset();
