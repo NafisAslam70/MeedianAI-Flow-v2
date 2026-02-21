@@ -26,6 +26,8 @@ export default function StudentEnquiryPage() {
   const [sourceFilter, setSourceFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("all");
+  const [pendingLead, setPendingLead] = useState(null);
+  const [confirmSendOpen, setConfirmSendOpen] = useState(false);
 
   const updateField = (field) => (event) => {
     setForm((prev) => ({ ...prev, [field]: event.target.value }));
@@ -114,6 +116,40 @@ export default function StudentEnquiryPage() {
     return matchesSearch && matchesSource && matchesStatus && matchesDate;
   });
 
+  const buildPayload = () => ({
+    beltId: null,
+    guardianId: null,
+    name: form.guardianName,
+    phone: form.phone,
+    whatsapp: form.phone,
+    location: form.location || null,
+    notes: [form.studentName, form.desiredClass, form.notes].filter(Boolean).join(" | "),
+    source: "student_enquiry",
+    category: "MGCP Lead",
+  });
+
+  const pushToRandomLeads = async (payload) => {
+    const res = await fetch("/api/enrollment/mgcp/leads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error || "Failed to send to Random Leads");
+    const leadRow = {
+      id: data?.lead?.id || Date.now(),
+      ...payload,
+      status: payload.status || "new",
+      createdAt: new Date().toISOString(),
+      createdByName: "You",
+    };
+    setLeads((prev) => [
+      leadRow,
+      ...prev.filter((lead) => lead.status !== "pending-send"),
+    ]);
+    return leadRow;
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     if (saving) return;
@@ -124,45 +160,35 @@ export default function StudentEnquiryPage() {
       return;
     }
 
+    const payload = buildPayload();
+    setPendingLead(payload);
+    setLeads((prev) => [
+      {
+        id: payload?.id || Date.now(),
+        ...payload,
+        status: "pending-send",
+        createdAt: new Date().toISOString(),
+        createdByName: "You",
+      },
+      ...prev,
+    ]);
+    setConfirmSendOpen(true);
+    setMessage("Enquiry saved. Send to Random Leads?");
+    setForm({ guardianName: "", studentName: "", desiredClass: "", phone: "", location: "", source: "call", notes: "" });
+    setTimeout(() => setMessage(""), 2500);
+  };
+
+  const handleSendNow = async () => {
+    if (!pendingLead || saving) return;
     setSaving(true);
+    setMessage("");
     try {
-      const res = await fetch("/api/enrollment/mgcp/leads", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          beltId: null,
-          guardianId: null,
-          name: form.guardianName,
-          phone: form.phone,
-          whatsapp: form.phone,
-          location: form.location || null,
-          notes: [form.studentName, form.desiredClass, form.notes].filter(Boolean).join(" | "),
-          source: form.source || "enquiry",
-          category: "MGCP Lead",
-        }),
-      });
-      const payload = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(payload?.error || "Failed to save enquiry");
-      setMessage("Enquiry saved and pushed to Random Leads.");
-      setForm({ guardianName: "", studentName: "", desiredClass: "", phone: "", location: "", source: "call", notes: "" });
-      // refresh recent list
-      setLeads((prev) => [
-        {
-          id: payload?.lead?.id || Date.now(),
-          name: form.guardianName,
-          phone: form.phone,
-          whatsapp: form.phone,
-          location: form.location || null,
-          notes: [form.studentName, form.desiredClass, form.notes].filter(Boolean).join(" | "),
-          source: form.source || "enquiry",
-          status: "new",
-          createdAt: new Date().toISOString(),
-          createdByName: "You",
-        },
-        ...prev,
-      ]);
+      await pushToRandomLeads(pendingLead);
+      setMessage("Sent to Random Leads.");
+      setPendingLead(null);
+      setConfirmSendOpen(false);
     } catch (error) {
-      setMessage(error.message || "Failed to save enquiry.");
+      setMessage(error.message || "Failed to send.");
     } finally {
       setSaving(false);
       setTimeout(() => setMessage(""), 2500);
@@ -331,45 +357,82 @@ export default function StudentEnquiryPage() {
           ) : leadsError ? (
             <p className="text-sm text-rose-600">{leadsError}</p>
           ) : leads.length ? (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="text-left text-slate-500">
-                    <th className="py-2 pr-2 text-center">#</th>
-                    <th className="py-2 pr-4">Guardian</th>
-                    <th className="py-2 pr-4">Phone</th>
-                    <th className="py-2 pr-4">Source</th>
-                    <th className="py-2 pr-4">Status</th>
-                    <th className="py-2 pr-4">Notes</th>
-                    <th className="py-2 pr-4">Created</th>
-                    <th className="py-2 pr-4">Created By</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200">
-                  {filteredLeads.map((lead, idx) => (
-                    <tr key={lead.id}>
-                      <td className="py-2 pr-2 text-center text-slate-500">{filteredLeads.length - idx}</td>
-                      <td className="py-2 pr-4 text-slate-800">{lead.name || "—"}</td>
-                      <td className="py-2 pr-4 text-slate-700">{lead.phone || lead.whatsapp || "—"}</td>
-                      <td className="py-2 pr-4 text-slate-700 capitalize">{lead.source || "—"}</td>
-                      <td className="py-2 pr-4 text-slate-700 capitalize">{lead.status || "new"}</td>
-                      <td className="py-2 pr-4 text-slate-600">{lead.notes || "—"}</td>
-                      <td className="py-2 pr-4 text-slate-500 text-xs">
-                        {lead.createdAt ? new Date(lead.createdAt).toLocaleDateString() : "—"}
-                      </td>
-                      <td className="py-2 pr-4 text-slate-700">
-                        {lead.createdByName || (lead.createdBy ? `User ${lead.createdBy}` : "—")}
-                      </td>
+            <div className="space-y-3">
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-slate-500">
+                      <th className="py-2 pr-2 text-center">#</th>
+                      <th className="py-2 pr-4">Guardian</th>
+                      <th className="py-2 pr-4">Phone</th>
+                      <th className="py-2 pr-4">Source</th>
+                      <th className="py-2 pr-4">Status</th>
+                      <th className="py-2 pr-4">Notes</th>
+                      <th className="py-2 pr-4">Created</th>
+                      <th className="py-2 pr-4">Created By</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {filteredLeads.map((lead, idx) => (
+                      <tr key={lead.id}>
+                        <td className="py-2 pr-2 text-center text-slate-500">{filteredLeads.length - idx}</td>
+                        <td className="py-2 pr-4 text-slate-800">{lead.name || "—"}</td>
+                        <td className="py-2 pr-4 text-slate-700">{lead.phone || lead.whatsapp || "—"}</td>
+                        <td className="py-2 pr-4 text-slate-700 capitalize">{lead.source || "—"}</td>
+                        <td className="py-2 pr-4 text-slate-700 capitalize">{lead.status || "new"}</td>
+                        <td className="py-2 pr-4 text-slate-600">{lead.notes || "—"}</td>
+                        <td className="py-2 pr-4 text-slate-500 text-xs">
+                          {lead.createdAt ? new Date(lead.createdAt).toLocaleDateString() : "—"}
+                        </td>
+                        <td className="py-2 pr-4 text-slate-700">
+                          {lead.createdByName || (lead.createdBy ? `User ${lead.createdBy}` : "—")}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {pendingLead && (
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                  <span className="text-sm text-amber-800">
+                    1 enquiry is saved but not yet in Random Leads.
+                  </span>
+                  <Button size="sm" onClick={handleSendNow} disabled={saving}>
+                    {saving ? "Sending…" : "Send pending to Random Leads"}
+                  </Button>
+                </div>
+              )}
             </div>
           ) : (
             <p className="text-sm text-slate-500">No enquiries logged yet.</p>
           )}
         </CardBody>
       </Card>
+
+      {confirmSendOpen && pendingLead && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl p-6 space-y-4">
+            <h3 className="text-lg font-semibold text-slate-900">Send to Random Leads?</h3>
+            <p className="text-sm text-slate-600">
+              The enquiry for <span className="font-semibold">{pendingLead.name}</span> is saved. Do you want to push it
+              to Managerial Club → Random Leads right now?
+            </p>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 space-y-1">
+              <p><span className="font-semibold">Phone:</span> {pendingLead.phone}</p>
+              {pendingLead.location && <p><span className="font-semibold">Location:</span> {pendingLead.location}</p>}
+              {pendingLead.notes && <p><span className="font-semibold">Notes:</span> {pendingLead.notes}</p>}
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <Button variant="light" onClick={() => setConfirmSendOpen(false)}>
+                Keep for now
+              </Button>
+              <Button onClick={handleSendNow} disabled={saving}>
+                {saving ? "Sending…" : "Send to Random Leads"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

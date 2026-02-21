@@ -17,6 +17,8 @@ import {
   Eye,
   Edit3,
   Trash2,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import { Device } from "@twilio/voice-sdk";
 import Button from "@/components/ui/Button";
@@ -49,6 +51,7 @@ const buildAddForm = () => ({
   whatsapp: "",
   location: "",
   notes: "",
+  beltId: "",
   islamic_education_priority: "medium",
   academic_excellence_priority: "medium",
   boarding_interest: "maybe",
@@ -117,6 +120,44 @@ const extractNames = (value) => {
     .split(/[,;\n]/)
     .map((item) => item.trim())
     .filter(Boolean);
+};
+
+const normalizePhoneDigits = (value) => (value ? String(value).replace(/\D/g, "") : "");
+
+const resolveGuardianCluster = (guardian, belts = [], beltPhoneMap = new Map(), randomPhoneSet = new Set()) => {
+  let beltId = guardian?.beltId || guardian?.belt_id || guardian?.belt?.id;
+  if (!beltId) {
+    const phoneKey = normalizePhoneDigits(
+      guardian?.whatsapp || guardian?.phone || guardian?.guardianPhone || guardian?.mobile
+    );
+    if (phoneKey && beltPhoneMap.has(phoneKey)) {
+      beltId = beltPhoneMap.get(phoneKey);
+    }
+  }
+  if (beltId) {
+    const belt = belts.find((b) => String(b.id) === String(beltId));
+    return {
+      key: `belt-${beltId}`,
+      label: belt ? `Belt · ${belt.name}` : `Belt #${beltId}`,
+      order: belt ? belts.findIndex((b) => String(b.id) === String(beltId)) : 1000,
+    };
+  }
+  const source = (guardian?.source || guardian?.origin || guardian?.leadSource || "").toString().toLowerCase();
+  if (!beltId) {
+    const phoneKey = normalizePhoneDigits(
+      guardian?.whatsapp || guardian?.phone || guardian?.guardianPhone || guardian?.mobile
+    );
+    if (phoneKey && randomPhoneSet.has(phoneKey)) {
+      return { key: "random", label: "Random Leads", order: 9000 };
+    }
+  }
+  if (source.includes("random")) {
+    return { key: "random", label: "Random Leads", order: 9000 };
+  }
+  if (source.includes("belt")) {
+    return { key: "belt-unknown", label: "Belt Management", order: 9050 };
+  }
+  return { key: "general", label: "General", order: 9500 };
 };
 
 const buildCddSignals = (instances, studentName) => {
@@ -235,6 +276,7 @@ const GuardianRelationshipManager = () => {
   const [selectedLeadManager, setSelectedLeadManager] = useState(null);
   const [selectedMgcpHead, setSelectedMgcpHead] = useState(null);
   const [randomAssignBeltId, setRandomAssignBeltId] = useState("");
+  const [randomLeadSearch, setRandomLeadSearch] = useState("");
   const [convertedEnrollments, setConvertedEnrollments] = useState([]);
   const [selectedEnrollmentId, setSelectedEnrollmentId] = useState(null);
   const [dueCalls, setDueCalls] = useState([]);
@@ -248,9 +290,21 @@ const GuardianRelationshipManager = () => {
   const [callError, setCallError] = useState("");
   const [callTarget, setCallTarget] = useState("");
   const [callTargetName, setCallTargetName] = useState("");
+  const [openGroups, setOpenGroups] = useState({});
+  const [openRecentPanels, setOpenRecentPanels] = useState({ visited: false, called: false });
+  const [recentVisitState, setRecentVisitState] = useState({ loading: false, error: "", items: [] });
+  const [recentCallState, setRecentCallState] = useState({ loading: false, error: "", items: [] });
   const [currentConnection, setCurrentConnection] = useState(null);
   const [isMuted, setIsMuted] = useState(false);
   const [callModalOpen, setCallModalOpen] = useState(false);
+  const [callSettings, setCallSettings] = useState({
+    allowedRoles: { admin: true, team_manager: true, member: false },
+    allowedModes: { live: true, greet_bridge: true, voice_drop: true },
+    defaultMode: "live",
+    recording: true,
+    collapsed: true,
+  });
+  const [callMode, setCallMode] = useState("live");
   const DEFAULT_AGENT_NUMBER = process.env.NEXT_PUBLIC_DEFAULT_AGENT_NUMBER || "";
   const fetchVoiceToken = async () => {
     try {
@@ -276,6 +330,16 @@ const GuardianRelationshipManager = () => {
   };
 
   const callGuardian = async (guardianNumber, guardianName = "") => {
+    if (!callSettings.allowedModes[callMode]) {
+      setCallError("This call mode is not allowed.");
+      setCallModalOpen(true);
+      return;
+    }
+    if (!callSettings.allowedRoles[session?.user?.role || "member"]) {
+      setCallError("You are not allowed to place calls.");
+      setCallModalOpen(true);
+      return;
+    }
     try {
       setCallError("");
       setCallState("connecting");
@@ -605,17 +669,78 @@ const GuardianRelationshipManager = () => {
     return () => controller.abort();
   }, [activeTab]);
 
-  const currentGuardians = guardianGroup === "ongoing" ? ongoingGuardians : probableGuardians;
+  // Ensure belts/random leads are available for clustering even outside MGCP tab
+  useEffect(() => {
+    const controller = new AbortController();
+    loadMgcpData(controller.signal);
+    return () => controller.abort();
+  }, []);
+
+  const beltLeadGuardians = useMemo(() => {
+    return mgcpBelts.flatMap((belt) =>
+      (belt.leads || []).map((lead) =>
+        normalizeGuardian({
+          ...lead,
+          id: `belt-${belt.id}-${lead.id}`,
+          beltId: belt.id,
+          beltName: belt.name,
+          source: lead.source || "belt",
+          leadSource: lead.source || "belt",
+          location: lead.location || belt.location || "",
+          status: lead.status || "new_lead",
+          children: [],
+          interactions: [],
+        })
+      )
+    );
+  }, [mgcpBelts]);
+
+  const effectiveProbableGuardians = useMemo(
+    () => (guardianGroup === "probable" ? [...probableGuardians, ...beltLeadGuardians] : probableGuardians),
+    [guardianGroup, probableGuardians, beltLeadGuardians]
+  );
+
+  const currentGuardians = guardianGroup === "ongoing" ? ongoingGuardians : effectiveProbableGuardians;
   const selectedBelt = mgcpBelts.find((belt) => String(belt.id) === String(selectedBeltId)) || null;
   const leadBelt =
     leadModal.open && leadModal.scope === "belt"
       ? mgcpBelts.find((belt) => String(belt.id) === String(leadModal.beltId)) || null
       : null;
 
+  const beltPhoneMap = useMemo(() => {
+    const map = new Map();
+    mgcpBelts.forEach((belt) => {
+      (belt.leads || []).forEach((lead) => {
+        [lead.phone, lead.whatsapp].forEach((p) => {
+          const key = normalizePhoneDigits(p);
+          if (key) map.set(key, belt.id);
+        });
+      });
+    });
+    return map;
+  }, [mgcpBelts]);
+
+  const randomPhoneSet = useMemo(() => {
+    const set = new Set();
+    mgcpRandomLeads.forEach((lead) => {
+      [lead.phone, lead.whatsapp].forEach((p) => {
+        const key = normalizePhoneDigits(p);
+        if (key) set.add(key);
+      });
+    });
+    return set;
+  }, [mgcpRandomLeads]);
+
   const filteredGuardians = useMemo(() => {
     const needle = searchTerm.trim().toLowerCase();
     return currentGuardians.filter((guardian) => {
-      if (guardianGroup === "probable" && guardian.status === "enrolled") return false;
+      if (guardianGroup === "probable") {
+        if (guardian.status === "enrolled") return false;
+        const sourceKey = String(
+          guardian.source || guardian.origin || guardian.leadSource || guardian.category || ""
+        ).toLowerCase();
+        if (sourceKey === "ongoing_guardian_auto") return false;
+      }
 
       const matchesSearch =
         !needle ||
@@ -634,6 +759,95 @@ const GuardianRelationshipManager = () => {
     });
   }, [currentGuardians, searchTerm, filterStatus, guardianGroup, ongoingClassId]);
 
+  const groupedGuardians = useMemo(() => {
+    if (guardianGroup === "ongoing") {
+      const classNameById = new Map(
+        (classOptions || []).map((klass) => [String(klass.id), klass.className || klass.name || `Class ${klass.id}`])
+      );
+      const groupsMap = new Map();
+
+      filteredGuardians.forEach((guardian) => {
+        const children = Array.isArray(guardian.children) ? guardian.children : [];
+        const classCounts = new Map();
+        children.forEach((child) => {
+          const rawId = child?.classId;
+          if (!rawId) return;
+          const key = String(rawId);
+          classCounts.set(key, (classCounts.get(key) || 0) + 1);
+        });
+
+        let topClassId = "";
+        let topClassCount = -1;
+        classCounts.forEach((count, classId) => {
+          if (count > topClassCount) {
+            topClassCount = count;
+            topClassId = classId;
+          }
+        });
+
+        const groupKey = topClassId ? `class-${topClassId}` : "class-unassigned";
+        const groupLabel = topClassId
+          ? classNameById.get(topClassId) || `Class ${topClassId}`
+          : "Unassigned Class";
+
+        if (!groupsMap.has(groupKey)) {
+          groupsMap.set(groupKey, {
+            key: groupKey,
+            label: groupLabel,
+            guardians: [],
+            order: topClassId ? Number(topClassId) || 9999 : 10000,
+          });
+        }
+        groupsMap.get(groupKey).guardians.push(guardian);
+      });
+
+      return Array.from(groupsMap.values()).sort((a, b) => {
+        if (a.order !== b.order) return a.order - b.order;
+        return a.label.localeCompare(b.label);
+      });
+    }
+
+    if (guardianGroup === "probable") {
+      const groupsMap = new Map();
+      filteredGuardians.forEach((guardian) => {
+        const cluster = resolveGuardianCluster(guardian, mgcpBelts, beltPhoneMap, randomPhoneSet);
+        if (!groupsMap.has(cluster.key)) {
+          groupsMap.set(cluster.key, { ...cluster, guardians: [] });
+        }
+        groupsMap.get(cluster.key).guardians.push(guardian);
+      });
+      return Array.from(groupsMap.values()).sort((a, b) => {
+        if (a.order !== b.order) return a.order - b.order;
+        return a.label.localeCompare(b.label);
+      });
+    }
+
+    return [{ key: "all", label: "All", guardians: filteredGuardians, order: 0 }];
+  }, [filteredGuardians, guardianGroup, mgcpBelts, beltPhoneMap, randomPhoneSet, classOptions]);
+
+  const filteredRandomLeads = useMemo(() => {
+    const sorted = [...mgcpRandomLeads].sort((a, b) => {
+      const aTime = new Date(a?.createdAt || 0).getTime();
+      const bTime = new Date(b?.createdAt || 0).getTime();
+      return bTime - aTime;
+    });
+    const needle = randomLeadSearch.trim().toLowerCase();
+    if (!needle) return sorted;
+    return sorted.filter((lead) =>
+      [
+        lead?.name,
+        lead?.phone,
+        lead?.whatsapp,
+        lead?.location,
+        lead?.notes,
+        lead?.source,
+        lead?.category,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(needle))
+    );
+  }, [mgcpRandomLeads, randomLeadSearch]);
+
   const ongoingCount = ongoingGuardians.length;
   const probableCount = probableGuardians.length;
   const totalGuardians = ongoingCount + probableCount;
@@ -645,6 +859,152 @@ const GuardianRelationshipManager = () => {
     const id = setTimeout(() => setSearchTerm(searchDraft), 120);
     return () => clearTimeout(id);
   }, [searchDraft]);
+
+  useEffect(() => {
+    if (guardianGroup !== "ongoing" || !ongoingGuardians.length) {
+      setRecentVisitState({ loading: false, error: "", items: [] });
+      setRecentCallState({ loading: false, error: "", items: [] });
+      return;
+    }
+
+    const controller = new AbortController();
+    let cancelled = false;
+
+    const guardianByName = new Map();
+    const guardianByStudent = new Map();
+    const ongoingStudentIds = new Set();
+    const studentNames = [];
+
+    ongoingGuardians.forEach((guardian) => {
+      const guardianKey = normalizeName(guardian.name);
+      if (guardianKey) guardianByName.set(guardianKey, guardian);
+
+      (guardian.children || []).forEach((child) => {
+        if (child?.id) ongoingStudentIds.add(String(child.id));
+        const childKey = normalizeName(child?.name);
+        if (childKey) {
+          guardianByStudent.set(childKey, guardian);
+          studentNames.push(child.name);
+        }
+      });
+    });
+
+    const chunk = (items, size) => {
+      const out = [];
+      for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+      return out;
+    };
+
+    const uniqueStudentNames = Array.from(new Set(studentNames.filter(Boolean))).slice(0, 80);
+    const nameChunks = chunk(uniqueStudentNames, 20);
+
+    const fetchRecentVisits = async () => {
+      setRecentVisitState((prev) => ({ ...prev, loading: true, error: "" }));
+      try {
+        const responses = await Promise.all(
+          nameChunks.map(async (names) => {
+            const params = new URLSearchParams();
+            params.set("section", "guardian");
+            params.set("studentNames", names.join(","));
+            params.set("days", "60");
+            params.set("limit", "120");
+            const res = await fetch(`/api/managersCommon/guardian-register?${params.toString()}`, {
+              signal: controller.signal,
+              headers: { "Content-Type": "application/json" },
+            });
+            const payload = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(payload?.error || "Failed to load recent visits");
+            return Array.isArray(payload?.entries) ? payload.entries : [];
+          })
+        );
+
+        const merged = responses.flat();
+        const dedup = new Map();
+        merged.forEach((entry) => {
+          if (!entry?.id) return;
+          dedup.set(String(entry.id), entry);
+        });
+
+        const items = Array.from(dedup.values())
+          .map((entry) => {
+            const guardian =
+              guardianByStudent.get(normalizeName(entry.studentName)) ||
+              guardianByName.get(normalizeName(entry.guardianName));
+            if (!guardian) return null;
+            return {
+              id: `visit-${entry.id}`,
+              guardian,
+              guardianName: guardian.name || entry.guardianName || "Unknown",
+              studentName: entry.studentName || "Ward",
+              className: entry.className || "Class N/A",
+              at: entry.inAt || entry.createdAt || entry.visitDate,
+              dateLabel: entry.visitDate || "",
+            };
+          })
+          .filter(Boolean)
+          .sort((a, b) => new Date(b.at || 0).getTime() - new Date(a.at || 0).getTime())
+          .slice(0, 12);
+
+        if (!cancelled) setRecentVisitState({ loading: false, error: "", items });
+      } catch (error) {
+        if (error.name === "AbortError" || cancelled) return;
+        setRecentVisitState({ loading: false, error: error.message || "Failed to load recent visits", items: [] });
+      }
+    };
+
+    const fetchRecentCalls = async () => {
+      setRecentCallState((prev) => ({ ...prev, loading: true, error: "" }));
+      try {
+        const res = await fetch("/api/managersCommon/guardian-calls", {
+          signal: controller.signal,
+          headers: { "Content-Type": "application/json" },
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(payload?.error || "Failed to load recent calls");
+        const rows = Array.isArray(payload?.calls) ? payload.calls : [];
+
+        const items = rows
+          .filter((call) => {
+            const studentId = call?.student?.id ? String(call.student.id) : "";
+            const guardianKey = normalizeName(call?.guardian?.name);
+            return (
+              (studentId && ongoingStudentIds.has(studentId)) ||
+              (guardianKey && guardianByName.has(guardianKey))
+            );
+          })
+          .map((call) => {
+            const guardian =
+              guardianByStudent.get(normalizeName(call?.student?.name)) ||
+              guardianByName.get(normalizeName(call?.guardian?.name));
+            if (!guardian) return null;
+            return {
+              id: `call-${call.id}`,
+              guardian,
+              guardianName: call?.guardian?.name || guardian.name || "Unknown",
+              studentName: call?.student?.name || "Ward",
+              className: call?.class?.name || "Class N/A",
+              at: call.callDate || call.createdAt,
+            };
+          })
+          .filter(Boolean)
+          .sort((a, b) => new Date(b.at || 0).getTime() - new Date(a.at || 0).getTime())
+          .slice(0, 12);
+
+        if (!cancelled) setRecentCallState({ loading: false, error: "", items });
+      } catch (error) {
+        if (error.name === "AbortError" || cancelled) return;
+        setRecentCallState({ loading: false, error: error.message || "Failed to load recent calls", items: [] });
+      }
+    };
+
+    fetchRecentVisits();
+    fetchRecentCalls();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [guardianGroup, ongoingGuardians]);
 
   const avgEngagement = probableGuardians.length
     ? Math.round(
@@ -740,6 +1100,7 @@ const GuardianRelationshipManager = () => {
       whatsapp: guardian.whatsapp || "",
       location: guardian.location || "",
       notes: guardian.notes || "",
+      beltId: "",
       islamic_education_priority: guardian.interests?.islamic_education_priority || "medium",
       academic_excellence_priority: guardian.interests?.academic_excellence_priority || "medium",
       boarding_interest: guardian.interests?.boarding_interest || "maybe",
@@ -994,6 +1355,31 @@ const GuardianRelationshipManager = () => {
           })
         );
       } else {
+        const selectedBeltId = Number(addForm.beltId);
+        const shouldAttachToBelt = Number.isFinite(selectedBeltId) && selectedBeltId > 0;
+
+        if (shouldAttachToBelt) {
+          const leadRes = await fetch("/api/enrollment/mgcp/leads", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              beltId: selectedBeltId,
+              guardianId: data?.guardian?.id || null,
+              name: payload.name,
+              phone: payload.whatsapp,
+              whatsapp: payload.whatsapp,
+              location: payload.location || null,
+              notes: payload.notes || null,
+              source: "belt_management",
+              category: "MGCP Lead",
+            }),
+          });
+          const leadPayload = await leadRes.json().catch(() => ({}));
+          if (!leadRes.ok) {
+            throw new Error(leadPayload?.error || "Guardian saved, but failed to map to selected belt");
+          }
+        }
+
         const newGuardian = normalizeGuardian({
           ...data.guardian,
           children,
@@ -1526,6 +1912,138 @@ const GuardianRelationshipManager = () => {
         </CardBody>
       </Card>
 
+      {guardianGroup === "ongoing" && (
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <Card className="border border-slate-200 bg-slate-50/50">
+            <button
+              type="button"
+              onClick={() => setOpenRecentPanels((prev) => ({ ...prev, visited: !prev.visited }))}
+              className="flex w-full items-center justify-between px-4 py-3 text-left"
+            >
+              <div className="flex items-center gap-2">
+                {openRecentPanels.visited ? (
+                  <ChevronDown className="h-4 w-4 text-slate-500" />
+                ) : (
+                  <ChevronRight className="h-4 w-4 text-slate-500" />
+                )}
+                <p className="text-sm font-semibold text-slate-700">Recently Visited</p>
+              </div>
+              <span className="text-xs text-slate-400">{recentVisitState.items.length}</span>
+            </button>
+            {openRecentPanels.visited && (
+              <CardBody className="space-y-3 border-t border-slate-200 text-sm">
+                {recentVisitState.loading ? (
+                  <p className="text-slate-500">Loading recent visits...</p>
+                ) : recentVisitState.error ? (
+                  <p className="text-rose-600">{recentVisitState.error}</p>
+                ) : recentVisitState.items.length ? (
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    {recentVisitState.items.map((item) => (
+                      <div
+                        key={item.id}
+                        className="rounded-xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm transition hover:-translate-y-0.5 hover:border-teal-200 hover:shadow-md"
+                      >
+                        <button
+                          type="button"
+                          className="w-full text-left space-y-1"
+                          onClick={() => {
+                            if (!item.guardian) return;
+                            setSelectedGuardian(item.guardian);
+                            setSelectedGuardianGroup("ongoing");
+                          }}
+                        >
+                          <p className="font-semibold text-slate-800">{item.guardianName}</p>
+                          <p className="text-xs text-slate-600">
+                            {item.studentName} · {item.className}
+                          </p>
+                          <p className="text-[11px] font-medium text-slate-500">
+                            {item.dateLabel ? formatDate(item.dateLabel) : formatDate(item.at)}
+                          </p>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-slate-500">No recent visit records found.</p>
+                )}
+                <div className="border-t border-slate-200 pt-2">
+                  <Button
+                    variant="light"
+                    size="sm"
+                    onClick={() => router.push("/dashboard/managersCommon/guardian-register")}
+                  >
+                    Open Visit Register
+                  </Button>
+                </div>
+              </CardBody>
+            )}
+          </Card>
+
+          <Card className="border border-slate-200 bg-slate-50/50">
+            <button
+              type="button"
+              onClick={() => setOpenRecentPanels((prev) => ({ ...prev, called: !prev.called }))}
+              className="flex w-full items-center justify-between px-4 py-3 text-left"
+            >
+              <div className="flex items-center gap-2">
+                {openRecentPanels.called ? (
+                  <ChevronDown className="h-4 w-4 text-slate-500" />
+                ) : (
+                  <ChevronRight className="h-4 w-4 text-slate-500" />
+                )}
+                <p className="text-sm font-semibold text-slate-700">Recently Called</p>
+              </div>
+              <span className="text-xs text-slate-400">{recentCallState.items.length}</span>
+            </button>
+            {openRecentPanels.called && (
+              <CardBody className="space-y-3 border-t border-slate-200 text-sm">
+                {recentCallState.loading ? (
+                  <p className="text-slate-500">Loading recent calls...</p>
+                ) : recentCallState.error ? (
+                  <p className="text-rose-600">{recentCallState.error}</p>
+                ) : recentCallState.items.length ? (
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    {recentCallState.items.map((item) => (
+                      <div
+                        key={item.id}
+                        className="rounded-xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm transition hover:-translate-y-0.5 hover:border-teal-200 hover:shadow-md"
+                      >
+                        <button
+                          type="button"
+                          className="w-full text-left space-y-1"
+                          onClick={() => {
+                            if (!item.guardian) return;
+                            setSelectedGuardian(item.guardian);
+                            setSelectedGuardianGroup("ongoing");
+                          }}
+                        >
+                          <p className="font-semibold text-slate-800">{item.guardianName}</p>
+                          <p className="text-xs text-slate-600">
+                            {item.studentName} · {item.className}
+                          </p>
+                          <p className="text-[11px] font-medium text-slate-500">{formatDate(item.at)}</p>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-slate-500">No recent call records found.</p>
+                )}
+                <div className="border-t border-slate-200 pt-2">
+                  <Button
+                    variant="light"
+                    size="sm"
+                    onClick={() => router.push("/dashboard/managersCommon/guardian-calls")}
+                  >
+                    Open Call Register
+                  </Button>
+                </div>
+              </CardBody>
+            )}
+          </Card>
+        </div>
+      )}
+
       {isLoading ? (
         <Card>
           <CardBody className="text-center text-slate-500">Loading guardians...</CardBody>
@@ -1541,155 +2059,216 @@ const GuardianRelationshipManager = () => {
           </CardBody>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5">
-          {filteredGuardians.map((guardian) => {
-            const statusMeta =
-              guardianGroup === "ongoing"
-                ? getOngoingStatusMeta(guardian)
-                : getStatusMeta(guardian.status);
-            const isOngoing = guardianGroup === "ongoing";
-            const activeWards = (guardian.children || []).filter((child) =>
-              isActiveStatus(child.status)
-            ).length;
-            const hostellerCount = (guardian.children || []).filter((child) => child.isHosteller)
-              .length;
-            return (
-              <Card key={guardian.id} className="hover:shadow-md transition-shadow">
-                <CardBody className="space-y-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <h3 className="text-lg font-semibold text-slate-900">{guardian.name}</h3>
-                      <p className="text-sm text-slate-500 flex items-center gap-1 mt-1">
-                        <MapPin className="w-4 h-4" />
-                        {guardian.location}
-                      </p>
-                    </div>
-                    <Badge color={statusMeta.color}>{statusMeta.label}</Badge>
-                  </div>
-
-                  <div>
-                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
-                      {isOngoing ? "Wards" : "Children"}
-                    </p>
-                    <div className="space-y-1">
-                      {guardian.children.length ? (
-                        guardian.children.map((child, index) => (
-                          <div key={index} className="text-sm text-slate-600">
-                            {child.name} ({child.age || "?"}y) - {child.currentSchool || "Unknown"}
-                          </div>
-                        ))
+        <div className="space-y-6">
+          {(() => {
+            const hasSearchQuery = searchTerm.trim().length > 0;
+            return groupedGuardians.map((group) => {
+              const isGroupOpen = Boolean(openGroups[group.key]);
+              const itemLabel = guardianGroup === "ongoing" ? "king(s)" : "lead(s)";
+              const countText = hasSearchQuery
+                ? `${group.guardians.length} match${group.guardians.length === 1 ? "" : "es"}`
+                : `${group.guardians.length} ${itemLabel}`;
+              return (
+                <div key={group.key} className="space-y-3 rounded-2xl border border-slate-200 bg-gradient-to-b from-slate-50 to-white shadow-sm">
+                  <button
+                    type="button"
+                    onClick={() => setOpenGroups((prev) => ({ ...prev, [group.key]: !prev[group.key] }))}
+                    className="flex w-full items-center justify-between px-4 py-3 text-left"
+                  >
+                    <div className="flex items-center gap-2">
+                      {isGroupOpen ? (
+                        <ChevronDown className="h-4 w-4 text-slate-500" />
                       ) : (
-                        <div className="text-sm text-slate-400">No children listed</div>
+                        <ChevronRight className="h-4 w-4 text-slate-500" />
                       )}
+                      <p className="text-sm font-semibold tracking-wide text-slate-700">{group.label}</p>
                     </div>
-                  </div>
+                    <span
+                      className={`text-xs ${
+                        hasSearchQuery
+                          ? "rounded-full bg-amber-50 px-2 py-0.5 font-semibold text-amber-700 ring-1 ring-amber-200"
+                          : "text-slate-400"
+                      }`}
+                    >
+                      {countText}
+                    </span>
+                  </button>
 
-                  {isOngoing ? (
-                    <div className="flex flex-wrap gap-2 text-xs text-slate-500">
-                      <Badge color={activeWards ? "teal" : "gray"}>
-                        Active wards {activeWards}/{guardian.children.length}
-                      </Badge>
-                      <Badge color={hostellerCount ? "blue" : "gray"}>
-                        Hostellers {hostellerCount}
-                      </Badge>
-                      <span className="text-xs text-slate-400">
-                        Visits tracked in Guardian Register.
-                      </span>
+                  {isGroupOpen && (
+                    <div className="grid grid-cols-1 gap-5 px-4 pb-4 lg:grid-cols-2 xl:grid-cols-3">
+                      {group.guardians.map((guardian, idx) => {
+                        const statusMeta =
+                          guardianGroup === "ongoing"
+                            ? getOngoingStatusMeta(guardian)
+                            : getStatusMeta(guardian.status);
+                        const isOngoing = guardianGroup === "ongoing";
+                        const activeWards = (guardian.children || []).filter((child) => isActiveStatus(child.status)).length;
+                        const hostellerCount = (guardian.children || []).filter((child) => child.isHosteller).length;
+                        const originLabel =
+                          guardian.source ||
+                          guardian.origin ||
+                          guardian.leadSource ||
+                          guardian.leadCategory ||
+                          group.label ||
+                          "General";
+                        const beltLabel =
+                          group.label?.toLowerCase().startsWith("belt")
+                            ? group.label.replace(/^Belt\s*[.-]?\s*/i, "")
+                            : guardian.beltName || guardian.belt?.name || guardian.beltId || guardian.belt_id || "";
+
+                        return (
+                          <Card key={guardian.id} className="border border-slate-200/90 bg-white/95 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+                            <CardBody className="space-y-4">
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <span className="inline-flex items-center justify-center rounded-full bg-teal-50 px-2.5 py-0.5 text-[11px] font-semibold text-teal-700 ring-1 ring-teal-100">
+                                    #{idx + 1}
+                                  </span>
+                                  <h3 className="mt-1 text-lg font-semibold text-slate-900">{guardian.name}</h3>
+                                  <p className="mt-1 flex items-center gap-1 text-sm text-slate-500">
+                                    <MapPin className="h-4 w-4" />
+                                    {guardian.location}
+                                  </p>
+                                  {beltLabel && <p className="mt-1 text-xs text-teal-700">Belt: {beltLabel}</p>}
+                                  <p className="mt-1 text-xs text-amber-700">Source: {originLabel}</p>
+                                </div>
+                                <Badge color={statusMeta.color}>{statusMeta.label}</Badge>
+                              </div>
+
+                              <div>
+                                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                  {isOngoing ? "Wards" : "Children"}
+                                </p>
+                                <div className="space-y-1">
+                                  {guardian.children.length ? (
+                                    guardian.children.map((child, index) => (
+                                      <div key={index} className="text-sm text-slate-600">
+                                        {child.name} ({child.age || "?"}y) - {child.currentSchool || "Unknown"}
+                                      </div>
+                                    ))
+                                  ) : (
+                                    <div className="text-sm text-slate-400">No children listed</div>
+                                  )}
+                                </div>
+                              </div>
+
+                              {isOngoing ? (
+                                <div className="flex flex-wrap gap-2 text-xs text-slate-500">
+                                  <Badge color={activeWards ? "teal" : "gray"}>
+                                    Active wards {activeWards}/{guardian.children.length}
+                                  </Badge>
+                                  <Badge color={hostellerCount ? "blue" : "gray"}>Hostellers {hostellerCount}</Badge>
+                                  <span className="text-xs text-slate-400">Visits tracked in Guardian Register.</span>
+                                </div>
+                              ) : (
+                                <>
+                                  <div className="flex items-center justify-between text-xs text-slate-500">
+                                    <div className="flex items-center gap-1">
+                                      Islamic Ed: {getPriorityIcon(guardian.interests.islamic_education_priority)}
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                      Academic: {getPriorityIcon(guardian.interests.academic_excellence_priority)}
+                                    </div>
+                                    <div>
+                                      Boarding:{" "}
+                                      {guardian.interests.boarding_interest === "yes"
+                                        ? "Yes"
+                                        : guardian.interests.boarding_interest === "no"
+                                        ? "No"
+                                        : "Maybe"}
+                                    </div>
+                                  </div>
+
+                                  <div>
+                                    <div className="mb-1 flex items-center justify-between">
+                                      <span className="text-sm text-slate-500">Engagement</span>
+                                      <span className="text-sm font-medium text-slate-700">
+                                        {guardian.engagementScore || 0}%
+                                      </span>
+                                    </div>
+                                    <div className="h-2 w-full rounded-full bg-slate-100">
+                                      <div
+                                        className="h-2 rounded-full bg-teal-500 transition-all"
+                                        style={{ width: `${guardian.engagementScore || 0}%` }}
+                                      ></div>
+                                    </div>
+                                  </div>
+                                </>
+                              )}
+
+                              <div className="flex gap-2">
+                                <Button
+                                  variant="light"
+                                  className="flex-1 gap-2"
+                                  onClick={() => {
+                                    setSelectedGuardian(guardian);
+                                    setSelectedGuardianGroup(guardianGroup);
+                                  }}
+                                >
+                                  <Eye className="h-4 w-4" />
+                                  View
+                                </Button>
+                                {guardianGroup === "probable" && (
+                                  <Button
+                                    size="sm"
+                                    variant="light"
+                                    className="gap-2"
+                                    onClick={() => convertGuardianToEnrollment(guardian)}
+                                  >
+                                    <TrendingUp className="h-4 w-4" />
+                                    Mark Convert
+                                  </Button>
+                                )}
+                                <Button
+                                  variant="light"
+                                  className="px-3"
+                                  onClick={() => openInteractionModal(guardian, "whatsapp")}
+                                >
+                                  <MessageCircle className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="light"
+                                  className="px-3"
+                                  onClick={() => openInteractionModal(guardian, "call")}
+                                >
+                                  <Phone className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="secondary"
+                                  className="px-3"
+                                  onClick={async () => {
+                                    const guardianNumber =
+                                      guardian.whatsapp || guardian.phone || guardian.guardianPhone || guardian.mobile;
+                                    if (!guardianNumber) {
+                                      setCallError("No phone/WhatsApp number available for this guardian.");
+                                      return;
+                                    }
+                                    await callGuardian(guardianNumber, guardian.name || "");
+                                  }}
+                                  disabled={callState === "connecting" || callState === "in-call"}
+                                >
+                                  {callState === "in-call"
+                                    ? "In Call"
+                                    : callState === "connecting"
+                                    ? "Connecting"
+                                    : callMode === "greet_bridge"
+                                    ? "Greet + Bridge"
+                                    : callMode === "voice_drop"
+                                    ? "Voice Drop"
+                                    : "Call"}
+                                </Button>
+                              </div>
+                            </CardBody>
+                          </Card>
+                        );
+                      })}
                     </div>
-                  ) : (
-                    <>
-                      <div className="flex items-center justify-between text-xs text-slate-500">
-                        <div className="flex items-center gap-1">
-                          Islamic Ed: {getPriorityIcon(guardian.interests.islamic_education_priority)}
-                        </div>
-                        <div className="flex items-center gap-1">
-                          Academic: {getPriorityIcon(guardian.interests.academic_excellence_priority)}
-                        </div>
-                        <div>
-                          Boarding:{" "}
-                          {guardian.interests.boarding_interest === "yes"
-                            ? "Yes"
-                            : guardian.interests.boarding_interest === "no"
-                            ? "No"
-                            : "Maybe"}
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-sm text-slate-500">Engagement</span>
-                          <span className="text-sm font-medium text-slate-700">
-                            {guardian.engagementScore || 0}%
-                          </span>
-                        </div>
-                        <div className="w-full bg-slate-100 rounded-full h-2">
-                          <div
-                            className="bg-teal-500 h-2 rounded-full transition-all"
-                            style={{ width: `${guardian.engagementScore || 0}%` }}
-                          ></div>
-                        </div>
-                      </div>
-                    </>
                   )}
+                </div>
+              );
+            });
+          })()}
 
-                  <div className="flex gap-2">
-                    <Button
-                      variant="light"
-                      className="flex-1 gap-2"
-                      onClick={() => {
-                        setSelectedGuardian(guardian);
-                        setSelectedGuardianGroup(guardianGroup);
-                      }}
-                    >
-                      <Eye className="w-4 h-4" />
-                      View
-                    </Button>
-                    {guardianGroup === "probable" && (
-                      <Button
-                        size="sm"
-                        variant="light"
-                        className="gap-2"
-                        onClick={() => convertGuardianToEnrollment(guardian)}
-                      >
-                        <TrendingUp className="w-4 h-4" />
-                        Mark Convert
-                      </Button>
-                    )}
-                    <Button
-                      variant="light"
-                      className="px-3"
-                      onClick={() => openInteractionModal(guardian, "whatsapp")}
-                    >
-                      <MessageCircle className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      variant="light"
-                      className="px-3"
-                      onClick={() => openInteractionModal(guardian, "call")}
-                    >
-                      <Phone className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      className="px-3"
-                      onClick={async () => {
-                        const guardianNumber =
-                          guardian.whatsapp || guardian.phone || guardian.guardianPhone || guardian.mobile;
-                        if (!guardianNumber) {
-                          setCallError("No phone/WhatsApp number available for this guardian.");
-                          return;
-                        }
-                        await callGuardian(guardianNumber, guardian.name || "");
-                      }}
-                      disabled={callState === "connecting" || callState === "in-call"}
-                    >
-                      {callState === "in-call" ? "In Call" : callState === "connecting" ? "Connecting" : "Call"}
-                    </Button>
-                  </div>
-                </CardBody>
-              </Card>
-            );
-          })}
         </div>
       )}
     </div>
@@ -1705,24 +2284,21 @@ const GuardianRelationshipManager = () => {
         guardian.location?.toLowerCase().includes(query)
       );
     });
-    const recentInteractions = useMemo(() => {
-      const entries = probableGuardians.flatMap((guardian) =>
+    const recentInteractions = probableGuardians
+      .flatMap((guardian) =>
         (guardian.interactions || []).map((interaction) => ({
           ...interaction,
           guardianName: guardian.name,
           guardianId: guardian.id,
           guardianPhone: guardian.whatsapp,
         }))
-      );
-
-      return entries
-        .sort((a, b) => {
-          const aTime = new Date(a.createdAt || a.date || 0).getTime();
-          const bTime = new Date(b.createdAt || b.date || 0).getTime();
-          return bTime - aTime;
-        })
-        .slice(0, 10);
-    }, [probableGuardians]);
+      )
+      .sort((a, b) => {
+        const aTime = new Date(a.createdAt || a.date || 0).getTime();
+        const bTime = new Date(b.createdAt || b.date || 0).getTime();
+        return bTime - aTime;
+      })
+      .slice(0, 10);
 
     return (
       <div className="space-y-4">
@@ -3653,9 +4229,9 @@ const GuardianRelationshipManager = () => {
         </div>
       </div>
 
-      {activeTab === "dashboard" && <DashboardView />}
-      {activeTab === "guardians" && <GuardiansListView />}
-      {activeTab === "communications" && <CommunicationsView />}
+      {activeTab === "dashboard" && DashboardView()}
+      {activeTab === "guardians" && GuardiansListView()}
+      {activeTab === "communications" && CommunicationsView()}
       {callModalOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 px-4">
           <div className="w-full max-w-lg rounded-3xl bg-white shadow-2xl border border-slate-200 p-8 space-y-6">
@@ -4778,7 +5354,7 @@ const GuardianRelationshipManager = () => {
                                           </div>
                                         )}
                                         {(selectedBelt.leads || []).length ? (
-                                          (selectedBelt.leads || []).map((lead) => (
+                                          (selectedBelt.leads || []).map((lead, idx) => (
                                             <div
                                               key={lead.id}
                                               role="button"
@@ -4799,9 +5375,14 @@ const GuardianRelationshipManager = () => {
                                                   : "border-slate-200 hover:bg-slate-50"
                                               }`}
                                             >
-                                              <div>
-                                                <p className="font-medium text-slate-700">{lead.name}</p>
-                                                <p className="text-xs text-slate-500">{lead.phone || "No phone"}</p>
+                                              <div className="flex items-start gap-2">
+                                                <div className="mt-0.5 h-5 w-5 shrink-0 rounded-full bg-slate-100 text-[11px] font-semibold text-slate-600 flex items-center justify-center">
+                                                  {(selectedBelt.leads || []).length - idx}
+                                                </div>
+                                                <div>
+                                                  <p className="font-medium text-slate-700">{lead.name}</p>
+                                                  <p className="text-xs text-slate-500">{lead.phone || "No phone"}</p>
+                                                </div>
                                               </div>
                                               <Button
                                                 variant="ghost"
@@ -5017,9 +5598,18 @@ const GuardianRelationshipManager = () => {
                                   <h3 className="text-sm font-semibold text-slate-700">Random Leads</h3>
                                   <p className="text-xs text-slate-500">Leads collected from anywhere.</p>
                                 </div>
-                                <Button variant="light" size="sm" onClick={() => openLeadModal("random")}>
-                                  Add Lead
-                                </Button>
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="text"
+                                    value={randomLeadSearch}
+                                    onChange={(e) => setRandomLeadSearch(e.target.value)}
+                                    placeholder="Search leads..."
+                                    className="w-52 rounded-lg border border-slate-300 px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
+                                  />
+                                  <Button variant="light" size="sm" onClick={() => openLeadModal("random")}>
+                                    Add Lead
+                                  </Button>
+                                </div>
                               </div>
                             </CardHeader>
                             <CardBody className="space-y-3 text-sm">
@@ -5095,8 +5685,8 @@ const GuardianRelationshipManager = () => {
                                 </div>
                               )}
 
-                              {mgcpRandomLeads.length ? (
-                                mgcpRandomLeads.map((lead, idx) => (
+                              {filteredRandomLeads.length ? (
+                                filteredRandomLeads.map((lead, idx) => (
                                   <div
                                     key={lead.id}
                                     role="button"
@@ -5123,7 +5713,7 @@ const GuardianRelationshipManager = () => {
                                   >
                                     <div className="flex items-start justify-between gap-3">
                                       <div className="mt-0.5 h-5 w-5 shrink-0 rounded-full bg-slate-100 text-[11px] font-semibold text-slate-600 flex items-center justify-center">
-                                        {mgcpRandomLeads.length - idx}
+                                        {filteredRandomLeads.length - idx}
                                       </div>
                                       <div className="space-y-0.5">
                                         <p className="font-semibold text-slate-800">{lead.name}</p>
@@ -5593,6 +6183,19 @@ const GuardianRelationshipManager = () => {
                   onChange={updateAddField("location")}
                   placeholder="Village / Area"
                 />
+                <Select
+                  label="Assign Belt (Optional)"
+                  value={addForm.beltId}
+                  onChange={updateAddField("beltId")}
+                  disabled={isEditingGuardian || !mgcpBelts.length}
+                >
+                  <option value="">No belt (General)</option>
+                  {mgcpBelts.map((belt) => (
+                    <option key={belt.id} value={String(belt.id)}>
+                      {belt.name}
+                    </option>
+                  ))}
+                </Select>
                 <label className="block">
                   <span className="block text-sm font-medium text-gray-700 mb-1">Notes</span>
                   <textarea
