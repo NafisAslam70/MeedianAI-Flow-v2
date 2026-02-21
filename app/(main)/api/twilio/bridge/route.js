@@ -3,9 +3,10 @@
 const buildResponse = (target) => {
   const safeTarget = (target || "").trim();
   if (!safeTarget) return null;
+  const callerId = process.env.TWILIO_CALLER_ID || "";
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Dial record="record-from-answer">
+  <Dial record="record-from-answer"${callerId ? ` callerId="${callerId}"` : ""}>
     <Number>${safeTarget}</Number>
   </Dial>
 </Response>`;
