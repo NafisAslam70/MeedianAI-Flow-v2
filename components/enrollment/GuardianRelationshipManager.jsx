@@ -18,6 +18,7 @@ import {
   Edit3,
   Trash2,
 } from "lucide-react";
+import { Device } from "@twilio/voice-sdk";
 import Button from "@/components/ui/Button";
 import Badge from "@/components/ui/Badge";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
@@ -242,6 +243,90 @@ const GuardianRelationshipManager = () => {
   const [dueUpdateDrafts, setDueUpdateDrafts] = useState({});
   const [dueUpdateOpenId, setDueUpdateOpenId] = useState(null);
   const [searchDraft, setSearchDraft] = useState("");
+  const [voiceDevice, setVoiceDevice] = useState(null);
+  const [callState, setCallState] = useState("idle");
+  const [callError, setCallError] = useState("");
+  const [callTarget, setCallTarget] = useState("");
+  const [callTargetName, setCallTargetName] = useState("");
+  const [currentConnection, setCurrentConnection] = useState(null);
+  const [isMuted, setIsMuted] = useState(false);
+  const [callModalOpen, setCallModalOpen] = useState(false);
+  const DEFAULT_AGENT_NUMBER = process.env.NEXT_PUBLIC_DEFAULT_AGENT_NUMBER || "";
+  const fetchVoiceToken = async () => {
+    try {
+      const res = await fetch("/api/twilio/token");
+      const data = await res.json();
+      if (!res.ok || !data?.token) throw new Error(data?.error || "Failed to get token");
+      return data.token;
+    } catch (err) {
+      setCallError(err.message || "Failed to get token");
+      throw err;
+    }
+  };
+
+  const ensureDevice = async () => {
+    if (voiceDevice) return voiceDevice;
+    const token = await fetchVoiceToken();
+    const dev = new Device(token, { logLevel: "error" });
+    dev.on("ready", () => setCallState("ready"));
+    dev.on("error", (error) => setCallError(error.message));
+    dev.on("disconnect", () => setCallState("idle"));
+    setVoiceDevice(dev);
+    return dev;
+  };
+
+  const callGuardian = async (guardianNumber, guardianName = "") => {
+    try {
+      setCallError("");
+      setCallState("connecting");
+      setCallTarget(guardianNumber);
+      setCallTargetName(guardianName || "");
+      setCallModalOpen(true);
+      const dev = await ensureDevice();
+      const connection = await dev.connect({ params: { To: guardianNumber } });
+      if (!connection || (typeof connection.on !== "function" && typeof connection.addListener !== "function")) {
+        throw new Error("Could not start call (no connection object)");
+      }
+      setCurrentConnection(connection);
+      const onFn = connection.on?.bind(connection) || connection.addListener?.bind(connection);
+      onFn("accept", () => setCallState("in-call"));
+      onFn("disconnect", () => {
+        setCallState("idle");
+        setCurrentConnection(null);
+        setCallTarget("");
+        setIsMuted(false);
+        setCallModalOpen(false);
+      });
+      onFn("error", (error) => {
+        setCallError(error.message);
+        setCallState("idle");
+        setCurrentConnection(null);
+        setCallTarget("");
+        setIsMuted(false);
+        // keep modal open to show error until user closes/hangs up
+      });
+    } catch (err) {
+      setCallError(err.message || "Failed to call");
+      setCallState("idle");
+      setCurrentConnection(null);
+      setCallTarget("");
+      setIsMuted(false);
+      setCallModalOpen(true);
+    }
+  };
+
+  const hangupCall = () => {
+    if (currentConnection) {
+      currentConnection.disconnect();
+    } else if (voiceDevice) {
+      voiceDevice.disconnectAll();
+    }
+    setCallState("idle");
+    setCurrentConnection(null);
+    setCallTarget("");
+    setIsMuted(false);
+    setCallModalOpen(false);
+  };
   const [moveBeltTargetId, setMoveBeltTargetId] = useState("");
   const [currentUserName, setCurrentUserName] = useState("");
 
@@ -1583,6 +1668,22 @@ const GuardianRelationshipManager = () => {
                       onClick={() => openInteractionModal(guardian, "call")}
                     >
                       <Phone className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      className="px-3"
+                      onClick={async () => {
+                        const guardianNumber =
+                          guardian.whatsapp || guardian.phone || guardian.guardianPhone || guardian.mobile;
+                        if (!guardianNumber) {
+                          setCallError("No phone/WhatsApp number available for this guardian.");
+                          return;
+                        }
+                        await callGuardian(guardianNumber, guardian.name || "");
+                      }}
+                      disabled={callState === "connecting" || callState === "in-call"}
+                    >
+                      {callState === "in-call" ? "In Call" : callState === "connecting" ? "Connecting" : "Call"}
                     </Button>
                   </div>
                 </CardBody>
@@ -3555,6 +3656,64 @@ const GuardianRelationshipManager = () => {
       {activeTab === "dashboard" && <DashboardView />}
       {activeTab === "guardians" && <GuardiansListView />}
       {activeTab === "communications" && <CommunicationsView />}
+      {callModalOpen && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 px-4">
+          <div className="w-full max-w-lg rounded-3xl bg-white shadow-2xl border border-slate-200 p-8 space-y-6">
+            <div className="text-center space-y-2">
+              <p className="text-xs uppercase tracking-wide text-slate-400">
+                {callState === "connecting" ? "Connecting" : callState === "in-call" ? "In Call" : "Call"}
+              </p>
+              <p className="text-2xl font-bold text-slate-900">
+                {callTargetName || "Unknown Guardian"}
+              </p>
+              <p className="text-sm font-mono text-slate-600">{callTarget || "Connecting..."}</p>
+              <p className="text-xs text-slate-500">
+                {callState === "connecting" ? "Ringing…" : callState === "in-call" ? "Live" : callState}
+              </p>
+            </div>
+
+            {callError && (
+              <div className="text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-xl px-3 py-2">
+                {callError}
+              </div>
+            )}
+
+            <div className="flex items-center justify-center gap-4">
+              <button
+                className={`w-12 h-12 rounded-full flex items-center justify-center shadow ${
+                  isMuted ? "bg-slate-700 text-white" : "bg-slate-200 text-slate-700"
+                }`}
+                onClick={() => {
+                  if (!currentConnection) return;
+                  const next = !isMuted;
+                  currentConnection.mute(next);
+                  setIsMuted(next);
+                }}
+              >
+                <Phone className="w-5 h-5 rotate-90" />
+              </button>
+              <button
+                className="w-14 h-14 rounded-full bg-rose-600 text-white flex items-center justify-center shadow hover:bg-rose-700"
+                onClick={hangupCall}
+              >
+                <Phone className="w-6 h-6" />
+              </button>
+              <button
+                className="w-12 h-12 rounded-full flex items-center justify-center shadow bg-slate-200 text-slate-700"
+                onClick={() => {
+                  // placeholder for speaker toggle; Twilio JS uses system output
+                }}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M10 8L6 12H2v0l4 4 4-4v-4z" />
+                  <path d="M14 9a5 5 0 010 6" />
+                  <path d="M16.5 7.5a8 8 0 010 9" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {activeTab === "enrollments" && (
         <Card>
           <CardHeader>
