@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useCallback } from "react";
+import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import {
   Phone,
@@ -210,6 +211,8 @@ const buildCddSignals = (instances, studentName) => {
 };
 
 const GuardianRelationshipManager = () => {
+  const { data: session } = useSession();
+  const userRole = session?.user?.role || "member";
   const [activeTab, setActiveTab] = useState("dashboard");
   const [probableGuardians, setProbableGuardians] = useState([]);
   const [ongoingGuardians, setOngoingGuardians] = useState([]);
@@ -302,7 +305,6 @@ const GuardianRelationshipManager = () => {
     allowedModes: { live: true, greet_bridge: true, voice_drop: true },
     defaultMode: "live",
     recording: true,
-    collapsed: true,
   });
   const [callMode, setCallMode] = useState("live");
   const DEFAULT_AGENT_NUMBER = process.env.NEXT_PUBLIC_DEFAULT_AGENT_NUMBER || "";
@@ -335,7 +337,7 @@ const GuardianRelationshipManager = () => {
       setCallModalOpen(true);
       return;
     }
-    if (!callSettings.allowedRoles[session?.user?.role || "member"]) {
+    if (!callSettings.allowedRoles[userRole]) {
       setCallError("You are not allowed to place calls.");
       setCallModalOpen(true);
       return;
@@ -1506,7 +1508,14 @@ const GuardianRelationshipManager = () => {
     event.preventDefault();
     if (interactionSaving || !interactionModal.guardian) return;
 
-    const guardianId = interactionModal.guardian.id;
+    const guardian = interactionModal.guardian;
+    const parsedGuardianId = Number(guardian?.id ?? guardian?.guardianId);
+    const guardianId = Number.isFinite(parsedGuardianId) ? parsedGuardianId : null;
+    const localGuardianId = guardian?.id ?? guardianId;
+    const guardianName = guardian?.name || guardian?.guardianName || "Ongoing Guardian";
+    const guardianWhatsapp = guardian?.whatsapp || guardian?.guardianWhatsappNumber || guardian?.phone || "";
+    const guardianPhone = guardian?.phone || guardian?.guardianPhone || guardian?.mobile || guardianWhatsapp || "";
+    const guardianLocation = guardian?.location || "";
     const mode = interactionModal.mode;
     setInteractionSaving(true);
     setInteractionError("");
@@ -1547,6 +1556,10 @@ const GuardianRelationshipManager = () => {
           body: JSON.stringify({
             action: "send-message",
             guardianId,
+            guardianName,
+            guardianWhatsapp,
+            guardianPhone,
+            guardianLocation,
             message,
             templateId,
             templateSid: useDefaultTemplate ? DEFAULT_WHATSAPP_TEMPLATE_SID : null,
@@ -1558,7 +1571,7 @@ const GuardianRelationshipManager = () => {
           throw new Error(data?.error || "Failed to send WhatsApp message");
         }
         if (data?.interaction) {
-          appendGuardianInteraction(guardianId, data.interaction);
+          appendGuardianInteraction(localGuardianId, data.interaction);
           if (interactionForm.followUpRequired || interactionForm.potentialLead) {
             const instruction =
               interactionForm.followUpNotes?.trim() ||
@@ -1567,7 +1580,7 @@ const GuardianRelationshipManager = () => {
             setDueCalls((prev) => [
               {
                 id: Date.now(),
-                guardianId,
+                guardianId: localGuardianId,
                 guardianName: interactionModal.guardian.name,
                 contact:
                   interactionModal.guardian.whatsapp ||
@@ -1586,6 +1599,10 @@ const GuardianRelationshipManager = () => {
         const payload = {
           action: "log-interaction",
           guardianId,
+          guardianName,
+          guardianWhatsapp,
+          guardianPhone,
+          guardianLocation,
           type: "call",
           method: "outgoing",
           content: interactionForm.notes.trim() || "Call logged",
@@ -1605,7 +1622,7 @@ const GuardianRelationshipManager = () => {
         throw new Error(data?.error || "Failed to log call");
       }
       if (data?.interaction) {
-        appendGuardianInteraction(guardianId, data.interaction);
+        appendGuardianInteraction(localGuardianId, data.interaction);
         if (interactionForm.followUpRequired || interactionForm.potentialLead) {
           const instruction =
             interactionForm.followUpNotes?.trim() ||
@@ -1614,7 +1631,7 @@ const GuardianRelationshipManager = () => {
           setDueCalls((prev) => [
             {
               id: Date.now(),
-              guardianId,
+              guardianId: localGuardianId,
               guardianName: interactionModal.guardian.name,
               contact:
                 interactionModal.guardian.whatsapp ||
@@ -1867,6 +1884,7 @@ const GuardianRelationshipManager = () => {
           </div>
         </CardBody>
       </Card>
+
 
       {guardianGroup === "ongoing" && classError && (
         <p className="text-xs text-rose-600">{classError}</p>
@@ -4206,10 +4224,22 @@ const GuardianRelationshipManager = () => {
           className="flex flex-wrap gap-2"
           style={{ backgroundColor: "#eef8f3" }}
         >
-          {["dashboard", "guardians", "communications", "analytics", "mgcp", "due-calls", "enrollments"].map((tab) => {
+          {[
+            "dashboard",
+            "guardians",
+            "communications",
+            "analytics",
+            "mgcp",
+            "due-calls",
+            "enrollments",
+            userRole === "admin" ? "call-controls" : null,
+          ]
+            .filter(Boolean)
+            .map((tab) => {
             const labelMap = {
               mgcp: "MGCP",
               "due-calls": "Due Calls",
+              "call-controls": "Call Controls",
             };
             const label = labelMap[tab] || tab;
             return (
@@ -4225,13 +4255,87 @@ const GuardianRelationshipManager = () => {
                 {label}
               </button>
             );
-          })}
+            })}
         </div>
       </div>
 
       {activeTab === "dashboard" && DashboardView()}
       {activeTab === "guardians" && GuardiansListView()}
       {activeTab === "communications" && CommunicationsView()}
+      {activeTab === "call-controls" && userRole === "admin" && (
+        <Card>
+          <CardHeader>
+            <h3 className="text-sm font-semibold text-slate-700">Call Controls (Admin)</h3>
+          </CardHeader>
+          <CardBody className="space-y-4 text-sm">
+            <div className="space-y-2">
+              <p className="font-semibold text-slate-700">Who can call</p>
+              {Object.entries(callSettings.allowedRoles).map(([role, val]) => (
+                <label key={role} className="flex items-center gap-2 text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={val}
+                    onChange={(e) =>
+                      setCallSettings((p) => ({
+                        ...p,
+                        allowedRoles: { ...p.allowedRoles, [role]: e.target.checked },
+                      }))
+                    }
+                  />
+                  {role}
+                </label>
+              ))}
+            </div>
+            <div className="space-y-2">
+              <p className="font-semibold text-slate-700">Allowed call modes</p>
+              {[
+                { key: "live", label: "Live (agent talks)" },
+                { key: "greet_bridge", label: "Greet then bridge to agent" },
+                { key: "voice_drop", label: "Voice drop (play message)" },
+              ].map((item) => (
+                <label key={item.key} className="flex items-center gap-2 text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={callSettings.allowedModes[item.key]}
+                    onChange={(e) =>
+                      setCallSettings((p) => ({
+                        ...p,
+                        allowedModes: { ...p.allowedModes, [item.key]: e.target.checked },
+                      }))
+                    }
+                  />
+                  {item.label}
+                </label>
+              ))}
+            </div>
+            <div className="space-y-2">
+              <p className="font-semibold text-slate-700">Default mode</p>
+              <select
+                value={callMode}
+                onChange={(e) => setCallMode(e.target.value)}
+                className="w-full rounded-lg border border-slate-200 px-3 py-2"
+              >
+                {Object.entries(callSettings.allowedModes)
+                  .filter(([, v]) => v)
+                  .map(([k]) => (
+                    <option key={k} value={k}>
+                      {k === "live" ? "Live" : k === "greet_bridge" ? "Greet + Bridge" : "Voice Drop"}
+                    </option>
+                  ))}
+              </select>
+            </div>
+            <label className="flex items-center gap-2 text-slate-600">
+              <input
+                type="checkbox"
+                checked={callSettings.recording}
+                onChange={(e) => setCallSettings((p) => ({ ...p, recording: e.target.checked }))}
+              />
+              Record live calls
+            </label>
+            <p className="text-xs text-slate-500">(Settings are local-only for now; can be persisted later.)</p>
+          </CardBody>
+        </Card>
+      )}
       {callModalOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 px-4">
           <div className="w-full max-w-lg rounded-3xl bg-white shadow-2xl border border-slate-200 p-8 space-y-6">
