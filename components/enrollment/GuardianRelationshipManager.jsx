@@ -5096,7 +5096,7 @@ const GuardianRelationshipManager = () => {
                               )}
 
                               {mgcpRandomLeads.length ? (
-                                mgcpRandomLeads.map((lead) => (
+                                mgcpRandomLeads.map((lead, idx) => (
                                   <div
                                     key={lead.id}
                                     role="button"
@@ -5121,7 +5121,10 @@ const GuardianRelationshipManager = () => {
                                         : "border-slate-200 hover:bg-slate-50"
                                     }`}
                                   >
-                                    <div className="flex items-center justify-between">
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div className="mt-0.5 h-5 w-5 shrink-0 rounded-full bg-slate-100 text-[11px] font-semibold text-slate-600 flex items-center justify-center">
+                                        {mgcpRandomLeads.length - idx}
+                                      </div>
                                       <div className="space-y-0.5">
                                         <p className="font-semibold text-slate-800">{lead.name}</p>
                                         <p className="text-xs text-slate-500">{lead.phone || lead.whatsapp || "No phone"}</p>

@@ -335,6 +335,7 @@ export default function StudentEnquiryPage() {
               <table className="min-w-full text-sm">
                 <thead>
                   <tr className="text-left text-slate-500">
+                    <th className="py-2 pr-2 text-center">#</th>
                     <th className="py-2 pr-4">Guardian</th>
                     <th className="py-2 pr-4">Phone</th>
                     <th className="py-2 pr-4">Source</th>
@@ -345,8 +346,9 @@ export default function StudentEnquiryPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  {filteredLeads.map((lead) => (
+                  {filteredLeads.map((lead, idx) => (
                     <tr key={lead.id}>
+                      <td className="py-2 pr-2 text-center text-slate-500">{filteredLeads.length - idx}</td>
                       <td className="py-2 pr-4 text-slate-800">{lead.name || "—"}</td>
                       <td className="py-2 pr-4 text-slate-700">{lead.phone || lead.whatsapp || "—"}</td>
                       <td className="py-2 pr-4 text-slate-700 capitalize">{lead.source || "—"}</td>
