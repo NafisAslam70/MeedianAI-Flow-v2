@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 
-// Initiates a two-leg call: Twilio calls the agent first; on answer, TwiML bridges to guardian.
+// Initiates Twilio PSTN calls for non-SDK modes:
+// - greet_bridge: call guardian, play greeting, then dial agent
+// - voice_drop: call guardian, play message, optional record
+// - live: legacy bridge (agent first, then guardian)
 export async function POST(request) {
   try {
     const required = ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_CALLER_ID"];
@@ -10,13 +13,26 @@ export async function POST(request) {
 
     const body = await request.json().catch(() => ({}));
     const guardianNumber = typeof body?.guardianNumber === "string" ? body.guardianNumber.trim() : "";
+    const mode = typeof body?.mode === "string" ? body.mode.trim() : "live";
     const agentNumber =
       typeof body?.agentNumber === "string"
         ? body.agentNumber.trim()
         : process.env.NEXT_PUBLIC_DEFAULT_AGENT_NUMBER || "";
+    const greetingText =
+      typeof body?.greetingText === "string" && body.greetingText.trim()
+        ? body.greetingText.trim()
+        : "Hello from Meedian. Please stay connected while we connect you.";
+    const voiceDropText =
+      typeof body?.voiceDropText === "string" && body.voiceDropText.trim()
+        ? body.voiceDropText.trim()
+        : "Hello from Meedian. This is an automated call from admissions.";
+    const recordResponse = body?.recordResponse === true;
+    const recordLive = body?.recordLive === true;
 
     if (!guardianNumber) return NextResponse.json({ error: "guardianNumber required" }, { status: 400 });
-    if (!agentNumber) return NextResponse.json({ error: "agentNumber required" }, { status: 400 });
+    if (mode === "live" || mode === "greet_bridge") {
+      if (!agentNumber) return NextResponse.json({ error: "agentNumber required" }, { status: 400 });
+    }
 
     const accountSid = process.env.TWILIO_ACCOUNT_SID;
     const authToken = process.env.TWILIO_AUTH_TOKEN;
@@ -34,14 +50,25 @@ export async function POST(request) {
       );
     }
 
-    const bridgeUrl = `${baseUrl.replace(/\/$/, "")}/api/twilio/bridge?target=${encodeURIComponent(
-      guardianNumber
-    )}`;
+    const normalizedBase = baseUrl.replace(/\/$/, "");
+    let twimlUrl = `${normalizedBase}/api/twilio/bridge?target=${encodeURIComponent(guardianNumber)}`;
+    let to = agentNumber;
+    if (mode === "greet_bridge") {
+      to = guardianNumber;
+      twimlUrl = `${normalizedBase}/api/twilio/greet-bridge?agent=${encodeURIComponent(
+        agentNumber
+      )}&say=${encodeURIComponent(greetingText)}&record=${recordLive ? "1" : "0"}`;
+    } else if (mode === "voice_drop") {
+      to = guardianNumber;
+      twimlUrl = `${normalizedBase}/api/twilio/voice-drop?say=${encodeURIComponent(
+        voiceDropText
+      )}&record=${recordResponse ? "1" : "0"}`;
+    }
 
     const params = new URLSearchParams();
-    params.append("To", agentNumber);
+    params.append("To", to);
     params.append("From", from);
-    params.append("Url", bridgeUrl);
+    params.append("Url", twimlUrl);
 
     const resp = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls.json`, {
       method: "POST",
@@ -69,8 +96,9 @@ export async function POST(request) {
       {
         callSid: data?.sid,
         status: data?.status || "initiated",
-        to: agentNumber,
+        to,
         via: from,
+        mode,
       },
       { status: 200 }
     );

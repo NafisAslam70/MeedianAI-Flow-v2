@@ -8,7 +8,7 @@ import {
   enrollmentCommunicationTemplates,
   memberSectionGrants,
 } from "@/lib/schema";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import twilio from "twilio";
 
 const accountSid = process.env.TWILIO_ACCOUNT_SID;
@@ -33,6 +33,38 @@ const ensureTwilioReady = () => {
     return NextResponse.json({ error: "Twilio WhatsApp is not configured" }, { status: 500 });
   }
   return null;
+};
+
+const normalizePhone = (value) => String(value || "").replace(/\D/g, "");
+
+const findGuardianByContact = async (contact) => {
+  const raw = String(contact || "").trim();
+  if (!raw) return null;
+
+  const exact = await db
+    .select({ id: enrollmentGuardians.id, whatsapp: enrollmentGuardians.whatsapp })
+    .from(enrollmentGuardians)
+    .where(eq(enrollmentGuardians.whatsapp, raw))
+    .limit(1);
+  if (exact.length) return exact[0];
+
+  const digits = normalizePhone(raw);
+  if (!digits) return null;
+  const tail10 = digits.slice(-10);
+  const phoneFilters = [ilike(enrollmentGuardians.whatsapp, `%${digits}%`)];
+  if (tail10) phoneFilters.push(ilike(enrollmentGuardians.whatsapp, `%${tail10}%`));
+  const candidates = await db
+    .select({ id: enrollmentGuardians.id, whatsapp: enrollmentGuardians.whatsapp })
+    .from(enrollmentGuardians)
+    .where(or(...phoneFilters))
+    .limit(25);
+
+  return (
+    candidates.find((row) => {
+      const stored = normalizePhone(row.whatsapp);
+      return stored === digits || (tail10 && stored.endsWith(tail10));
+    }) || null
+  );
 };
 
 export async function GET(request) {
@@ -93,12 +125,8 @@ export async function GET(request) {
           contact = rawGuardianId.replace("ongoing_", "");
         }
         if (contact) {
-          const existing = await db
-            .select({ id: enrollmentGuardians.id })
-            .from(enrollmentGuardians)
-            .where(eq(enrollmentGuardians.whatsapp, contact))
-            .limit(1);
-          if (existing.length) resolvedGuardianId = existing[0].id;
+          const existing = await findGuardianByContact(contact);
+          if (existing?.id) resolvedGuardianId = existing.id;
         }
       }
 
@@ -180,7 +208,7 @@ async function sendWhatsAppMessage(body, session) {
       ? body.templateVariables
       : null;
 
-  if (!Number.isFinite(guardianId)) {
+  if (!Number.isFinite(guardianId) || guardianId <= 0) {
     return NextResponse.json({ error: "Guardian ID required" }, { status: 400 });
   }
 
@@ -464,6 +492,7 @@ async function sendBulkMessages(body, session) {
 async function logInteraction(body, session) {
   console.log("log-interaction body", body);
   let guardianId = Number(body?.guardianId);
+  if (!Number.isFinite(guardianId) || guardianId <= 0) guardianId = NaN;
   const guardianName = typeof body?.guardianName === "string" ? body.guardianName.trim() : "";
   const guardianWhatsapp = typeof body?.guardianWhatsapp === "string" ? body.guardianWhatsapp.trim() : "";
   const guardianPhone = typeof body?.guardianPhone === "string" ? body.guardianPhone.trim() : "";
@@ -480,7 +509,7 @@ async function logInteraction(body, session) {
   const createdBy = Number.isFinite(actorId) ? actorId : null;
   const resolvedName = guardianName || "Ongoing Guardian";
 
-  if (!Number.isFinite(guardianId)) {
+  if (!Number.isFinite(guardianId) || guardianId <= 0) {
     // Try to find or create a guardian using phone/whatsapp; fall back to placeholder contact
     let contact = guardianWhatsapp || guardianPhone;
     if (!contact) {
@@ -488,14 +517,9 @@ async function logInteraction(body, session) {
     }
 
     // Deduplicate by whatsapp (unique)
-    const existing = await db
-      .select({ id: enrollmentGuardians.id })
-      .from(enrollmentGuardians)
-      .where(eq(enrollmentGuardians.whatsapp, contact))
-      .limit(1);
-
-    if (existing.length) {
-      guardianId = existing[0].id;
+    const existing = await findGuardianByContact(contact);
+    if (existing?.id) {
+      guardianId = existing.id;
     } else {
       try {
         const [created] = await db
@@ -515,16 +539,12 @@ async function logInteraction(body, session) {
           .returning({ id: enrollmentGuardians.id });
         guardianId = created.id;
       } catch {
-        const retried = await db
-          .select({ id: enrollmentGuardians.id })
-          .from(enrollmentGuardians)
-          .where(eq(enrollmentGuardians.whatsapp, contact))
-          .limit(1);
-        if (retried.length) guardianId = retried[0].id;
+        const retried = await findGuardianByContact(contact);
+        if (retried?.id) guardianId = retried.id;
       }
     }
   }
-  if (!Number.isFinite(guardianId)) {
+  if (!Number.isFinite(guardianId) || guardianId <= 0) {
     return NextResponse.json({ error: "Unable to resolve guardian" }, { status: 400 });
   }
   if (!type) {

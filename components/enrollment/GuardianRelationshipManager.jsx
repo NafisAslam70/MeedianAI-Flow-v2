@@ -35,6 +35,7 @@ const DEFAULT_INTERESTS = {
 };
 const DEFAULT_WHATSAPP_TEMPLATE_SID = "HX3149b82c2591e2b1a64bf762e394fb41";
 const DEFAULT_WHATSAPP_SUBJECT = "उपस्थिति सूचना";
+const DEFAULT_PHONE_PREFIX = "+91";
 
 const STATUS_META = {
   new_lead: { label: "New Lead", color: "blue" },
@@ -49,7 +50,7 @@ const buildEmptyChild = () => ({ name: "", age: "", currentSchool: "" });
 
 const buildAddForm = () => ({
   name: "",
-  whatsapp: "",
+  whatsapp: DEFAULT_PHONE_PREFIX,
   location: "",
   notes: "",
   beltId: "",
@@ -124,6 +125,17 @@ const extractNames = (value) => {
 };
 
 const normalizePhoneDigits = (value) => (value ? String(value).replace(/\D/g, "") : "");
+const ensureDefaultPhonePrefix = (value) => {
+  const raw = String(value ?? "").trim();
+  if (!raw) return DEFAULT_PHONE_PREFIX;
+  if (raw.startsWith("+")) return raw;
+  const digits = raw.replace(/\D/g, "");
+  if (!digits) return DEFAULT_PHONE_PREFIX;
+  if (digits.startsWith("91")) return `+${digits}`;
+  return `${DEFAULT_PHONE_PREFIX}${digits}`;
+};
+
+const isLikelyValidPhone = (value) => normalizePhoneDigits(value).length >= 12;
 
 const resolveGuardianCluster = (guardian, belts = [], beltPhoneMap = new Map(), randomPhoneSet = new Set()) => {
   let beltId = guardian?.beltId || guardian?.belt_id || guardian?.belt?.id;
@@ -305,6 +317,9 @@ const GuardianRelationshipManager = () => {
     allowedModes: { live: true, greet_bridge: true, voice_drop: true },
     defaultMode: "live",
     recording: true,
+    greetText: "Hello from Meedian. Please stay connected while we connect you.",
+    voiceDropText: "Hello from Meedian. This is an automated call from admissions.",
+    voiceDropRecordResponse: false,
   });
   const [callMode, setCallMode] = useState("live");
   const DEFAULT_AGENT_NUMBER = process.env.NEXT_PUBLIC_DEFAULT_AGENT_NUMBER || "";
@@ -340,6 +355,37 @@ const GuardianRelationshipManager = () => {
     if (!callSettings.allowedRoles[userRole]) {
       setCallError("You are not allowed to place calls.");
       setCallModalOpen(true);
+      return;
+    }
+    if (callMode !== "live") {
+      try {
+        setCallError("");
+        setCallState("connecting");
+        setCallTarget(guardianNumber);
+        setCallTargetName(guardianName || "");
+        setCallModalOpen(true);
+        const res = await fetch("/api/enrollment/guardians/twilio-call", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mode: callMode,
+            guardianNumber,
+            agentNumber: DEFAULT_AGENT_NUMBER,
+            greetingText: callSettings.greetText,
+            voiceDropText: callSettings.voiceDropText,
+            recordResponse: callSettings.voiceDropRecordResponse,
+            recordLive: callSettings.recording,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data?.error || "Failed to start call");
+        }
+        setCallState("in-call");
+      } catch (err) {
+        setCallError(err.message || "Failed to call");
+        setCallState("idle");
+      }
       return;
     }
     try {
@@ -414,15 +460,15 @@ const GuardianRelationshipManager = () => {
   const [villageForm, setVillageForm] = useState({ name: "", notes: "" });
   const [leadManagerForm, setLeadManagerForm] = useState({
     name: "",
-    phone: "",
-    whatsapp: "",
+    phone: DEFAULT_PHONE_PREFIX,
+    whatsapp: DEFAULT_PHONE_PREFIX,
     notes: "",
   });
   const [leadManagerNotes, setLeadManagerNotes] = useState({});
   const [existingKingForm, setExistingKingForm] = useState({
     name: "",
-    phone: "",
-    whatsapp: "",
+    phone: DEFAULT_PHONE_PREFIX,
+    whatsapp: DEFAULT_PHONE_PREFIX,
     notes: "",
     trusted: false,
   });
@@ -1099,7 +1145,7 @@ const GuardianRelationshipManager = () => {
     setGuardianModalMode("edit");
     setAddForm({
       name: guardian.name || "",
-      whatsapp: guardian.whatsapp || "",
+      whatsapp: ensureDefaultPhonePrefix(guardian.whatsapp || ""),
       location: guardian.location || "",
       notes: guardian.notes || "",
       beltId: "",
@@ -1210,12 +1256,14 @@ const GuardianRelationshipManager = () => {
   }, [interactionModal.open, interactionModal.mode]);
 
   const updateAddField = (field) => (event) => {
-    const value = event.target.value;
+    const value =
+      field === "whatsapp" ? ensureDefaultPhonePrefix(event.target.value) : event.target.value;
     setAddForm((prev) => ({ ...prev, [field]: value }));
   };
 
   const updateLeadField = (field) => (event) => {
-    const value = event.target.value;
+    const value =
+      field === "whatsapp" ? ensureDefaultPhonePrefix(event.target.value) : event.target.value;
     setLeadForm((prev) => ({ ...prev, [field]: value }));
   };
 
@@ -1274,11 +1322,11 @@ const GuardianRelationshipManager = () => {
 
   const buildGuardianPayload = (form) => {
     const name = form.name.trim();
-    const whatsapp = form.whatsapp.trim();
+    const whatsapp = ensureDefaultPhonePrefix(form.whatsapp);
     const location = form.location.trim();
     const notes = form.notes.trim();
 
-    if (!name || !whatsapp || !location) {
+    if (!name || !location || !isLikelyValidPhone(whatsapp)) {
       return { error: "Name, WhatsApp, and location are required." };
     }
 
@@ -1512,7 +1560,7 @@ const GuardianRelationshipManager = () => {
     const parsedGuardianId = Number(guardian?.id ?? guardian?.guardianId);
     const guardianId = Number.isFinite(parsedGuardianId) ? parsedGuardianId : null;
     const localGuardianId = guardian?.id ?? guardianId;
-    const guardianName = guardian?.name || guardian?.guardianName || "Ongoing Guardian";
+    const guardianName = guardian?.name || guardian?.guardianName || "Guardian";
     const guardianWhatsapp = guardian?.whatsapp || guardian?.guardianWhatsappNumber || guardian?.phone || "";
     const guardianPhone = guardian?.phone || guardian?.guardianPhone || guardian?.mobile || guardianWhatsapp || "";
     const guardianLocation = guardian?.location || "";
@@ -2890,7 +2938,7 @@ const GuardianRelationshipManager = () => {
       }
       const parsedGuardianId = Number(guardian?.id ?? guardian?.guardianId);
       const guardianId = Number.isFinite(parsedGuardianId) ? parsedGuardianId : undefined;
-      const guardianName = guardian?.name || "Ongoing Guardian";
+      const guardianName = guardian?.name || "Guardian";
       const guardianWhatsapp =
         guardian?.whatsapp ||
         guardian?.guardianWhatsappNumber ||
@@ -2947,7 +2995,7 @@ const GuardianRelationshipManager = () => {
     const handleComplaintEscalate = async (item) => {
       const title = item?.followUpNotes?.trim()
         ? `Complaint: ${item.followUpNotes.trim()}`
-        : `Guardian Complaint - ${guardian?.name || "Ongoing Guardian"}`;
+        : `Guardian Complaint - ${guardian?.name || "Guardian"}`;
       const description = item?.content || "Complaint escalation";
       setEscalationForm({ title, description, l1AssigneeId: "" });
       setEscalationError("");
@@ -2976,7 +3024,7 @@ const GuardianRelationshipManager = () => {
 
         const parsedGuardianId = Number(guardian?.id ?? guardian?.guardianId);
         const guardianId = Number.isFinite(parsedGuardianId) ? parsedGuardianId : undefined;
-        const guardianName = guardian?.name || "Ongoing Guardian";
+        const guardianName = guardian?.name || "Guardian";
         const guardianWhatsapp =
           guardian?.whatsapp ||
           guardian?.guardianWhatsappNumber ||
@@ -3024,7 +3072,7 @@ const GuardianRelationshipManager = () => {
       event.preventDefault();
       const parsedGuardianId = Number(guardian?.id ?? guardian?.guardianId);
       const guardianId = Number.isFinite(parsedGuardianId) ? parsedGuardianId : undefined;
-      const guardianName = guardian?.name || "Ongoing Guardian";
+      const guardianName = guardian?.name || "Guardian";
       const guardianWhatsapp =
         guardian?.whatsapp ||
         guardian?.guardianWhatsappNumber ||
@@ -4330,7 +4378,35 @@ const GuardianRelationshipManager = () => {
                 checked={callSettings.recording}
                 onChange={(e) => setCallSettings((p) => ({ ...p, recording: e.target.checked }))}
               />
-              Record live calls
+              Record greet + bridge calls
+            </label>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-600">Greet message text</label>
+              <textarea
+                rows={2}
+                value={callSettings.greetText}
+                onChange={(e) => setCallSettings((p) => ({ ...p, greetText: e.target.value }))}
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-600">Voice drop text</label>
+              <textarea
+                rows={2}
+                value={callSettings.voiceDropText}
+                onChange={(e) => setCallSettings((p) => ({ ...p, voiceDropText: e.target.value }))}
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              />
+            </div>
+            <label className="flex items-center gap-2 text-slate-600">
+              <input
+                type="checkbox"
+                checked={callSettings.voiceDropRecordResponse}
+                onChange={(e) =>
+                  setCallSettings((p) => ({ ...p, voiceDropRecordResponse: e.target.checked }))
+                }
+              />
+              Record callee response in voice drop mode
             </label>
             <p className="text-xs text-slate-500">(Settings are local-only for now; can be persisted later.)</p>
           </CardBody>
@@ -5032,7 +5108,10 @@ const GuardianRelationshipManager = () => {
                                                 label="Phone"
                                                 value={leadManagerForm.phone}
                                                 onChange={(event) =>
-                                                  setLeadManagerForm((prev) => ({ ...prev, phone: event.target.value }))
+                                                  setLeadManagerForm((prev) => ({
+                                                    ...prev,
+                                                    phone: ensureDefaultPhonePrefix(event.target.value),
+                                                  }))
                                                 }
                                                 placeholder="+91..."
                                               />
@@ -5040,7 +5119,10 @@ const GuardianRelationshipManager = () => {
                                                 label="WhatsApp"
                                                 value={leadManagerForm.whatsapp}
                                                 onChange={(event) =>
-                                                  setLeadManagerForm((prev) => ({ ...prev, whatsapp: event.target.value }))
+                                                  setLeadManagerForm((prev) => ({
+                                                    ...prev,
+                                                    whatsapp: ensureDefaultPhonePrefix(event.target.value),
+                                                  }))
                                                 }
                                                 placeholder="Optional"
                                               />
@@ -5063,8 +5145,8 @@ const GuardianRelationshipManager = () => {
                                                     afterSuccess: () =>
                                                       setLeadManagerForm({
                                                         name: "",
-                                                        phone: "",
-                                                        whatsapp: "",
+                                                        phone: DEFAULT_PHONE_PREFIX,
+                                                        whatsapp: DEFAULT_PHONE_PREFIX,
                                                         notes: "",
                                                       }),
                                                   })
@@ -5210,8 +5292,8 @@ const GuardianRelationshipManager = () => {
                                                 "";
                                               setExistingKingForm({
                                                 name: g.name || "",
-                                                phone: phoneFromGuardian,
-                                                whatsapp: whatsappFromGuardian,
+                                                phone: ensureDefaultPhonePrefix(phoneFromGuardian),
+                                                whatsapp: ensureDefaultPhonePrefix(whatsappFromGuardian),
                                                 notes: g.location ? `From ${g.location}` : "",
                                                 trusted: true,
                                               });
@@ -5239,7 +5321,10 @@ const GuardianRelationshipManager = () => {
                                             label="Phone"
                                             value={existingKingForm.phone}
                                             onChange={(event) =>
-                                              setExistingKingForm((prev) => ({ ...prev, phone: event.target.value }))
+                                              setExistingKingForm((prev) => ({
+                                                ...prev,
+                                                phone: ensureDefaultPhonePrefix(event.target.value),
+                                              }))
                                             }
                                             placeholder="+91..."
                                           />
@@ -5247,7 +5332,10 @@ const GuardianRelationshipManager = () => {
                                             label="WhatsApp"
                                             value={existingKingForm.whatsapp}
                                             onChange={(event) =>
-                                              setExistingKingForm((prev) => ({ ...prev, whatsapp: event.target.value }))
+                                              setExistingKingForm((prev) => ({
+                                                ...prev,
+                                                whatsapp: ensureDefaultPhonePrefix(event.target.value),
+                                              }))
                                             }
                                             placeholder="Optional"
                                           />
@@ -5282,16 +5370,16 @@ const GuardianRelationshipManager = () => {
                                               body: {
                                                 beltId: selectedBelt.id,
                                                 guardianName: existingKingForm.name,
-                                                guardianPhone: existingKingForm.phone,
-                                                guardianWhatsapp: existingKingForm.whatsapp,
+                                                guardianPhone: ensureDefaultPhonePrefix(existingKingForm.phone),
+                                                guardianWhatsapp: ensureDefaultPhonePrefix(existingKingForm.whatsapp),
                                                 notes: existingKingForm.notes,
                                               isTrusted: existingKingForm.trusted,
                                               },
                                               afterSuccess: () => {
                                                 setExistingKingForm({
                                                   name: "",
-                                                  phone: "",
-                                                  whatsapp: "",
+                                                  phone: DEFAULT_PHONE_PREFIX,
+                                                  whatsapp: DEFAULT_PHONE_PREFIX,
                                                   notes: "",
                                                   trusted: false,
                                                 });

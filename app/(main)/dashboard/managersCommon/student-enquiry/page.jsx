@@ -7,12 +7,24 @@ import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { PhoneCall, ArrowRight, ArrowLeft, Sparkles } from "lucide-react";
 import Link from "next/link";
 
+const DEFAULT_PHONE_PREFIX = "+91";
+const ensureDefaultPhonePrefix = (value) => {
+  const raw = String(value ?? "").trim();
+  if (!raw) return DEFAULT_PHONE_PREFIX;
+  if (raw.startsWith("+")) return raw;
+  const digits = raw.replace(/\D/g, "");
+  if (!digits) return DEFAULT_PHONE_PREFIX;
+  if (digits.startsWith("91")) return `+${digits}`;
+  return `${DEFAULT_PHONE_PREFIX}${digits}`;
+};
+const isLikelyValidPhone = (value) => String(value || "").replace(/\D/g, "").length >= 12;
+
 export default function StudentEnquiryPage() {
   const [form, setForm] = useState({
     guardianName: "",
     studentName: "",
     desiredClass: "",
-    phone: "",
+    phone: DEFAULT_PHONE_PREFIX,
     location: "",
     source: "call",
     notes: "",
@@ -30,7 +42,9 @@ export default function StudentEnquiryPage() {
   const [confirmSendOpen, setConfirmSendOpen] = useState(false);
 
   const updateField = (field) => (event) => {
-    setForm((prev) => ({ ...prev, [field]: event.target.value }));
+    const value =
+      field === "phone" ? ensureDefaultPhonePrefix(event.target.value) : event.target.value;
+    setForm((prev) => ({ ...prev, [field]: value }));
   };
 
   useEffect(() => {
@@ -120,8 +134,8 @@ export default function StudentEnquiryPage() {
     beltId: null,
     guardianId: null,
     name: form.guardianName,
-    phone: form.phone,
-    whatsapp: form.phone,
+    phone: ensureDefaultPhonePrefix(form.phone),
+    whatsapp: ensureDefaultPhonePrefix(form.phone),
     location: form.location || null,
     notes: [form.studentName, form.desiredClass, form.notes].filter(Boolean).join(" | "),
     source: "student_enquiry",
@@ -155,7 +169,7 @@ export default function StudentEnquiryPage() {
     if (saving) return;
     setMessage("");
 
-    if (!form.guardianName.trim() || !form.phone.trim()) {
+    if (!form.guardianName.trim() || !isLikelyValidPhone(form.phone)) {
       setMessage("Guardian name and phone are required.");
       return;
     }
@@ -174,7 +188,15 @@ export default function StudentEnquiryPage() {
     ]);
     setConfirmSendOpen(true);
     setMessage("Enquiry saved. Send to Random Leads?");
-    setForm({ guardianName: "", studentName: "", desiredClass: "", phone: "", location: "", source: "call", notes: "" });
+    setForm({
+      guardianName: "",
+      studentName: "",
+      desiredClass: "",
+      phone: DEFAULT_PHONE_PREFIX,
+      location: "",
+      source: "call",
+      notes: "",
+    });
     setTimeout(() => setMessage(""), 2500);
   };
 

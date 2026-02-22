@@ -647,6 +647,31 @@ export async function POST(req) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
+  if (section === "twilio-call") {
+    const accountSid = process.env.TWILIO_ACCOUNT_SID;
+    const authToken = process.env.TWILIO_AUTH_TOKEN;
+    const fromNumber = process.env.TWILIO_VOICE_NUMBER || process.env.TWILIO_WHATSAPP_NUMBER;
+    if (!accountSid || !authToken || !fromNumber) {
+      return NextResponse.json({ error: "Twilio not configured" }, { status: 500 });
+    }
+
+    const phone = String(body?.phone || "").trim();
+    if (!phone) return NextResponse.json({ error: "phone is required" }, { status: 400 });
+
+    try {
+      const client = require("twilio")(accountSid, authToken);
+      const call = await client.calls.create({
+        to: phone.startsWith("whatsapp:") ? phone : `whatsapp:${phone}`,
+        from: fromNumber.startsWith("whatsapp:") ? fromNumber : `whatsapp:${fromNumber}`,
+        url: "http://twimlets.com/message?Message%5B0%5D=Assalamu%20alaikum.%20MEED%20Recruitment%20is%20calling.%20Please%20call%20back.",
+      });
+      return NextResponse.json({ callSid: call.sid }, { status: 200 });
+    } catch (err) {
+      console.error("Twilio call error", err);
+      return NextResponse.json({ error: "Failed to place call" }, { status: 500 });
+    }
+  }
+
   if (section === "metaPrograms") {
     const programCode = String(body?.programCode || "").trim();
     const programName = String(body?.programName || "").trim();

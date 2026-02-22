@@ -2,6 +2,7 @@
 
 import React from "react";
 import useSWR from "swr";
+import { Device } from "@twilio/voice-sdk";
 
 const fetcher = (url) => fetch(url).then((res) => res.json());
 
@@ -185,6 +186,13 @@ export default function RecruitmentProPage() {
   }, [requirementsSwr.data]);
 
   const [benchDrafts, setBenchDrafts] = React.useState({});
+  const [callModal, setCallModal] = React.useState({ open: false, candidate: null });
+  const [callState, setCallState] = React.useState("idle");
+  const [callError, setCallError] = React.useState("");
+  const [callTarget, setCallTarget] = React.useState("");
+  const [callTargetName, setCallTargetName] = React.useState("");
+  const [voiceDevice, setVoiceDevice] = React.useState(null);
+  const [currentConnection, setCurrentConnection] = React.useState(null);
   const [selectedBench, setSelectedBench] = React.useState(new Set());
   const [benchEditingId, setBenchEditingId] = React.useState(null);
   const [newBench, setNewBench] = React.useState({
@@ -213,6 +221,103 @@ export default function RecruitmentProPage() {
     activePrograms.forEach((p) => map.set(p.id, p.programCode));
     return map;
   }, [activePrograms]);
+
+  const placeStageCall = async (candidate) => {
+    setCallError("");
+    setCallState("idle");
+    setCallTarget(candidate?.fullPhone || candidate?.phone || "");
+    setCallTargetName(
+      `${candidate?.firstName || ""} ${candidate?.lastName || ""}`.trim() || "Candidate"
+    );
+    setCallModal({ open: true, candidate });
+  };
+
+  const fetchVoiceToken = async () => {
+    const res = await fetch("/api/twilio/token");
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data?.token) {
+      throw new Error(data?.error || "Failed to get call token");
+    }
+    return data.token;
+  };
+
+  const ensureDevice = async () => {
+    if (voiceDevice) return voiceDevice;
+    const token = await fetchVoiceToken();
+    const dev = new Device(token, { logLevel: "error" });
+    dev.on("ready", () => setCallState("ready"));
+    dev.on("error", (error) => setCallError(error.message || "Call device error"));
+    dev.on("disconnect", () => setCallState("idle"));
+    setVoiceDevice(dev);
+    return dev;
+  };
+
+  React.useEffect(() => {
+    return () => {
+      if (currentConnection) currentConnection.disconnect();
+      if (voiceDevice) voiceDevice.disconnectAll();
+    };
+  }, [currentConnection, voiceDevice]);
+
+  React.useEffect(() => {
+    if (!callModal.open) return undefined;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [callModal.open]);
+
+  const confirmPlaceCall = async () => {
+    if (!callModal.candidate) return;
+    try {
+      setCallError("");
+      setCallState("connecting");
+      const phone = callModal.candidate.fullPhone || callModal.candidate.phone || "";
+      if (!phone) {
+        setCallError("No phone for this candidate.");
+        setCallState("idle");
+        return;
+      }
+      const dev = await ensureDevice();
+      const connection = await dev.connect({ params: { To: phone } });
+      if (!connection || (typeof connection.on !== "function" && typeof connection.addListener !== "function")) {
+        throw new Error("Could not start call");
+      }
+      setCurrentConnection(connection);
+      const onFn = connection.on?.bind(connection) || connection.addListener?.bind(connection);
+      onFn("accept", () => setCallState("in-call"));
+      onFn("disconnect", () => {
+        setCallState("idle");
+        setCurrentConnection(null);
+        setCallTarget("");
+        setCallModal({ open: false, candidate: null });
+      });
+      onFn("error", (error) => {
+        setCallError(error.message || "Call failed");
+        setCallState("idle");
+        setCurrentConnection(null);
+      });
+    } catch (err) {
+      console.error("Call error", err);
+      setCallError(err.message || "Call failed");
+      setCallState("idle");
+    }
+  };
+
+  const endCallScreen = () => {
+    if (currentConnection) {
+      currentConnection.disconnect();
+    } else if (voiceDevice) {
+      voiceDevice.disconnectAll();
+    }
+    setCallModal({ open: false, candidate: null });
+    setCallState("idle");
+    setCallError("");
+    setCallTarget("");
+    setCallTargetName("");
+    setCurrentConnection(null);
+  };
 
   const programNameByCode = React.useMemo(() => {
     const map = new Map();
@@ -339,7 +444,7 @@ export default function RecruitmentProPage() {
 
     // fallback: auto-pick by stage order from options if no stage chosen yet
     if (!stageId) {
-      const guess = stageByOrder.get(stageOrder) || stageOptions[0];
+      const guess = stageByOrder.get(stageOrder);
       stageId = guess?.id || null;
     }
 
@@ -560,7 +665,7 @@ export default function RecruitmentProPage() {
     }
     let stageId = modalStageId;
     if (!stageId) {
-      const guess = stageByOrder.get(stageOrder) || stageOptions[0];
+      const guess = stageByOrder.get(stageOrder);
       stageId = guess?.id || null;
     }
     if (!stageId) {
@@ -1213,6 +1318,7 @@ export default function RecruitmentProPage() {
             {recentCommOpen && (() => {
               const rows = pipelineSwr.data?.rows || [];
               const recent = [];
+              const seen = new Set();
               rows.forEach((row) => {
                 const stages = [
                   { order: 1, logs: row.commLogs?.stage1 || [] },
@@ -1222,6 +1328,11 @@ export default function RecruitmentProPage() {
                 ];
                 stages.forEach(({ order, logs }) => {
                   logs.forEach((log) => {
+                    const dedupeKey = `${log.id || ""}|${log.communicationDate || ""}|${log.subject || ""}|${
+                      log.createdBy || ""
+                    }`;
+                    if (seen.has(dedupeKey)) return;
+                    seen.add(dedupeKey);
                     recent.push({
                       ...log,
                       candidateName: `${row.firstName || ""} ${row.lastName || ""}`.trim() || row.fullPhone || "Candidate",
@@ -1273,9 +1384,24 @@ export default function RecruitmentProPage() {
                   const commOpen = !!pipelineDrafts[commKey];
                   return (
                   <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-2">
                       <div className="text-xs font-semibold text-slate-800">{stageByOrder.get(stageOrder)?.stageName || `Stage ${stageOrder}`}</div>
-                      <button className="text-[11px] text-teal-600 hover:text-teal-800" onClick={() => addStageComm(row.id, stageOrder)}>Log comm</button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          className="inline-flex items-center rounded-md border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100"
+                          onClick={() => placeStageCall(row)}
+                        >
+                          Call
+                        </button>
+                        <button
+                          type="button"
+                          className="inline-flex items-center rounded-md border border-teal-300 bg-teal-50 px-2.5 py-1 text-[11px] font-semibold text-teal-700 hover:bg-teal-100"
+                          onClick={() => addStageComm(row.id, stageOrder)}
+                        >
+                          Log comm
+                        </button>
+                      </div>
                     </div>
                     <div className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-2">
                       <div>
@@ -1981,7 +2107,57 @@ export default function RecruitmentProPage() {
         </div>
       )}
 
-      </div>
+      {callModal.open && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[120] px-4">
+          <div className="w-full max-w-lg rounded-3xl bg-white shadow-2xl border border-slate-200 p-8 space-y-6">
+            <div className="text-center space-y-2">
+              <p className="text-xs uppercase tracking-wide text-slate-400">
+                {callState === "connecting" ? "Connecting" : callState === "in-call" ? "In Call" : "Call"}
+              </p>
+              <p className="text-2xl font-bold text-slate-900">{callTargetName || "Unknown Candidate"}</p>
+              <p className="text-sm font-mono text-slate-600">{callTarget || "No phone"}</p>
+              <p className="text-xs text-slate-500">
+                {callState === "connecting"
+                  ? "Ringing..."
+                  : callState === "in-call"
+                  ? "Live"
+                  : "Ready"}
+              </p>
+            </div>
+
+            {callError && (
+              <div className="text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-xl px-3 py-2">
+                {callError}
+              </div>
+            )}
+
+            {callModal.candidate?.programName || callModal.candidate?.programCode ? (
+              <div className="text-center text-xs text-slate-500">
+                Program: {callModal.candidate?.programName || callModal.candidate?.programCode}
+              </div>
+            ) : null}
+
+            <div className="flex items-center justify-center gap-4">
+              <button
+                type="button"
+                className="w-14 h-14 rounded-full bg-rose-600 text-white flex items-center justify-center shadow hover:bg-rose-700"
+                onClick={endCallScreen}
+              >
+                End
+              </button>
+              <button
+                type="button"
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm text-white hover:bg-emerald-700 disabled:opacity-60"
+                onClick={confirmPlaceCall}
+                disabled={callState === "connecting" || callState === "in-call"}
+              >
+                {callState === "connecting" ? "Calling..." : callState === "in-call" ? "Call Active" : "Call now"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
     </div>
   );
 }
