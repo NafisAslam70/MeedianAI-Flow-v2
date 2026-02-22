@@ -222,6 +222,18 @@ const buildCddSignals = (instances, studentName) => {
     .sort((a, b) => (a.date > b.date ? -1 : 1));
 };
 
+const scrollViewportToTop = () => {
+  if (typeof window === "undefined") return;
+  const jumpTop = () => {
+    window.scrollTo({ top: 0, behavior: "auto" });
+    if (document?.documentElement) document.documentElement.scrollTop = 0;
+    if (document?.body) document.body.scrollTop = 0;
+  };
+  jumpTop();
+  window.requestAnimationFrame(jumpTop);
+  window.setTimeout(jumpTop, 80);
+};
+
 const GuardianRelationshipManager = () => {
   const { data: session } = useSession();
   const userRole = session?.user?.role || "member";
@@ -284,6 +296,7 @@ const GuardianRelationshipManager = () => {
   const [mgcpRandomLeads, setMgcpRandomLeads] = useState([]);
   const [mgcpHeads, setMgcpHeads] = useState([]);
   const [mgcpUsers, setMgcpUsers] = useState([]);
+  const [memberUsers, setMemberUsers] = useState([]);
   const [selectedBeltId, setSelectedBeltId] = useState("");
   const [selectedRandomLead, setSelectedRandomLead] = useState(null);
   const [selectedBeltLead, setSelectedBeltLead] = useState(null);
@@ -314,6 +327,15 @@ const GuardianRelationshipManager = () => {
     outcome: "follow-up",
     existingNotes: "",
   });
+  const [showPreviousGuardianComms, setShowPreviousGuardianComms] = useState(false);
+  const [showPreviousLeadNotes, setShowPreviousLeadNotes] = useState(false);
+  const [analyticsRefreshing, setAnalyticsRefreshing] = useState(false);
+  const [analyticsExpandedRows, setAnalyticsExpandedRows] = useState({});
+  const [analyticsLeadDrawer, setAnalyticsLeadDrawer] = useState({
+    open: false,
+    lead: null,
+    section: "overview",
+  });
   const [randomLeadSearch, setRandomLeadSearch] = useState("");
   const [convertedEnrollments, setConvertedEnrollments] = useState([]);
   const [selectedEnrollmentId, setSelectedEnrollmentId] = useState(null);
@@ -329,7 +351,12 @@ const GuardianRelationshipManager = () => {
   const [callError, setCallError] = useState("");
   const [callTarget, setCallTarget] = useState("");
   const [callTargetName, setCallTargetName] = useState("");
-  const [pendingCall, setPendingCall] = useState({ open: false, number: "", name: "", guardian: null });
+  const [pendingCall, setPendingCall] = useState({
+    open: false,
+    number: "",
+    name: "",
+    guardian: null,
+  });
   const [openGroups, setOpenGroups] = useState({});
   const [openRecentPanels, setOpenRecentPanels] = useState({ visited: false, called: false });
   const [recentVisitState, setRecentVisitState] = useState({ loading: false, error: "", items: [] });
@@ -517,9 +544,11 @@ const GuardianRelationshipManager = () => {
       guardian?.whatsapp || guardian?.phone || guardian?.guardianPhone || guardian?.mobile || "";
     if (!guardianNumber) {
       setCallError("No phone/WhatsApp number available for this guardian.");
+      scrollViewportToTop();
       setCallModalOpen(true);
       return;
     }
+    scrollViewportToTop();
     setPendingCall({
       open: true,
       number: guardianNumber,
@@ -554,12 +583,15 @@ const GuardianRelationshipManager = () => {
   const lookupUserName = useCallback(
     (id) => {
       if (!id) return null;
+      if (session?.user?.id && String(id) === String(session.user.id)) return "You";
       const found = mgcpUsers.find((u) => String(u.id) === String(id));
       if (found) return found.name;
+      const memberFound = memberUsers.find((u) => String(u.id) === String(id));
+      if (memberFound) return memberFound.name;
       if (currentUserName && String(id) === "me") return currentUserName;
       return null;
     },
-    [mgcpUsers, currentUserName]
+    [mgcpUsers, memberUsers, currentUserName, session?.user?.id]
   );
   const [mgcpActionState, setMgcpActionState] = useState({
     error: "",
@@ -750,6 +782,32 @@ const GuardianRelationshipManager = () => {
     loadMgcpData(controller.signal);
     return () => controller.abort();
   }, [activeTab]);
+
+  useEffect(() => {
+    let active = true;
+    const controller = new AbortController();
+    const loadMemberUsers = async () => {
+      try {
+        const res = await fetch("/api/member/users", {
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(payload?.error || "Failed to load users");
+        if (!active) return;
+        const rows = Array.isArray(payload?.users) ? payload.users : [];
+        setMemberUsers(rows.map((u) => ({ id: u.id, name: u.name || "User" })));
+      } catch (error) {
+        if (!active || error.name === "AbortError") return;
+        setMemberUsers([]);
+      }
+    };
+    loadMemberUsers();
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, []);
 
   useEffect(() => {
     if (activeTab !== "mgcp" && isMgcpDrawerOpen) {
@@ -1176,6 +1234,7 @@ const GuardianRelationshipManager = () => {
     Number.isFinite(Number(editGuardianId));
 
   const openAddModal = () => {
+    scrollViewportToTop();
     setAddError("");
     setEditGuardianId(null);
     setGuardianModalMode("add");
@@ -1205,6 +1264,7 @@ const GuardianRelationshipManager = () => {
 
   const openConvertConfirm = (guardian) => {
     if (!guardian) return;
+    scrollViewportToTop();
     setConvertConfirmGuardian(guardian);
   };
 
@@ -1268,7 +1328,7 @@ const GuardianRelationshipManager = () => {
       whatsapp: ensureDefaultPhonePrefix(guardian.whatsapp || ""),
       location: guardian.location || "",
       notes: guardian.notes || "",
-      beltId: "",
+      beltId: guardian.beltId || guardian.belt_id || guardian.belt?.id ? String(guardian.beltId || guardian.belt_id || guardian.belt?.id) : "",
       islamic_education_priority: guardian.interests?.islamic_education_priority || "medium",
       academic_excellence_priority: guardian.interests?.academic_excellence_priority || "medium",
       boarding_interest: guardian.interests?.boarding_interest || "maybe",
@@ -1278,6 +1338,7 @@ const GuardianRelationshipManager = () => {
   };
 
   const openLeadModal = (scope, beltId = null) => {
+    scrollViewportToTop();
     setLeadError("");
     setLeadForm(buildAddForm());
     setLeadModal({ open: true, scope, beltId });
@@ -1301,6 +1362,7 @@ const GuardianRelationshipManager = () => {
 
   const openLeadEditor = (lead, scope) => {
     if (!lead) return;
+    scrollViewportToTop();
     setLeadEditor({
       open: true,
       scope,
@@ -1358,6 +1420,8 @@ const GuardianRelationshipManager = () => {
 
   const openLeadCallModal = (lead, scope) => {
     if (!lead) return;
+    scrollViewportToTop();
+    setShowPreviousLeadNotes(false);
     setLeadCallModal({
       open: true,
       scope,
@@ -1383,10 +1447,11 @@ const GuardianRelationshipManager = () => {
     const note = leadCallModal.notes.trim();
     if (!leadCallModal.leadId || !note) return;
     const stamp = new Date().toLocaleString();
+    const actor = currentUserName || session?.user?.name || "Unknown";
     const detail = `Call update (${leadCallModal.outcome}${leadCallModal.duration ? `, ${leadCallModal.duration}` : ""})`;
     const nextNotes = leadCallModal.existingNotes
-      ? `${leadCallModal.existingNotes}\n[${stamp}] ${detail}: ${note}`
-      : `[${stamp}] ${detail}: ${note}`;
+      ? `${leadCallModal.existingNotes}\n[${stamp}] by ${actor} · ${detail}: ${note}`
+      : `[${stamp}] by ${actor} · ${detail}: ${note}`;
     const response = await runMgcpAction({
       url: "/api/enrollment/mgcp/leads",
       method: "PATCH",
@@ -1406,6 +1471,8 @@ const GuardianRelationshipManager = () => {
 
   const openInteractionModal = (guardian, mode, initialForm = null) => {
     if (!guardian) return;
+    scrollViewportToTop();
+    setShowPreviousGuardianComms(false);
     // Hide side drawer so interaction modal is visible
     setSelectedGuardian(null);
     setSelectedGuardianGroup(null);
@@ -1966,6 +2033,175 @@ const GuardianRelationshipManager = () => {
     });
   };
 
+  const previousGuardianInteractions = useMemo(() => {
+    const rows = Array.isArray(interactionModal.guardian?.interactions)
+      ? interactionModal.guardian.interactions
+      : [];
+    return rows
+      .slice()
+      .sort(
+        (a, b) =>
+          new Date(b?.createdAt || b?.date || 0).getTime() -
+          new Date(a?.createdAt || a?.date || 0).getTime()
+      )
+      .slice(0, 8);
+  }, [interactionModal.guardian]);
+
+  const getInteractionCreatorLabel = useCallback(
+    (interaction) => {
+      if (!interaction) return "You";
+      const myName = (session?.user?.name || currentUserName || "").trim().toLowerCase();
+      const explicitName =
+        interaction.conductedByName ||
+        interaction.createdByName ||
+        interaction.userName ||
+        interaction.createdByUserName;
+      if (explicitName) {
+        const normalized = String(explicitName).trim().toLowerCase();
+        if (!normalized || normalized === "unknown" || normalized === "team member") {
+          // fall through to id lookup
+        } else {
+          return myName && normalized === myName ? "You" : explicitName;
+        }
+      }
+      const actorId =
+        interaction.conductedBy ??
+        interaction.conducted_by ??
+        interaction.createdBy ??
+        interaction.created_by;
+      if (actorId) return lookupUserName(actorId) || "Team Member";
+      return "You";
+    },
+    [lookupUserName, currentUserName, session?.user?.name]
+  );
+
+  const teamPerformanceRows = useMemo(() => {
+    const activityByActor = new Map();
+
+    const ensureActor = (actorId, explicitName) => {
+      const key = actorId ? `id:${actorId}` : `name:${(explicitName || "unknown").toLowerCase()}`;
+      if (!activityByActor.has(key)) {
+        activityByActor.set(key, {
+          key,
+          actorId: actorId || null,
+          name: explicitName || (actorId ? lookupUserName(actorId) || "Team Member" : "Unknown"),
+          callsLogged: 0,
+          whatsappLogged: 0,
+          interactionsLogged: 0,
+          leadsAdded: 0,
+          followUpsFlagged: 0,
+          activities: [],
+          days: new Set(),
+          lastActiveAt: null,
+        });
+      }
+      return activityByActor.get(key);
+    };
+
+    const pushActivityDate = (row, value) => {
+      const date = value ? new Date(value) : null;
+      if (!date || Number.isNaN(date.getTime())) return;
+      row.days.add(date.toISOString().slice(0, 10));
+      if (!row.lastActiveAt || date > row.lastActiveAt) row.lastActiveAt = date;
+    };
+
+    const allProbableGuardians = [...probableGuardians];
+    allProbableGuardians.forEach((guardian) => {
+      const interactions = Array.isArray(guardian?.interactions) ? guardian.interactions : [];
+      interactions.forEach((interaction) => {
+        const actorId =
+          interaction?.conductedBy ??
+          interaction?.conducted_by ??
+          interaction?.createdBy ??
+          interaction?.created_by ??
+          null;
+        const explicitName =
+          interaction?.conductedByName ||
+          interaction?.createdByName ||
+          interaction?.userName ||
+          interaction?.createdByUserName ||
+          (actorId ? lookupUserName(actorId) : null) ||
+          "Unknown";
+        const row = ensureActor(actorId, explicitName);
+        row.interactionsLogged += 1;
+        if (interaction?.type === "call") row.callsLogged += 1;
+        if (interaction?.type === "whatsapp") row.whatsappLogged += 1;
+        if (interaction?.followUpRequired) row.followUpsFlagged += 1;
+        row.activities.push({
+          type:
+            interaction?.type === "call"
+              ? "Call log"
+              : interaction?.type === "whatsapp"
+              ? "WhatsApp log"
+              : "Interaction",
+          subject: guardian?.name || "Guardian",
+          detail: interaction?.content || interaction?.notes || interaction?.subject || "",
+          at: interaction?.createdAt || interaction?.date || null,
+        });
+        pushActivityDate(row, interaction?.createdAt || interaction?.date);
+      });
+    });
+
+    const allLeads = [
+      ...mgcpRandomLeads,
+      ...mgcpBelts.flatMap((belt) => (Array.isArray(belt?.leads) ? belt.leads : [])),
+    ];
+    allLeads.forEach((lead) => {
+      const actorId = lead?.createdBy ?? null;
+      const explicitName =
+        lead?.createdByName ||
+        (actorId ? lookupUserName(actorId) : null) ||
+        "Unknown";
+      const row = ensureActor(actorId, explicitName);
+      row.leadsAdded += 1;
+      row.activities.push({
+        type: "Lead added",
+        subject: lead?.name || "Lead",
+        detail: [lead?.source, lead?.category].filter(Boolean).join(" · "),
+        at: lead?.createdAt || null,
+        lead: lead || null,
+      });
+      pushActivityDate(row, lead?.createdAt);
+    });
+
+    return Array.from(activityByActor.values())
+      .map((row) => ({
+        ...row,
+        name:
+          session?.user?.id && row.actorId && String(row.actorId) === String(session.user.id)
+            ? "You"
+            : row.name,
+        daysActive: row.days.size,
+        recentActivities: row.activities
+          .slice()
+          .sort((a, b) => new Date(b.at || 0).getTime() - new Date(a.at || 0).getTime())
+          .slice(0, 12),
+      }))
+      .sort((a, b) => {
+        const scoreA = a.callsLogged + a.leadsAdded + a.interactionsLogged;
+        const scoreB = b.callsLogged + b.leadsAdded + b.interactionsLogged;
+        return scoreB - scoreA;
+      });
+  }, [probableGuardians, mgcpRandomLeads, mgcpBelts, lookupUserName, session?.user?.id]);
+
+  const refreshAnalyticsData = async () => {
+    setAnalyticsRefreshing(true);
+    try {
+      const probableRes = await fetch("/api/enrollment/guardians?limit=500", {
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+      });
+      const probablePayload = await probableRes.json().catch(() => ({}));
+      if (probableRes.ok) {
+        const rows = Array.isArray(probablePayload?.guardians) ? probablePayload.guardians : [];
+        setProbableGuardians(rows.map(normalizeGuardian));
+      }
+      await Promise.all([loadMgcpData(), loadMgcpUsers()]);
+    } finally {
+      setAnalyticsRefreshing(false);
+    }
+  };
+
   const getStatusMeta = (status) => {
     if (!status) return { label: "Unknown", color: "gray" };
     return STATUS_META[status] || { label: status.replace(/_/g, " "), color: "gray" };
@@ -2070,6 +2306,9 @@ const GuardianRelationshipManager = () => {
                       </p>
                       <p className="text-xs text-slate-500 mt-1">
                         {formatDate(interaction.date || interaction.createdAt)}
+                      </p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        by {getInteractionCreatorLabel(interaction)}
                       </p>
                     </div>
                   </div>
@@ -2510,7 +2749,7 @@ const GuardianRelationshipManager = () => {
                                   }}
                                 >
                                   <Eye className="h-4 w-4" />
-                                  View
+                                  All Details
                                 </Button>
                                 <Button
                                   variant="light"
@@ -2667,6 +2906,9 @@ const GuardianRelationshipManager = () => {
                         </p>
                         <p className="text-sm text-slate-600 mt-2">
                           {interaction.content || interaction.notes || "Interaction logged"}
+                        </p>
+                        <p className="mt-1 text-[10px] text-slate-400">
+                          by {getInteractionCreatorLabel(interaction)}
                         </p>
                         <div className="mt-3 flex flex-wrap gap-2 text-xs">
                           <Button
@@ -4437,6 +4679,9 @@ const GuardianRelationshipManager = () => {
                                 <p className="text-sm text-slate-600">
                                   {interaction.content || interaction.notes || "Interaction logged"}
                                 </p>
+                                <p className="mt-1 text-[10px] text-slate-400">
+                                  by {getInteractionCreatorLabel(interaction)}
+                                </p>
                                 {interaction.duration && (
                                   <p className="text-xs text-slate-400 mt-1">
                                     Duration: {interaction.duration}
@@ -4916,17 +5161,147 @@ const GuardianRelationshipManager = () => {
         </Card>
       )}
       {activeTab === "analytics" && (
-        <Card>
-          <CardBody className="py-10 text-center">
-            <TrendingUp className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-slate-900 mb-2">Analytics Dashboard</h3>
-            <p className="text-sm text-slate-500">Engagement analytics coming soon.</p>
-          </CardBody>
-        </Card>
+        <div className="space-y-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-800">Team Analytics</h3>
+              <p className="text-xs text-slate-500">Probable kings (new leads) only.</p>
+            </div>
+            <Button
+              size="sm"
+              variant="light"
+              disabled={analyticsRefreshing}
+              onClick={refreshAnalyticsData}
+            >
+              {analyticsRefreshing ? "Refreshing..." : "Refresh"}
+            </Button>
+          </div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+            <Card>
+              <CardBody className="py-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Team Members Active</p>
+                <p className="mt-1 text-2xl font-semibold text-slate-900">{teamPerformanceRows.filter((r) => r.daysActive > 0).length}</p>
+              </CardBody>
+            </Card>
+            <Card>
+              <CardBody className="py-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Call Logs Added</p>
+                <p className="mt-1 text-2xl font-semibold text-slate-900">
+                  {teamPerformanceRows.reduce((sum, row) => sum + row.callsLogged, 0)}
+                </p>
+              </CardBody>
+            </Card>
+            <Card>
+              <CardBody className="py-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Leads Added</p>
+                <p className="mt-1 text-2xl font-semibold text-slate-900">
+                  {teamPerformanceRows.reduce((sum, row) => sum + row.leadsAdded, 0)}
+                </p>
+              </CardBody>
+            </Card>
+            <Card>
+              <CardBody className="py-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Follow-ups Flagged</p>
+                <p className="mt-1 text-2xl font-semibold text-slate-900">
+                  {teamPerformanceRows.reduce((sum, row) => sum + row.followUpsFlagged, 0)}
+                </p>
+              </CardBody>
+            </Card>
+          </div>
+
+          <Card>
+            <CardHeader>
+              <h3 className="text-sm font-semibold text-slate-700">Team Work Summary</h3>
+            </CardHeader>
+            <CardBody className="space-y-3">
+              {teamPerformanceRows.length ? (
+                teamPerformanceRows.map((row, index) => (
+                  <div
+                    key={row.key}
+                    className={`overflow-hidden rounded-2xl border transition-all duration-200 ${
+                      analyticsExpandedRows[row.key]
+                        ? "border-teal-300 bg-gradient-to-b from-teal-50 to-white shadow-md"
+                        : "border-slate-200 bg-white shadow-sm hover:-translate-y-0.5 hover:shadow-md"
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      className="grid w-full grid-cols-2 gap-3 px-4 py-3 text-left text-sm md:grid-cols-7 md:items-center"
+                      onClick={() =>
+                        setAnalyticsExpandedRows((prev) => ({
+                          ...prev,
+                          [row.key]: !prev[row.key],
+                        }))
+                      }
+                    >
+                      <p className="font-bold text-slate-900">
+                        #{index + 1} [{row.actorId || "-"}] {row.name || "Unknown"}
+                      </p>
+                      <p className="text-slate-700">Calls: <span className="font-bold text-slate-900">{row.callsLogged}</span></p>
+                      <p className="text-slate-700">Leads: <span className="font-bold text-slate-900">{row.leadsAdded}</span></p>
+                      <p className="text-slate-700">Interactions: <span className="font-bold text-slate-900">{row.interactionsLogged}</span></p>
+                      <p className="text-slate-700">Follow-ups: <span className="font-bold text-slate-900">{row.followUpsFlagged}</span></p>
+                      <p className="text-slate-700">Days active: <span className="font-bold text-slate-900">{row.daysActive}</span></p>
+                      <p className="flex items-center justify-between text-slate-500">
+                        <span>Last active: {row.lastActiveAt ? formatDate(row.lastActiveAt) : "—"}</span>
+                        {analyticsExpandedRows[row.key] ? (
+                          <ChevronDown className="h-4 w-4 text-slate-400" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4 text-slate-400" />
+                        )}
+                      </p>
+                    </button>
+                    {analyticsExpandedRows[row.key] && (
+                      <div className="mx-3 mb-3 mt-1 space-y-2 rounded-xl border border-slate-200 bg-slate-50/80 p-3">
+                        {row.recentActivities.length ? (
+                          row.recentActivities.map((activity, aidx) => (
+                            <div
+                              key={`${row.key}-${aidx}`}
+                              className={`rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm transition ${
+                                activity.lead
+                                  ? "cursor-pointer hover:-translate-y-0.5 hover:border-teal-200 hover:bg-teal-50/30 hover:shadow-sm"
+                                  : ""
+                              }`}
+                              onClick={() => {
+                                if (!activity.lead) return;
+                                setAnalyticsLeadDrawer({ open: true, lead: activity.lead, section: "overview" });
+                              }}
+                            >
+                              <p className="font-semibold text-slate-800">
+                                {activity.type} · {activity.subject}
+                              </p>
+                              <p className="mt-0.5 text-slate-600">{activity.detail || "No notes"}</p>
+                              <p className="mt-1 text-xs text-slate-400">
+                                {activity.at ? formatDate(activity.at) : "No date"}
+                              </p>
+                              {activity.lead && (
+                                <p className="mt-1 text-xs font-semibold text-teal-600">Tap to open lead details</p>
+                              )}
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-xs text-slate-500">No itemized activity found.</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-slate-500">No team activity yet.</p>
+              )}
+            </CardBody>
+          </Card>
+        </div>
       )}
       {activeTab === "mgcp" && (
-        <div className="space-y-6">
-          <header className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-4 py-4 shadow-sm">
+        <div className="relative overflow-hidden rounded-3xl border border-emerald-100/80 bg-gradient-to-br from-emerald-50 via-white to-amber-50 p-4 shadow-sm md:p-6">
+          <div className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-emerald-200/35 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-24 -left-14 h-72 w-72 rounded-full bg-amber-200/30 blur-3xl" />
+          <div className="pointer-events-none absolute left-1/2 top-1/3 h-40 w-40 -translate-x-1/2 rounded-full bg-teal-100/35 blur-2xl" />
+          <div className="pointer-events-none absolute inset-0 opacity-[0.05]" style={{ backgroundImage: "radial-gradient(#0f766e 1px, transparent 1px)", backgroundSize: "18px 18px" }} />
+
+          <div className="relative z-10 space-y-6">
+          <header className="rounded-2xl border border-emerald-200/70 bg-white/75 px-4 py-4 shadow-sm backdrop-blur">
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
                 <h3 className="text-base font-semibold text-slate-900">MGCP Control Room</h3>
@@ -5101,7 +5476,7 @@ const GuardianRelationshipManager = () => {
             </Card>
           </div>
 
-          <div className="rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+          <div className="rounded-2xl border border-emerald-200/60 bg-white/85 shadow-sm backdrop-blur">
             <div className="flex flex-col gap-3 px-4 py-4 md:flex-row md:items-center md:justify-between">
               <div>
                 <h4 className="text-sm font-semibold text-slate-800">Manage MGCP</h4>
@@ -5127,9 +5502,9 @@ const GuardianRelationshipManager = () => {
 
           {isMgcpDrawerOpen && (
             <div className="fixed inset-0 z-40 bg-black/40">
-              <div className="absolute inset-y-0 right-0 w-full max-w-6xl bg-white shadow-xl">
+              <div className="absolute inset-y-0 right-0 w-full max-w-6xl bg-gradient-to-br from-emerald-50 via-white to-amber-50 shadow-xl">
                 <div className="h-full flex flex-col">
-                  <div className="border-b border-slate-200 px-6 py-4">
+                  <div className="border-b border-emerald-100/80 bg-white/70 px-6 py-4 backdrop-blur">
                     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                       <div>
                         <h3 className="text-lg font-semibold text-slate-900">Manage MGCP</h3>
@@ -5147,7 +5522,7 @@ const GuardianRelationshipManager = () => {
 
                   <div className="flex-1 overflow-hidden">
                     <div className="h-full grid grid-cols-1 lg:grid-cols-[220px_minmax(0,1fr)]">
-                      <aside className="border-b border-slate-200 bg-slate-50/60 lg:border-b-0 lg:border-r">
+                      <aside className="border-b border-emerald-100/80 bg-white/70 backdrop-blur lg:border-b-0 lg:border-r">
                         <div className="flex gap-2 overflow-x-auto px-4 py-4 lg:flex-col">
                           {[
                             { id: "head", label: "MGCP Head" },
@@ -6282,6 +6657,7 @@ const GuardianRelationshipManager = () => {
               </div>
             </div>
           )}
+          </div>
         </div>
       )}
 
@@ -6398,7 +6774,44 @@ const GuardianRelationshipManager = () => {
                   </label>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-4">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <button
+                      type="button"
+                      className="flex w-full items-center justify-between text-left"
+                      onClick={() => setShowPreviousGuardianComms((prev) => !prev)}
+                    >
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                        Previous communications
+                      </p>
+                      {showPreviousGuardianComms ? (
+                        <ChevronDown className="h-4 w-4 text-slate-500" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4 text-slate-500" />
+                      )}
+                    </button>
+                    {showPreviousGuardianComms &&
+                      (previousGuardianInteractions.length ? (
+                        <div className="mt-2 max-h-40 space-y-2 overflow-y-auto pr-1">
+                          {previousGuardianInteractions.map((item, idx) => (
+                            <div key={item.id || idx} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs">
+                              <p className="font-semibold text-slate-700">
+                                {(item.type || "interaction").toString().replace(/_/g, " ")} · {formatDate(item.createdAt || item.date)}
+                              </p>
+                              <p className="mt-0.5 text-slate-600">
+                                {item.content || item.notes || item.subject || "No notes"}
+                              </p>
+                              <p className="mt-1 text-[10px] text-slate-400">
+                                by {getInteractionCreatorLabel(item)}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-2 text-xs text-slate-500">No previous communications available.</p>
+                      ))}
+                  </div>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <label className="block md:col-span-2">
                     <span className="block text-sm font-medium text-slate-700 mb-1">Call Notes</span>
                     <textarea
@@ -6420,6 +6833,7 @@ const GuardianRelationshipManager = () => {
                     <option value="neutral">Neutral</option>
                     <option value="negative">Negative</option>
                   </Select>
+                  </div>
                 </div>
               )}
 
@@ -6744,6 +7158,30 @@ const GuardianRelationshipManager = () => {
             </div>
             <div className="space-y-4 p-6">
               <p className="text-sm text-slate-600">{leadCallModal.leadName}</p>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-between text-left"
+                  onClick={() => setShowPreviousLeadNotes((prev) => !prev)}
+                >
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                    Previous notes / interactions
+                  </p>
+                  {showPreviousLeadNotes ? (
+                    <ChevronDown className="h-4 w-4 text-slate-500" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4 text-slate-500" />
+                  )}
+                </button>
+                {showPreviousLeadNotes &&
+                  (leadCallModal.existingNotes ? (
+                    <p className="mt-2 max-h-40 overflow-y-auto whitespace-pre-line rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+                      {leadCallModal.existingNotes}
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-xs text-slate-500">No previous notes available.</p>
+                  ))}
+              </div>
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <Input
                   label="Duration"
@@ -6834,7 +7272,7 @@ const GuardianRelationshipManager = () => {
                   label="Assign Belt (Optional)"
                   value={addForm.beltId}
                   onChange={updateAddField("beltId")}
-                  disabled={isEditingGuardian || !mgcpBelts.length}
+                  disabled={!mgcpBelts.length}
                 >
                   <option value="">No belt (General)</option>
                   {mgcpBelts.map((belt) => (
@@ -6952,6 +7390,126 @@ const GuardianRelationshipManager = () => {
               </div>
             </div>
           </form>
+        </div>
+      )}
+
+      {analyticsLeadDrawer.open && analyticsLeadDrawer.lead && (
+        <div className="fixed inset-0 z-50 bg-black/40">
+          <div className="absolute inset-y-0 right-0 w-full max-w-5xl bg-white shadow-xl">
+            <div className="h-full flex flex-col">
+              <div className="border-b border-slate-200 px-6 py-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div className="flex items-center gap-3">
+                    <h2 className="text-xl font-semibold text-slate-900">
+                      {analyticsLeadDrawer.lead.name || "Lead"}
+                    </h2>
+                    <Badge color={analyticsLeadDrawer.lead.status === "won" ? "teal" : analyticsLeadDrawer.lead.status === "lost" ? "rose" : "amber"}>
+                      {analyticsLeadDrawer.lead.status || "new"}
+                    </Badge>
+                  </div>
+                  <button
+                    type="button"
+                    className="rounded-full p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                    onClick={() => setAnalyticsLeadDrawer({ open: false, lead: null, section: "overview" })}
+                  >
+                    X
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-hidden">
+                <div className="h-full grid grid-cols-1 lg:grid-cols-[220px_minmax(0,1fr)]">
+                  <aside className="border-b border-slate-200 bg-slate-50/60 lg:border-b-0 lg:border-r">
+                    <div className="flex gap-2 overflow-x-auto px-4 py-4 lg:flex-col">
+                      {[
+                        { id: "overview", label: "Overview" },
+                        { id: "source", label: "Source & Status" },
+                        { id: "notes", label: "Notes" },
+                      ].map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => setAnalyticsLeadDrawer((prev) => ({ ...prev, section: item.id }))}
+                          className={`px-3 py-2 rounded-lg text-sm font-semibold transition ${
+                            analyticsLeadDrawer.section === item.id
+                              ? "bg-teal-600 text-white shadow-sm"
+                              : "bg-white text-slate-600 hover:bg-slate-100"
+                          }`}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  </aside>
+
+                  <main className="h-full overflow-y-auto p-6">
+                    {analyticsLeadDrawer.section === "overview" && (
+                      <Card>
+                        <CardHeader>
+                          <h3 className="text-sm font-semibold text-slate-700">Lead Overview</h3>
+                        </CardHeader>
+                        <CardBody className="grid grid-cols-1 gap-4 md:grid-cols-2 text-sm">
+                          <div>
+                            <p className="text-xs font-semibold text-slate-500">Name</p>
+                            <p className="font-semibold text-slate-900">{analyticsLeadDrawer.lead.name || "Unknown"}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs font-semibold text-slate-500">Contact</p>
+                            <p className="text-slate-700">
+                              {analyticsLeadDrawer.lead.phone || analyticsLeadDrawer.lead.whatsapp || "No contact"}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs font-semibold text-slate-500">Location</p>
+                            <p className="text-slate-700">{analyticsLeadDrawer.lead.location || "No location"}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs font-semibold text-slate-500">Created</p>
+                            <p className="text-slate-700">{formatDate(analyticsLeadDrawer.lead.createdAt)}</p>
+                          </div>
+                        </CardBody>
+                      </Card>
+                    )}
+
+                    {analyticsLeadDrawer.section === "source" && (
+                      <Card>
+                        <CardHeader>
+                          <h3 className="text-sm font-semibold text-slate-700">Source & Status</h3>
+                        </CardHeader>
+                        <CardBody className="space-y-4 text-sm">
+                          <div>
+                            <p className="text-xs font-semibold text-slate-500">Source</p>
+                            <p className="text-slate-700">{analyticsLeadDrawer.lead.source || "Unknown"}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs font-semibold text-slate-500">Category</p>
+                            <p className="text-slate-700">{analyticsLeadDrawer.lead.category || "MGCP Lead"}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs font-semibold text-slate-500">Status</p>
+                            <p className="text-slate-700">{analyticsLeadDrawer.lead.status || "new"}</p>
+                          </div>
+                        </CardBody>
+                      </Card>
+                    )}
+
+                    {analyticsLeadDrawer.section === "notes" && (
+                      <Card>
+                        <CardHeader>
+                          <h3 className="text-sm font-semibold text-slate-700">Notes</h3>
+                        </CardHeader>
+                        <CardBody>
+                          <p className="whitespace-pre-line text-sm text-slate-700">
+                            {analyticsLeadDrawer.lead.notes || "No notes"}
+                          </p>
+                        </CardBody>
+                      </Card>
+                    )}
+                  </main>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
