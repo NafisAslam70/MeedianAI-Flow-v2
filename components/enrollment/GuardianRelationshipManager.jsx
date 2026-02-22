@@ -331,6 +331,8 @@ const GuardianRelationshipManager = () => {
   const [showPreviousLeadNotes, setShowPreviousLeadNotes] = useState(false);
   const [analyticsRefreshing, setAnalyticsRefreshing] = useState(false);
   const [analyticsExpandedRows, setAnalyticsExpandedRows] = useState({});
+  const [analyticsDateFilter, setAnalyticsDateFilter] = useState("all");
+  const [analyticsUserFilter, setAnalyticsUserFilter] = useState("all");
   const [analyticsLeadDrawer, setAnalyticsLeadDrawer] = useState({
     open: false,
     lead: null,
@@ -2137,6 +2139,7 @@ const GuardianRelationshipManager = () => {
           subject: guardian?.name || "Guardian",
           detail: interaction?.content || interaction?.notes || interaction?.subject || "",
           at: interaction?.createdAt || interaction?.date || null,
+          followUpRequired: Boolean(interaction?.followUpRequired),
         });
         pushActivityDate(row, interaction?.createdAt || interaction?.date);
       });
@@ -2160,6 +2163,7 @@ const GuardianRelationshipManager = () => {
         detail: [lead?.source, lead?.category].filter(Boolean).join(" · "),
         at: lead?.createdAt || null,
         lead: lead || null,
+        followUpRequired: false,
       });
       pushActivityDate(row, lead?.createdAt);
     });
@@ -2201,6 +2205,74 @@ const GuardianRelationshipManager = () => {
       setAnalyticsRefreshing(false);
     }
   };
+
+  const filteredTeamPerformanceRows = useMemo(() => {
+    const now = new Date();
+    const startOfToday = new Date(now);
+    startOfToday.setHours(0, 0, 0, 0);
+    const startOfDay = (daysAgo) => {
+      const d = new Date(startOfToday);
+      d.setDate(d.getDate() - daysAgo);
+      return d;
+    };
+    const inDateRange = (value) => {
+      if (analyticsDateFilter === "all") return true;
+      const date = value ? new Date(value) : null;
+      if (!date || Number.isNaN(date.getTime())) return false;
+      switch (analyticsDateFilter) {
+        case "today":
+          return date >= startOfToday;
+        case "yesterday": {
+          const start = startOfDay(1);
+          return date >= start && date < startOfToday;
+        }
+        case "last3":
+          return date >= startOfDay(2);
+        case "last7":
+          return date >= startOfDay(6);
+        case "last30":
+          return date >= startOfDay(29);
+        default:
+          return true;
+      }
+    };
+
+    return teamPerformanceRows
+      .filter((row) => analyticsUserFilter === "all" || row.key === analyticsUserFilter)
+      .map((row) => {
+        const filteredActivities = (row.activities || []).filter((activity) => inDateRange(activity.at));
+        const callsLogged = filteredActivities.filter((a) => a.type === "Call log").length;
+        const leadsAdded = filteredActivities.filter((a) => a.type === "Lead added").length;
+        const whatsappLogged = filteredActivities.filter((a) => a.type === "WhatsApp log").length;
+        const interactionsLogged = filteredActivities.filter((a) => a.type !== "Lead added").length;
+        const followUpsFlagged = filteredActivities.filter((a) => a.followUpRequired).length;
+        const activeDates = new Set(
+          filteredActivities
+            .map((a) => (a.at ? new Date(a.at) : null))
+            .filter((d) => d && !Number.isNaN(d.getTime()))
+            .map((d) => d.toISOString().slice(0, 10))
+        );
+        const lastActiveAt = filteredActivities
+          .map((a) => (a.at ? new Date(a.at) : null))
+          .filter((d) => d && !Number.isNaN(d.getTime()))
+          .sort((a, b) => b.getTime() - a.getTime())[0] || null;
+        return {
+          ...row,
+          callsLogged,
+          leadsAdded,
+          whatsappLogged,
+          interactionsLogged,
+          followUpsFlagged,
+          daysActive: activeDates.size,
+          lastActiveAt,
+          recentActivities: filteredActivities
+            .slice()
+            .sort((a, b) => new Date(b.at || 0).getTime() - new Date(a.at || 0).getTime())
+            .slice(0, 12),
+        };
+      })
+      .filter((row) => row.callsLogged + row.leadsAdded + row.interactionsLogged > 0);
+  }, [teamPerformanceRows, analyticsDateFilter, analyticsUserFilter]);
 
   const getStatusMeta = (status) => {
     if (!status) return { label: "Unknown", color: "gray" };
@@ -5167,27 +5239,50 @@ const GuardianRelationshipManager = () => {
               <h3 className="text-sm font-semibold text-slate-800">Team Analytics</h3>
               <p className="text-xs text-slate-500">Probable kings (new leads) only.</p>
             </div>
-            <Button
-              size="sm"
-              variant="light"
-              disabled={analyticsRefreshing}
-              onClick={refreshAnalyticsData}
-            >
-              {analyticsRefreshing ? "Refreshing..." : "Refresh"}
-            </Button>
+            <div className="flex flex-wrap items-end gap-2">
+              <Select
+                label="Date"
+                value={analyticsDateFilter}
+                onChange={(event) => setAnalyticsDateFilter(event.target.value)}
+                className="min-w-[140px]"
+              >
+                <option value="all">All Time</option>
+                <option value="today">Today</option>
+                <option value="yesterday">Yesterday</option>
+                <option value="last3">Last 3 Days</option>
+                <option value="last7">Last 1 Week</option>
+                <option value="last30">Last 1 Month</option>
+              </Select>
+              <Select
+                label="User"
+                value={analyticsUserFilter}
+                onChange={(event) => setAnalyticsUserFilter(event.target.value)}
+                className="min-w-[180px]"
+              >
+                <option value="all">All Users</option>
+                {teamPerformanceRows.map((row) => (
+                  <option key={row.key} value={row.key}>
+                    [{row.actorId || "-"}] {row.name || "Unknown"}
+                  </option>
+                ))}
+              </Select>
+              <Button size="sm" variant="light" disabled={analyticsRefreshing} onClick={refreshAnalyticsData}>
+                {analyticsRefreshing ? "Refreshing..." : "Refresh"}
+              </Button>
+            </div>
           </div>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
             <Card>
               <CardBody className="py-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Team Members Active</p>
-                <p className="mt-1 text-2xl font-semibold text-slate-900">{teamPerformanceRows.filter((r) => r.daysActive > 0).length}</p>
+                <p className="mt-1 text-2xl font-semibold text-slate-900">{filteredTeamPerformanceRows.filter((r) => r.daysActive > 0).length}</p>
               </CardBody>
             </Card>
             <Card>
               <CardBody className="py-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Call Logs Added</p>
                 <p className="mt-1 text-2xl font-semibold text-slate-900">
-                  {teamPerformanceRows.reduce((sum, row) => sum + row.callsLogged, 0)}
+                  {filteredTeamPerformanceRows.reduce((sum, row) => sum + row.callsLogged, 0)}
                 </p>
               </CardBody>
             </Card>
@@ -5195,7 +5290,7 @@ const GuardianRelationshipManager = () => {
               <CardBody className="py-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Leads Added</p>
                 <p className="mt-1 text-2xl font-semibold text-slate-900">
-                  {teamPerformanceRows.reduce((sum, row) => sum + row.leadsAdded, 0)}
+                  {filteredTeamPerformanceRows.reduce((sum, row) => sum + row.leadsAdded, 0)}
                 </p>
               </CardBody>
             </Card>
@@ -5203,7 +5298,7 @@ const GuardianRelationshipManager = () => {
               <CardBody className="py-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Follow-ups Flagged</p>
                 <p className="mt-1 text-2xl font-semibold text-slate-900">
-                  {teamPerformanceRows.reduce((sum, row) => sum + row.followUpsFlagged, 0)}
+                  {filteredTeamPerformanceRows.reduce((sum, row) => sum + row.followUpsFlagged, 0)}
                 </p>
               </CardBody>
             </Card>
@@ -5214,8 +5309,8 @@ const GuardianRelationshipManager = () => {
               <h3 className="text-sm font-semibold text-slate-700">Team Work Summary</h3>
             </CardHeader>
             <CardBody className="space-y-3">
-              {teamPerformanceRows.length ? (
-                teamPerformanceRows.map((row, index) => (
+              {filteredTeamPerformanceRows.length ? (
+                filteredTeamPerformanceRows.map((row, index) => (
                   <div
                     key={row.key}
                     className={`overflow-hidden rounded-2xl border transition-all duration-200 ${

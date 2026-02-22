@@ -42,15 +42,18 @@ const normalizeDialNumber = (value) => {
   if (!raw) return "";
   if (raw.startsWith("client:")) return raw;
 
-  let cleaned = raw.replace(/[^\d+]/g, "");
-  if (cleaned.startsWith("00")) cleaned = `+${cleaned.slice(2)}`;
-  if (!cleaned.startsWith("+")) {
-    const digits = cleaned.replace(/\D/g, "");
-    if (digits.length === 10) return `+91${digits}`;
-    if (digits.length > 10) return `+${digits}`;
-    return digits;
-  }
-  return cleaned;
+  const hasPlusPrefix = raw.startsWith("+") || raw.startsWith("00");
+  const digits = raw.replace(/\D/g, "");
+  if (!digits) return "";
+
+  // Convert 00-prefixed international numbers to +E.164
+  if (raw.startsWith("00")) return `+${digits.slice(2)}`;
+  // Local India fallback for 10-digit values
+  if (!hasPlusPrefix && digits.length === 10) return `+91${digits}`;
+  // Generic international fallback
+  if (!hasPlusPrefix && digits.length > 10) return `+${digits}`;
+  // Already international style (+...), but normalize to a single leading plus
+  return `+${digits}`;
 };
 
 const resolveCandidateDialNumber = (candidate) => {
@@ -324,7 +327,7 @@ export default function RecruitmentProPage() {
 
       const dev = await ensureDevice();
       const connection = await dev.connect({
-        params: { To: phone, whisper: RECRUITMENT_WHISPER, mode: callMode, agent: DEFAULT_AGENT_NUMBER },
+        params: { To: phone },
       });
       if (!connection || (typeof connection.on !== "function" && typeof connection.addListener !== "function")) {
         throw new Error("Could not start call");
