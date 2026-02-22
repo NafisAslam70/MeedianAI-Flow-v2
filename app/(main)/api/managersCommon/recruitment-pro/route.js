@@ -291,6 +291,8 @@ export async function GET(req) {
         firstName: recruitmentCandidates.firstName,
         lastName: recruitmentCandidates.lastName,
         email: recruitmentCandidates.email,
+        countryCode: recruitmentMetaCountryCodes.countryCode,
+        phoneNumber: recruitmentCandidates.phoneNumber,
         programId: recruitmentCandidates.programId,
         programCode: recruitmentMetaPrograms.programCode,
         programName: recruitmentMetaPrograms.programName,
@@ -306,6 +308,7 @@ export async function GET(req) {
       })
       .from(recruitmentCandidates)
       .leftJoin(recruitmentMetaPrograms, eq(recruitmentCandidates.programId, recruitmentMetaPrograms.id))
+      .leftJoin(recruitmentMetaCountryCodes, eq(recruitmentCandidates.countryCodeId, recruitmentMetaCountryCodes.id))
       .leftJoin(mspCodes, eq(recruitmentCandidates.mspCodeId, mspCodes.id))
       .leftJoin(recruitmentProgramRequirements, eq(recruitmentCandidates.requirementId, recruitmentProgramRequirements.id))
       .leftJoin(recruitmentMetaLocations, eq(recruitmentCandidates.locationId, recruitmentMetaLocations.id))

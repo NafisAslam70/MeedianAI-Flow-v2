@@ -21,7 +21,8 @@ export async function POST(request) {
     const greetingText =
       typeof body?.greetingText === "string" && body.greetingText.trim()
         ? body.greetingText.trim()
-        : "Hello from Meedian. Please stay connected while we connect you.";
+        : process.env.TWILIO_GREET_BRIDGE_TEXT ||
+          "Hello from Meedian. Please stay connected while we connect you.";
     const voiceDropText =
       typeof body?.voiceDropText === "string" && body.voiceDropText.trim()
         ? body.voiceDropText.trim()

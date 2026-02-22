@@ -37,6 +37,31 @@ const statusBadge = (openCount) => {
 
 const COMM_METHOD_OPTIONS = ["Call", "WhatsApp", "Email", "SMS", "In-Person", "Video Call"];
 const COMM_OUTCOME_OPTIONS = ["Interested", "Not Interested", "Will Call Back", "Pending", "Callback Required"];
+const normalizeDialNumber = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (raw.startsWith("client:")) return raw;
+
+  let cleaned = raw.replace(/[^\d+]/g, "");
+  if (cleaned.startsWith("00")) cleaned = `+${cleaned.slice(2)}`;
+  if (!cleaned.startsWith("+")) {
+    const digits = cleaned.replace(/\D/g, "");
+    if (digits.length === 10) return `+91${digits}`;
+    if (digits.length > 10) return `+${digits}`;
+    return digits;
+  }
+  return cleaned;
+};
+
+const resolveCandidateDialNumber = (candidate) => {
+  const fromFull = normalizeDialNumber(candidate?.fullPhone || candidate?.phone || "");
+  if (fromFull) return fromFull;
+  const cc = String(candidate?.countryCode || "").trim();
+  const pn = String(candidate?.phoneNumber || "").trim();
+  if (!pn) return "";
+  if (cc) return normalizeDialNumber(`${cc}${pn}`);
+  return normalizeDialNumber(pn);
+};
 
 const TAB_LIST = [
   { key: "meta", label: "Meta Controls" },
@@ -191,6 +216,14 @@ export default function RecruitmentProPage() {
   const [callError, setCallError] = React.useState("");
   const [callTarget, setCallTarget] = React.useState("");
   const [callTargetName, setCallTargetName] = React.useState("");
+  const [callMode] = React.useState("live");
+  const RECRUITMENT_WHISPER =
+    process.env.NEXT_PUBLIC_RECRUITMENT_CALL_GREETING ||
+    "Assalamualaikum. Kripya line par bane rahein, hum aapko team se connect kar rahe hain.";
+  const DEFAULT_AGENT_NUMBER = process.env.NEXT_PUBLIC_DEFAULT_AGENT_NUMBER || "";
+  const [callAccepted, setCallAccepted] = React.useState(false);
+  const callAcceptedRef = React.useRef(false);
+  const lastCallErrorRef = React.useRef("");
   const [voiceDevice, setVoiceDevice] = React.useState(null);
   const [currentConnection, setCurrentConnection] = React.useState(null);
   const [selectedBench, setSelectedBench] = React.useState(new Set());
@@ -225,10 +258,12 @@ export default function RecruitmentProPage() {
   const placeStageCall = async (candidate) => {
     setCallError("");
     setCallState("idle");
-    setCallTarget(candidate?.fullPhone || candidate?.phone || "");
+    setCallTarget(resolveCandidateDialNumber(candidate));
     setCallTargetName(
       `${candidate?.firstName || ""} ${candidate?.lastName || ""}`.trim() || "Candidate"
     );
+    setCallAccepted(false);
+    callAcceptedRef.current = false;
     setCallModal({ open: true, candidate });
   };
 
@@ -246,7 +281,11 @@ export default function RecruitmentProPage() {
     const token = await fetchVoiceToken();
     const dev = new Device(token, { logLevel: "error" });
     dev.on("ready", () => setCallState("ready"));
-    dev.on("error", (error) => setCallError(error.message || "Call device error"));
+    dev.on("error", (error) => {
+      const msg = error?.message || "Call device error";
+      lastCallErrorRef.current = msg;
+      setCallError(msg);
+    });
     dev.on("disconnect", () => setCallState("idle"));
     setVoiceDevice(dev);
     return dev;
@@ -273,28 +312,46 @@ export default function RecruitmentProPage() {
     try {
       setCallError("");
       setCallState("connecting");
-      const phone = callModal.candidate.fullPhone || callModal.candidate.phone || "";
+      setCallAccepted(false);
+      callAcceptedRef.current = false;
+      lastCallErrorRef.current = "";
+      const phone = resolveCandidateDialNumber(callModal.candidate);
       if (!phone) {
         setCallError("No phone for this candidate.");
         setCallState("idle");
         return;
       }
+
       const dev = await ensureDevice();
-      const connection = await dev.connect({ params: { To: phone } });
+      const connection = await dev.connect({
+        params: { To: phone, whisper: RECRUITMENT_WHISPER, mode: callMode, agent: DEFAULT_AGENT_NUMBER },
+      });
       if (!connection || (typeof connection.on !== "function" && typeof connection.addListener !== "function")) {
         throw new Error("Could not start call");
       }
       setCurrentConnection(connection);
       const onFn = connection.on?.bind(connection) || connection.addListener?.bind(connection);
-      onFn("accept", () => setCallState("in-call"));
+      onFn("accept", () => {
+        setCallAccepted(true);
+        callAcceptedRef.current = true;
+        setCallState("in-call");
+      });
       onFn("disconnect", () => {
         setCallState("idle");
         setCurrentConnection(null);
-        setCallTarget("");
-        setCallModal({ open: false, candidate: null });
+        // Keep modal visible like GRM flow so user can see call result/error state.
+        setCallError((prev) =>
+          prev ||
+          (callAcceptedRef.current
+            ? "Call ended."
+            : lastCallErrorRef.current ||
+              "Call disconnected before connect. Check Twilio Voice geo permissions and destination number.")
+        );
       });
       onFn("error", (error) => {
-        setCallError(error.message || "Call failed");
+        const msg = error?.message || "Call failed";
+        lastCallErrorRef.current = msg;
+        setCallError(msg);
         setCallState("idle");
         setCurrentConnection(null);
       });
@@ -317,6 +374,8 @@ export default function RecruitmentProPage() {
     setCallTarget("");
     setCallTargetName("");
     setCurrentConnection(null);
+    setCallAccepted(false);
+    callAcceptedRef.current = false;
   };
 
   const programNameByCode = React.useMemo(() => {
@@ -728,6 +787,12 @@ export default function RecruitmentProPage() {
                   ← Back to Overview
                 </button>
               )}
+              <a
+                href="/dashboard/managersCommon/managerial-club"
+                className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-100"
+              >
+                ← Back to Managerial Club
+              </a>
               <div>
                 <p className="text-xs uppercase tracking-[0.3em] text-emerald-600">Recruitment Suite</p>
                 <h1 className="text-2xl md:text-3xl font-semibold text-slate-900 mt-1">Meed Recruitment</h1>

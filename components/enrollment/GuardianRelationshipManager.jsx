@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import {
@@ -291,9 +291,33 @@ const GuardianRelationshipManager = () => {
   const [selectedLeadManager, setSelectedLeadManager] = useState(null);
   const [selectedMgcpHead, setSelectedMgcpHead] = useState(null);
   const [randomAssignBeltId, setRandomAssignBeltId] = useState("");
+  const [leadEditor, setLeadEditor] = useState({
+    open: false,
+    scope: "",
+    id: null,
+    name: "",
+    phone: DEFAULT_PHONE_PREFIX,
+    whatsapp: DEFAULT_PHONE_PREFIX,
+    location: "",
+    notes: "",
+    source: "",
+    category: "",
+    status: "new",
+  });
+  const [leadCallModal, setLeadCallModal] = useState({
+    open: false,
+    scope: "",
+    leadId: null,
+    leadName: "",
+    notes: "",
+    duration: "",
+    outcome: "follow-up",
+    existingNotes: "",
+  });
   const [randomLeadSearch, setRandomLeadSearch] = useState("");
   const [convertedEnrollments, setConvertedEnrollments] = useState([]);
   const [selectedEnrollmentId, setSelectedEnrollmentId] = useState(null);
+  const [convertConfirmGuardian, setConvertConfirmGuardian] = useState(null);
   const [dueCalls, setDueCalls] = useState([]);
   const [dueInstructions, setDueInstructions] = useState({});
   const [instructionOpenId, setInstructionOpenId] = useState(null);
@@ -305,6 +329,7 @@ const GuardianRelationshipManager = () => {
   const [callError, setCallError] = useState("");
   const [callTarget, setCallTarget] = useState("");
   const [callTargetName, setCallTargetName] = useState("");
+  const [pendingCall, setPendingCall] = useState({ open: false, number: "", name: "", guardian: null });
   const [openGroups, setOpenGroups] = useState({});
   const [openRecentPanels, setOpenRecentPanels] = useState({ visited: false, called: false });
   const [recentVisitState, setRecentVisitState] = useState({ loading: false, error: "", items: [] });
@@ -322,6 +347,9 @@ const GuardianRelationshipManager = () => {
     voiceDropRecordResponse: false,
   });
   const [callMode, setCallMode] = useState("live");
+  const [callControlsNotice, setCallControlsNotice] = useState("");
+  const callMetaRef = useRef({ guardian: null, connectedAt: null, shouldPrompt: false });
+  const previousCallStateRef = useRef(callState);
   const DEFAULT_AGENT_NUMBER = process.env.NEXT_PUBLIC_DEFAULT_AGENT_NUMBER || "";
   const fetchVoiceToken = async () => {
     try {
@@ -346,15 +374,41 @@ const GuardianRelationshipManager = () => {
     return dev;
   };
 
-  const callGuardian = async (guardianNumber, guardianName = "") => {
+  const formatCallDuration = (milliseconds) => {
+    const totalSeconds = Math.max(0, Math.round((milliseconds || 0) / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return minutes > 0 ? `${minutes} min ${seconds} sec` : `${seconds} sec`;
+  };
+
+  const finalizeCallAndPromptLog = () => {
+    const meta = callMetaRef.current;
+    if (!meta?.shouldPrompt || !meta?.guardian) {
+      callMetaRef.current = { guardian: null, connectedAt: null, shouldPrompt: false };
+      return;
+    }
+    const startedAt = meta.connectedAt || Date.now();
+    const durationLabel = formatCallDuration(Date.now() - startedAt);
+    openInteractionModal(meta.guardian, "call", { duration: durationLabel });
+    callMetaRef.current = { guardian: null, connectedAt: null, shouldPrompt: false };
+  };
+
+  const callGuardian = async (guardianNumber, guardianName = "", guardian = null) => {
+    callMetaRef.current = {
+      guardian: guardian || null,
+      connectedAt: null,
+      shouldPrompt: Boolean(guardian),
+    };
     if (!callSettings.allowedModes[callMode]) {
       setCallError("This call mode is not allowed.");
       setCallModalOpen(true);
+      callMetaRef.current = { guardian: null, connectedAt: null, shouldPrompt: false };
       return;
     }
     if (!callSettings.allowedRoles[userRole]) {
       setCallError("You are not allowed to place calls.");
       setCallModalOpen(true);
+      callMetaRef.current = { guardian: null, connectedAt: null, shouldPrompt: false };
       return;
     }
     if (callMode !== "live") {
@@ -382,9 +436,14 @@ const GuardianRelationshipManager = () => {
           throw new Error(data?.error || "Failed to start call");
         }
         setCallState("in-call");
+        callMetaRef.current = {
+          ...callMetaRef.current,
+          connectedAt: Date.now(),
+        };
       } catch (err) {
         setCallError(err.message || "Failed to call");
         setCallState("idle");
+        callMetaRef.current = { guardian: null, connectedAt: null, shouldPrompt: false };
       }
       return;
     }
@@ -401,13 +460,20 @@ const GuardianRelationshipManager = () => {
       }
       setCurrentConnection(connection);
       const onFn = connection.on?.bind(connection) || connection.addListener?.bind(connection);
-      onFn("accept", () => setCallState("in-call"));
+      onFn("accept", () => {
+        setCallState("in-call");
+        callMetaRef.current = {
+          ...callMetaRef.current,
+          connectedAt: Date.now(),
+        };
+      });
       onFn("disconnect", () => {
         setCallState("idle");
         setCurrentConnection(null);
         setCallTarget("");
         setIsMuted(false);
         setCallModalOpen(false);
+        finalizeCallAndPromptLog();
       });
       onFn("error", (error) => {
         setCallError(error.message);
@@ -415,6 +481,7 @@ const GuardianRelationshipManager = () => {
         setCurrentConnection(null);
         setCallTarget("");
         setIsMuted(false);
+        callMetaRef.current = { guardian: null, connectedAt: null, shouldPrompt: false };
         // keep modal open to show error until user closes/hangs up
       });
     } catch (err) {
@@ -424,10 +491,12 @@ const GuardianRelationshipManager = () => {
       setCallTarget("");
       setIsMuted(false);
       setCallModalOpen(true);
+      callMetaRef.current = { guardian: null, connectedAt: null, shouldPrompt: false };
     }
   };
 
   const hangupCall = () => {
+    const shouldPromptAfterHangup = !currentConnection && callState === "in-call";
     if (currentConnection) {
       currentConnection.disconnect();
     } else if (voiceDevice) {
@@ -438,7 +507,47 @@ const GuardianRelationshipManager = () => {
     setCallTarget("");
     setIsMuted(false);
     setCallModalOpen(false);
+    if (shouldPromptAfterHangup) {
+      finalizeCallAndPromptLog();
+    }
   };
+
+  const openCallStartModal = (guardian) => {
+    const guardianNumber =
+      guardian?.whatsapp || guardian?.phone || guardian?.guardianPhone || guardian?.mobile || "";
+    if (!guardianNumber) {
+      setCallError("No phone/WhatsApp number available for this guardian.");
+      setCallModalOpen(true);
+      return;
+    }
+    setPendingCall({
+      open: true,
+      number: guardianNumber,
+      name: guardian?.name || "",
+      guardian: guardian || null,
+    });
+  };
+
+  const closeCallStartModal = () => {
+    setPendingCall({ open: false, number: "", name: "", guardian: null });
+  };
+
+  const startPendingCall = async () => {
+    if (!pendingCall.number) return;
+    const number = pendingCall.number;
+    const name = pendingCall.name;
+    const guardian = pendingCall.guardian;
+    closeCallStartModal();
+    await callGuardian(number, name, guardian);
+  };
+
+  useEffect(() => {
+    const previous = previousCallStateRef.current;
+    if (previous === "in-call" && callState === "idle" && callMetaRef.current?.shouldPrompt) {
+      finalizeCallAndPromptLog();
+    }
+    previousCallStateRef.current = callState;
+  }, [callState]);
   const [moveBeltTargetId, setMoveBeltTargetId] = useState("");
   const [currentUserName, setCurrentUserName] = useState("");
 
@@ -1076,10 +1185,6 @@ const GuardianRelationshipManager = () => {
 
   const convertGuardianToEnrollment = (guardian) => {
     if (!guardian) return;
-    if (typeof window !== "undefined") {
-      const ok = window.confirm(`Mark "${guardian.name || "this guardian"}" as converted to enrollment?`);
-      if (!ok) return;
-    }
     setConvertedEnrollments((prev) => {
       if (prev.some((item) => item.id === guardian.id)) return prev;
       return [
@@ -1096,6 +1201,21 @@ const GuardianRelationshipManager = () => {
     });
     setSelectedEnrollmentId(guardian.id);
     setActiveTab("enrollments");
+  };
+
+  const openConvertConfirm = (guardian) => {
+    if (!guardian) return;
+    setConvertConfirmGuardian(guardian);
+  };
+
+  const closeConvertConfirm = () => {
+    setConvertConfirmGuardian(null);
+  };
+
+  const confirmConvertGuardian = () => {
+    if (!convertConfirmGuardian) return;
+    convertGuardianToEnrollment(convertConfirmGuardian);
+    closeConvertConfirm();
   };
 
   const pushDueCall = (guardian, instruction) => {
@@ -1179,7 +1299,112 @@ const GuardianRelationshipManager = () => {
     setLeadError("");
   };
 
-  const openInteractionModal = (guardian, mode) => {
+  const openLeadEditor = (lead, scope) => {
+    if (!lead) return;
+    setLeadEditor({
+      open: true,
+      scope,
+      id: lead.id,
+      name: lead.name || "",
+      phone: ensureDefaultPhonePrefix(lead.phone || lead.whatsapp || ""),
+      whatsapp: ensureDefaultPhonePrefix(lead.whatsapp || lead.phone || ""),
+      location: lead.location || "",
+      notes: lead.notes || "",
+      source: lead.source || "",
+      category: lead.category || "MGCP Lead",
+      status: lead.status || "new",
+    });
+  };
+
+  const updateLeadEditorField = (field) => (event) => {
+    const rawValue = event.target.value;
+    const value =
+      field === "phone" || field === "whatsapp"
+        ? ensureDefaultPhonePrefix(rawValue)
+        : rawValue;
+    setLeadEditor((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const closeLeadEditor = () => {
+    setLeadEditor((prev) => ({ ...prev, open: false, id: null }));
+  };
+
+  const saveLeadEditor = async () => {
+    if (!leadEditor.id || !leadEditor.name.trim()) return;
+    const requestBody = {
+      id: leadEditor.id,
+      name: leadEditor.name.trim(),
+      phone: ensureDefaultPhonePrefix(leadEditor.phone),
+      whatsapp: ensureDefaultPhonePrefix(leadEditor.whatsapp),
+      location: leadEditor.location.trim(),
+      notes: leadEditor.notes.trim(),
+      source: leadEditor.source.trim(),
+      category: leadEditor.category.trim() || "MGCP Lead",
+      status: leadEditor.status.trim() || "new",
+    };
+    const response = await runMgcpAction({
+      url: "/api/enrollment/mgcp/leads",
+      method: "PATCH",
+      body: requestBody,
+    });
+    if (!response?.lead) return;
+    if (leadEditor.scope === "belt") {
+      setSelectedBeltLead(response.lead);
+    } else {
+      setSelectedRandomLead(response.lead);
+    }
+    closeLeadEditor();
+  };
+
+  const openLeadCallModal = (lead, scope) => {
+    if (!lead) return;
+    setLeadCallModal({
+      open: true,
+      scope,
+      leadId: lead.id,
+      leadName: lead.name || "Lead",
+      notes: "",
+      duration: "",
+      outcome: "follow-up",
+      existingNotes: lead.notes || "",
+    });
+  };
+
+  const updateLeadCallField = (field) => (event) => {
+    setLeadCallModal((prev) => ({ ...prev, [field]: event.target.value }));
+  };
+
+  const closeLeadCallModal = () => {
+    setLeadCallModal((prev) => ({ ...prev, open: false, leadId: null }));
+  };
+
+  const saveLeadCallUpdate = async (event) => {
+    event.preventDefault();
+    const note = leadCallModal.notes.trim();
+    if (!leadCallModal.leadId || !note) return;
+    const stamp = new Date().toLocaleString();
+    const detail = `Call update (${leadCallModal.outcome}${leadCallModal.duration ? `, ${leadCallModal.duration}` : ""})`;
+    const nextNotes = leadCallModal.existingNotes
+      ? `${leadCallModal.existingNotes}\n[${stamp}] ${detail}: ${note}`
+      : `[${stamp}] ${detail}: ${note}`;
+    const response = await runMgcpAction({
+      url: "/api/enrollment/mgcp/leads",
+      method: "PATCH",
+      body: {
+        id: leadCallModal.leadId,
+        notes: nextNotes,
+      },
+    });
+    if (!response?.lead) return;
+    if (leadCallModal.scope === "belt") {
+      setSelectedBeltLead(response.lead);
+    } else {
+      setSelectedRandomLead(response.lead);
+    }
+    closeLeadCallModal();
+  };
+
+  const openInteractionModal = (guardian, mode, initialForm = null) => {
     if (!guardian) return;
     // Hide side drawer so interaction modal is visible
     setSelectedGuardian(null);
@@ -1195,6 +1420,7 @@ const GuardianRelationshipManager = () => {
       followUpRequired: false,
       followUpDate: "",
       followUpNotes: "",
+      ...(initialForm || {}),
     });
     setSelectedTemplateId("default");
     setInteractionModal({ open: true, mode, guardian });
@@ -2198,7 +2424,19 @@ const GuardianRelationshipManager = () => {
                                   {beltLabel && <p className="mt-1 text-xs text-teal-700">Belt: {beltLabel}</p>}
                                   <p className="mt-1 text-xs text-amber-700">Source: {originLabel}</p>
                                 </div>
-                                <Badge color={statusMeta.color}>{statusMeta.label}</Badge>
+                                <div className="flex flex-col items-end gap-1">
+                                  <Badge color={statusMeta.color}>{statusMeta.label}</Badge>
+                                  {guardianGroup === "probable" && (
+                                    <button
+                                      type="button"
+                                      aria-label="Mark convert"
+                                      className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-teal-200 bg-teal-50 text-teal-700 transition hover:bg-teal-100"
+                                      onClick={() => openConvertConfirm(guardian)}
+                                    >
+                                      <TrendingUp className="h-4 w-4 stroke-[2.25]" />
+                                    </button>
+                                  )}
+                                </div>
                               </div>
 
                               <div>
@@ -2274,17 +2512,6 @@ const GuardianRelationshipManager = () => {
                                   <Eye className="h-4 w-4" />
                                   View
                                 </Button>
-                                {guardianGroup === "probable" && (
-                                  <Button
-                                    size="sm"
-                                    variant="light"
-                                    className="gap-2"
-                                    onClick={() => convertGuardianToEnrollment(guardian)}
-                                  >
-                                    <TrendingUp className="h-4 w-4" />
-                                    Mark Convert
-                                  </Button>
-                                )}
                                 <Button
                                   variant="light"
                                   className="px-3"
@@ -2294,23 +2521,16 @@ const GuardianRelationshipManager = () => {
                                 </Button>
                                 <Button
                                   variant="light"
-                                  className="px-3"
+                                  className="gap-2"
                                   onClick={() => openInteractionModal(guardian, "call")}
                                 >
                                   <Phone className="h-4 w-4" />
+                                  Add Call Update
                                 </Button>
                                 <Button
                                   variant="secondary"
                                   className="px-3"
-                                  onClick={async () => {
-                                    const guardianNumber =
-                                      guardian.whatsapp || guardian.phone || guardian.guardianPhone || guardian.mobile;
-                                    if (!guardianNumber) {
-                                      setCallError("No phone/WhatsApp number available for this guardian.");
-                                      return;
-                                    }
-                                    await callGuardian(guardianNumber, guardian.name || "");
-                                  }}
+                                  onClick={() => openCallStartModal(guardian)}
                                   disabled={callState === "connecting" || callState === "in-call"}
                                 >
                                   {callState === "in-call"
@@ -2405,7 +2625,7 @@ const GuardianRelationshipManager = () => {
                       </Button>
                       <Button variant="secondary" onClick={() => openInteractionModal(guardian, "call")}>
                         <Phone className="w-4 h-4" />
-                        Call
+                        Add Call Update
                       </Button>
                     </div>
                   </CardBody>
@@ -4096,7 +4316,7 @@ const GuardianRelationshipManager = () => {
                         }}
                       >
                         <Phone className="w-4 h-4" />
-                        Make Call
+                        Add Call Update
                       </Button>
                       <Button
                         variant="light"
@@ -4408,6 +4628,24 @@ const GuardianRelationshipManager = () => {
               />
               Record callee response in voice drop mode
             </label>
+            <div className="pt-2">
+              <button
+                type="button"
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+                onClick={() => {
+                  const stamp = new Date().toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  });
+                  setCallControlsNotice(`Changes applied at ${stamp}`);
+                }}
+              >
+                Apply Changes
+              </button>
+            </div>
+            {callControlsNotice ? (
+              <p className="text-xs text-emerald-700">{callControlsNotice}</p>
+            ) : null}
             <p className="text-xs text-slate-500">(Settings are local-only for now; can be persisted later.)</p>
           </CardBody>
         </Card>
@@ -4465,6 +4703,37 @@ const GuardianRelationshipManager = () => {
                   <path d="M14 9a5 5 0 010 6" />
                   <path d="M16.5 7.5a8 8 0 010 9" />
                 </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {pendingCall.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-sm overflow-hidden rounded-[2rem] border border-slate-700 bg-gradient-to-b from-slate-900 via-slate-900 to-slate-800 p-6 shadow-2xl">
+            <div className="text-center">
+              <p className="text-[11px] uppercase tracking-[0.2em] text-slate-400">Ready to Call</p>
+              <div className="mx-auto mt-4 flex h-24 w-24 items-center justify-center rounded-full bg-slate-700/70 ring-4 ring-slate-600/40">
+                <Phone className="h-9 w-9 text-emerald-300" />
+              </div>
+              <p className="mt-4 text-xl font-semibold text-white">{pendingCall.name || "Guardian"}</p>
+              <p className="mt-1 text-sm font-mono text-slate-300">{pendingCall.number}</p>
+              <p className="mt-3 text-xs text-slate-400">Tap Start Call to begin</p>
+            </div>
+            <div className="mt-8 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={closeCallStartModal}
+                className="inline-flex h-11 items-center justify-center rounded-xl bg-rose-600 text-sm font-semibold text-white transition hover:bg-rose-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={startPendingCall}
+                className="inline-flex h-11 items-center justify-center rounded-xl bg-emerald-500 text-sm font-semibold text-slate-900 transition hover:bg-emerald-400"
+              >
+                Start Call
               </button>
             </div>
           </div>
@@ -5485,6 +5754,24 @@ const GuardianRelationshipManager = () => {
                                                 {selectedBeltLead.status || "new"}
                                               </Badge>
                                             </div>
+                                            <div className="mt-3 flex gap-2">
+                                              <Button
+                                                size="sm"
+                                                variant="light"
+                                                onClick={() => openLeadEditor(selectedBeltLead, "belt")}
+                                              >
+                                                <Edit3 className="w-4 h-4" />
+                                                Edit Lead
+                                              </Button>
+                                              <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                onClick={() => openLeadCallModal(selectedBeltLead, "belt")}
+                                              >
+                                                <Phone className="w-4 h-4" />
+                                                Add Call Update
+                                              </Button>
+                                            </div>
                                             <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] text-slate-600">
                                               <div>
                                                 <p className="font-semibold text-slate-700">Category</p>
@@ -5553,12 +5840,14 @@ const GuardianRelationshipManager = () => {
                                               tabIndex={0}
                                               onClick={() => {
                                                 setSelectedBeltLead(lead);
-                                                setMoveBeltTargetId(String(selectedBeltId));
+                                                setMoveBeltTargetId("");
+                                                closeLeadEditor();
                                               }}
                                               onKeyDown={(e) => {
                                                 if (e.key === "Enter" || e.key === " ") {
                                                   setSelectedBeltLead(lead);
-                                                  setMoveBeltTargetId(String(selectedBeltId));
+                                                  setMoveBeltTargetId("");
+                                                  closeLeadEditor();
                                                 }
                                               }}
                                               className={`flex items-center justify-between rounded-lg border px-2 py-1 transition ${
@@ -5819,6 +6108,24 @@ const GuardianRelationshipManager = () => {
                                       {selectedRandomLead.status}
                                     </Badge>
                                   </div>
+                                  <div className="flex gap-2">
+                                    <Button
+                                      size="sm"
+                                      variant="light"
+                                      onClick={() => openLeadEditor(selectedRandomLead, "random")}
+                                    >
+                                      <Edit3 className="w-4 h-4" />
+                                      Edit Lead
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => openLeadCallModal(selectedRandomLead, "random")}
+                                    >
+                                      <Phone className="w-4 h-4" />
+                                      Add Call Update
+                                    </Button>
+                                  </div>
                                   <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-slate-600">
                                     <div>
                                       <p className="font-semibold text-slate-700">Category</p>
@@ -5843,7 +6150,7 @@ const GuardianRelationshipManager = () => {
                                   </div>
                                   <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2 items-end">
                                     <Select
-                                      label="Push to belt"
+                                      label="Select belt"
                                       value={randomAssignBeltId}
                                       onChange={(e) => setRandomAssignBeltId(e.target.value)}
                                     >
@@ -5885,16 +6192,14 @@ const GuardianRelationshipManager = () => {
                                     tabIndex={0}
                                     onClick={() => {
                                       setSelectedRandomLead(lead);
-                                      setRandomAssignBeltId(
-                                        selectedBeltId || (mgcpBelts[0]?.id ? String(mgcpBelts[0].id) : "")
-                                      );
+                                      setRandomAssignBeltId("");
+                                      closeLeadEditor();
                                     }}
                                     onKeyDown={(e) => {
                                       if (e.key === "Enter" || e.key === " ") {
                                         setSelectedRandomLead(lead);
-                                        setRandomAssignBeltId(
-                                          selectedBeltId || (mgcpBelts[0]?.id ? String(mgcpBelts[0].id) : "")
-                                        );
+                                        setRandomAssignBeltId("");
+                                        closeLeadEditor();
                                       }
                                     }}
                                     className={`w-full text-left rounded-lg border px-3 py-2 transition focus:outline-none focus:ring-2 focus:ring-teal-400 ${
@@ -5977,6 +6282,25 @@ const GuardianRelationshipManager = () => {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {convertConfirmGuardian && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <h2 className="text-lg font-semibold text-slate-900">Confirm Conversion</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              Convert <span className="font-semibold text-slate-800">{convertConfirmGuardian.name || "this guardian"}</span> to enrollment?
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button type="button" variant="light" onClick={closeConvertConfirm}>
+                Cancel
+              </Button>
+              <Button type="button" onClick={confirmConvertGuardian}>
+                Yes, Convert
+              </Button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -6323,6 +6647,137 @@ const GuardianRelationshipManager = () => {
                 </Button>
                 <Button type="submit" disabled={leadSaving}>
                   {leadSaving ? "Saving..." : "Save MGCP Lead"}
+                </Button>
+              </div>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {leadEditor.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              saveLeadEditor();
+            }}
+            className="w-full max-w-2xl rounded-2xl bg-white shadow-xl"
+          >
+            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+              <h2 className="text-lg font-semibold text-slate-900">Edit MGCP Lead</h2>
+              <button
+                type="button"
+                onClick={closeLeadEditor}
+                className="rounded-full p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+              >
+                X
+              </button>
+            </div>
+            <div className="space-y-4 p-6">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <Input label="Name" value={leadEditor.name} onChange={updateLeadEditorField("name")} />
+                <Input
+                  label="Phone"
+                  value={leadEditor.phone}
+                  onChange={updateLeadEditorField("phone")}
+                  placeholder="+91..."
+                />
+                <Input
+                  label="WhatsApp"
+                  value={leadEditor.whatsapp}
+                  onChange={updateLeadEditorField("whatsapp")}
+                  placeholder="+91..."
+                />
+                <Input
+                  label="Location"
+                  value={leadEditor.location}
+                  onChange={updateLeadEditorField("location")}
+                />
+                <Input
+                  label="Source"
+                  value={leadEditor.source}
+                  onChange={updateLeadEditorField("source")}
+                />
+                <Input
+                  label="Category"
+                  value={leadEditor.category}
+                  onChange={updateLeadEditorField("category")}
+                />
+              </div>
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-slate-700">Notes</span>
+                <textarea
+                  rows={4}
+                  value={leadEditor.notes}
+                  onChange={updateLeadEditorField("notes")}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                />
+              </label>
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="light" onClick={closeLeadEditor}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={mgcpActionState.saving || !leadEditor.name.trim()}>
+                  Save Lead
+                </Button>
+              </div>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {leadCallModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <form
+            onSubmit={saveLeadCallUpdate}
+            className="w-full max-w-xl rounded-2xl bg-white shadow-xl"
+          >
+            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+              <h2 className="text-lg font-semibold text-slate-900">Log Call Update</h2>
+              <button
+                type="button"
+                onClick={closeLeadCallModal}
+                className="rounded-full p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+              >
+                X
+              </button>
+            </div>
+            <div className="space-y-4 p-6">
+              <p className="text-sm text-slate-600">{leadCallModal.leadName}</p>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <Input
+                  label="Duration"
+                  value={leadCallModal.duration}
+                  onChange={updateLeadCallField("duration")}
+                  placeholder="e.g. 4 min"
+                />
+                <Select
+                  label="Outcome"
+                  value={leadCallModal.outcome}
+                  onChange={updateLeadCallField("outcome")}
+                >
+                  <option value="positive">Positive</option>
+                  <option value="follow-up">Follow-up</option>
+                  <option value="no-answer">No answer</option>
+                  <option value="wrong-number">Wrong number</option>
+                </Select>
+              </div>
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-slate-700">Call Notes</span>
+                <textarea
+                  rows={4}
+                  value={leadCallModal.notes}
+                  onChange={updateLeadCallField("notes")}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  placeholder="Summarize the call..."
+                />
+              </label>
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="light" onClick={closeLeadCallModal}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={mgcpActionState.saving || !leadCallModal.notes.trim()}>
+                  Save Call Update
                 </Button>
               </div>
             </div>

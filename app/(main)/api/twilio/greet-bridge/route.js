@@ -10,11 +10,13 @@ const build = (agent, say, record) => {
   const safeAgent = (agent || "").trim();
   if (!safeAgent) return null;
   const callerId = process.env.TWILIO_CALLER_ID || "";
+  const ringTone = process.env.TWILIO_GREET_RINGTONE || "in";
   const safeSay = xmlEscape(say || "Please stay connected while we connect you.");
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="alice">${safeSay}</Say>
-  <Dial${callerId ? ` callerId="${callerId}"` : ""}${record ? ' record="record-from-answer"' : ""}>
+  <Pause length="1"/>
+  <Dial answerOnBridge="true"${callerId ? ` callerId="${callerId}"` : ""}${record ? ' record="record-from-answer"' : ""}${ringTone ? ` ringTone="${xmlEscape(ringTone)}"` : ""}>
     <Number>${xmlEscape(safeAgent)}</Number>
   </Dial>
 </Response>`;
