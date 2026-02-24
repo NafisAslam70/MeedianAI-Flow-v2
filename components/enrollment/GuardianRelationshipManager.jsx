@@ -434,7 +434,13 @@ const GuardianRelationshipManager = () => {
       callMetaRef.current = { guardian: null, connectedAt: null, shouldPrompt: false };
       return;
     }
-    if (!callSettings.allowedRoles[userRole]) {
+    const normalizedRole = String(userRole || "").toLowerCase();
+    const roleAllowed =
+      normalizedRole === "admin" ||
+      normalizedRole.includes("manager") ||
+      !!callSettings.allowedRoles[normalizedRole] ||
+      (normalizedRole === "team manager" && !!callSettings.allowedRoles.team_manager);
+    if (!roleAllowed) {
       setCallError("You are not allowed to place calls.");
       setCallModalOpen(true);
       callMetaRef.current = { guardian: null, connectedAt: null, shouldPrompt: false };

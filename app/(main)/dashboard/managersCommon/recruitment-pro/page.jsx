@@ -219,14 +219,6 @@ export default function RecruitmentProPage() {
   const [callError, setCallError] = React.useState("");
   const [callTarget, setCallTarget] = React.useState("");
   const [callTargetName, setCallTargetName] = React.useState("");
-  const [callMode] = React.useState("live");
-  const RECRUITMENT_WHISPER =
-    process.env.NEXT_PUBLIC_RECRUITMENT_CALL_GREETING ||
-    "Assalamualaikum. Kripya line par bane rahein, hum aapko team se connect kar rahe hain.";
-  const DEFAULT_AGENT_NUMBER = process.env.NEXT_PUBLIC_DEFAULT_AGENT_NUMBER || "";
-  const [callAccepted, setCallAccepted] = React.useState(false);
-  const callAcceptedRef = React.useRef(false);
-  const lastCallErrorRef = React.useRef("");
   const [voiceDevice, setVoiceDevice] = React.useState(null);
   const [currentConnection, setCurrentConnection] = React.useState(null);
   const [selectedBench, setSelectedBench] = React.useState(new Set());
@@ -265,18 +257,35 @@ export default function RecruitmentProPage() {
     setCallTargetName(
       `${candidate?.firstName || ""} ${candidate?.lastName || ""}`.trim() || "Candidate"
     );
-    setCallAccepted(false);
-    callAcceptedRef.current = false;
     setCallModal({ open: true, candidate });
   };
 
   const fetchVoiceToken = async () => {
-    const res = await fetch("/api/twilio/token");
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data?.token) {
-      throw new Error(data?.error || "Failed to get call token");
+    const urls = ["/api/twilio/token"];
+    if (typeof window !== "undefined") {
+      urls.push(`${window.location.origin}/api/twilio/token`);
     }
-    return data.token;
+
+    let lastError = null;
+    for (const url of urls) {
+      try {
+        const res = await fetch(url, {
+          method: "GET",
+          cache: "no-store",
+          credentials: "same-origin",
+          headers: { Accept: "application/json" },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data?.token) {
+          throw new Error(data?.error || `Token API HTTP ${res.status}`);
+        }
+        return data.token;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    throw new Error(lastError?.message || "Failed to get call token");
   };
 
   const ensureDevice = async () => {
@@ -284,11 +293,7 @@ export default function RecruitmentProPage() {
     const token = await fetchVoiceToken();
     const dev = new Device(token, { logLevel: "error" });
     dev.on("ready", () => setCallState("ready"));
-    dev.on("error", (error) => {
-      const msg = error?.message || "Call device error";
-      lastCallErrorRef.current = msg;
-      setCallError(msg);
-    });
+    dev.on("error", (error) => setCallError(error.message || "Call device error"));
     dev.on("disconnect", () => setCallState("idle"));
     setVoiceDevice(dev);
     return dev;
@@ -315,15 +320,13 @@ export default function RecruitmentProPage() {
     try {
       setCallError("");
       setCallState("connecting");
-      setCallAccepted(false);
-      callAcceptedRef.current = false;
-      lastCallErrorRef.current = "";
-      const phone = resolveCandidateDialNumber(callModal.candidate);
+      const phone = normalizeDialNumber(callTarget || resolveCandidateDialNumber(callModal.candidate));
       if (!phone) {
         setCallError("No phone for this candidate.");
         setCallState("idle");
         return;
       }
+      setCallTarget(phone);
 
       const dev = await ensureDevice();
       const connection = await dev.connect({
@@ -334,29 +337,18 @@ export default function RecruitmentProPage() {
       }
       setCurrentConnection(connection);
       const onFn = connection.on?.bind(connection) || connection.addListener?.bind(connection);
-      onFn("accept", () => {
-        setCallAccepted(true);
-        callAcceptedRef.current = true;
-        setCallState("in-call");
-      });
+      onFn("accept", () => setCallState("in-call"));
       onFn("disconnect", () => {
         setCallState("idle");
         setCurrentConnection(null);
-        // Keep modal visible like GRM flow so user can see call result/error state.
-        setCallError((prev) =>
-          prev ||
-          (callAcceptedRef.current
-            ? "Call ended."
-            : lastCallErrorRef.current ||
-              "Call disconnected before connect. Check Twilio Voice geo permissions and destination number.")
-        );
+        setCallTarget("");
+        setCallModal({ open: false, candidate: null });
       });
       onFn("error", (error) => {
-        const msg = error?.message || "Call failed";
-        lastCallErrorRef.current = msg;
-        setCallError(msg);
+        setCallError(error?.message || "Call failed");
         setCallState("idle");
         setCurrentConnection(null);
+        setCallTarget("");
       });
     } catch (err) {
       console.error("Call error", err);
@@ -377,8 +369,6 @@ export default function RecruitmentProPage() {
     setCallTarget("");
     setCallTargetName("");
     setCurrentConnection(null);
-    setCallAccepted(false);
-    callAcceptedRef.current = false;
   };
 
   const programNameByCode = React.useMemo(() => {
@@ -416,6 +406,46 @@ export default function RecruitmentProPage() {
     });
     return map;
   }, [stageOptions]);
+
+  const getRowLatestActivityTs = React.useCallback((row) => {
+    if (!row) return 0;
+    const stamps = [];
+    const pushTs = (value) => {
+      if (!value) return;
+      const ts = new Date(value).getTime();
+      if (!Number.isNaN(ts)) stamps.push(ts);
+    };
+
+    [row.stage1, row.stage2, row.stage3, row.stage4].forEach((stage) => {
+      pushTs(stage?.completedDate);
+      pushTs(stage?.updatedAt);
+      pushTs(stage?.createdAt);
+    });
+
+    pushTs(row.final?.finalDate);
+    pushTs(row.final?.updatedAt);
+    pushTs(row.final?.createdAt);
+
+    [row.commLogs?.stage1, row.commLogs?.stage2, row.commLogs?.stage3, row.commLogs?.stage4].forEach((logs) => {
+      (logs || []).forEach((log) => {
+        pushTs(log?.communicationDate);
+        pushTs(log?.createdAt);
+        pushTs(log?.updatedAt);
+      });
+    });
+
+    return stamps.length ? Math.max(...stamps) : 0;
+  }, []);
+
+  const pipelineRowsSorted = React.useMemo(() => {
+    const rows = [...(pipelineSwr.data?.rows || [])];
+    rows.sort((a, b) => {
+      const diff = getRowLatestActivityTs(b) - getRowLatestActivityTs(a);
+      if (diff !== 0) return diff;
+      return Number(a?.srNo || 0) - Number(b?.srNo || 0);
+    });
+    return rows;
+  }, [pipelineSwr.data?.rows, getRowLatestActivityTs]);
 
   const handleSaveMeta = async (section, draft, mutate) => {
     await apiCall(section, "PUT", draft);
@@ -1435,7 +1465,7 @@ export default function RecruitmentProPage() {
           </SectionCard>
           <SectionCard title="Pipeline Tracker" subtitle="Slim cards with collapsible stages and comms.">
             <div className="space-y-3">
-              {(pipelineSwr.data?.rows || []).map((row) => {
+              {pipelineRowsSorted.map((row, rowIndex) => {
                 const draft = pipelineDrafts[row.id] || {};
                 const comm1 = row.comm?.stage1;
                 const comm2 = row.comm?.stage2;
@@ -1530,7 +1560,8 @@ export default function RecruitmentProPage() {
                 return (
                   <div key={row.id} className="rounded-2xl border border-slate-200 bg-white shadow-sm">
                     <div className="flex flex-wrap items-center gap-3 px-4 py-3">
-                      <div className="text-xs font-semibold text-slate-400">#{row.srNo}</div>
+                      <div className="text-xs font-semibold text-slate-400">#{rowIndex + 1}</div>
+                      <div className="text-[11px] font-medium text-slate-500">SR {row.srNo}</div>
                       <div className="flex-1 min-w-[200px]">
                         <div className="font-semibold text-slate-900 text-sm">{row.firstName} {row.lastName || ""}</div>
                         <div className="text-xs text-slate-500">{row.fullPhone || ""}</div>
@@ -2183,7 +2214,15 @@ export default function RecruitmentProPage() {
                 {callState === "connecting" ? "Connecting" : callState === "in-call" ? "In Call" : "Call"}
               </p>
               <p className="text-2xl font-bold text-slate-900">{callTargetName || "Unknown Candidate"}</p>
-              <p className="text-sm font-mono text-slate-600">{callTarget || "No phone"}</p>
+              <div className="px-4">
+                <input
+                  type="text"
+                  value={callTarget}
+                  onChange={(e) => setCallTarget(e.target.value)}
+                  placeholder="+919876543210"
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-mono text-slate-700"
+                />
+              </div>
               <p className="text-xs text-slate-500">
                 {callState === "connecting"
                   ? "Ringing..."
