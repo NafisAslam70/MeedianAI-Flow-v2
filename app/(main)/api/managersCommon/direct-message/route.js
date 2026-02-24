@@ -148,7 +148,10 @@ export async function POST(req) {
     // ------------------------------------------------------------------
     let deliveryWarning = "";
     try {
-      const templateSid = process.env.TWILIO_DIRECT_MESSAGE_TEMPLATE_SID || "";
+      const templateSid =
+        process.env.TWILIO_DIRECT_MESSAGE_TEMPLATE_SID2 ||
+        process.env.TWILIO_DIRECT_MESSAGE_TEMPLATE_SID ||
+        "";
       if (recipientData.whatsapp_enabled && recipientData.whatsapp_number) {
         const senderDisplay = sender.name
           ? `${sender.name} (from Meed Leadership Group)`

@@ -308,15 +308,21 @@ const GuardianRelationshipManager = () => {
     open: false,
     scope: "",
     id: null,
+    guardianId: null,
     name: "",
     phone: DEFAULT_PHONE_PREFIX,
     whatsapp: DEFAULT_PHONE_PREFIX,
     location: "",
     notes: "",
+    islamic_education_priority: "medium",
+    academic_excellence_priority: "medium",
+    boarding_interest: "maybe",
+    children: [buildEmptyChild()],
     source: "",
     category: "",
     status: "new",
   });
+  const [leadEditorError, setLeadEditorError] = useState("");
   const [leadCallModal, setLeadCallModal] = useState({
     open: false,
     scope: "",
@@ -1371,15 +1377,32 @@ const GuardianRelationshipManager = () => {
   const openLeadEditor = (lead, scope) => {
     if (!lead) return;
     scrollViewportToTop();
+    const linkedGuardian =
+      probableGuardians.find((g) => String(g.id) === String(lead.guardianId)) ||
+      ongoingGuardians.find((g) => String(g.id) === String(lead.guardianId)) ||
+      null;
+    const children = Array.isArray(linkedGuardian?.children) && linkedGuardian.children.length
+      ? linkedGuardian.children.map((child) => ({
+          name: child.name || "",
+          age: Number.isFinite(Number(child.age)) ? String(child.age) : "",
+          currentSchool: child.currentSchool || "",
+        }))
+      : [buildEmptyChild()];
+    setLeadEditorError("");
     setLeadEditor({
       open: true,
       scope,
       id: lead.id,
-      name: lead.name || "",
+      guardianId: lead.guardianId || linkedGuardian?.id || null,
+      name: lead.name || linkedGuardian?.name || "",
       phone: ensureDefaultPhonePrefix(lead.phone || lead.whatsapp || ""),
-      whatsapp: ensureDefaultPhonePrefix(lead.whatsapp || lead.phone || ""),
-      location: lead.location || "",
-      notes: lead.notes || "",
+      whatsapp: ensureDefaultPhonePrefix(lead.whatsapp || lead.phone || linkedGuardian?.whatsapp || ""),
+      location: lead.location || linkedGuardian?.location || "",
+      notes: lead.notes || linkedGuardian?.notes || "",
+      islamic_education_priority: linkedGuardian?.interests?.islamic_education_priority || "medium",
+      academic_excellence_priority: linkedGuardian?.interests?.academic_excellence_priority || "medium",
+      boarding_interest: linkedGuardian?.interests?.boarding_interest || "maybe",
+      children,
       source: lead.source || "",
       category: lead.category || "MGCP Lead",
       status: lead.status || "new",
@@ -1395,23 +1418,87 @@ const GuardianRelationshipManager = () => {
     setLeadEditor((prev) => ({ ...prev, [field]: value }));
   };
 
+  const updateLeadEditorChildField = (index, field) => (event) => {
+    const value = event.target.value;
+    setLeadEditor((prev) => ({
+      ...prev,
+      children: prev.children.map((child, idx) =>
+        idx === index ? { ...child, [field]: value } : child
+      ),
+    }));
+  };
+
+  const addLeadEditorChildRow = () => {
+    setLeadEditor((prev) => ({
+      ...prev,
+      children: [...prev.children, buildEmptyChild()],
+    }));
+  };
+
+  const removeLeadEditorChildRow = (index) => {
+    setLeadEditor((prev) => ({
+      ...prev,
+      children: prev.children.filter((_, idx) => idx !== index),
+    }));
+  };
+
   const closeLeadEditor = () => {
-    setLeadEditor((prev) => ({ ...prev, open: false, id: null }));
+    setLeadEditor((prev) => ({ ...prev, open: false, id: null, guardianId: null }));
+    setLeadEditorError("");
   };
 
   const saveLeadEditor = async () => {
     if (!leadEditor.id || !leadEditor.name.trim()) return;
+    const built = buildGuardianPayload({
+      name: leadEditor.name,
+      whatsapp: leadEditor.whatsapp,
+      location: leadEditor.location,
+      notes: leadEditor.notes,
+      islamic_education_priority: leadEditor.islamic_education_priority,
+      academic_excellence_priority: leadEditor.academic_excellence_priority,
+      boarding_interest: leadEditor.boarding_interest,
+      children: leadEditor.children,
+    });
+    if (built.error) {
+      setLeadEditorError(built.error);
+      return;
+    }
+    setLeadEditorError("");
     const requestBody = {
       id: leadEditor.id,
-      name: leadEditor.name.trim(),
-      phone: ensureDefaultPhonePrefix(leadEditor.phone),
-      whatsapp: ensureDefaultPhonePrefix(leadEditor.whatsapp),
-      location: leadEditor.location.trim(),
-      notes: leadEditor.notes.trim(),
+      name: built.payload.name,
+      phone: ensureDefaultPhonePrefix(leadEditor.phone || built.payload.whatsapp),
+      whatsapp: built.payload.whatsapp,
+      location: built.payload.location,
+      notes: built.payload.notes || null,
       source: leadEditor.source.trim(),
       category: leadEditor.category.trim() || "MGCP Lead",
       status: leadEditor.status.trim() || "new",
     };
+    if (leadEditor.guardianId && Number.isFinite(Number(leadEditor.guardianId))) {
+      const guardianRes = await fetch(`/api/enrollment/guardians?id=${Number(leadEditor.guardianId)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(built.payload),
+      });
+      const guardianPayload = await guardianRes.json().catch(() => ({}));
+      if (!guardianRes.ok) {
+        setLeadEditorError(guardianPayload?.error || "Failed to update linked guardian");
+        return;
+      }
+      if (guardianPayload?.guardian?.id) {
+        setProbableGuardians((prev) =>
+          prev.map((guardian) => {
+            if (String(guardian.id) !== String(guardianPayload.guardian.id)) return guardian;
+            return normalizeGuardian({
+              ...guardian,
+              ...guardianPayload.guardian,
+              children: built.children,
+            });
+          })
+        );
+      }
+    }
     const response = await runMgcpAction({
       url: "/api/enrollment/mgcp/leads",
       method: "PATCH",
@@ -7176,9 +7263,9 @@ const GuardianRelationshipManager = () => {
               event.preventDefault();
               saveLeadEditor();
             }}
-            className="w-full max-w-2xl rounded-2xl bg-white shadow-xl"
+            className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-xl"
           >
-            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+            <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 rounded-t-2xl flex items-center justify-between">
               <h2 className="text-lg font-semibold text-slate-900">Edit MGCP Lead</h2>
               <button
                 type="button"
@@ -7188,25 +7275,137 @@ const GuardianRelationshipManager = () => {
                 X
               </button>
             </div>
-            <div className="space-y-4 p-6">
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <Input label="Name" value={leadEditor.name} onChange={updateLeadEditorField("name")} />
+            <div className="space-y-6 p-6">
+              {leadEditorError && (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                  {leadEditorError}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Input
-                  label="Phone"
-                  value={leadEditor.phone}
-                  onChange={updateLeadEditorField("phone")}
-                  placeholder="+91..."
+                  label="Guardian Name"
+                  value={leadEditor.name}
+                  onChange={updateLeadEditorField("name")}
+                  placeholder="e.g. Abdul Rahman"
                 />
                 <Input
-                  label="WhatsApp"
+                  label="WhatsApp Number"
                   value={leadEditor.whatsapp}
                   onChange={updateLeadEditorField("whatsapp")}
-                  placeholder="+91..."
+                  placeholder="+91 XXXXX XXXXX"
                 />
                 <Input
                   label="Location"
                   value={leadEditor.location}
                   onChange={updateLeadEditorField("location")}
+                  placeholder="Village / Area"
+                />
+                <label className="block">
+                  <span className="block text-sm font-medium text-gray-700 mb-1">Notes</span>
+                  <textarea
+                    value={leadEditor.notes}
+                    onChange={updateLeadEditorField("notes")}
+                    className="w-full rounded-lg border border-gray-300 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                    placeholder="Short context or concern"
+                    rows={2}
+                  />
+                </label>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Select
+                  label="Islamic Education"
+                  value={leadEditor.islamic_education_priority}
+                  onChange={updateLeadEditorField("islamic_education_priority")}
+                >
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                </Select>
+                <Select
+                  label="Academic Priority"
+                  value={leadEditor.academic_excellence_priority}
+                  onChange={updateLeadEditorField("academic_excellence_priority")}
+                >
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                </Select>
+                <Select
+                  label="Boarding Interest"
+                  value={leadEditor.boarding_interest}
+                  onChange={updateLeadEditorField("boarding_interest")}
+                >
+                  <option value="yes">Yes</option>
+                  <option value="maybe">Maybe</option>
+                  <option value="no">No</option>
+                </Select>
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-slate-700">Children</h3>
+                  <Button type="button" variant="ghost" onClick={addLeadEditorChildRow}>
+                    Add Child
+                  </Button>
+                </div>
+                <div className="space-y-3">
+                  {leadEditor.children.map((child, index) => (
+                    <div
+                      key={index}
+                      className="grid grid-cols-1 md:grid-cols-4 gap-3 bg-slate-50 border border-slate-200 rounded-xl p-4"
+                    >
+                      <div className="md:col-span-2">
+                        <label className="block text-xs font-medium text-slate-600 mb-1">Name</label>
+                        <input
+                          type="text"
+                          value={child.name}
+                          onChange={updateLeadEditorChildField(index, "name")}
+                          className="w-full rounded-lg border border-slate-200 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                          placeholder="Child name"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">Age</label>
+                        <input
+                          type="number"
+                          value={child.age}
+                          onChange={updateLeadEditorChildField(index, "age")}
+                          className="w-full rounded-lg border border-slate-200 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                          placeholder="Age"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">Current School</label>
+                        <input
+                          type="text"
+                          value={child.currentSchool}
+                          onChange={updateLeadEditorChildField(index, "currentSchool")}
+                          className="w-full rounded-lg border border-slate-200 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                          placeholder="School name"
+                        />
+                      </div>
+                      {leadEditor.children.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeLeadEditorChildRow(index)}
+                          className="text-xs text-rose-600 hover:text-rose-700"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Input
+                  label="Phone"
+                  value={leadEditor.phone}
+                  onChange={updateLeadEditorField("phone")}
+                  placeholder="+91..."
                 />
                 <Input
                   label="Source"
@@ -7219,17 +7418,9 @@ const GuardianRelationshipManager = () => {
                   onChange={updateLeadEditorField("category")}
                 />
               </div>
-              <label className="block">
-                <span className="mb-1 block text-sm font-medium text-slate-700">Notes</span>
-                <textarea
-                  rows={4}
-                  value={leadEditor.notes}
-                  onChange={updateLeadEditorField("notes")}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                />
-              </label>
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="light" onClick={closeLeadEditor}>
+
+              <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+                <Button type="button" variant="light" onClick={closeLeadEditor} disabled={mgcpActionState.saving}>
                   Cancel
                 </Button>
                 <Button type="submit" disabled={mgcpActionState.saving || !leadEditor.name.trim()}>

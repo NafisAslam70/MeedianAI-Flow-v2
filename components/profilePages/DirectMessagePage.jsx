@@ -54,6 +54,12 @@ export default function DirectMessagePage({ basePath = "/dashboard/team_manager/
       subject: "Thank You",
       body: "Hi {name}, thank you for your great work and dedication. - {sender}",
     },
+    {
+      key: "credentials",
+      label: "Share Credentials",
+      subject: "Your MeedianAI Login Credentials",
+      body: "Hi {name}, welcome onboard. Your MeedianAI access is ready. Username: {username}. Temporary password: {password}. Login here: https://meedian-ai-flow-v2.vercel.app/. Please change your password after first login. For help, contact {contact}. - {sender}",
+    },
   ];
 
   useEffect(() => {
@@ -115,7 +121,12 @@ export default function DirectMessagePage({ basePath = "/dashboard/team_manager/
     setForm((p) => ({
       ...p,
       subject: t.subject,
-      message: t.body.replaceAll("{name}", name).replaceAll("{sender}", sender).replaceAll("{contact}", contact),
+      message: t.body
+        .replaceAll("{name}", name)
+        .replaceAll("{sender}", sender)
+        .replaceAll("{contact}", contact)
+        .replaceAll("{username}", "[enter username]")
+        .replaceAll("{password}", "[enter temporary password]"),
     }));
   };
 
