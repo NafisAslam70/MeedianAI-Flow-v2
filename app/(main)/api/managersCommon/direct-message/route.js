@@ -22,10 +22,11 @@ export async function POST(req) {
 
     const userId = Number(session.user.id);
     const { recipientId, customName, customWhatsappNumber, subject, message, note = "", contact, includeFooter = true } = await req.json();
+    const parsedRecipientId = Number.isFinite(Number(recipientId)) ? Number(recipientId) : null;
 
     // Validate input: either recipientId or (customName and customWhatsappNumber) must be provided
-    const isCustomRecipient = !recipientId && customName?.trim() && customWhatsappNumber?.trim();
-    const isExistingUser = Number.isInteger(recipientId);
+    const isCustomRecipient = !parsedRecipientId && customName?.trim() && customWhatsappNumber?.trim();
+    const isExistingUser = Number.isInteger(parsedRecipientId);
     if (!isExistingUser && !isCustomRecipient) {
       return NextResponse.json(
         { error: "Invalid input: either recipientId or (customName and customWhatsappNumber) are required" },
@@ -60,7 +61,7 @@ export async function POST(req) {
           whatsapp_enabled: users.whatsapp_enabled,
         })
         .from(users)
-        .where(eq(users.id, recipientId));
+        .where(eq(users.id, parsedRecipientId));
 
       if (!recipient) {
         return NextResponse.json({ error: "Recipient not found" }, { status: 404 });
@@ -95,7 +96,7 @@ export async function POST(req) {
     if (isExistingUser) {
       await db.insert(messages).values({
         senderId: userId,
-        recipientId,
+        recipientId: parsedRecipientId,
         // Fill the structured fields if present in your schema (safe to include)
         subject,
         message,
@@ -145,6 +146,7 @@ export async function POST(req) {
     // Send WhatsApp (same behavior as before; throws -> 500)
     // If you want to always log SID/failure into consolidated table, we update it here.
     // ------------------------------------------------------------------
+    let deliveryWarning = "";
     try {
       const templateSid = process.env.TWILIO_DIRECT_MESSAGE_TEMPLATE_SID || "";
       if (recipientData.whatsapp_enabled && recipientData.whatsapp_number) {
@@ -208,10 +210,20 @@ export async function POST(req) {
           })
           .where(eq(directWhatsappMessages.id, dwmRow.id));
       }
-      throw twilioErr; // keep previous response behavior (500)
+      deliveryWarning = twilioErr?.message || String(twilioErr);
     }
 
-    return NextResponse.json({ ok: true, message: "Message sent successfully" }, { status: 200 });
+    return NextResponse.json(
+      {
+        ok: true,
+        delivered: !deliveryWarning,
+        message: deliveryWarning
+          ? "Message saved, but WhatsApp delivery failed."
+          : "Message sent successfully",
+        warning: deliveryWarning || undefined,
+      },
+      { status: 200 }
+    );
   } catch (err) {
     console.error("POST /api/managersCommon/direct-message error:", err);
     return NextResponse.json({ error: err.message || "Internal error" }, { status: 500 });

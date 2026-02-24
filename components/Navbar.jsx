@@ -241,6 +241,10 @@ export default function Navbar() {
   useEffect(() => {
     setIsExecuteOpen(false);
     setIsManagerialOpen(false);
+    setIsProfileOpen(false);
+    setIsMRISheetOpen(false);
+    setIsAllMeediansOpen(false);
+    setIsNotifOpen(false);
   }, [pathname]);
 
   // keyboard shortcuts (keep BEFORE any returns for stable hook order)
@@ -256,6 +260,10 @@ export default function Navbar() {
       if (e.key === "Escape") {
         setIsExecuteOpen(false);
         setIsManagerialOpen(false);
+        setIsProfileOpen(false);
+        setIsMRISheetOpen(false);
+        setIsAllMeediansOpen(false);
+        setIsNotifOpen(false);
         setIsLogoutModalOpen(false);
         setShowExecWalkthrough(false);
         setShowFullWalkthrough(false);
@@ -397,6 +405,15 @@ export default function Navbar() {
     router.push("/");
   };
   const openMeRightNow = () => setIsMeNowOpen(true);
+  const navigateFromProfileSheet = (href) => {
+    setIsProfileOpen(false);
+    setIsAllMeediansOpen(false);
+    setIsNotifOpen(false);
+    // Ensure overlay state is committed before navigation to avoid visual stacking glitches.
+    requestAnimationFrame(() => {
+      router.push(href);
+    });
+  };
   const startExecWalkthrough = () => { setShowExecWalkthrough(true); setExecStep(0); };
   const closeExecWalkthrough = () => setShowExecWalkthrough(false);
   const nextExecStep = () => setExecStep((s) => Math.min(2, s + 1));
@@ -844,7 +861,7 @@ export default function Navbar() {
           {/* Open Day quick action */}
           <button
             className="action-row sm:py-3 sm:px-3 py-2 px-2"
-            onClick={() => { setIsProfileOpen(false); router.push("/dashboard/member#open-day"); }}
+            onClick={() => navigateFromProfileSheet("/dashboard/member#open-day")}
           >
             <span className="row-icon"><Clock size={18} /></span>
             <span className="row-main">
@@ -856,7 +873,7 @@ export default function Navbar() {
 
           <button
             className="action-row sm:py-3 sm:px-3 py-2 px-2"
-            onClick={() => { setIsProfileOpen(false); router.push("/dashboard/member/take-attendance"); }}
+            onClick={() => navigateFromProfileSheet("/dashboard/member/take-attendance")}
           >
             <span className="row-icon"><Scan size={18} /></span>
             <span className="row-main">
@@ -868,7 +885,7 @@ export default function Navbar() {
 
           <button
             className="action-row sm:py-3 sm:px-3 py-2 px-2"
-            onClick={() => { setIsProfileOpen(false); router.push("/dashboard/member/gate"); }}
+            onClick={() => navigateFromProfileSheet("/dashboard/member/gate")}
           >
             <span className="row-icon"><DoorOpen size={18} /></span>
             <span className="row-main">
@@ -880,7 +897,7 @@ export default function Navbar() {
 
           <button
             className="action-row sm:py-3 sm:px-3 py-2 px-2"
-            onClick={() => { setIsProfileOpen(false); router.push(profilePath); }}
+            onClick={() => navigateFromProfileSheet(profilePath)}
           >
             <span className="row-icon"><User size={18} /></span>
             <span className="row-main">
@@ -892,7 +909,7 @@ export default function Navbar() {
 
           <button
             className="action-row sm:py-3 sm:px-3 py-2 px-2"
-            onClick={() => { setIsProfileOpen(false); router.push(performancePath); }}
+            onClick={() => navigateFromProfileSheet(performancePath)}
           >
             <span className="row-icon"><BarChart2 size={18} /></span>
             <span className="row-main">
@@ -904,7 +921,7 @@ export default function Navbar() {
 
           <button
             className="action-row sm:py-3 sm:px-3 py-2 px-2"
-            onClick={() => { setIsProfileOpen(false); router.push(`${profilePath}?open=leave`); }}
+            onClick={() => navigateFromProfileSheet(`/dashboard/${role === "team_manager" ? "team_manager" : role}/leave`)}
           >
             <span className="row-icon"><CalendarCheck2 size={18} /></span>
             <span className="row-main">
@@ -916,7 +933,7 @@ export default function Navbar() {
 
           <button
             className="action-row sm:py-3 sm:px-3 py-2 px-2"
-            onClick={() => { setIsProfileOpen(false); router.push("/dashboard/member/tickets"); }}
+            onClick={() => navigateFromProfileSheet("/dashboard/member/tickets")}
           >
             <span className="row-icon"><HelpCircle size={18} /></span>
             <span className="row-main">
@@ -928,7 +945,7 @@ export default function Navbar() {
 
             <button
               className="action-row sm:py-3 sm:px-3 py-2 px-2"
-              onClick={() => { setIsProfileOpen(false); router.push(`${profilePath}?open=talk`); }}
+              onClick={() => navigateFromProfileSheet(`${profilePath}?open=talk`)}
             >
             <span className="row-icon"><MessageSquare size={18} /></span>
             <span className="row-main">
@@ -941,7 +958,7 @@ export default function Navbar() {
           {(role === "admin" || role === "team_manager") && (
             <button
               className="action-row sm:py-3 sm:px-3 py-2 px-2"
-              onClick={() => { setIsProfileOpen(false); router.push(`${profilePath}?open=direct`); }}
+              onClick={() => navigateFromProfileSheet(`/dashboard/${role === "team_manager" ? "team_manager" : role}/direct-message`)}
             >
               <span className="row-icon"><Send size={18} /></span>
               <span className="row-main">
@@ -955,7 +972,7 @@ export default function Navbar() {
           {(role === "admin" || role === "team_manager") && (
             <button
               className="action-row sm:py-3 sm:px-3 py-2 px-2"
-              onClick={() => { setIsProfileOpen(false); router.push(`${profilePath}?open=sent`); }}
+              onClick={() => navigateFromProfileSheet(`/dashboard/${role === "team_manager" ? "team_manager" : role}/sent-messages`)}
             >
               <span className="row-icon"><ClipboardCheck size={18} /></span>
               <span className="row-main">
@@ -969,7 +986,7 @@ export default function Navbar() {
           {/* All Meedians directory */}
           <button
             className="action-row"
-            onClick={() => { setIsAllMeediansOpen(true); }}
+            onClick={() => { setIsProfileOpen(false); setIsAllMeediansOpen(true); }}
           >
             <span className="row-icon"><Users size={18} /></span>
             <span className="row-main">
@@ -2186,7 +2203,7 @@ export default function Navbar() {
                 <>
                   <button
                     type="button"
-                    onClick={() => setIsProfileOpen(true)}
+                    onClick={() => setIsProfileOpen((v) => !v)}
                     className={`user-info ${isActive(profilePath) ? "active" : ""}`}
                     aria-haspopup="dialog"
                     aria-expanded={isProfileOpen}

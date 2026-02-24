@@ -748,6 +748,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
       if (recipientType === "existing") {
         const ids = Array.isArray(recipientIds) && recipientIds.length ? recipientIds : (recipientId ? [parseInt(recipientId)] : []);
         const failures = [];
+        const warnings = [];
         for (const id of ids) {
           try {
             const res = await fetch("/api/managersCommon/direct-message", {
@@ -764,12 +765,15 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
             });
             const j = await res.json();
             if (!res.ok) throw new Error(j?.error || `HTTP ${res.status}`);
+            if (j?.warning) warnings.push({ id, warning: j.warning });
           } catch (e) {
             failures.push({ id, error: e.message || String(e) });
           }
         }
         if (failures.length) {
           setError(`${failures.length} of ${ids.length} failed. First error: ${failures[0].error}`);
+        } else if (warnings.length) {
+          setSuccess(`Saved for ${ids.length} recipient${ids.length > 1 ? "s" : ""}, but delivery warning: ${warnings[0].warning}`);
         } else {
           setSuccess(`Message sent to ${ids.length} recipient${ids.length > 1 ? 's' : ''}!`);
         }
@@ -791,7 +795,11 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
         if (!response.ok) {
           throw new Error(data.error || "Failed to send message");
         }
-        setSuccess("Message sent successfully!");
+        if (data?.warning) {
+          setSuccess(`Message saved, but delivery warning: ${data.warning}`);
+        } else {
+          setSuccess("Message sent successfully!");
+        }
       }
       setMessageData({
         recipientType: "existing",
@@ -807,6 +815,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
       setShowMessageModal(false);
       setShowConfirmMessageModal(false);
       setIncludeFooter(true);
+      if (openedViaQuery) clearOpenQueryParam();
       // Refetch sent messages to update the history
       const historyResponse = await fetch("/api/member/sent-messages?mode=custom", { credentials: "include" });
       if (historyResponse.ok) {
@@ -948,7 +957,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        className="fixed inset-0 flex items-center justify-center bg-gray-100 dark:bg-gray-900 z-50"
+        className="fixed inset-0 flex items-center justify-center bg-gray-100 dark:bg-gray-900 z-[1200]"
       >
         <motion.div className="text-lg font-semibold text-gray-700 dark:text-gray-200 flex items-center gap-2">
           <motion.span
@@ -970,6 +979,9 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
   // Open specific widget/modal via query param from navbar sheet
   const searchParams = useSearchParams();
   const pathname = usePathname();
+  const openParam = String(searchParams?.get("open") || "");
+  const modalOnlyIntent = ["leave", "direct", "sent", "talk"].includes(openParam);
+  const openedViaQuery = Boolean(openParam);
   const clearOpenQueryParam = () => {
     try {
       const params = new URLSearchParams(searchParams?.toString?.() || "");
@@ -998,6 +1010,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
       if (isLoadingUsers) return; // will rerun when loading completes
       if (users && users.length > 0) {
         handleTalkToSuperintendent();
+        clearOpenQueryParam();
       } else {
         // Fallback: refetch users once if empty
         (async () => {
@@ -1010,10 +1023,12 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
             } else {
               setError("Superintendent not found. Please contact an admin or try again later.");
               setTimeout(() => setError(""), 5000);
+              clearOpenQueryParam();
             }
           } catch {
             setError("Failed to load users for chat.");
             setTimeout(() => setError(""), 5000);
+            clearOpenQueryParam();
           }
         })();
       }
@@ -1033,10 +1048,18 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: 20 }}
       transition={{ duration: 0.3, ease: "easeOut" }}
-      className="fixed top-14 left-0 right-0 bottom-14 z-40 flex items-center justify-center bg-gradient-to-br from-teal-50 to-blue-50/80 dark:from-gray-800/80 dark:to-gray-900/80 p-3 md:p-6"
+      className={`relative z-20 flex items-start justify-center ${
+        modalOnlyIntent
+          ? "bg-transparent p-0 border-0"
+          : "bg-gradient-to-br from-teal-50 to-blue-50/80 dark:from-gray-800/80 dark:to-gray-900/80 p-3 md:p-6 rounded-2xl border border-teal-100/70 dark:border-slate-700/60"
+      }`}
     >
       <div
-        className="relative w-full max-w-[98vw] max-h-[88vh] md:max-h-[86vh] bg-white/85 dark:bg-slate-900/75 border border-teal-200/70 shadow-xl rounded-2xl px-2 md:px-6 py-5 flex flex-col overflow-y-auto backdrop-blur-xl transition-all custom-scrollbar"
+        className={`relative w-full max-w-[98vw] rounded-2xl flex flex-col transition-all custom-scrollbar ${
+          modalOnlyIntent
+            ? "min-h-0 bg-transparent border-0 shadow-none p-0 overflow-visible"
+            : "min-h-[74vh] bg-white dark:bg-slate-900 border border-teal-200/70 shadow-xl px-2 md:px-6 py-5 overflow-y-auto"
+        }`}
         style={{
           boxShadow: "0 8px 32px 0 rgba(16, 42, 67, 0.1), 0 2px 8px 0 rgba(16,42,67,0.08)",
         }}
@@ -1045,12 +1068,12 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
           whileHover={{ scale: 1.1, rotate: 90 }}
           whileTap={{ scale: 0.9 }}
           onClick={handleClose}
-          className="absolute top-4 right-4 z-50 p-1.5 bg-gray-100/80 hover:bg-gray-300/80 dark:hover:bg-gray-600/80 rounded-full shadow-md border border-gray-200 dark:border-gray-600 transition-all"
+          className={`absolute top-4 right-4 z-50 p-1.5 bg-gray-100/80 hover:bg-gray-300/80 dark:hover:bg-gray-600/80 rounded-full shadow-md border border-gray-200 dark:border-gray-600 transition-all ${modalOnlyIntent ? "hidden" : ""}`}
           aria-label="Close"
         >
           <X className="w-5 h-5 text-gray-700 dark:text-gray-200" />
         </motion.button>
-        <div className="flex flex-col md:flex-row gap-6">
+        <div className={`flex flex-col md:flex-row gap-6 ${modalOnlyIntent ? "hidden" : ""}`}>
           {/* Main content */}
           <div className="flex-[2] min-w-[280px] flex flex-col">
             <h1 className="text-lg md:text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2 mb-3">
@@ -1307,7 +1330,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/60 dark:bg-black/70 flex items-center justify-center p-3 z-50"
+              className="fixed inset-0 bg-black/60 dark:bg-black/70 flex items-center justify-center p-3 z-[1200]"
             >
               <motion.div
                 initial={{ scale: 0.92, opacity: 0 }}
@@ -1469,7 +1492,10 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                       whileHover={{ scale: 1.03 }}
                       whileTap={{ scale: 0.97 }}
                       type="button"
-                      onClick={() => setShowLeaveModal(false)}
+                      onClick={() => {
+                        setShowLeaveModal(false);
+                        if (openedViaQuery) clearOpenQueryParam();
+                      }}
                       className="px-4 py-2 bg-gray-400 text-white rounded-lg text-xs font-semibold hover:bg-gray-500 shadow-md transition"
                       disabled={isLoading}
                     >
@@ -1495,7 +1521,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/60 dark:bg-black/70 flex items-center justify-center p-3 z-50"
+              className="fixed inset-0 bg-black/60 dark:bg-black/70 flex items-center justify-center p-3 z-[1200]"
             >
               <motion.div
                 initial={{ scale: 0.8, opacity: 0 }}
@@ -1851,7 +1877,10 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
                       type="button"
-                      onClick={() => setShowMessageModal(false)}
+                      onClick={() => {
+                        setShowMessageModal(false);
+                        if (openedViaQuery) clearOpenQueryParam();
+                      }}
                       className="px-4 py-2 bg-gray-400 text-white rounded-lg text-xs font-medium hover:bg-gray-500 shadow-md transition"
                       disabled={isLoading}
                     >
@@ -1878,7 +1907,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/60 dark:bg-black/70 flex items-center justify-center p-3 z-50"
+              className="fixed inset-0 bg-black/60 dark:bg-black/70 flex items-center justify-center p-3 z-[1200]"
             >
               <motion.div
                 initial={{ scale: 0.8, opacity: 0 }}
@@ -1928,7 +1957,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/60 dark:bg-black/70 flex items-center justify-center p-3 z-50"
+              className="fixed inset-0 bg-black/60 dark:bg-black/70 flex items-center justify-center p-3 z-[1200]"
             >
               <motion.div
                 initial={{ scale: 0.8, opacity: 0 }}
@@ -2018,7 +2047,10 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
                   <motion.button
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
-                    onClick={() => setShowHistoryModal(false)}
+                    onClick={() => {
+                      setShowHistoryModal(false);
+                      if (openedViaQuery) clearOpenQueryParam();
+                    }}
                     className="px-4 py-2 bg-gray-400 text-white rounded-lg text-xs font-medium hover:bg-gray-500 shadow-md transition"
                   >
                     Close
@@ -2033,7 +2065,7 @@ export default function Profile({ setChatboxOpen = () => {}, setChatRecipient = 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/60 dark:bg-black/70 flex items-center justify-center p-3 z-50"
+              className="fixed inset-0 bg-black/60 dark:bg-black/70 flex items-center justify-center p-3 z-[1200]"
             >
               <motion.div
                 initial={{ scale: 0.8, opacity: 0 }}

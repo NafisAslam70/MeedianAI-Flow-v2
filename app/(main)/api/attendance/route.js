@@ -15,10 +15,78 @@ const SECRET = process.env.ATTENDANCE_SECRET || process.env.NEXTAUTH_SECRET || "
 function nowTs() { return Math.floor(Date.now() / 1000); }
 
 export async function GET(req) {
-  const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { searchParams } = new URL(req.url);
   const section = String(searchParams.get("section") || "");
+  const authHeader = req.headers.get("authorization") || "";
+  const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice("Bearer ".length).trim() : null;
+  const hookToken = process.env.ATTENDANCE_REMINDER_TOKEN || null;
+  const isVercelCron = req.headers.get("x-vercel-cron") === "1";
+
+  // Vercel cron bridge: GET -> internal POST(preCapReminder)
+  if (section === "preCapReminder") {
+    const isHookAllowed = (hookToken && bearerToken === hookToken) || isVercelCron;
+    if (!isHookAllowed) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const all = String(searchParams.get("all") || "").trim() === "1";
+    const dateStr = String(searchParams.get("date") || "").trim() || new Date().toISOString().slice(0, 10);
+    const requestedProgramKey = String(searchParams.get("programKey") || "").trim().toUpperCase() || null;
+    const targets = all
+      ? ["MSP", "MOP1", "MHCP-1", "MHCP-2", "MHP", "MOP2"]
+      : requestedProgramKey
+      ? [requestedProgramKey]
+      : [];
+
+    if (!targets.length) {
+      return NextResponse.json({ error: "programKey required unless all=1" }, { status: 400 });
+    }
+    if (!hookToken) {
+      return NextResponse.json({ error: "ATTENDANCE_REMINDER_TOKEN is not configured" }, { status: 500 });
+    }
+
+    const origin = new URL(req.url).origin;
+    const results = [];
+    for (const programKey of targets) {
+      try {
+        const resp = await fetch(`${origin}/api/attendance?section=preCapReminder`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${hookToken}`,
+          },
+          body: JSON.stringify({ programKey, date: dateStr }),
+        });
+        const payload = await resp.json().catch(() => ({}));
+        results.push({
+          programKey,
+          ok: resp.ok,
+          status: resp.status,
+          payload,
+        });
+      } catch (err) {
+        results.push({
+          programKey,
+          ok: false,
+          status: 500,
+          payload: { error: err?.message || String(err) },
+        });
+      }
+    }
+
+    const failed = results.filter((r) => !r.ok).length;
+    return NextResponse.json(
+      {
+        ok: failed === 0,
+        date: dateStr,
+        totalPrograms: results.length,
+        failedPrograms: failed,
+        results,
+      },
+      { status: failed === 0 ? 200 : 207 }
+    );
+  }
+
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {
     if (section === "personalToken") {
       const uid = Number(session.user.id);
@@ -574,20 +642,54 @@ export async function POST(req) {
 
       const subject = `Attendance closing soon - ${prog.programKey}`;
       const body = `Your attendance for ${prog.programKey} is still pending. Cap time: ${capH.padStart(2,"0")}:${capM.padStart(2,"0")}. Please scan now.`;
+      const templateSid =
+        process.env.TWILIO_ATTENDANCE_TEMPLATE_SID ||
+        "HX460c24c3007e9b2d7370547dfbbd2aa4";
+      const senderDisplay = session?.user?.name || "Attendance Bot";
+      const contact = process.env.ATTENDANCE_CONTACT || "";
 
       let sent = 0, skipped = 0;
       for (const c of contacts) {
         if (!c.whatsapp || c.whatsappEnabled === false) { skipped += 1; continue; }
         try {
-          await sendWhatsappMessage(c.whatsapp, {
-            recipientName: c.name || `Member #${c.id}`,
-            senderName: session.user?.name || "Attendance Bot",
-            subject,
-            message: body,
-            note: "",
-            contact: "",
-            dateTime: new Date().toLocaleString("en-GB", { hour:"2-digit", minute:"2-digit", day:"2-digit", month:"short", year:"numeric" }),
-          }, { whatsapp_enabled: c.whatsappEnabled });
+          const recipientName = c.name || `Member #${c.id}`;
+          const dateTime = new Date().toLocaleString("en-GB", {
+            hour: "2-digit",
+            minute: "2-digit",
+            day: "2-digit",
+            month: "short",
+            year: "numeric",
+          });
+          if (templateSid) {
+            await sendWhatsappTemplate(
+              c.whatsapp,
+              templateSid,
+              {
+                1: recipientName,
+                2: senderDisplay,
+                3: subject,
+                4: body,
+                5: "",
+                6: contact,
+                7: dateTime,
+              },
+              { whatsapp_enabled: c.whatsappEnabled }
+            );
+          } else {
+            await sendWhatsappMessage(
+              c.whatsapp,
+              {
+                recipientName,
+                senderName: senderDisplay,
+                subject,
+                message: body,
+                note: "",
+                contact,
+                dateTime,
+              },
+              { whatsapp_enabled: c.whatsappEnabled }
+            );
+          }
           sent += 1;
         } catch {
           skipped += 1;

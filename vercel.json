@@ -1,8 +1,36 @@
 {
   "crons": [
     {
-      "path": "/api/attendance?section=preCapReminder&programKey=MSP",
-      "schedule": "0 2 * * *"
+      "path": "/api/attendance?section=preCapReminder&all=1",
+      "schedule": "40 1 * * *"
+    },
+    {
+      "path": "/api/attendance?section=preCapReminder&all=1",
+      "schedule": "45 1 * * *"
+    },
+    {
+      "path": "/api/attendance?section=preCapReminder&all=1",
+      "schedule": "55 9 * * *"
+    },
+    {
+      "path": "/api/attendance?section=preCapReminder&all=1",
+      "schedule": "0 10 * * *"
+    },
+    {
+      "path": "/api/attendance?section=preCapReminder&all=1",
+      "schedule": "5 10 * * *"
+    },
+    {
+      "path": "/api/attendance?section=preCapReminder&all=1",
+      "schedule": "10 10 * * *"
+    },
+    {
+      "path": "/api/attendance?section=preCapReminder&all=1",
+      "schedule": "20 12 * * *"
+    },
+    {
+      "path": "/api/attendance?section=preCapReminder&all=1",
+      "schedule": "25 12 * * *"
     }
   ]
 }

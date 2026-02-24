@@ -21,12 +21,14 @@ export default function MemberProfilePage() {
         setChatboxOpen={setChatboxOpen}
         setChatRecipient={setChatRecipient}
       />
+      {chatboxOpen && (
       <ChatBox
-        userDetails={session?.user}       // who is logged in
-        isOpen={chatboxOpen}             // open state
-        setIsOpen={setChatboxOpen}       // allow ChatBox to close itself
-        recipientId={chatRecipient}      // e.g. "43"
+        userDetails={session?.user}
+        isOpen={chatboxOpen}
+        setIsOpen={setChatboxOpen}
+        recipientId={chatRecipient}
       />
+      )}
     </>
   );
 }

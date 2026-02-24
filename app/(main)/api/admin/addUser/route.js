@@ -122,7 +122,20 @@ export async function POST(req) {
     if (!["o_member", "i_member", "s_member"].includes(member_scope)) {
       return NextResponse.json({ error: "Invalid member scope" }, { status: 400 });
     }
-    if (role === "team_manager" && !["head_incharge", "coordinator", "accountant", "chief_counsellor", "hostel_incharge", "principal"].includes(team_manager_type)) {
+    if (
+      role === "team_manager" &&
+      ![
+        "head_incharge",
+        "coordinator",
+        "accountant",
+        "chief_counsellor",
+        "hostel_incharge",
+        "principal",
+        "hod",
+        "admin_asst",
+        "social_media_head_asst",
+      ].includes(team_manager_type)
+    ) {
       return NextResponse.json({ error: "Invalid team manager type" }, { status: 400 });
     }
     if (useCustomTimes && (!dayOpenTime || !dayCloseTime)) {

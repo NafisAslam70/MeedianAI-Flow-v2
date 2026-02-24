@@ -27,6 +27,9 @@ export default function TeamPage() {
     "chief_counsellor",
     "hostel_incharge",
     "principal",
+    "hod",
+    "admin_asst",
+    "social_media_head_asst",
   ];
   const builtinMriRoles = [
     "nmri_moderator",

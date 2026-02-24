@@ -582,6 +582,9 @@ export default function AddUser() {
                           <option value="chief_counsellor">Chief Counsellor</option>
                           <option value="hostel_incharge">Hostel Incharge</option>
                           <option value="principal">Principal</option>
+                          <option value="hod">HOD</option>
+                          <option value="admin_asst">Admin Asst</option>
+                          <option value="social_media_head_asst">Social Media Head Asst</option>
                         </select>
                       </div>
                     )}

@@ -31,6 +31,9 @@ export default function LoginInner() {
     "chief_counsellor",
     "hostel_incharge",
     "principal",
+    "hod",
+    "admin_asst",
+    "social_media_head_asst",
   ];
 
   useEffect(() => {

@@ -160,7 +160,9 @@ export default function DeluGPT() {
       : []),
   ];
 
-  const hideFloating = pathname?.startsWith("/dashboard/member/workTogether");
+  const hideFloating =
+    pathname?.startsWith("/dashboard/member/workTogether") ||
+    pathname?.includes("/profile");
   if (hideFloating) return null;
 
   return (

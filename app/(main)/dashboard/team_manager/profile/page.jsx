@@ -20,12 +20,14 @@ export default function TeamManagerProfilePage() {
         setChatboxOpen={setChatboxOpen}
         setChatRecipient={setChatRecipient}
       />
+      {chatboxOpen && (
       <ChatBox
         userDetails={session?.user}
         isOpen={chatboxOpen}
         setIsOpen={setChatboxOpen}
         recipientId={chatRecipient}
       />
+      )}
     </>
   );
 }
