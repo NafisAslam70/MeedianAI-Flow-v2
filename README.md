@@ -1,12 +1,19 @@
-# MeedianAI Flow
+# MeedianAI Flow (v2)
 
-MeedianAI Flow is a school and community operations platform. The repository contains a large Next.js application with a dashboard, APIs, database integrations, and workflows for managing members and school operations.
+A role-based operations platform that brings schedules, routines, tasks, attendance, communication, and reporting into one workspace for school and community teams. This is the most feature-rich iteration among the MeedianAI Flow repositories reviewed.
 
-## Platform areas
-The codebase includes routes and services for dashboards, user and role management, school and hostel workflows, finance-related features, and communication integrations. Feature availability depends on configuration and connected services.
+## Verified capabilities
+- Role-based admin, team-manager, and member dashboards
+- Deep Calendar schedule and active-block views
+- Task assignment, routine tracking, leave/day-close approvals, tickets, and escalations
+- QR-based attendance and campus gate in/out workflows
+- Community posts, announcements, direct messaging, and collaboration tools
+- Student enrollment/enquiry and guardian workflows
+- Hostel daily-due reporting with role-based review and escalation
+- Finance-related student ledger and dues integration
 
 ## Tech
-Next.js, React, PostgreSQL, Drizzle ORM, Prisma, Redis, Tailwind CSS, and integrations including Cloudinary, Twilio, and translation/AI providers.
+Next.js 15, React 19, NextAuth, PostgreSQL, Drizzle ORM, Prisma, Redis, Tailwind CSS, and integrations including Cloudinary, Twilio, and AI/translation providers.
 
 ## Run locally
 ```bash
@@ -14,4 +21,4 @@ npm install
 npm run dev
 ```
 
-Configure the database and any required authentication, storage, messaging, and AI provider credentials in environment variables. Never commit secrets. See `TECH_STACK.txt` and the project configuration for details.
+The application needs database and external-service credentials for data-backed features. Review `TECH_STACK.txt`, `docs/Overview.md`, and `docs/Features.md` for architecture and setup context.
